@@ -1,0 +1,183 @@
+# Проба неубиваемого экрана блокировки (веха M1, задача T1, ТЗ 3.2).
+# Только на push веток spike/** — на настоящей Windows, где модули golang.org/x/*
+# доступны (в облачной песочнице агента они закрыты). Доказывает: служба от имени
+# системы запускает страж в сеансе пользователя; окно на весь экран и поверх всех;
+# обычная учётка не может завершить процесс стража, администратор может; окно не
+# закрывается WM_CLOSE/SC_CLOSE/Esc; ставится перехват клавиатуры.
+name: Проба M1 (экран блокировки)
+
+on:
+  push:
+    branches: ["spike/**"]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: spike-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  spike:
+    name: Проба экрана блокировки (windows-latest)
+    runs-on: windows-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.27.x"
+          cache-dependency-path: go.sum
+
+      - name: Сборка пробы
+        run: |
+          exec > >(tee -a "$RUNNER_TEMP/ci.log") 2>&1
+          go mod tidy
+          go vet ./internal/winsession/... ./internal/guard/... ./cmd/lockspike/...
+          go build -o spike.exe ./cmd/lockspike
+          ls -l spike.exe
+
+      - name: Проба — служба, страж, проверки
+        shell: pwsh
+        run: |
+          Start-Transcript -Path "$env:RUNNER_TEMP/ci.log" -Append | Out-Null
+          $ErrorActionPreference = 'Stop'
+          $fail = @()
+
+          $exe = Join-Path $env:GITHUB_WORKSPACE 'spike.exe'
+          $data = 'C:\ProgramData\PCBlockSpike'
+          $spikeJson = Join-Path $data 'spike.json'
+          $guardJson = Join-Path $data 'guard.json'
+          Remove-Item -Recurse -Force $data -ErrorAction SilentlyContinue
+
+          # Сеанс раннера (может быть не в состоянии WTSActive — передаём службе явно).
+          $sid = (Get-Process -Id $PID).SessionId
+          Write-Host "Сеанс раннера: $sid"
+
+          # Обычная учётка pcbtest со сложным паролем (длина >= 14, все классы).
+          $chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789'
+          $rnd = -join (1..20 | ForEach-Object { $chars[(Get-Random -Maximum $chars.Length)] })
+          $pw = 'Aa1#' + $rnd
+          Write-Host "::add-mask::$pw"
+          net user pcbtest $pw /add /expires:never 2>&1 | Out-Null
+          if ($LASTEXITCODE -ne 0) { Write-Host "::error::Не создать pcbtest"; exit 1 }
+
+          # Служба от имени LocalSystem.
+          $binpath = '"' + $exe + '" -service -session ' + $sid + ' -testuser-password ' + $pw
+          sc.exe create PCBlockSpike binPath= "$binpath" start= demand obj= LocalSystem | Out-Null
+          if ($LASTEXITCODE -ne 0) { Write-Host "::error::sc create не удался"; exit 1 }
+          sc.exe start PCBlockSpike | Out-Null
+
+          # Ждём оба файла результата (<= 40 с).
+          $deadline = (Get-Date).AddSeconds(40)
+          while ((Get-Date) -lt $deadline) {
+            if ((Test-Path $spikeJson) -and (Test-Path $guardJson)) { break }
+            Start-Sleep -Milliseconds 500
+          }
+          if (-not (Test-Path $spikeJson)) { Write-Host "::error::Нет spike.json"; $fail += 'spike.json' }
+          if (-not (Test-Path $guardJson)) { Write-Host "::error::Нет guard.json"; $fail += 'guard.json' }
+
+          $sj = $null; $gj = $null
+          if (Test-Path $spikeJson) { $sj = Get-Content $spikeJson -Raw | ConvertFrom-Json }
+          if (Test-Path $guardJson) { $gj = Get-Content $guardJson -Raw | ConvertFrom-Json }
+
+          $guardPid = 0
+          if ($sj) { $guardPid = [int]$sj.GuardPID }
+          Write-Host "Служба: pid=$($sj.ServicePID) страж.pid=$guardPid сеанс.службы=$($sj.SessionID) источник=$($sj.SessionSource)"
+
+          # Владелец и сеанс процесса стража (независимо — через CIM).
+          $cimOwner = ''; $cimSession = $null
+          if ($guardPid -gt 0) {
+            $ci = Get-CimInstance Win32_Process -Filter "ProcessId=$guardPid" -ErrorAction SilentlyContinue
+            if ($ci) {
+              $cimSession = [int]$ci.SessionId
+              $o = Invoke-CimMethod -InputObject $ci -MethodName GetOwner -ErrorAction SilentlyContinue
+              if ($o -and $o.ReturnValue -eq 0) { $cimOwner = "$($o.Domain)\$($o.User)" }
+            }
+          }
+          $guardOwner = if ($gj) { "$($gj.Owner)" } else { '' }
+          Write-Host "Страж: владелец(сам)=$guardOwner владелец(CIM)=$cimOwner сеанс(CIM)=$cimSession"
+
+          # Снимок всего экрана, пока окно стража показано.
+          New-Item -ItemType Directory -Force -Path win-screens | Out-Null
+          try {
+            Add-Type -AssemblyName System.Drawing, System.Windows.Forms
+            $vb = [System.Windows.Forms.SystemInformation]::VirtualScreen
+            $bmp = New-Object System.Drawing.Bitmap $vb.Width, $vb.Height
+            $g = [System.Drawing.Graphics]::FromImage($bmp)
+            $g.CopyFromScreen($vb.X, $vb.Y, 0, 0, (New-Object System.Drawing.Size $vb.Width, $vb.Height))
+            $bmp.Save("win-screens/spike-lock.png", [System.Drawing.Imaging.ImageFormat]::Png)
+            $g.Dispose(); $bmp.Dispose()
+            Write-Host "Снимок: win-screens/spike-lock.png ($($vb.Width)x$($vb.Height))"
+          } catch {
+            Write-Host "::warning title=Проба::Снимок не снят: $($_.Exception.Message)"
+          }
+
+          # --- Проверки ключевых утверждений пробы ---
+          if ($sj) {
+            if ($sj.OpenProcessOK) { Write-Host "::error::pcbtest СМОГ открыть страж с PROCESS_TERMINATE"; $fail += 'openprocess-ok' }
+            if ([int]$sj.OpenProcessErrno -ne 5) { Write-Host "::error::OpenProcess от pcbtest: ожидали код 5 (отказано), получили $($sj.OpenProcessErrno) ($($sj.OpenProcessErr))"; $fail += 'openprocess-errno' }
+          }
+          if ($guardOwner -notmatch 'SYSTEM') { Write-Host "::error::Страж не от имени системы: '$guardOwner'"; $fail += 'owner' }
+          if ($cimSession -ne $null -and $cimSession -ne $sid) { Write-Host "::error::Страж в сеансе $cimSession, а раннер в $sid"; $fail += 'session' }
+          if ($gj) {
+            if (-not $gj.SelfTest.Passed) { Write-Host "::error::SelfTest не пройден: WM_CLOSE=$($gj.SelfTest.VisibleAfterWMClose) SC_CLOSE=$($gj.SelfTest.VisibleAfterSCClose) Esc=$($gj.SelfTest.VisibleAfterEsc)"; $fail += 'selftest' }
+            if (-not $gj.KeyboardHook) { Write-Host "::error::Перехват клавиатуры не установлен"; $fail += 'hook' }
+          }
+
+          # Побочная проверка: pcbtest пытается завершить страж внешним taskkill.
+          $extKill = 'не выполнялась'
+          if ($guardPid -gt 0 -and (Get-Process -Id $guardPid -ErrorAction SilentlyContinue)) {
+            try {
+              $sec = ConvertTo-SecureString $pw -AsPlainText -Force
+              $cred = New-Object System.Management.Automation.PSCredential (".\pcbtest", $sec)
+              Start-Process -FilePath "taskkill.exe" -ArgumentList "/F","/PID","$guardPid" -Credential $cred -WorkingDirectory "C:\" -WindowStyle Hidden -ErrorAction Stop | Out-Null
+              Start-Sleep -Seconds 2
+              if (Get-Process -Id $guardPid -ErrorAction SilentlyContinue) {
+                $extKill = 'страж жив (ожидаемо)'
+              } else {
+                $extKill = 'страж завершён обычной учёткой (НЕОЖИДАННО)'
+                Write-Host "::error::Обычная учётка завершила страж через taskkill"; $fail += 'extkill'
+              }
+            } catch {
+              $extKill = "вторичный вход недоступен: $($_.Exception.Message)"
+              Write-Host "::warning title=Проба::Start-Process -Credential: $($_.Exception.Message)"
+            }
+          }
+
+          # Администратор завершает страж.
+          $adminKilled = $false
+          if ($guardPid -gt 0) {
+            taskkill /F /PID $guardPid 2>$null | Out-Null
+            Start-Sleep -Seconds 2
+            $adminKilled = -not (Get-Process -Id $guardPid -ErrorAction SilentlyContinue)
+            if (-not $adminKilled) { Write-Host "::error::Администратор не смог завершить страж"; $fail += 'adminkill' }
+          }
+
+          # Остановка и удаление службы, удаление учётки.
+          sc.exe stop PCBlockSpike | Out-Null
+          for ($i = 0; $i -lt 30; $i++) { if ((sc.exe query PCBlockSpike) -match 'STOPPED') { break }; Start-Sleep -Seconds 1 }
+          sc.exe delete PCBlockSpike | Out-Null
+          net user pcbtest /delete 2>&1 | Out-Null
+
+          # Итог пробы — пометкой notice (её видно без журнала).
+          $verdict = if ($fail.Count -eq 0) { 'PASS' } else { 'FAIL(' + ($fail -join ',') + ')' }
+          $msg = "итог=$verdict владелец=$guardOwner сеанс=$cimSession/раннер=$sid OpenProcess=код$($sj.OpenProcessErrno)/ok=$($sj.OpenProcessOK) подмена=$($sj.Impersonated) вход=$($sj.LogonType) SelfTest=$($gj.SelfTest.Passed) перехват=$($gj.KeyboardHook) внешнийKill='$extKill' adminKill=$adminKilled"
+          Write-Host "::notice title=Проба M1::$msg"
+          Stop-Transcript | Out-Null
+          if ($fail.Count -ne 0) { exit 1 }
+
+      - name: Ошибки — в пометки сборки (их видно без журнала)
+        if: failure()
+        run: bash tools/annotate-errors.sh "$RUNNER_TEMP/ci.log" "Проба"
+
+      - name: Снимок — в ветку screenshots
+        if: always()
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SCREENS_BRANCH_NAME: spike-m1-lock
+        run: bash tools/push-screenshots.sh win-screens
