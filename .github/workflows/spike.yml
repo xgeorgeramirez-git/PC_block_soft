@@ -57,13 +57,23 @@ jobs:
           $sid = (Get-Process -Id $PID).SessionId
           Write-Host "Сеанс раннера: $sid"
 
-          # Обычная учётка pcbtest со сложным паролем (длина >= 14, все классы).
+          # Временная обычная учётка pcbtest только на этой одноразовой машине CI: нужна,
+          # чтобы проверить права доступа (обычная учётка не может завершить страж).
+          # В конце шага учётка удаляется. Пароль: 18 знаков, все классы символов,
+          # без знаков, особых для командной строки; net user не годится: при пароле
+          # длиннее 14 знаков он ждёт ответа Y/N и в CI падает (прогон 39165127263).
           $chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789'
-          $rnd = -join (1..20 | ForEach-Object { $chars[(Get-Random -Maximum $chars.Length)] })
-          $pw = 'Aa1#' + $rnd
+          $rnd = -join (1..14 | ForEach-Object { $chars[(Get-Random -Maximum $chars.Length)] })
+          $pw = 'Aa1_' + $rnd
           Write-Host "::add-mask::$pw"
-          net user pcbtest $pw /add /expires:never 2>&1 | Out-Null
-          if ($LASTEXITCODE -ne 0) { Write-Host "::error::Не создать pcbtest"; exit 1 }
+          try {
+            New-LocalUser -Name pcbtest -Password (ConvertTo-SecureString $pw -AsPlainText -Force) `
+              -PasswordNeverExpires -AccountNeverExpires -Description 'PCBlock CI test user' -ErrorAction Stop | Out-Null
+            Write-Host "Учётка pcbtest создана"
+          } catch {
+            Write-Host "::error::Не создать pcbtest: $($_.Exception.Message)"
+            exit 1
+          }
 
           # Служба от имени LocalSystem.
           $binpath = '"' + $exe + '" -service -session ' + $sid + ' -testuser-password ' + $pw
@@ -161,7 +171,7 @@ jobs:
           sc.exe stop PCBlockSpike | Out-Null
           for ($i = 0; $i -lt 30; $i++) { if ((sc.exe query PCBlockSpike) -match 'STOPPED') { break }; Start-Sleep -Seconds 1 }
           sc.exe delete PCBlockSpike | Out-Null
-          net user pcbtest /delete 2>&1 | Out-Null
+          Remove-LocalUser -Name pcbtest -ErrorAction SilentlyContinue
 
           # Итог пробы — пометкой notice (её видно без журнала).
           $verdict = if ($fail.Count -eq 0) { 'PASS' } else { 'FAIL(' + ($fail -join ',') + ')' }
