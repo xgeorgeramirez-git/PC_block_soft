@@ -38,6 +38,7 @@ say "Тест-серия R4, $(date '+%d.%m.%Y %H:%M'), GOMAXPROCS=$GOMAXPROCS, 
 # R0 статика
 step "gofmt" bash -c 'out=$(gofmt -l $(git ls-files "*.go")); [ -z "$out" ] || { echo "$out"; exit 1; }'
 step "go vet" go vet -tags "$TAGS" ./...
+step "без сетевых пакетов" bash tools/check_imports.sh
 step "тексты интерфейса" python tools/scan_ui_texts.py
 step "tsc" bash -c 'cd frontend && npm run typecheck'
 

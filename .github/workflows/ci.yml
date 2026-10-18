@@ -72,6 +72,11 @@ jobs:
           out=$(gofmt -l $(git ls-files '*.go'))
           if [ -n "$out" ]; then echo "::error title=gofmt::Не отформатированы: $out"; exit 1; fi
 
+      - name: Без сетевых пакетов (NFR-1)
+        run: |
+          exec > >(tee -a "$RUNNER_TEMP/ci.log") 2>&1
+          bash tools/check_imports.sh
+
       - name: Тексты интерфейса без длинных тире
         run: |
           exec > >(tee -a "$RUNNER_TEMP/ci.log") 2>&1
