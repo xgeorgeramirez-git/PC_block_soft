@@ -9,6 +9,6 @@
 | T2–T5 | m1-core-writer | писатель ядра (основное дерево, feature/m1-time-limit) | done | 5 коммитов 105c997..fef363a, 44 теста, core 100 %, G1/G2/G3/G9/G10 PASS; 1 уточнение по эскалации | 0 |
 | T1 | m1-spike-writer (opus 4.8) | писатель пробы (дерево pc_block_soft-spike, spike/m1-lock) | done | 91f0d01 + фикс оркестратора 3f19b17; spike.yml 39165459503 PASS; снимок PASS 5/5 | 1 |
 | T6+T7 | m1-data-writer (opus 5.5) | писатель данных: пароль и хранилище | T6 done, остановлен по D-39 | T6: abb0c1f, ci зелёный; T7 передан писателю на sonnet | 0 |
-| T7 | m1-storage-writer (sonnet 5.5) | писатель хранилища (основное дерево) | в работе | — | 0 |
+| T7 | m1-storage-writer (sonnet 5.5) | писатель хранилища (основное дерево) | done | 4642bbe, 39 тестов, схема = ТЗ 4, ci 39166508076 зелёный | 0 |
 | T1 визуал | visual-reviewer | визуальная проверка spike-lock.png | done | PASS 5/5, замечание: главная кнопка графитовая | — |
 | T8 | m1-ipc-writer (sonnet 5.5) | писатель канала связи (дерево pc_block_soft-ipc, feature/m1-ipc) | в работе | — | 0 |
