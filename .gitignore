@@ -1,0 +1,52 @@
+# --- Go
+/build/bin/
+*.exe
+*.test
+*.out
+coverage*.txt
+/go.work
+/go.work.sum
+
+# --- Wails: служебные файлы, которые генерируются при сборке
+/build/windows/installer/tmp/
+frontend/wailsjs/runtime/
+frontend/package.json.md5
+
+# --- Frontend (Node, Vite, Playwright, Vitest)
+frontend/node_modules/
+frontend/dist/
+frontend/test-results/
+frontend/screens/
+frontend/playwright-report/
+frontend/blob-report/
+frontend/coverage/
+frontend/.vite/
+*.tsbuildinfo
+
+# --- Данные программы и приёмки: базы никогда не коммитим
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+/test-results/
+/tmp/
+
+# --- Секреты и локальные настройки
+.env
+.env.*
+*.pfx
+*.p12
+*.key
+*.pem
+
+# --- Логи и мусор ОС и редакторов
+*.log
+logs/
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/
+*.swp

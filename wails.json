@@ -1,0 +1,19 @@
+{
+  "$schema": "https://wails.io/schemas/config.v2.json",
+  "name": "PCBlock",
+  "outputfilename": "PCBlock",
+  "frontend:install": "npm ci",
+  "frontend:build": "npm run build",
+  "frontend:dev:watcher": "npm run dev",
+  "frontend:dev:serverUrl": "auto",
+  "author": {
+    "name": "PC_block_soft"
+  },
+  "info": {
+    "companyName": "PCBlock",
+    "productName": "PC Block",
+    "productVersion": "0.0.1",
+    "copyright": "2026",
+    "comments": "Parental control for Windows 11"
+  }
+}
