@@ -37,6 +37,8 @@
 - npm работает (`registry.npmjs.org`): `cd frontend && npm ci && npm test && npm run build` — локально.
 - Браузеры Playwright в песочницу не скачиваются: снимки экранов — только в CI (`ci.yml`, job «Снимки экранов»).
 - Удалённый адрес репозитория: `https://github.com/xgeorgeramirez-git/PC_block_soft.git`.
+- GraphQL GitHub из песочницы закрыт: `gh pr create` и `gh pr merge` не работают. Pull Request: `gh api repos/xgeorgeramirez-git/PC_block_soft/pulls -f title=… -f head=<ветка> -f base=main -F body=@файл.md`; слияние: `gh api -X PUT repos/xgeorgeramirez-git/PC_block_soft/pulls/<N>/merge -f merge_method=merge`. `gh run list/view/watch` работают.
+- Клон неглубокий и с одной веткой: ветку снимков забирать явно — `git fetch origin +screenshots:refs/remotes/origin/screenshots`.
 
 ## CI и лестница прогонов (минуты Windows дороже вдвое)
 
@@ -46,7 +48,7 @@
 | R3 | `windows.yml` на windows-latest: `wails build -nsis`, сверка биндингов `frontend/wailsjs/go`, тесты Go на Windows, снимок настоящего окна (`tools/win-window-screenshot.ps1`) → ветка `screenshots`, тихая установка и удаление, артефакты установщика; на main — выпуск в Releases | PR в main, push в main, вручную |
 | R4 | `full-series.yml` на windows-latest: `tools/test-series.sh` (статика, гонки, покрытие по `tools/coverage-thresholds.txt`, фаззинг всех `Fuzz*` по 60 с, vitest) | вручную (`gh workflow run full-series.yml --ref <ветка>`) на закрытии вехи и после ревью-фиксов |
 
-Чтение результатов: `gh run list --branch <ветка>`, `gh run view <id> --log-failed`; снимки: `git fetch origin screenshots && git show origin/screenshots:screens/<ветка>/<файл>.png > /tmp/x.png`. Снимки разбирает агент `visual-reviewer` (главный агент картинки не читает).
+Чтение результатов: `gh run list --branch <ветка>`, `gh run view <id> --log-failed`; снимки: `git fetch origin +screenshots:refs/remotes/origin/screenshots && git show origin/screenshots:screens/<ветка-через-дефис>/<файл>.png > <scratchpad>/<файл>.png`. Снимки разбирает агент `visual-reviewer` (главный агент картинки не читает).
 
 ## Структура
 
