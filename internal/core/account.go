@@ -47,10 +47,7 @@ func NewAccumulator(st DayState) *Accumulator {
 // в текущем дне (иначе служба перезаписала бы итог прошлого дня меньшими числами).
 func (a *Accumulator) Advance(now time.Time) bool {
 	day := DayOf(now)
-	if day == a.state.Day {
-		return false
-	}
-	if a.state.Day != "" && day < a.state.Day {
+	if !laterDay(day, a.state.Day) {
 		return false
 	}
 	if a.state.Day != "" {
@@ -82,6 +79,13 @@ func (a *Accumulator) Tick(now time.Time, s SessionSample, lockShown bool) bool 
 	}
 	return true
 }
+
+// laterDay сообщает, что day позже текущего дня cur (пустой cur — дня ещё нет).
+// Даты YYYY-MM-DD сравниваются как строки.
+func laterDay(day, cur string) bool { return cur == "" || day > cur }
+
+// AddExtra добавляет доп. время к текущему дню (R10); границы проверяет Engine.
+func (a *Accumulator) AddExtra(min int) { a.state.ExtraMin += min }
 
 // State возвращает счётчики текущего дня.
 func (a *Accumulator) State() DayState { return a.state }

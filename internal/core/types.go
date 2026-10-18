@@ -69,9 +69,12 @@ func LimitOf(min int) DayLimit { return DayLimit{TotalMin: &min} }
 // Unlimited сообщает, что лимита нет.
 func (l DayLimit) Unlimited() bool { return l.TotalMin == nil }
 
-// Rules — правила ребёнка, которые читает ядро: лимиты по дням недели (индекс — Weekday-1).
+// Rules — правила ребёнка, которые служба передаёт ядру: лимиты по дням недели
+// (индекс 0 = пн). Broken — правила не прочитаны (повреждение базы и т.п.): ограничения
+// не применяются, событие уходит в журнал (R18).
 type Rules struct {
-	Days [7]DayLimit
+	Week   [7]DayLimit
+	Broken bool
 }
 
 // For возвращает лимит дня недели; день вне 1…7 — без лимита (безопасно, R18).
@@ -79,18 +82,44 @@ func (r Rules) For(wd Weekday) DayLimit {
 	if wd < Monday || wd > Sunday {
 		return DayLimit{}
 	}
-	return r.Days[wd-1]
+	return r.Week[wd-1]
 }
 
-// Stage — состояние ребёнка сейчас; один источник статуса для значка, мини-панели,
+// LockKind — какой экран блокировки показать.
+type LockKind int
+
+// Виды блокировки.
+const (
+	LockNone   LockKind = iota // экрана блокировки нет
+	LockTimeUp                 // «Время на сегодня закончилось» (R4)
+	LockBypass                 // «Попытка обойти защиту» (R17)
+)
+
+// Status — состояние ребёнка сейчас; один источник статуса для значка, мини-панели,
 // «Моей статистики» и карточки родителя (Review Focus 5). Цвет по ТЗ 8.0 п.3.
-type Stage int
+type Status int
 
 // Состояния.
 const (
-	StageUnlimited Stage = iota // лимита нет или правила не прочитаны (R18)
-	StageOK                     // можно, осталось больше 15 мин (зелёный)
-	StageLow                    // осталось 15 мин или меньше (янтарный)
-	StageTimeUp                 // время вышло, экран блокировки (красный)
-	StageBypass                 // попытка обойти защиту, экран блокировки (красный)
+	StatusOK        Status = iota // можно, осталось больше 15 мин (зелёный)
+	StatusLow                     // осталось 15 мин или меньше (янтарный)
+	StatusTimeUp                  // время вышло, экран блокировки (красный)
+	StatusBypass                  // попытка обойти защиту, экран блокировки (красный)
+	StatusUnlimited               // на сегодня лимита нет
+	StatusSafe                    // правила не прочитаны: ограничения не действуют (R18)
 )
+
+// Виды событий журнала (R22), которые возвращает ядро.
+const (
+	EvExtraTime    = "extra_time"    // родитель добавил доп. время (R10)
+	EvSafeMode     = "safe_mode"     // правила не прочитаны, ограничения сняты (R18)
+	EvDayClosed    = "day_closed"    // сутки сменились, итог дня — в ClosedDay (R16)
+	EvBypass       = "bypass"        // попытка обойти защиту (R17)
+	EvBlockCleared = "block_cleared" // родитель снял блокировку за обход
+)
+
+// Event — событие для журнала (R22): вид и данные; момент добавляет служба.
+type Event struct {
+	Kind    string
+	Details map[string]any
+}

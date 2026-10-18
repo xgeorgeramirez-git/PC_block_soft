@@ -68,8 +68,8 @@ func TestWeekdayOf(t *testing.T) {
 // или день вне 1…7 роняет службу паникой.
 func TestRulesFor(t *testing.T) {
 	var r Rules
-	r.Days[Monday-1] = LimitOf(120)
-	r.Days[Sunday-1] = LimitOf(240)
+	r.Week[0] = LimitOf(120) // индекс 0 = пн
+	r.Week[6] = LimitOf(240) // индекс 6 = вс
 	if got := r.For(Monday); got.Unlimited() || *got.TotalMin != 120 {
 		t.Fatalf("For(Monday) = %+v, want 120", got)
 	}
