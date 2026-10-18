@@ -2,3 +2,5 @@
 # Читает tools/test-series.sh (шаг «покрытие по порогам»); строки с # пропускаются.
 internal/core 90
 internal/storage 75
+internal/ipc 80
+internal/systray 70

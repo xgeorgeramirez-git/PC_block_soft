@@ -1,0 +1,1132 @@
+{
+  "AddExtra": {
+    "request": {
+      "childId": 1,
+      "minutes": 30
+    },
+    "reply": {
+      "ok": true,
+      "payload": {
+        "card": {
+          "childId": 1,
+          "sid": "S-1-5-21-111-222-333-1001",
+          "name": "Миша",
+          "status": {
+            "name": "Миша",
+            "status": "ok",
+            "statusText": "Можно",
+            "label": "85",
+            "tooltip": "Осталось 1 ч 25 мин",
+            "summary": "Сегодня осталось 1 ч 25 мин из 2 ч",
+            "day": "2026-10-19",
+            "remainingS": 5100,
+            "limitS": 7200,
+            "usedS": 2100,
+            "unlimited": false,
+            "lock": "none",
+            "reason": "",
+            "detail": "",
+            "until": "",
+            "used": "Сегодня: 35 мин из 2 ч"
+          },
+          "extraMin": 30,
+          "canClearBlock": false
+        },
+        "message": "Добавлено 30 минут",
+        "extraId": "e-17",
+        "undoUntilMs": 1760000010000
+      }
+    }
+  },
+  "AddExtra#invalid": {
+    "request": {
+      "childId": 1,
+      "minutes": 500
+    },
+    "reply": {
+      "ok": false,
+      "error": "Можно добавить от 1 до 240 минут",
+      "field": "minutes"
+    }
+  },
+  "ChangePassword": {
+    "request": {
+      "oldPassword": "секрет-123",
+      "newPassword": "новый-секрет"
+    },
+    "reply": {
+      "ok": true,
+      "payload": {}
+    }
+  },
+  "ClearBlock": {
+    "request": {
+      "childId": 1
+    },
+    "reply": {
+      "ok": true,
+      "payload": {
+        "card": {
+          "childId": 1,
+          "sid": "S-1-5-21-111-222-333-1001",
+          "name": "Миша",
+          "status": {
+            "name": "Миша",
+            "status": "ok",
+            "statusText": "Можно",
+            "label": "85",
+            "tooltip": "Осталось 1 ч 25 мин",
+            "summary": "Сегодня осталось 1 ч 25 мин из 2 ч",
+            "day": "2026-10-19",
+            "remainingS": 5100,
+            "limitS": 7200,
+            "usedS": 2100,
+            "unlimited": false,
+            "lock": "none",
+            "reason": "",
+            "detail": "",
+            "until": "",
+            "used": "Сегодня: 35 мин из 2 ч"
+          },
+          "extraMin": 0,
+          "canClearBlock": false
+        },
+        "message": "Блокировка снята"
+      }
+    }
+  },
+  "ExtendSession": {
+    "reply": {
+      "ok": true,
+      "payload": {
+        "active": true,
+        "expiresMs": 1760000600000,
+        "remainingS": 600
+      }
+    }
+  },
+  "FirstRunSeen": {
+    "reply": {
+      "ok": true,
+      "payload": {}
+    }
+  },
+  "GetChildRules": {
+    "request": {
+      "childId": 1
+    },
+    "reply": {
+      "ok": true,
+      "payload": {
+        "childId": 1,
+        "name": "Миша",
+        "limits": [
+          {
+            "weekday": 1,
+            "totalMin": 120,
+            "unlimited": false
+          },
+          {
+            "weekday": 2,
+            "totalMin": 120,
+            "unlimited": false
+          },
+          {
+            "weekday": 3,
+            "totalMin": 90,
+            "unlimited": false
+          },
+          {
+            "weekday": 4,
+            "totalMin": 120,
+            "unlimited": false
+          },
+          {
+            "weekday": 5,
+            "totalMin": 120,
+            "unlimited": false
+          },
+          {
+            "weekday": 6,
+            "totalMin": 240,
+            "unlimited": false
+          },
+          {
+            "weekday": 7,
+            "totalMin": 0,
+            "unlimited": true
+          }
+        ]
+      }
+    }
+  },
+  "GetChildStatus": {
+    "reply": {
+      "ok": true,
+      "payload": {
+        "name": "Миша",
+        "status": "ok",
+        "statusText": "Можно",
+        "label": "85",
+        "tooltip": "Осталось 1 ч 25 мин",
+        "summary": "Сегодня осталось 1 ч 25 мин из 2 ч",
+        "day": "2026-10-19",
+        "remainingS": 5100,
+        "limitS": 7200,
+        "usedS": 2100,
+        "unlimited": false,
+        "lock": "none",
+        "reason": "",
+        "detail": "",
+        "until": "",
+        "used": "Сегодня: 35 мин из 2 ч"
+      }
+    }
+  },
+  "GetChildStatus#notChild": {
+    "reply": {
+      "ok": true,
+      "payload": {
+        "name": "",
+        "status": "notChild",
+        "statusText": "",
+        "label": "",
+        "tooltip": "",
+        "summary": "",
+        "day": "",
+        "remainingS": 0,
+        "limitS": 0,
+        "usedS": 0,
+        "unlimited": true,
+        "lock": "none",
+        "reason": "",
+        "detail": "",
+        "until": "",
+        "used": ""
+      }
+    }
+  },
+  "GetHelperState": {
+    "reply": {
+      "ok": true,
+      "payload": {
+        "state": {
+          "enabled": true,
+          "seen": [
+            "H-M1-01"
+          ],
+          "snoozed": {}
+        }
+      }
+    }
+  },
+  "GetHelperState#empty": {
+    "reply": {
+      "ok": true,
+      "payload": {
+        "state": {}
+      }
+    }
+  },
+  "GetToday": {
+    "reply": {
+      "ok": true,
+      "payload": {
+        "children": [
+          {
+            "childId": 1,
+            "sid": "S-1-5-21-111-222-333-1001",
+            "name": "Миша",
+            "status": {
+              "name": "Миша",
+              "status": "ok",
+              "statusText": "Можно",
+              "label": "85",
+              "tooltip": "Осталось 1 ч 25 мин",
+              "summary": "Сегодня осталось 1 ч 25 мин из 2 ч",
+              "day": "2026-10-19",
+              "remainingS": 5100,
+              "limitS": 7200,
+              "usedS": 2100,
+              "unlimited": false,
+              "lock": "none",
+              "reason": "",
+              "detail": "",
+              "until": "",
+              "used": "Сегодня: 35 мин из 2 ч"
+            },
+            "extraMin": 0,
+            "canClearBlock": false
+          },
+          {
+            "childId": 1,
+            "sid": "S-1-5-21-111-222-333-1001",
+            "name": "Миша",
+            "status": {
+              "name": "Миша",
+              "status": "bypass",
+              "statusText": "Заблокирован за обход защиты",
+              "label": "!",
+              "tooltip": "Попытка обойти защиту",
+              "summary": "Попытка обойти защиту",
+              "day": "2026-10-19",
+              "remainingS": 0,
+              "limitS": 7200,
+              "usedS": 2100,
+              "unlimited": false,
+              "lock": "bypass",
+              "reason": "Попытка обойти защиту",
+              "detail": "Изменено системное время",
+              "until": "Можно снова: когда родитель снимет блокировку",
+              "used": "Сегодня: 35 мин из 2 ч"
+            },
+            "extraMin": 30,
+            "canClearBlock": true
+          }
+        ],
+        "notices": []
+      }
+    }
+  },
+  "GetToday#empty": {
+    "reply": {
+      "ok": true,
+      "payload": {
+        "children": [],
+        "notices": []
+      }
+    }
+  },
+  "GetToday#notices": {
+    "reply": {
+      "ok": true,
+      "payload": {
+        "children": [
+          {
+            "childId": 1,
+            "sid": "S-1-5-21-111-222-333-1001",
+            "name": "Миша",
+            "status": {
+              "name": "Миша",
+              "status": "timeUp",
+              "statusText": "Время вышло",
+              "label": "0",
+              "tooltip": "Время на сегодня закончилось",
+              "summary": "Время на сегодня закончилось",
+              "day": "2026-10-19",
+              "remainingS": 0,
+              "limitS": 7200,
+              "usedS": 7200,
+              "unlimited": false,
+              "lock": "timeUp",
+              "reason": "Время на сегодня закончилось",
+              "detail": "",
+              "until": "Можно снова: завтра",
+              "used": "Сегодня: 2 ч 00 мин из 2 ч"
+            },
+            "extraMin": 0,
+            "canClearBlock": false
+          }
+        ],
+        "notices": [
+          "База данных была повреждена и восстановлена. Ограничения не действовали, пока служба не смогла её прочитать"
+        ]
+      }
+    }
+  },
+  "GuardLogoff": {
+    "reply": {
+      "ok": true,
+      "payload": {}
+    }
+  },
+  "GuardPoll": {
+    "request": {
+      "sample": {
+        "atMs": 1760000000000,
+        "tzOffsetMin": 180,
+        "sessionActive": true,
+        "lastInputAgoMs": 1200,
+        "fullscreen": true,
+        "foreground": "games"
+      },
+      "events": [
+        {
+          "kind": "warningShown",
+          "atMs": 1759999998000,
+          "threshold": 5,
+          "button": "",
+          "detail": ""
+        },
+        {
+          "kind": "button",
+          "atMs": 1759999999500,
+          "threshold": 0,
+          "button": "ack",
+          "detail": ""
+        },
+        {
+          "kind": "bypass",
+          "atMs": 1759999999900,
+          "threshold": 0,
+          "button": "",
+          "detail": "Изменено системное время"
+        }
+      ]
+    },
+    "reply": {
+      "ok": true,
+      "payload": {
+        "status": {
+          "name": "Миша",
+          "status": "timeUp",
+          "statusText": "Время вышло",
+          "label": "0",
+          "tooltip": "Время на сегодня закончилось",
+          "summary": "Время на сегодня закончилось",
+          "day": "2026-10-19",
+          "remainingS": 0,
+          "limitS": 7200,
+          "usedS": 7200,
+          "unlimited": false,
+          "lock": "timeUp",
+          "reason": "Время на сегодня закончилось",
+          "detail": "",
+          "until": "Можно снова: завтра",
+          "used": "Сегодня: 2 ч 00 мин из 2 ч"
+        },
+        "warnings": [
+          {
+            "threshold": 1,
+            "text": "Осталась 1 минута",
+            "sound": true
+          }
+        ],
+        "commands": [
+          {
+            "kind": "notice",
+            "text": "Добавлено 30 минут"
+          },
+          {
+            "kind": "hideLock"
+          },
+          {
+            "kind": "test",
+            "test": {
+              "action": "type",
+              "target": "password",
+              "text": "секрет-123"
+            }
+          }
+        ]
+      }
+    }
+  },
+  "GuardPoll#empty": {
+    "request": {
+      "sample": {
+        "atMs": 1760000000000,
+        "tzOffsetMin": 0,
+        "sessionActive": false,
+        "lastInputAgoMs": 0,
+        "fullscreen": false,
+        "foreground": "other"
+      },
+      "events": []
+    },
+    "reply": {
+      "ok": true,
+      "payload": {
+        "status": {
+          "name": "Миша",
+          "status": "ok",
+          "statusText": "Можно",
+          "label": "85",
+          "tooltip": "Осталось 1 ч 25 мин",
+          "summary": "Сегодня осталось 1 ч 25 мин из 2 ч",
+          "day": "2026-10-19",
+          "remainingS": 5100,
+          "limitS": 7200,
+          "usedS": 2100,
+          "unlimited": false,
+          "lock": "none",
+          "reason": "",
+          "detail": "",
+          "until": "",
+          "used": "Сегодня: 35 мин из 2 ч"
+        },
+        "warnings": [],
+        "commands": []
+      }
+    }
+  },
+  "GuardState": {
+    "reply": {
+      "ok": true,
+      "payload": {
+        "warnings": [
+          {
+            "atMs": 1759999940000,
+            "threshold": 1,
+            "text": "Осталась 1 минута"
+          }
+        ],
+        "lockShown": true,
+        "lockKind": "timeUp",
+        "buttons": [
+          "parentPassword",
+          "logoff"
+        ],
+        "fields": [
+          {
+            "id": "password",
+            "text": ""
+          }
+        ]
+      }
+    }
+  },
+  "GuardState#empty": {
+    "reply": {
+      "ok": true,
+      "payload": {
+        "warnings": [],
+        "lockShown": false,
+        "lockKind": "",
+        "buttons": [],
+        "fields": []
+      }
+    }
+  },
+  "Hello": {
+    "reply": {
+      "ok": true,
+      "payload": {
+        "protocol": 1,
+        "version": "0.1.0",
+        "testMode": false,
+        "configured": true
+      }
+    }
+  },
+  "ListAccounts": {
+    "reply": {
+      "ok": true,
+      "payload": {
+        "accounts": [
+          {
+            "sid": "S-1-5-21-111-222-333-1000",
+            "name": "Анна",
+            "admin": true,
+            "child": false,
+            "current": true,
+            "canBeChild": false
+          },
+          {
+            "sid": "S-1-5-21-111-222-333-1001",
+            "name": "Миша",
+            "admin": false,
+            "child": true,
+            "current": false,
+            "canBeChild": true
+          },
+          {
+            "sid": "S-1-5-21-111-222-333-1002",
+            "name": "Даша",
+            "admin": false,
+            "child": false,
+            "current": false,
+            "canBeChild": true
+          }
+        ]
+      }
+    }
+  },
+  "ListAccounts#empty": {
+    "reply": {
+      "ok": true,
+      "payload": {
+        "accounts": []
+      }
+    }
+  },
+  "ListEvents": {
+    "request": {
+      "childId": 0,
+      "fromMs": 1759913600000,
+      "toMs": 0,
+      "limit": 50
+    },
+    "reply": {
+      "ok": true,
+      "payload": {
+        "events": [
+          {
+            "atMs": 1760000000000,
+            "tzOffsetMin": 180,
+            "childId": 1,
+            "childName": "Миша",
+            "kind": "bypass",
+            "text": "Миша: попытка обойти защиту. Экран заблокирован"
+          },
+          {
+            "atMs": 1759996400000,
+            "tzOffsetMin": 180,
+            "childId": 1,
+            "childName": "Миша",
+            "kind": "extra_time",
+            "text": "Миша: доп. время +30 мин"
+          }
+        ]
+      }
+    }
+  },
+  "ListEvents#empty": {
+    "request": {
+      "childId": 0,
+      "fromMs": 0,
+      "toMs": 0,
+      "limit": 0
+    },
+    "reply": {
+      "ok": true,
+      "payload": {
+        "events": []
+      }
+    }
+  },
+  "Login": {
+    "request": {
+      "password": "секрет-123"
+    },
+    "reply": {
+      "ok": true,
+      "payload": {
+        "token": "9f2c1b7e4a6d4c0e8b53",
+        "expiresMs": 1760000600000,
+        "idleTimeoutS": 600
+      }
+    }
+  },
+  "Login#denied": {
+    "request": {
+      "password": "не тот"
+    },
+    "reply": {
+      "ok": false,
+      "error": "Неверный пароль. Осталось попыток: 3",
+      "field": "password",
+      "payload": {
+        "attemptsLeft": 3,
+        "pauseS": 0
+      }
+    }
+  },
+  "Login#paused": {
+    "request": {
+      "password": "не тот"
+    },
+    "reply": {
+      "ok": false,
+      "error": "Слишком много попыток. Повторить можно через 0:60",
+      "field": "password",
+      "payload": {
+        "attemptsLeft": 0,
+        "pauseS": 60
+      }
+    }
+  },
+  "Logout": {
+    "reply": {
+      "ok": true,
+      "payload": {}
+    }
+  },
+  "MyToday": {
+    "reply": {
+      "ok": true,
+      "payload": {
+        "status": {
+          "name": "Миша",
+          "status": "ok",
+          "statusText": "Можно",
+          "label": "85",
+          "tooltip": "Осталось 1 ч 25 мин",
+          "summary": "Сегодня осталось 1 ч 25 мин из 2 ч",
+          "day": "2026-10-19",
+          "remainingS": 5100,
+          "limitS": 7200,
+          "usedS": 2100,
+          "unlimited": false,
+          "lock": "none",
+          "reason": "",
+          "detail": "",
+          "until": "",
+          "used": "Сегодня: 35 мин из 2 ч"
+        },
+        "today": [
+          "Сегодня осталось 1 ч 25 мин из 2 ч",
+          "Использовано 35 мин"
+        ],
+        "rules": [
+          {
+            "weekday": 1,
+            "day": "пн",
+            "text": "2 ч"
+          },
+          {
+            "weekday": 2,
+            "day": "вт",
+            "text": "2 ч"
+          },
+          {
+            "weekday": 3,
+            "day": "ср",
+            "text": "1 ч 30 мин"
+          },
+          {
+            "weekday": 4,
+            "day": "чт",
+            "text": "2 ч"
+          },
+          {
+            "weekday": 5,
+            "day": "пт",
+            "text": "2 ч"
+          },
+          {
+            "weekday": 6,
+            "day": "сб",
+            "text": "4 ч"
+          },
+          {
+            "weekday": 7,
+            "day": "вс",
+            "text": "Без лимита"
+          }
+        ]
+      }
+    }
+  },
+  "MyToday#empty": {
+    "reply": {
+      "ok": true,
+      "payload": {
+        "status": {
+          "name": "",
+          "status": "notChild",
+          "statusText": "",
+          "label": "",
+          "tooltip": "",
+          "summary": "",
+          "day": "",
+          "remainingS": 0,
+          "limitS": 0,
+          "usedS": 0,
+          "unlimited": true,
+          "lock": "none",
+          "reason": "",
+          "detail": "",
+          "until": "",
+          "used": ""
+        },
+        "today": [],
+        "rules": []
+      }
+    }
+  },
+  "OpenWindow": {
+    "request": {
+      "kind": "parent"
+    },
+    "reply": {
+      "ok": true,
+      "payload": {
+        "opened": true
+      }
+    }
+  },
+  "ResetPassword": {
+    "request": {
+      "newPassword": "новый-секрет"
+    },
+    "reply": {
+      "ok": true,
+      "payload": {}
+    }
+  },
+  "SaveHelperState": {
+    "request": {
+      "state": {
+        "enabled": true,
+        "seen": [
+          "H-M1-01",
+          "H-M1-02"
+        ],
+        "snoozed": {}
+      }
+    },
+    "reply": {
+      "ok": true,
+      "payload": {}
+    }
+  },
+  "SaveLimits": {
+    "request": {
+      "childId": 1,
+      "limits": [
+        {
+          "weekday": 1,
+          "totalMin": 120,
+          "unlimited": false
+        },
+        {
+          "weekday": 2,
+          "totalMin": 120,
+          "unlimited": false
+        },
+        {
+          "weekday": 3,
+          "totalMin": 90,
+          "unlimited": false
+        },
+        {
+          "weekday": 4,
+          "totalMin": 120,
+          "unlimited": false
+        },
+        {
+          "weekday": 5,
+          "totalMin": 120,
+          "unlimited": false
+        },
+        {
+          "weekday": 6,
+          "totalMin": 240,
+          "unlimited": false
+        },
+        {
+          "weekday": 7,
+          "totalMin": 0,
+          "unlimited": true
+        }
+      ]
+    },
+    "reply": {
+      "ok": true,
+      "payload": {
+        "rules": {
+          "childId": 1,
+          "name": "Миша",
+          "limits": [
+            {
+              "weekday": 1,
+              "totalMin": 120,
+              "unlimited": false
+            },
+            {
+              "weekday": 2,
+              "totalMin": 120,
+              "unlimited": false
+            },
+            {
+              "weekday": 3,
+              "totalMin": 90,
+              "unlimited": false
+            },
+            {
+              "weekday": 4,
+              "totalMin": 120,
+              "unlimited": false
+            },
+            {
+              "weekday": 5,
+              "totalMin": 120,
+              "unlimited": false
+            },
+            {
+              "weekday": 6,
+              "totalMin": 240,
+              "unlimited": false
+            },
+            {
+              "weekday": 7,
+              "totalMin": 0,
+              "unlimited": true
+            }
+          ]
+        },
+        "card": {
+          "childId": 1,
+          "sid": "S-1-5-21-111-222-333-1001",
+          "name": "Миша",
+          "status": {
+            "name": "Миша",
+            "status": "ok",
+            "statusText": "Можно",
+            "label": "85",
+            "tooltip": "Осталось 1 ч 25 мин",
+            "summary": "Сегодня осталось 1 ч 25 мин из 2 ч",
+            "day": "2026-10-19",
+            "remainingS": 5100,
+            "limitS": 7200,
+            "usedS": 2100,
+            "unlimited": false,
+            "lock": "none",
+            "reason": "",
+            "detail": "",
+            "until": "",
+            "used": "Сегодня: 35 мин из 2 ч"
+          },
+          "extraMin": 0,
+          "canClearBlock": false
+        },
+        "message": "Сохранено. Новые правила уже действуют"
+      }
+    }
+  },
+  "SaveLimits#invalid": {
+    "request": {
+      "childId": 1,
+      "limits": [
+        {
+          "weekday": 3,
+          "totalMin": 2000,
+          "unlimited": false
+        }
+      ]
+    },
+    "reply": {
+      "ok": false,
+      "error": "Не больше 24 ч",
+      "field": "limits.3"
+    }
+  },
+  "SessionState": {
+    "reply": {
+      "ok": true,
+      "payload": {
+        "active": true,
+        "expiresMs": 1760000540000,
+        "remainingS": 540
+      }
+    }
+  },
+  "SetChildren": {
+    "request": {
+      "add": [
+        {
+          "sid": "S-1-5-21-111-222-333-1002",
+          "name": "Даша"
+        }
+      ],
+      "remove": [
+        3
+      ],
+      "rename": [
+        {
+          "childId": 1,
+          "name": "Михаил"
+        }
+      ]
+    },
+    "reply": {
+      "ok": true,
+      "payload": {
+        "children": [
+          {
+            "childId": 1,
+            "sid": "S-1-5-21-111-222-333-1001",
+            "name": "Михаил"
+          },
+          {
+            "childId": 4,
+            "sid": "S-1-5-21-111-222-333-1002",
+            "name": "Даша"
+          }
+        ]
+      }
+    }
+  },
+  "SetChildren#empty": {
+    "request": {
+      "add": [],
+      "remove": [],
+      "rename": []
+    },
+    "reply": {
+      "ok": true,
+      "payload": {
+        "children": []
+      }
+    }
+  },
+  "Setup": {
+    "request": {
+      "password": "секрет-123",
+      "children": [
+        {
+          "sid": "S-1-5-21-111-222-333-1001",
+          "name": "Миша",
+          "limits": [
+            {
+              "weekday": 1,
+              "totalMin": 120,
+              "unlimited": false
+            },
+            {
+              "weekday": 2,
+              "totalMin": 120,
+              "unlimited": false
+            },
+            {
+              "weekday": 3,
+              "totalMin": 90,
+              "unlimited": false
+            },
+            {
+              "weekday": 4,
+              "totalMin": 120,
+              "unlimited": false
+            },
+            {
+              "weekday": 5,
+              "totalMin": 120,
+              "unlimited": false
+            },
+            {
+              "weekday": 6,
+              "totalMin": 240,
+              "unlimited": false
+            },
+            {
+              "weekday": 7,
+              "totalMin": 0,
+              "unlimited": true
+            }
+          ]
+        }
+      ]
+    },
+    "reply": {
+      "ok": true,
+      "payload": {}
+    }
+  },
+  "Setup#invalid": {
+    "request": {
+      "password": "123",
+      "children": []
+    },
+    "reply": {
+      "ok": false,
+      "error": "Не меньше 6 символов",
+      "field": "password"
+    }
+  },
+  "TestClock": {
+    "request": {
+      "paused": true
+    },
+    "reply": {
+      "ok": true,
+      "payload": {
+        "paused": true,
+        "nowMs": 1760000000000,
+        "speed": 60
+      }
+    }
+  },
+  "TestGuard": {
+    "request": {
+      "sessionId": 2,
+      "action": {
+        "action": "click",
+        "target": "parentPassword"
+      }
+    },
+    "reply": {
+      "ok": true,
+      "payload": {}
+    }
+  },
+  "TrayClosing": {
+    "reply": {
+      "ok": true,
+      "payload": {}
+    }
+  },
+  "UndoExtra": {
+    "request": {
+      "childId": 1,
+      "extraId": "e-17"
+    },
+    "reply": {
+      "ok": true,
+      "payload": {
+        "card": {
+          "childId": 1,
+          "sid": "S-1-5-21-111-222-333-1001",
+          "name": "Миша",
+          "status": {
+            "name": "Миша",
+            "status": "ok",
+            "statusText": "Можно",
+            "label": "85",
+            "tooltip": "Осталось 1 ч 25 мин",
+            "summary": "Сегодня осталось 1 ч 25 мин из 2 ч",
+            "day": "2026-10-19",
+            "remainingS": 5100,
+            "limitS": 7200,
+            "usedS": 2100,
+            "unlimited": false,
+            "lock": "none",
+            "reason": "",
+            "detail": "",
+            "until": "",
+            "used": "Сегодня: 35 мин из 2 ч"
+          },
+          "extraMin": 0,
+          "canClearBlock": false
+        },
+        "message": "Добавленное время отменено"
+      }
+    }
+  },
+  "UninstallCheck": {
+    "request": {
+      "password": "секрет-123",
+      "forgot": false
+    },
+    "reply": {
+      "ok": true,
+      "payload": {
+        "allowed": true
+      }
+    }
+  },
+  "UninstallCheck#denied": {
+    "request": {
+      "password": "не тот",
+      "forgot": false
+    },
+    "reply": {
+      "ok": false,
+      "error": "Неверный пароль. Осталось попыток: 4",
+      "field": "password",
+      "payload": {
+        "attemptsLeft": 4,
+        "pauseS": 0
+      }
+    }
+  },
+  "WindowClosing": {
+    "request": {
+      "kind": "mystats"
+    },
+    "reply": {
+      "ok": true,
+      "payload": {}
+    }
+  }
+}
