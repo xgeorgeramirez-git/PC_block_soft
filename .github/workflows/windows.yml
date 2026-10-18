@@ -97,21 +97,21 @@ jobs:
           cp "$inst" "out/PCBlock-${{ steps.meta.outputs.ver }}-setup.exe"
           cp "$inst" out/PCBlock-setup.exe
           cp build/bin/PCBlock.exe "out/PCBlock-${{ steps.meta.outputs.ver }}.exe"
-      - uses: actions/upload-artifact@v5
+      - uses: actions/upload-artifact@v6
         with:
           name: PCBlock-${{ steps.meta.outputs.ver }}-${{ github.sha }}
           path: |
             out/PCBlock-${{ steps.meta.outputs.ver }}-setup.exe
             out/PCBlock-${{ steps.meta.outputs.ver }}.exe
           retention-days: 14
-      - uses: actions/upload-artifact@v5
+      - uses: actions/upload-artifact@v6
         if: always()
         with:
           name: screens-windows-${{ github.sha }}
           path: win-screens/
           retention-days: 14
           if-no-files-found: ignore
-      - uses: actions/upload-artifact@v5
+      - uses: actions/upload-artifact@v6
         with:
           name: wails-build-assets-${{ github.sha }}
           path: build/windows/
