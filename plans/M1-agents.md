@@ -11,3 +11,4 @@
 | T6+T7 | m1-data-writer (opus 5.5) | писатель данных: пароль и хранилище | T6 done, остановлен по D-39 | T6: abb0c1f, ci зелёный; T7 передан писателю на sonnet | 0 |
 | T7 | m1-storage-writer (sonnet 5.5) | писатель хранилища (основное дерево) | в работе | — | 0 |
 | T1 визуал | visual-reviewer | визуальная проверка spike-lock.png | done | PASS 5/5, замечание: главная кнопка графитовая | — |
+| T8 | m1-ipc-writer (sonnet 5.5) | писатель канала связи (дерево pc_block_soft-ipc, feature/m1-ipc) | в работе | — | 0 |
