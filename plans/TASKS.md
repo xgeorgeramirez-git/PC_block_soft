@@ -16,5 +16,6 @@
 - [x] CI GitHub Actions: `ci.yml` (ubuntu), `windows.yml` (windows-latest: установщик, окно, установка и удаление, выпуск), `full-series.yml` (R4); снимки в ветку `screenshots`
 - [x] CI зелёный на Pull Request #1; визуальная проверка снимков 3 из 3 PASS
 - [x] Промт для чата вехи M1 в `plans/PROMPTS.md`
-- [ ] Слить PR #1 в main, выпуск 0.0.1 в Releases, проверка серии R4
-- [ ] Итоговый отчёт заказчику
+- [x] PR #1 (скелет) и PR #2 (ошибки CI пометками, кодировка) слиты в main; main зелёный; выпуск 0.0.1 в Releases
+- [x] Серия R4 зелёная (56 с, 8 шагов PASS)
+- [x] Итоговый отчёт заказчику
