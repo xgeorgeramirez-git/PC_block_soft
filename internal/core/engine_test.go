@@ -257,7 +257,7 @@ func TestEngineBypass(t *testing.T) {
 	e := NewEngine(c, msk, rulesMon(120), DayState{Day: monday, TotalS: 600}, "")
 	d := e.MarkBypass("Закрыт значок программы")
 	if d.Lock != LockBypass || d.Status != StatusBypass || d.Reason != "Попытка обойти защиту" ||
-		d.Detail != "Закрыт значок программы" || d.Until != "" {
+		d.Detail != "Закрыт значок программы" || d.Until != "Можно снова: когда родитель снимет блокировку" {
 		t.Fatalf("MarkBypass: %+v", d)
 	}
 	if len(d.Events) != 1 || d.Events[0].Kind != EvBypass || d.Events[0].Details["detail"] != "Закрыт значок программы" {
@@ -276,7 +276,8 @@ func TestEngineBypass(t *testing.T) {
 
 	st, detail := e.State()
 	restarted := NewEngine(c, msk, rulesMon(120), st, detail)
-	if d := restarted.Current(); d.Lock != LockBypass || d.Detail != "Закрыт значок программы" {
+	if d := restarted.Current(); d.Lock != LockBypass || d.Detail != "Закрыт значок программы" ||
+		d.Until != "Можно снова: когда родитель снимет блокировку" {
 		t.Fatalf("после перезапуска: %+v", d)
 	}
 

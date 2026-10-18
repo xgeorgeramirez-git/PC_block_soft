@@ -237,6 +237,7 @@ func (e *Engine) decide(st DayState, fire bool) Decision {
 	switch {
 	case e.bypass != "":
 		d.Lock, d.Status, d.Reason, d.Detail = LockBypass, StatusBypass, ReasonBypass, e.bypass
+		d.Until = UntilBypass
 	case !unl && rem <= 0:
 		d.Lock, d.Status, d.Reason = LockTimeUp, StatusTimeUp, ReasonTimeUp
 		d.Until = UntilText(wd, e.rules)
