@@ -1,0 +1,148 @@
+# Сборка на настоящей Windows (лестница R3): установщик, тесты Windows, окно программы,
+# тихая установка и удаление. Минуты Windows в приватном репозитории дороже, поэтому
+# запуск — только на Pull Request в main, на main (выпуск) и вручную; документы не запускают.
+name: Сборка Windows
+
+on:
+  pull_request:
+    branches: [main]
+    paths-ignore: ["docs/**", "plans/**", "**/*.md"]
+  push:
+    branches: [main]
+    paths-ignore: ["docs/**", "plans/**", "**/*.md"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: windows-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: R3 установщик, окно, тесты Windows
+    runs-on: windows-latest
+    timeout-minutes: 40
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.27.x"
+          cache-dependency-path: go.sum
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Wails CLI (версия из go.mod)
+        run: go install "github.com/wailsapp/wails/v2/cmd/wails@$(go list -m -f '{{.Version}}' github.com/wailsapp/wails/v2)"
+      - name: NSIS для установщика
+        run: |
+          if ! command -v makensis >/dev/null; then
+            choco install nsis -y --no-progress
+          fi
+          echo "C:/Program Files (x86)/NSIS" >> "$GITHUB_PATH"
+
+      - name: Сборка программы и установщика
+        run: wails build -clean -nsis -trimpath -ldflags "-s -w"
+
+      - name: Биндинги интерфейса совпадают с закоммиченными
+        run: |
+          if [ -n "$(git status --porcelain frontend/wailsjs/go)" ]; then
+            git status --porcelain frontend/wailsjs/go
+            git diff -- frontend/wailsjs/go
+            echo "::error title=Биндинги::frontend/wailsjs/go устарели: закоммить файлы, сгенерированные wails build"
+            exit 1
+          fi
+
+      - name: Тесты Go на Windows
+        run: go test -count=1 -tags desktop,production $(go list ./... | grep -v -E '^pcblock$')
+
+      - name: Окно открывается (снимок настоящего окна)
+        shell: pwsh
+        run: ./tools/win-window-screenshot.ps1 -ExePath build/bin/PCBlock.exe -Out win-screens/win-s00-window.png
+
+      - name: Тихая установка и удаление
+        shell: pwsh
+        run: |
+          $inst = Get-ChildItem build/bin -Filter "*installer*.exe" | Select-Object -First 1
+          if (-not $inst) { Write-Host "::error::Установщик не собран"; exit 1 }
+          Start-Process $inst.FullName -ArgumentList "/S" -Wait
+          $exe = Get-ChildItem "$env:ProgramFiles" -Recurse -Filter "PCBlock.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $exe) { Write-Host "::error::После установки PCBlock.exe не найден в Program Files"; exit 1 }
+          Write-Host "Установлено: $($exe.FullName)"
+          $dir = $exe.DirectoryName
+          $un = Join-Path $dir "uninstall.exe"
+          if (-not (Test-Path $un)) { Write-Host "::error::Нет uninstall.exe в $dir"; exit 1 }
+          Start-Process $un -ArgumentList "/S" -Wait
+          # Деинсталлятор NSIS копирует себя во временную папку и завершается раньше удаления: ждём.
+          for ($i = 0; $i -lt 30 -and (Test-Path $exe.FullName); $i++) { Start-Sleep -Seconds 1 }
+          if (Test-Path $exe.FullName) { Write-Host "::error::Программа не удалилась за 30 с"; exit 1 }
+          Write-Host "Удалено начисто"
+
+      - name: Версия и дата
+        id: meta
+        run: |
+          echo "ver=$(grep -oE '[0-9]+\.[0-9]+\.[0-9]+' internal/version/version.go | head -1)" >> "$GITHUB_OUTPUT"
+          echo "date=$(date -u -d '+3 hours' +%d.%m.%Y)" >> "$GITHUB_OUTPUT"
+      - name: Файлы выпуска
+        run: |
+          mkdir -p out
+          inst=$(ls build/bin/*installer*.exe | head -1)
+          cp "$inst" "out/PCBlock-${{ steps.meta.outputs.ver }}-setup.exe"
+          cp "$inst" out/PCBlock-setup.exe
+          cp build/bin/PCBlock.exe "out/PCBlock-${{ steps.meta.outputs.ver }}.exe"
+      - uses: actions/upload-artifact@v6
+        with:
+          name: PCBlock-${{ steps.meta.outputs.ver }}-${{ github.sha }}
+          path: |
+            out/PCBlock-${{ steps.meta.outputs.ver }}-setup.exe
+            out/PCBlock-${{ steps.meta.outputs.ver }}.exe
+          retention-days: 14
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: screens-windows-${{ github.sha }}
+          path: win-screens/
+          retention-days: 14
+          if-no-files-found: ignore
+      - uses: actions/upload-artifact@v6
+        with:
+          name: wails-build-assets-${{ github.sha }}
+          path: build/windows/
+          retention-days: 7
+
+      - name: Снимок окна — в ветку screenshots
+        if: always() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash tools/push-screenshots.sh win-screens
+
+      # --- выпуск: только сборки основной ветки
+      - name: Описание выпуска из CHANGELOG.md
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          V="${{ steps.meta.outputs.ver }}"
+          awk -v v="## $V " 'index($0,v)==1{f=1;next} /^## /{f=0} f' CHANGELOG.md > notes.md
+          [ -s notes.md ] || echo "Изменения — в CHANGELOG.md" > notes.md
+          printf '\n---\nСборка %s от %s. Скачать: PCBlock-%s-setup.exe (или PCBlock-setup.exe — всегда последняя версия).\n' \
+            "${GITHUB_SHA::7}" "${{ steps.meta.outputs.date }}" "$V" >> notes.md
+      - name: Публикация в Releases
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.meta.outputs.ver }}
+          target_commitish: ${{ github.sha }}
+          name: "${{ steps.meta.outputs.ver }} от ${{ steps.meta.outputs.date }}"
+          body_path: notes.md
+          make_latest: true
+          overwrite_files: true
+          files: |
+            out/PCBlock-${{ steps.meta.outputs.ver }}-setup.exe
+            out/PCBlock-setup.exe

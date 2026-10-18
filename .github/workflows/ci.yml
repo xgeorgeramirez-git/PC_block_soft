@@ -1,0 +1,127 @@
+# Дешёвые проверки на Linux на каждое изменение (лестница R0–R2) и снимки экранов в браузере.
+# Windows-машина здесь не нужна: сборка для Windows проверяется кросс-компиляцией.
+name: Проверки
+
+on:
+  push:
+    branches: [main, "feature/**", "fix/**", "build/**"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    name: R0–R2 статика и тесты
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.27.x"
+          cache-dependency-path: go.sum
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Фронт — зависимости, типы, тесты, сборка
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run typecheck
+          npx vitest run
+          npx vite build
+
+      # В облачной песочнице агента прокси модулей Go закрыт, поэтому go.sum обновляет CI:
+      # в рабочей ветке сборка сама коммитит результат go mod tidy (как схему базы в Android-проекте).
+      # Коммит от github-actions новых проверок не запускает — эта же сборка продолжает уже с ним.
+      - name: go.mod и go.sum — в рабочей ветке обновить и закоммитить
+        if: github.event_name == 'push' && github.ref != 'refs/heads/main'
+        run: |
+          go mod tidy
+          if [ -n "$(git status --porcelain go.mod go.sum)" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add go.mod go.sum
+            git commit -m "build: обновить go.mod и go.sum (go mod tidy)"
+            git push origin "HEAD:${GITHUB_REF_NAME}"
+            echo "::notice title=go.sum::go.mod/go.sum обновлены и закоммичены в ветку — сделайте git pull"
+          fi
+      - name: go.mod и go.sum в main и Pull Request должны быть в порядке
+        if: github.event_name != 'push' || github.ref == 'refs/heads/main'
+        run: |
+          if ! go mod tidy -diff; then
+            echo "::error title=go.sum::go.mod/go.sum не в порядке: запушьте рабочую ветку — CI обновит их сам"
+            exit 1
+          fi
+
+      - name: gofmt
+        run: |
+          out=$(gofmt -l $(git ls-files '*.go'))
+          if [ -n "$out" ]; then echo "::error title=gofmt::Не отформатированы: $out"; exit 1; fi
+
+      - name: Тексты интерфейса без длинных тире
+        run: python3 tools/scan_ui_texts.py
+
+      - name: go vet и сборка для Windows (кросс-компиляция)
+        env:
+          GOOS: windows
+          GOARCH: amd64
+          CGO_ENABLED: "0"
+        run: |
+          go vet -tags desktop,production ./...
+          go build -tags desktop,production -o /tmp/PCBlock.exe .
+
+      - name: Тесты Go с гонками (всё, кроме связки окна)
+        run: go test -race -count=1 $(go list ./... | grep -v -E '/internal/ui$' | grep -v -E '^pcblock$')
+
+      - name: Кодовая карта актуальна (Pull Request)
+        if: github.event_name == 'pull_request'
+        run: |
+          bash tools/codemap.sh
+          if ! git diff --quiet -- docs/CODEMAP.md; then
+            git diff -- docs/CODEMAP.md | head -40
+            echo "::error title=CODEMAP::Карта устарела: запусти bash tools/codemap.sh и закоммить docs/CODEMAP.md"
+            exit 1
+          fi
+
+  screens:
+    name: Снимки экранов (браузер)
+    needs: checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Сценарии интерфейса со снимками
+        working-directory: frontend
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+          npx vite build
+          npx playwright test
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: screens-browser-${{ github.sha }}
+          path: frontend/screens/
+          retention-days: 14
+          if-no-files-found: ignore
+      - name: Снимки — в ветку screenshots
+        if: always() && github.event_name == 'push' && github.ref != 'refs/heads/main'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash tools/push-screenshots.sh frontend/screens

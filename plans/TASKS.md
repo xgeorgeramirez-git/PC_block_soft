@@ -10,10 +10,11 @@
 - [x] Юзабилити-проход черновика ТЗ → `docs/05_Юзабилити_ТЗ.md`; правки внесены (ТЗ v0.2)
 - [x] Чек-лист приёмки → `docs/06_Приёмка.md`; точка входа → `docs/00_START_ЗДЕСЬ.md`
 - [x] Согласование вех M1…M7 (D-31) и стека A: Go + Wails + SQLite (D-32)
-- [ ] Согласование ТЗ заказчиком (читает)
-- [ ] Фаза 0: скелет репозитория, .gitignore, README, CLAUDE.md, docs/LESSONS.md, SKILLS.md, plans/PROMPTS.md
-- [ ] Пустая программа с окном собирается
-- [ ] CI GitHub Actions на windows-latest: сборка, тесты, установщик артефактом, скриншоты в ветку `screenshots`
-- [ ] CI зелёный
-- [ ] Промт для чата вехи M1 в `plans/PROMPTS.md`
+- [x] Согласование ТЗ заказчиком (D-34); правила изменения ТЗ (D-35)
+- [x] Фаза 0: скелет репозитория, .gitignore, README, CLAUDE.md, AGENTS.md, docs/LESSONS.md, docs/HISTORY.md, docs/CODEMAP.md, SKILLS.md, plans/PROMPTS.md, plans/BACKLOG.md, CHANGELOG.md
+- [x] Пустая программа с окном собирается (Wails, версия 0.0.1)
+- [x] CI GitHub Actions: `ci.yml` (ubuntu), `windows.yml` (windows-latest: установщик, окно, установка и удаление, выпуск), `full-series.yml` (R4); снимки в ветку `screenshots`
+- [x] CI зелёный на Pull Request #1; визуальная проверка снимков 3 из 3 PASS
+- [x] Промт для чата вехи M1 в `plans/PROMPTS.md`
+- [ ] Слить PR #1 в main, выпуск 0.0.1 в Releases, проверка серии R4
 - [ ] Итоговый отчёт заказчику

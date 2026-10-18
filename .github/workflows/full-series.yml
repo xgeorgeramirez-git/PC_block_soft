@@ -1,0 +1,50 @@
+# Полная тест-серия R4 (tools/test-series.sh): статика, гонки, покрытие по порогам, фаззинг, фронт.
+# Тяжёлая и дорогая: запускать ровно на закрытии вехи и после ревью-фиксов (вручную или тегом vX.Y.Z).
+name: Полная серия R4
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: series-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  series:
+    name: R4 полная серия (Windows)
+    runs-on: windows-latest
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.27.x"
+          cache-dependency-path: go.sum
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Компилятор C для go test -race
+        run: |
+          if ! command -v gcc >/dev/null; then choco install mingw -y --no-progress; fi
+          gcc --version | head -1
+      - name: Фронт для встраивания
+        working-directory: frontend
+        run: npm ci && npx vite build
+      - name: Серия
+        run: bash tools/test-series.sh
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: series-${{ github.sha }}
+          path: test-results/
+          retention-days: 30
