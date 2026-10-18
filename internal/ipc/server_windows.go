@@ -27,7 +27,7 @@ var ErrPipeTaken = errors.New("ipc: имя канала уже занято")
 var (
 	idleTimeout  = 5 * time.Minute  // сколько соединение может молчать между запросами
 	frameTimeout = 10 * time.Second // сколько даётся на тело запроса и на запись ответа
-	maxConns     = 64               // одновременных соединений; остальные ждут в очереди (ERROR_PIPE_BUSY)
+	maxConns     = 64               // обслуживаемых соединений; ещё один клиент ждёт на свободном экземпляре, остальные получают ERROR_PIPE_BUSY
 	stopWait     = 1500 * time.Millisecond
 )
 

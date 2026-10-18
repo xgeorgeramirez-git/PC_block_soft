@@ -699,20 +699,36 @@ func TestPipeConnectionLimit(t *testing.T) {
 	if _, err := a.Do(Msg{Cmd: CmdHello}); err != nil {
 		t.Fatal(err)
 	}
-	// Единственный слот занят: второй клиент ждёт в очереди и не дожидается.
-	_, err := DialWith(s.name, 400*time.Millisecond, DialOptions{})
-	if !errors.Is(err, ErrTimeout) {
-		t.Fatalf("второй клиент при maxConns=1: %v", err)
-	}
-	// Первый ушёл: слот освободился, второй проходит.
-	a.Close()
+	// Единственный слот занят. Второй клиент подключается к ждущему экземпляру канала, но
+	// его запрос не обслуживается, пока слот не освободится.
 	b, err := DialWith(s.name, 3*time.Second, DialOptions{})
 	if err != nil {
-		t.Fatalf("клиент после освобождения слота: %v", err)
+		t.Fatalf("второй клиент: %v", err)
 	}
 	defer b.Close()
-	if _, err := b.Do(Msg{Cmd: CmdHello}); err != nil {
-		t.Fatalf("Do после освобождения слота: %v", err)
+	resB := make(chan error, 1)
+	go func() {
+		_, err := b.Do(Msg{Cmd: CmdHello})
+		resB <- err
+	}()
+	// Свободных экземпляров больше нет: третий клиент ждёт в очереди и не дожидается.
+	if _, err := DialWith(s.name, 400*time.Millisecond, DialOptions{}); !errors.Is(err, ErrTimeout) {
+		t.Fatalf("третий клиент при maxConns=1: %v", err)
+	}
+	select {
+	case err := <-resB:
+		t.Fatalf("запрос второго клиента обслужен при занятом слоте: %v", err)
+	case <-time.After(300 * time.Millisecond):
+	}
+	// Первый ушёл: слот освободился, второй обслужен.
+	a.Close()
+	select {
+	case err := <-resB:
+		if err != nil {
+			t.Fatalf("запрос второго клиента после освобождения слота: %v", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("второй клиент не обслужен после освобождения слота")
 	}
 }
 
