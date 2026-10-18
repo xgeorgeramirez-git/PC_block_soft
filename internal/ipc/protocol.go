@@ -17,6 +17,14 @@ const (
 	MaxFrame = 1 << 20
 )
 
+// Имена, под которыми программа работает в Windows.
+const (
+	// PipeName — полное имя канала службы.
+	PipeName = `\\.\pipe\PCBlock`
+	// ServiceName — имя службы Windows.
+	ServiceName = "PCBlock"
+)
+
 // Msg — запрос к службе.
 type Msg struct {
 	Cmd     string          `json:"cmd"`
