@@ -58,6 +58,8 @@ def scan() -> list[str]:
 
 
 def main() -> int:
+    # На Windows консоль по умолчанию не UTF-8: без этого печать кириллицы падает.
+    sys.stdout.reconfigure(encoding="utf-8")
     problems = scan()
     for p in problems:
         print(p)

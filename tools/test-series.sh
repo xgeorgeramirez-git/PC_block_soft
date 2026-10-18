@@ -13,14 +13,24 @@ export GOMAXPROCS=${SERIES_PROCS:-$(( CORES * 3 / 4 > 0 ? CORES * 3 / 4 : 1 ))}
 FUZZ_TIME=${FUZZ_TIME:-60s}
 TAGS="desktop,production"
 FAILED=0
+SUMMARY=""
 START=$(date +%s)
+export PYTHONIOENCODING=utf-8
 
 say() { echo "$*" | tee -a "$LOG"; }
 step() {
   local name=$1; shift
-  local t0=$(date +%s)
-  if "$@" >>"$LOG" 2>&1; then say "PASS  $name ($(( $(date +%s) - t0 )) с)"
-  else say "FAIL  $name ($(( $(date +%s) - t0 )) с) — подробности в $LOG"; FAILED=1; fi
+  local t0=$(date +%s) out="test-results/step.out"
+  if "$@" >"$out" 2>&1; then
+    cat "$out" >>"$LOG"
+    say "PASS  $name ($(( $(date +%s) - t0 )) с)"; SUMMARY+="PASS $name; "
+  else
+    cat "$out" >>"$LOG"
+    say "FAIL  $name ($(( $(date +%s) - t0 )) с), подробности в $LOG"; SUMMARY+="FAIL $name; "; FAILED=1
+    # Журнал CI из песочницы агента недоступен: строки ошибок — пометками сборки.
+    [ -n "${GITHUB_ACTIONS:-}" ] && bash tools/annotate-errors.sh "$out" "R4: $name"
+  fi
+  rm -f "$out"
 }
 
 say "Тест-серия R4, $(date '+%d.%m.%Y %H:%M'), GOMAXPROCS=$GOMAXPROCS, фаззинг $FUZZ_TIME на цель"
@@ -68,5 +78,8 @@ step "фаззинг" run_fuzz
 step "vitest" bash -c 'cd frontend && npx vitest run'
 
 TOTAL=$(( $(date +%s) - START ))
-say "Итог: $([ $FAILED -eq 0 ] && echo ЗЕЛЁНАЯ || echo КРАСНАЯ), время серии $TOTAL с"
+RESULT="Итог: $([ $FAILED -eq 0 ] && echo ЗЕЛЁНАЯ || echo КРАСНАЯ), время серии $TOTAL с"
+say "$RESULT"
+# Итог серии виден пометкой сборки и без журнала (для песочницы агента).
+[ -n "${GITHUB_ACTIONS:-}" ] && echo "::notice title=Серия R4::$RESULT. $SUMMARY"
 exit $FAILED
