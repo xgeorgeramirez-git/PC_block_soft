@@ -35,6 +35,7 @@ jobs:
       - name: Фронт — зависимости, типы, тесты, сборка
         working-directory: frontend
         run: |
+          exec > >(tee -a "$RUNNER_TEMP/ci.log") 2>&1
           npm ci
           npm run typecheck
           npx vitest run
@@ -46,6 +47,7 @@ jobs:
       - name: go.mod и go.sum — в рабочей ветке обновить и закоммитить
         if: github.event_name == 'push' && github.ref != 'refs/heads/main'
         run: |
+          exec > >(tee -a "$RUNNER_TEMP/ci.log") 2>&1
           go mod tidy
           if [ -n "$(git status --porcelain go.mod go.sum)" ]; then
             git config user.name "github-actions[bot]"
@@ -58,6 +60,7 @@ jobs:
       - name: go.mod и go.sum в main и Pull Request должны быть в порядке
         if: github.event_name != 'push' || github.ref == 'refs/heads/main'
         run: |
+          exec > >(tee -a "$RUNNER_TEMP/ci.log") 2>&1
           if ! go mod tidy -diff; then
             echo "::error title=go.sum::go.mod/go.sum не в порядке: запушьте рабочую ветку — CI обновит их сам"
             exit 1
@@ -65,11 +68,14 @@ jobs:
 
       - name: gofmt
         run: |
+          exec > >(tee -a "$RUNNER_TEMP/ci.log") 2>&1
           out=$(gofmt -l $(git ls-files '*.go'))
           if [ -n "$out" ]; then echo "::error title=gofmt::Не отформатированы: $out"; exit 1; fi
 
       - name: Тексты интерфейса без длинных тире
-        run: python3 tools/scan_ui_texts.py
+        run: |
+          exec > >(tee -a "$RUNNER_TEMP/ci.log") 2>&1
+          python3 tools/scan_ui_texts.py
 
       - name: go vet и сборка для Windows (кросс-компиляция)
         env:
@@ -77,21 +83,28 @@ jobs:
           GOARCH: amd64
           CGO_ENABLED: "0"
         run: |
+          exec > >(tee -a "$RUNNER_TEMP/ci.log") 2>&1
           go vet -tags desktop,production ./...
           go build -tags desktop,production -o /tmp/PCBlock.exe .
 
       - name: Тесты Go с гонками (всё, кроме связки окна)
-        run: go test -race -count=1 $(go list ./... | grep -v -E '/internal/ui$' | grep -v -E '^pcblock$')
+        run: |
+          exec > >(tee -a "$RUNNER_TEMP/ci.log") 2>&1
+          go test -race -count=1 $(go list ./... | grep -v -E '/internal/ui$' | grep -v -E '^pcblock$')
 
       - name: Кодовая карта актуальна (Pull Request)
         if: github.event_name == 'pull_request'
         run: |
+          exec > >(tee -a "$RUNNER_TEMP/ci.log") 2>&1
           bash tools/codemap.sh
           if ! git diff --quiet -- docs/CODEMAP.md; then
             git diff -- docs/CODEMAP.md | head -40
             echo "::error title=CODEMAP::Карта устарела: запусти bash tools/codemap.sh и закоммить docs/CODEMAP.md"
             exit 1
           fi
+      - name: Ошибки — в пометки сборки (их видно без журнала)
+        if: failure()
+        run: bash tools/annotate-errors.sh "$RUNNER_TEMP/ci.log" "Проверки"
 
   screens:
     name: Снимки экранов (браузер)
@@ -108,10 +121,14 @@ jobs:
       - name: Сценарии интерфейса со снимками
         working-directory: frontend
         run: |
+          exec > >(tee -a "$RUNNER_TEMP/ci.log") 2>&1
           npm ci
           npx playwright install --with-deps chromium
           npx vite build
           npx playwright test
+      - name: Ошибки — в пометки сборки (их видно без журнала)
+        if: failure()
+        run: bash tools/annotate-errors.sh "$RUNNER_TEMP/ci.log" "Снимки экранов"
       - uses: actions/upload-artifact@v6
         if: always()
         with:

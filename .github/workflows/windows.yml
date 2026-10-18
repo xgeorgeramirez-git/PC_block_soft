@@ -40,19 +40,25 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
 
       - name: Wails CLI (версия из go.mod)
-        run: go install "github.com/wailsapp/wails/v2/cmd/wails@$(go list -m -f '{{.Version}}' github.com/wailsapp/wails/v2)"
+        run: |
+          exec > >(tee -a "$RUNNER_TEMP/ci.log") 2>&1
+          go install "github.com/wailsapp/wails/v2/cmd/wails@$(go list -m -f '{{.Version}}' github.com/wailsapp/wails/v2)"
       - name: NSIS для установщика
         run: |
+          exec > >(tee -a "$RUNNER_TEMP/ci.log") 2>&1
           if ! command -v makensis >/dev/null; then
             choco install nsis -y --no-progress
           fi
           echo "C:/Program Files (x86)/NSIS" >> "$GITHUB_PATH"
 
       - name: Сборка программы и установщика
-        run: wails build -clean -nsis -trimpath -ldflags "-s -w"
+        run: |
+          exec > >(tee -a "$RUNNER_TEMP/ci.log") 2>&1
+          wails build -clean -nsis -trimpath -ldflags "-s -w"
 
       - name: Биндинги интерфейса совпадают с закоммиченными
         run: |
+          exec > >(tee -a "$RUNNER_TEMP/ci.log") 2>&1
           if [ -n "$(git status --porcelain frontend/wailsjs/go)" ]; then
             git status --porcelain frontend/wailsjs/go
             git diff -- frontend/wailsjs/go
@@ -61,8 +67,13 @@ jobs:
           fi
 
       - name: Тесты Go на Windows
-        run: go test -count=1 -tags desktop,production $(go list ./... | grep -v -E '^pcblock$')
+        run: |
+          exec > >(tee -a "$RUNNER_TEMP/ci.log") 2>&1
+          go test -count=1 -tags desktop,production $(go list ./... | grep -v -E '^pcblock$')
 
+      - name: Ошибки — в пометки сборки (их видно без журнала)
+        if: failure()
+        run: bash tools/annotate-errors.sh "$RUNNER_TEMP/ci.log" "Сборка Windows"
       - name: Окно открывается (снимок настоящего окна)
         shell: pwsh
         run: ./tools/win-window-screenshot.ps1 -ExePath build/bin/PCBlock.exe -Out win-screens/win-s00-window.png
