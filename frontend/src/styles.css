@@ -11,6 +11,7 @@
   --status-warn: #a15c00;
   --status-danger: #b3261e;
   --status-ok: #2c7a4b;
+  --field-border: #7b848c;
 
   --radius-control: 6px;
   --radius-panel: 8px;
@@ -36,6 +37,11 @@
     --text-muted: #a3abb3;
     --primary: #eef1f4;
     --primary-text: #15181b;
+    --field-border: #7d868e;
+    /* На тёмном фоне статусные цвета светлее: контраст текста не меньше 4,5:1 (NFR-14). */
+    --status-warn: #e3a23b;
+    --status-danger: #f2877d;
+    --status-ok: #4fb47a;
     color-scheme: dark;
   }
 }
