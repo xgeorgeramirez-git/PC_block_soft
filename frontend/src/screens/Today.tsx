@@ -1,16 +1,19 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { addExtra, clearBlock, getToday, listEvents, undoExtra } from "../api";
 import Notice from "../components/Notice";
+import ServiceNotices from "../components/ServiceNotices";
 import { errorText } from "../lib/errors";
 import { formatDateLong, formatUsed, localOffsetMin } from "../lib/format";
 import { isViolation, startOfDayMs } from "../lib/journal";
-import { hasTimeLimits, statusTone } from "../lib/status";
+import { canAddTime, hasTimeLimits, statusTone } from "../lib/status";
 import type { TodayCard } from "../types";
 
 interface Props {
   /** Ссылка «Нарушения сегодня: N». */
   onOpenJournal?: (opts: { violations: boolean }) => void;
   onOpenSettings?: () => void;
+  /** Кнопка «Открыть «Дети»» у предупреждения о правилах. */
+  onOpenChildren?: () => void;
 }
 
 interface Feedback {
@@ -24,7 +27,7 @@ interface Feedback {
 const EXTRA_BUTTONS = [15, 30, 60];
 
 /** Главная «Сегодня» (FR-15, сценарий 8.3.2): карточки детей и быстрые действия. */
-export default function Today({ onOpenJournal, onOpenSettings }: Props) {
+export default function Today({ onOpenJournal, onOpenSettings, onOpenChildren }: Props) {
   const [cards, setCards] = useState<TodayCard[] | null>(null);
   const [notices, setNotices] = useState<string[]>([]);
   const [violations, setViolations] = useState<number | null>(null);
@@ -114,11 +117,7 @@ export default function Today({ onOpenJournal, onOpenSettings }: Props) {
         <span className="page-date">{formatDateLong(Date.now(), localOffsetMin())}</span>
       </div>
 
-      {notices.map((n) => (
-        <Notice key={n} tone="warn" urgent>
-          {n}
-        </Notice>
-      ))}
+      <ServiceNotices notices={notices} onOpenChildren={onOpenChildren} />
 
       {loadError ? (
         <div className="panel">
@@ -135,7 +134,7 @@ export default function Today({ onOpenJournal, onOpenSettings }: Props) {
         <>
           {violations !== null ? (
             <p className="today-links">
-              <button type="button" className="link" onClick={() => onOpenJournal?.({ violations: true })}>
+              <button type="button" className="btn btn-small" onClick={() => onOpenJournal?.({ violations: true })}>
                 {`Нарушения сегодня: ${violations}`}
               </button>
             </p>
@@ -185,6 +184,7 @@ function ChildCard({ card, feedback, busy, onAdd, onUndo, onUnblock }: CardProps
   const s = card.status;
   const tone = statusTone(s.status);
   const limited = hasTimeLimits(s.status);
+  const extraAllowed = canAddTime(s.status);
   const titleId = `child-${card.childId}-name`;
   return (
     <article className="child-card" aria-labelledby={titleId}>
@@ -203,7 +203,7 @@ function ChildCard({ card, feedback, busy, onAdd, onUndo, onUnblock }: CardProps
       {s.lock !== "none" && s.until ? <p className="child-meta">{s.until}</p> : null}
 
       <div className="child-actions">
-        {limited
+        {extraAllowed
           ? EXTRA_BUTTONS.map((m) => (
               <button key={m} type="button" className="btn" disabled={busy} onClick={() => onAdd(m)}>
                 {`+${m}`}

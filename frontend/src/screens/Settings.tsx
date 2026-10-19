@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type FormEvent } from "react"
 import { changePassword, getHelperState, getToday, listAccounts, saveHelperState, setChildren, version } from "../api";
 import Dialog from "../components/Dialog";
 import Notice from "../components/Notice";
+import ServiceNotices from "../components/ServiceNotices";
 import TextField from "../components/TextField";
 import { CallError, errorText } from "../lib/errors";
 import { genitiveName } from "../lib/format";
@@ -9,7 +10,7 @@ import { validatePasswordPair } from "../lib/password";
 import type { Account, ChildInfo } from "../types";
 
 /** Общие настройки (FR-25, сценарий 8.3.8): пароль, детские учётки, Помощник, О программе. */
-export default function Settings() {
+export default function Settings({ onOpenChildren }: { onOpenChildren?: () => void }) {
   const [notices, setNotices] = useState<string[]>([]);
   const [children, setChildrenList] = useState<ChildInfo[] | null>(null);
   const [accounts, setAccounts] = useState<Account[]>([]);
@@ -40,11 +41,7 @@ export default function Settings() {
   return (
     <div className="settings">
       <h2 className="panel-title">Настройки</h2>
-      {notices.map((n) => (
-        <Notice key={n} tone="warn" urgent>
-          {n}
-        </Notice>
-      ))}
+      <ServiceNotices notices={notices} onOpenChildren={onOpenChildren} />
       <PasswordSection />
       <ChildrenSection
         list={children}
@@ -145,6 +142,12 @@ interface ChildrenProps {
   loadError: string;
   onReload: () => void;
   onChanged: (list: ChildInfo[]) => void;
+}
+
+/** Строка под именем ребёнка: какая учётная запись Windows за ним стоит (имя в программе может быть другим). */
+function accountLine(child: ChildInfo, accounts: Account[]): string {
+  const account = accounts.find((a) => a.sid === child.sid);
+  return account ? `Учётная запись Windows: ${account.name}` : "Учётная запись Windows не найдена на этом компьютере";
 }
 
 function ChildrenSection({ list, accounts, loadError, onReload, onChanged }: ChildrenProps) {
@@ -263,7 +266,10 @@ function ChildrenSection({ list, accounts, loadError, onReload, onChanged }: Chi
                     </form>
                   ) : (
                     <>
-                      <span className="child-row-name">{c.name}</span>
+                      <div className="child-row-info">
+                        <span className="child-row-name">{c.name}</span>
+                        <span className="child-row-account">{accountLine(c, accounts)}</span>
+                      </div>
                       <span className="child-row-actions">
                         <button
                           type="button"
@@ -289,6 +295,7 @@ function ChildrenSection({ list, accounts, loadError, onReload, onChanged }: Chi
           )}
 
           <div className="add-child">
+            <h4 className="subsection-title">Добавить детскую учётку</h4>
             {candidates.length > 0 ? (
               <>
                 <div className="field">
@@ -403,7 +410,6 @@ function HelperSection() {
       <p className="field-hint">
         Подсказки при первом открытии экранов и напоминания о важном, например когда у ребёнка не задано ни одного лимита.
       </p>
-      <p className="field-hint">Вернуть скрытые подсказки и пройти обучение заново можно будет в следующем обновлении.</p>
       {error ? <p className="field-error">{error}</p> : null}
     </section>
   );

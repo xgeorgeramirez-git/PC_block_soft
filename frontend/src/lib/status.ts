@@ -23,3 +23,8 @@ export function statusTone(status: StatusKind): StatusTone {
 export function hasTimeLimits(status: StatusKind): boolean {
   return status !== "admin" && status !== "notChild" && status !== "safe";
 }
+
+/** Можно ли добавить время сегодня: при блокировке за обход время ни при чём, там только «Снять блокировку». */
+export function canAddTime(status: StatusKind): boolean {
+  return hasTimeLimits(status) && status !== "bypass";
+}

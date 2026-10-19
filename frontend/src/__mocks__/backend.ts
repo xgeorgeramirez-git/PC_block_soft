@@ -19,6 +19,8 @@ import type {
 } from "../types";
 
 export const DEFAULT_PASSWORD = "секрет-123";
+/** Версия программы по умолчанию: одна на всех экранах (настоящий номер поднимает оркестратор). */
+export const DEFAULT_VERSION = "0.0.1";
 const UNDO_WINDOW_MS = 10_000;
 const MAX_LIMIT_MIN = 1440;
 
@@ -266,7 +268,7 @@ function makeState(opts: MockOptions): MockState {
   const attempts = opts.attempts ?? 5;
   return {
     mode: opts.mode ?? "window",
-    version: opts.version ?? "0.1.0",
+    version: opts.version ?? DEFAULT_VERSION,
     testMode: opts.testMode ?? false,
     configured,
     password: opts.password ?? DEFAULT_PASSWORD,
@@ -351,10 +353,14 @@ export function createBackend(opts: MockOptions = {}): MockBackend {
     Hello: () =>
       okReply({ protocol: 1, version: state.version, testMode: state.testMode, configured: state.configured }),
 
-    ListAccounts: () =>
-      okReply({
-        accounts: state.accounts.map((a) => ({ ...a, child: state.children.some((c) => c.sid === a.sid) })),
-      }),
+    // Набор детей один на все экраны: у каждого ребёнка есть учётка, даже если в списке она не названа.
+    ListAccounts: () => {
+      const known = state.accounts.map((a) => ({ ...a, child: state.children.some((c) => c.sid === a.sid) }));
+      const missing: Account[] = state.children
+        .filter((c) => !state.accounts.some((a) => a.sid === c.sid))
+        .map((c) => ({ sid: c.sid, name: c.name, admin: false, child: true, current: false, canBeChild: true }));
+      return okReply({ accounts: [...known, ...missing] });
+    },
 
     Setup: (req, now) => {
       if (state.configured) return fail("Программа уже настроена");

@@ -1,17 +1,20 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi, type Mock } from "vitest";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import Settings from "./Settings";
+import { RULES_NOT_READ_TEXT } from "../lib/notices";
 import { DEFAULT_PASSWORD, installBackend, mockAccounts, mockChild, uninstallBackend, type MockBackend } from "../__mocks__/backend";
 
 // FR-25, сценарий 8.3.8: пароль, детские учётки, Помощник, О программе.
 
 let mock: MockBackend;
+let openChildren: Mock<() => void>;
 
 async function setup(opts: Parameters<typeof installBackend>[0] = {}) {
   mock = installBackend({ sessionActive: true, ...opts });
+  openChildren = vi.fn<() => void>();
   const user = userEvent.setup();
-  render(<Settings />);
+  render(<Settings onOpenChildren={openChildren} />);
   await vi.waitFor(() => expect(screen.queryByText("Загружаю данные")).toBeNull());
   return user;
 }
@@ -23,13 +26,19 @@ afterEach(() => {
 });
 
 describe("Settings: предупреждения", () => {
-  // Ловит: испорченная база (Ruling 25) не видна родителю на экране настроек.
-  it("при испорченной базе предупреждение стоит сверху", async () => {
-    await setup({ notices: ["База данных была повреждена и восстановлена. Ограничения не действовали"] });
+  // Ловит: испорченная база (Ruling 25) не видна родителю на экране настроек или показана
+  // техническими словами (NFR-11, L-112).
+  it("при испорченной базе предупреждение стоит сверху, человеческими словами, с кнопкой в «Дети»", async () => {
+    const user = await setup({
+      notices: ["База данных была повреждена и восстановлена. Ограничения не действовали, пока служба не смогла её прочитать"],
+    });
     const alert = await screen.findByRole("alert");
-    expect(alert.textContent).toMatch(/База данных была повреждена и восстановлена/);
+    expect(alert.textContent).toContain(RULES_NOT_READ_TEXT);
+    expect(alert.textContent).not.toMatch(/баз[аыу] данных|служб/i);
     const top = screen.getByRole("heading", { level: 2, name: "Настройки" });
     expect(top.compareDocumentPosition(alert) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    await user.click(within(alert).getByRole("button", { name: "Открыть «Дети»" }));
+    expect(openChildren).toHaveBeenCalledTimes(1);
   });
 
   it("без предупреждений тишина", async () => {
@@ -205,6 +214,57 @@ describe("Settings: детские учётки", () => {
     );
   });
 
+  // Ловит: учётка Windows ребёнка не видна, а форма добавления выглядит частью карточки последнего ребёнка.
+  it("у каждого ребёнка своя карточка с его учётной записью Windows", async () => {
+    await setup({
+      children: [
+        mockChild({ name: "Мишаня" }),
+        mockChild({ childId: 2, sid: "S-1-5-21-111-222-333-1002", name: "Даша" }),
+      ],
+    });
+    const list = within(section("Детские учётки")).getByRole("list");
+    const cards = within(list).getAllByRole("listitem");
+    expect(cards).toHaveLength(2);
+    // Имя в программе может отличаться от имени учётки Windows: показываем обе.
+    expect(within(cards[0]).getByText("Мишаня")).toBeTruthy();
+    expect(within(cards[0]).getByText("Учётная запись Windows: Миша")).toBeTruthy();
+    expect(within(cards[1]).getByText("Даша")).toBeTruthy();
+    expect(within(cards[1]).getByText("Учётная запись Windows: Даша")).toBeTruthy();
+    expect(within(cards[1]).getByRole("button", { name: "Убрать Даша" })).toBeTruthy();
+    expect(within(cards[0]).queryByText(/Даша/)).toBeNull();
+  });
+
+  it("учётки Windows нет в списке: «не найдена на этом компьютере»", async () => {
+    mock = installBackend({ sessionActive: true });
+    mock.override("ListAccounts", { ok: true, payload: { accounts: [] } });
+    render(<Settings />);
+    await vi.waitFor(() => expect(screen.queryByText("Загружаю данные")).toBeNull());
+    expect(await screen.findByText("Учётная запись Windows не найдена на этом компьютере")).toBeTruthy();
+  });
+
+  it("форма «Добавить» - отдельный блок со своим заголовком под списком детей", async () => {
+    await setup({ children: [mockChild(), mockChild({ childId: 2, sid: "S-1-5-21-111-222-333-1002", name: "Даша" })], accounts: [
+      ...mockAccounts(),
+      { sid: "S-1-5-21-111-222-333-1003", name: "Егор", admin: false, child: false, current: false, canBeChild: true },
+    ] });
+    const box = section("Детские учётки");
+    const list = within(box).getByRole("list");
+    const heading = within(box).getByRole("heading", { level: 4, name: "Добавить детскую учётку" });
+    expect(heading.closest("li")).toBeNull();
+    expect(list.contains(heading)).toBe(false);
+    expect(list.compareDocumentPosition(heading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const select = within(box).getByLabelText("Учётная запись Windows") as HTMLSelectElement;
+    expect(heading.parentElement?.contains(select)).toBe(true);
+    expect(list.contains(select)).toBe(false);
+    expect(Array.from(select.options).map((o) => o.text)).toEqual(["Егор"]);
+  });
+
+  it("добавлять некого: заголовок блока остаётся, под ним объяснение", async () => {
+    await setup({ accounts: mockAccounts().filter((a) => a.name !== "Даша") });
+    const box = section("Детские учётки");
+    expect(within(box).getByRole("heading", { level: 4, name: "Добавить детскую учётку" })).toBeTruthy();
+  });
+
   it("детей несколько - у каждого свои кнопки", async () => {
     await setup({ children: [mockChild(), mockChild({ childId: 2, sid: "S-1-5-21-111-222-333-1002", name: "Даша" })] });
     expect(screen.getByRole("button", { name: "Убрать Даша" })).toBeTruthy();
@@ -219,6 +279,17 @@ describe("Settings: Помощник", () => {
     await vi.waitFor(() => expect(toggle.disabled).toBe(false));
     expect(screen.getByText(/Подсказки при первом открытии экранов/)).toBeTruthy();
     expect(toggle.checked).toBe(true);
+  });
+
+  // Ловит: в окне родителя обещание «в следующем обновлении» вместо работающей функции; в M1 только переключатель.
+  it("только работающий переключатель, без обещаний на будущее", async () => {
+    await setup();
+    const box = section("Помощник");
+    await vi.waitFor(() => expect(within(box).getByRole("checkbox").hasAttribute("disabled")).toBe(false));
+    expect(within(box).getAllByRole("checkbox")).toHaveLength(1);
+    expect(within(box).queryByText(/следующем обновлении/)).toBeNull();
+    expect(within(box).queryByText(/появится|появятся/)).toBeNull();
+    expect(within(box).queryByRole("button")).toBeNull();
   });
 
   it("выключено в сохранённом состоянии - переключатель выключен", async () => {

@@ -3,12 +3,14 @@ import { act, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import Today from "./Today";
 import { installBackend, mockChild, uninstallBackend, type MockBackend } from "../__mocks__/backend";
+import { RULES_NOT_READ_TEXT } from "../lib/notices";
 
 // FR-15, сценарий 8.3.2: карточки детей, статус словом и цветом, +время с «Отменить», снятие блокировки.
 
 let mock: MockBackend;
 let openJournal: Mock<(opts: { violations: boolean }) => void>;
 let openSettings: Mock<() => void>;
+let openChildren: Mock<() => void>;
 
 const NOW = new Date(2026, 9, 19, 12, 0, 0); // пн, 19 октября 2026
 
@@ -16,8 +18,9 @@ function setup(opts: Parameters<typeof installBackend>[0] = {}) {
   mock = installBackend({ sessionActive: true, ...opts });
   openJournal = vi.fn<(opts: { violations: boolean }) => void>();
   openSettings = vi.fn<() => void>();
+  openChildren = vi.fn<() => void>();
   const user = userEvent.setup({ advanceTimers: (ms) => vi.advanceTimersByTime(ms) });
-  render(<Today onOpenJournal={openJournal} onOpenSettings={openSettings} />);
+  render(<Today onOpenJournal={openJournal} onOpenSettings={openSettings} onOpenChildren={openChildren} />);
   return user;
 }
 
@@ -79,6 +82,28 @@ describe("Today: карточка ребёнка", () => {
     expect(within(misha).getByText("Можно снова: когда родитель снимет блокировку")).toBeTruthy();
     expect(within(misha).getByRole("button", { name: "Снять блокировку" })).toBeTruthy();
     expect(within(card("Даша")).queryByRole("button", { name: "Снять блокировку" })).toBeNull();
+  });
+
+  // Ловит: у ребёнка, заблокированного за обход, лежат «+15/+30/+60» рядом со «Снять блокировку»:
+  // родитель добавляет время, а блокировка остаётся.
+  it("при блокировке за обход «+время» спрятано, остаётся только «Снять блокировку»", async () => {
+    setup({ children: [mockChild({ blocked: true }), mockChild({ childId: 2, sid: "S-2", name: "Даша" })] });
+    const misha = await screen.findByRole("article", { name: "Миша" });
+    for (const m of ["+15", "+30", "+60"]) {
+      expect(within(misha).queryByRole("button", { name: m })).toBeNull();
+    }
+    expect(within(misha).getAllByRole("button").map((b) => b.textContent)).toEqual(["Снять блокировку"]);
+    // У соседа без блокировки кнопки на месте.
+    expect(within(card("Даша")).getByRole("button", { name: "+15" })).toBeTruthy();
+  });
+
+  it("обычное «время вышло» оставляет «+время»", async () => {
+    setup({ children: [mockChild({ usedS: 7200 })] });
+    const misha = await screen.findByRole("article", { name: "Миша" });
+    expect(within(misha).getByText("Время вышло")).toBeTruthy();
+    expect(within(misha).getByRole("button", { name: "+15" })).toBeTruthy();
+    expect(within(misha).getByRole("button", { name: "+60" })).toBeTruthy();
+    expect(within(misha).queryByRole("button", { name: "Снять блокировку" })).toBeNull();
   });
 
   it("«Снять блокировку» снимает и говорит об этом", async () => {
@@ -204,10 +229,30 @@ describe("Today: добавить время", () => {
 });
 
 describe("Today: общее", () => {
-  it("важные сообщения при входе - сверху (испорченная база)", async () => {
-    setup({ notices: ["База данных была повреждена и восстановлена. Ограничения не действовали, пока служба не смогла её прочитать"] });
+  // Ловит: родитель читает «база данных» и «служба» (NFR-11, L-112) и не знает, куда идти дальше.
+  it("испорченная база: человеческие слова по смыслу R18 и кнопка «Открыть «Дети»»", async () => {
+    const user = setup({
+      notices: ["База данных была повреждена и восстановлена. Ограничения не действовали, пока служба не смогла её прочитать"],
+    });
     const notice = await screen.findByRole("alert");
-    expect(notice.textContent).toMatch(/База данных была повреждена и восстановлена/);
+    expect(notice.textContent).toContain(RULES_NOT_READ_TEXT);
+    expect(notice.textContent).not.toMatch(/баз[аыу] данных|служб/i);
+    await user.click(within(notice).getByRole("button", { name: "Открыть «Дети»" }));
+    expect(openChildren).toHaveBeenCalledTimes(1);
+  });
+
+  it("предупреждение стоит над карточками детей", async () => {
+    setup({ notices: ["База данных была повреждена и восстановлена"] });
+    const notice = await screen.findByRole("alert");
+    const misha = await screen.findByRole("article", { name: "Миша" });
+    expect(notice.compareDocumentPosition(misha) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("обычное сообщение службы - как есть и без кнопки", async () => {
+    setup({ notices: ["Установлено обновление"] });
+    const notice = await screen.findByRole("alert");
+    expect(notice.textContent).toBe("Установлено обновление");
+    expect(within(notice).queryByRole("button")).toBeNull();
   });
 
   // Ловит: пустой список детей показан белым экраном (L-22) или без следующего шага (L-119).

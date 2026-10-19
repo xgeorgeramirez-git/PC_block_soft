@@ -145,6 +145,38 @@ describe("мастер", () => {
   });
 });
 
+describe("согласованность подменной программы", () => {
+  // Ловит: на снимках экранов у одного и того же ребёнка разные версии программы на входе и в настройках.
+  it("версия по умолчанию одна для Version() и Hello()", async () => {
+    installBackend();
+    expect(await api.version()).toBe("0.0.1");
+    expect((await api.hello()).version).toBe("0.0.1");
+  });
+
+  // Ловит: «Сегодня» показывает ребёнка, которого нет среди детских учёток в «Настройках».
+  it("каждый ребёнок с «Сегодня» есть в учётках с отметкой «ребёнок», и наоборот", async () => {
+    installBackend({
+      sessionActive: true,
+      children: [
+        mockChild(),
+        mockChild({ childId: 2, sid: "S-1-5-21-111-222-333-1002", name: "Даша" }),
+        mockChild({ childId: 3, sid: "S-1-5-21-111-222-333-1077", name: "Егор" }),
+      ],
+    });
+    const today = (await api.getToday()).children.map((c) => c.name).sort();
+    const accounts = await api.listAccounts();
+    expect(accounts.filter((a) => a.child).map((a) => a.name).sort()).toEqual(today);
+    // Учётка Егора в списке контракта не названа: подменная программа заводит её сама.
+    expect(accounts.find((a) => a.name === "Егор")).toMatchObject({ admin: false, canBeChild: true, child: true });
+  });
+
+  it("у администратора отметки «ребёнок» нет", async () => {
+    installBackend({ sessionActive: true });
+    const admin = (await api.listAccounts()).find((a) => a.admin);
+    expect(admin?.child).toBe(false);
+  });
+});
+
 describe("дети и пароль", () => {
   it("добавить, переименовать, убрать", async () => {
     installBackend({ sessionActive: true });
