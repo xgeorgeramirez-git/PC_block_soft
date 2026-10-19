@@ -1,52 +1,278 @@
-import { useEffect, useState } from "react";
-import { getVersion } from "./api";
+import { useCallback, useEffect, useState } from "react";
+import { hello, login, logout, mode as readMode, sessionState, version as readVersion } from "./api";
+import Notice from "./components/Notice";
+import { SaveBarSlotContext } from "./components/SaveBar";
+import { UnsavedGuardProvider, useAttemptNavigation } from "./guard";
+import { errorText } from "./lib/errors";
+import { SESSION_WARNING_TEXT } from "./session";
+import Children from "./screens/Children";
+import Journal from "./screens/Journal";
+import LoginDialog from "./screens/LoginDialog";
+import ResetPassword from "./screens/ResetPassword";
+import Settings from "./screens/Settings";
+import Today from "./screens/Today";
+import UninstallGate from "./screens/UninstallGate";
+import Wizard from "./screens/Wizard";
+import { useSessionWatcher } from "./useSessionWatcher";
+
+type Phase = "wizard" | "login" | "parent";
+
+type Boot =
+  | { kind: "loading" }
+  | { kind: "failed"; text: string }
+  | { kind: "simple"; mode: "reset-password" | "uninstall-gate" | "mystats" | "firstrun" }
+  | { kind: "ready"; phase: Phase };
+
+const SIMPLE_MODES = ["reset-password", "uninstall-gate", "mystats", "firstrun"] as const;
+
+/** Что показать при запуске: по ключу запуска (режим окна) и состоянию программы. */
+async function bootstrap(): Promise<Boot> {
+  const mode = await readMode();
+  const simple = SIMPLE_MODES.find((m) => m === mode);
+  if (simple) {
+    return { kind: "simple", mode: simple };
+  }
+  const state = await hello();
+  if (!state.configured) {
+    return { kind: "ready", phase: "wizard" };
+  }
+  if (mode === "parent") {
+    // Окно открыто из родительской сессии (страж после верного пароля): вход не нужен.
+    const session = await sessionState().catch(() => ({ active: false }));
+    if (session.active) {
+      return { kind: "ready", phase: "parent" };
+    }
+  }
+  return { kind: "ready", phase: "login" };
+}
 
 type VersionState = { kind: "loading" } | { kind: "ready"; value: string } | { kind: "failed" };
 
-export default function App() {
+function Topbar({ onLogout }: { onLogout?: () => void }) {
   const [version, setVersion] = useState<VersionState>({ kind: "loading" });
-
   useEffect(() => {
-    let active = true;
-    getVersion()
-      .then((value) => active && setVersion({ kind: "ready", value }))
-      .catch(() => active && setVersion({ kind: "failed" }));
+    let alive = true;
+    readVersion().then(
+      (value) => alive && setVersion({ kind: "ready", value }),
+      () => alive && setVersion({ kind: "failed" }),
+    );
     return () => {
-      active = false;
+      alive = false;
     };
   }, []);
+  return (
+    <header className="topbar">
+      <h1 className="product">PC Block</h1>
+      <span className="product-note">Родительский контроль</span>
+      <span className="topbar-spacer" />
+      <span className="product-version">
+        {version.kind === "loading" && "Узнаю версию"}
+        {version.kind === "ready" && `Версия ${version.value}`}
+        {version.kind === "failed" && "Версию узнать не удалось"}
+      </span>
+      {onLogout ? (
+        <button type="button" className="btn btn-small" onClick={onLogout}>
+          Выйти
+        </button>
+      ) : null}
+    </header>
+  );
+}
+
+export default function App() {
+  const [boot, setBoot] = useState<Boot>({ kind: "loading" });
+  const [phase, setPhase] = useState<Phase | null>(null);
+
+  const start = useCallback(async () => {
+    setBoot({ kind: "loading" });
+    try {
+      const next = await bootstrap();
+      setBoot(next);
+      setPhase(next.kind === "ready" ? next.phase : null);
+    } catch (e) {
+      setBoot({ kind: "failed", text: errorText(e) });
+    }
+  }, []);
+
+  useEffect(() => {
+    void start();
+  }, [start]);
+
+  // После мастера пароль только что задан: входим сами, а если не вышло, просим ввести.
+  const openSettingsAfterWizard = async (password: string) => {
+    try {
+      await login(password);
+      setPhase("parent");
+    } catch {
+      setPhase("login");
+    }
+  };
+
+  let body;
+  if (boot.kind === "loading") {
+    body = <p className="panel-text">Запускаю</p>;
+  } else if (boot.kind === "failed") {
+    body = (
+      <section className="panel">
+        <Notice tone="warn" urgent>
+          {boot.text}
+        </Notice>
+        <button type="button" className="btn" onClick={() => void start()}>
+          Повторить
+        </button>
+      </section>
+    );
+  } else if (boot.kind === "simple") {
+    body = <SimpleScreen mode={boot.mode} />;
+  } else if (phase === "wizard") {
+    body = <Wizard onOpenSettings={(pw) => void openSettingsAfterWizard(pw)} />;
+  } else if (phase === "login") {
+    body = <LoginDialog onSuccess={() => setPhase("parent")} />;
+  } else if (phase === "parent") {
+    return (
+      <UnsavedGuardProvider>
+        <ParentWindow
+          onLoggedOut={() => {
+            setPhase("login");
+          }}
+        />
+      </UnsavedGuardProvider>
+    );
+  }
 
   return (
     <div className="shell">
-      <header className="topbar">
-        <h1 className="product">PC Block</h1>
-        <span className="product-note">Родительский контроль</span>
-      </header>
-      <main className="content">
-        <section className="panel" aria-labelledby="status-title">
-          <h2 id="status-title" className="panel-title">
-            Программа в разработке
-          </h2>
-          <p className="panel-text">
-            Это первая сборка: окно открывается, установщик собирается. Лимиты времени и экран
-            блокировки появятся в версии 0.1.
-          </p>
-          <dl className="facts">
-            <div className="fact">
-              <dt>Сборка</dt>
-              <dd>
-                {version.kind === "loading" && "Узнаю версию"}
-                {version.kind === "ready" && `Версия ${version.value}`}
-                {version.kind === "failed" && "Версию узнать не удалось"}
-              </dd>
-            </div>
-            <div className="fact">
-              <dt>Данные</dt>
-              <dd>Хранятся только на этом компьютере</dd>
-            </div>
-          </dl>
-        </section>
-      </main>
+      <Topbar />
+      <main className="content content-centered">{body}</main>
     </div>
+  );
+}
+
+function SimpleScreen({ mode }: { mode: "reset-password" | "uninstall-gate" | "mystats" | "firstrun" }) {
+  switch (mode) {
+    case "reset-password":
+      return <ResetPassword />;
+    case "uninstall-gate":
+      // Окно само завершится с кодом для установщика; решение выбора пока некому передать.
+      return <UninstallGate onDecision={() => undefined} />;
+    case "mystats":
+      return (
+        <section className="panel">
+          <h2 className="panel-title">Моя статистика</h2>
+          <p className="panel-text">Этот экран появится в следующем обновлении.</p>
+        </section>
+      );
+    case "firstrun":
+      return (
+        <section className="panel">
+          <h2 className="panel-title">Добро пожаловать</h2>
+          <p className="panel-text">Это приветствие появится в следующем обновлении.</p>
+        </section>
+      );
+  }
+}
+
+type Screen = "today" | "children" | "journal" | "settings" | "help";
+
+const MENU: { id: Screen; label: string }[] = [
+  { id: "today", label: "Сегодня" },
+  { id: "children", label: "Дети" },
+  { id: "journal", label: "Журнал" },
+  { id: "settings", label: "Настройки" },
+];
+
+/** Окно родителя: меню слева, раздел справа, родительская сессия под присмотром (R19). */
+function ParentWindow({ onLoggedOut }: { onLoggedOut: () => void }) {
+  const [screen, setScreen] = useState<Screen>("today");
+  const [violationsOnly, setViolationsOnly] = useState(false);
+  const [saveSlot, setSaveSlot] = useState<HTMLElement | null>(null);
+  const attempt = useAttemptNavigation();
+  const { view, extend, restart } = useSessionWatcher();
+
+  const go = (next: Screen, opts: { violations?: boolean } = {}) =>
+    attempt(() => {
+      setViolationsOnly(Boolean(opts.violations));
+      setScreen(next);
+    });
+
+  const leave = () =>
+    attempt(() => {
+      // Не вышло закрыть сессию (нет связи): окно всё равно просит пароль, сессия сама кончится по таймеру.
+      void logout()
+        .catch(() => undefined)
+        .finally(onLoggedOut);
+    });
+
+  const ended = view.phase === "ended";
+
+  return (
+    <SaveBarSlotContext.Provider value={saveSlot}>
+      <div className="shell">
+        <Topbar onLogout={leave} />
+        <div className="shell-body" inert={ended}>
+          <nav className="menu" aria-label="Разделы">
+            <ul className="menu-list">
+              {MENU.map((item) => (
+                <li key={item.id}>
+                  <button
+                    type="button"
+                    className="menu-item"
+                    aria-current={screen === item.id ? "page" : undefined}
+                    onClick={() => go(item.id)}
+                  >
+                    {item.label}
+                  </button>
+                </li>
+              ))}
+            </ul>
+            <button
+              type="button"
+              className="menu-item menu-help"
+              aria-current={screen === "help" ? "page" : undefined}
+              onClick={() => go("help")}
+            >
+              Помощь
+            </button>
+          </nav>
+          <div className="main-col">
+            <main className="content">
+              {view.phase === "warning" ? (
+                <div className="session-warning" role="alert">
+                  <span>{SESSION_WARNING_TEXT}</span>
+                  <button type="button" className="btn btn-small" onClick={() => void extend()}>
+                    Продолжить
+                  </button>
+                </div>
+              ) : null}
+              {screen === "today" ? (
+                <Today
+                  onOpenJournal={(o) => go("journal", o)}
+                  onOpenSettings={() => go("settings")}
+                  onOpenChildren={() => go("children")}
+                />
+              ) : null}
+              {screen === "children" ? <Children onOpenSettings={() => go("settings")} /> : null}
+              {screen === "journal" ? <Journal key={String(violationsOnly)} violationsOnly={violationsOnly} /> : null}
+              {screen === "settings" ? <Settings onOpenChildren={() => go("children")} /> : null}
+              {screen === "help" ? (
+                <section className="panel">
+                  <h2 className="panel-title">Помощь</h2>
+                  <p className="panel-text">Подсказки и обучение появятся в следующем обновлении.</p>
+                </section>
+              ) : null}
+            </main>
+            <div className="savebar-slot" ref={setSaveSlot} />
+          </div>
+        </div>
+        {ended ? (
+          <div className="overlay" role="dialog" aria-modal="true" aria-label="Сессия закончилась">
+            <LoginDialog
+              lead="Сессия закончилась. Введите пароль, чтобы продолжить: несохранённые правки на месте."
+              onSuccess={restart}
+            />
+          </div>
+        ) : null}
+      </div>
+    </SaveBarSlotContext.Provider>
   );
 }
