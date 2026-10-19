@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import { act, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import Today from "./Today";
@@ -7,15 +7,15 @@ import { installBackend, mockChild, uninstallBackend, type MockBackend } from ".
 // FR-15, сценарий 8.3.2: карточки детей, статус словом и цветом, +время с «Отменить», снятие блокировки.
 
 let mock: MockBackend;
-let openJournal: ReturnType<typeof vi.fn>;
-let openSettings: ReturnType<typeof vi.fn>;
+let openJournal: Mock<(opts: { violations: boolean }) => void>;
+let openSettings: Mock<() => void>;
 
 const NOW = new Date(2026, 9, 19, 12, 0, 0); // пн, 19 октября 2026
 
 function setup(opts: Parameters<typeof installBackend>[0] = {}) {
   mock = installBackend({ sessionActive: true, ...opts });
-  openJournal = vi.fn();
-  openSettings = vi.fn();
+  openJournal = vi.fn<(opts: { violations: boolean }) => void>();
+  openSettings = vi.fn<() => void>();
   const user = userEvent.setup({ advanceTimers: (ms) => vi.advanceTimersByTime(ms) });
   render(<Today onOpenJournal={openJournal} onOpenSettings={openSettings} />);
   return user;

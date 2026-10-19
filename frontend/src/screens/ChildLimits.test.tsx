@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import ChildLimits from "./ChildLimits";
@@ -8,7 +8,7 @@ import { installBackend, uninstallBackend, type MockBackend } from "../__mocks__
 // FR-16, FR-19 (L-44): таблица 7 дней, одна панель «Сохранить», ошибки у поля, диалог при уходе.
 
 let mock: MockBackend;
-let leave: ReturnType<typeof vi.fn>;
+let leave: Mock<() => void>;
 
 function Leaver() {
   const attempt = useAttemptNavigation();
@@ -21,7 +21,7 @@ function Leaver() {
 
 function setup(opts: Parameters<typeof installBackend>[0] = {}) {
   mock = installBackend({ sessionActive: true, ...opts });
-  leave = vi.fn();
+  leave = vi.fn<() => void>();
   const user = userEvent.setup();
   render(
     <UnsavedGuardProvider>

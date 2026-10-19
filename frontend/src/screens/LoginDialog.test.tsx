@@ -1,17 +1,18 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import LoginDialog from "./LoginDialog";
+import type { LoginReply } from "../types";
 import { DEFAULT_PASSWORD, installBackend, uninstallBackend, type MockBackend } from "../__mocks__/backend";
 
 // FR-14, R19: вход родителя. Ошибки у поля, Enter = «Войти», пауза с отсчётом.
 
 let mock: MockBackend;
-let onSuccess: ReturnType<typeof vi.fn>;
+let onSuccess: Mock<(reply: LoginReply) => void>;
 
 function setup(opts: Parameters<typeof installBackend>[0] = {}) {
   mock = installBackend(opts);
-  onSuccess = vi.fn();
+  onSuccess = vi.fn<(reply: LoginReply) => void>();
   const user = userEvent.setup({ advanceTimers: (ms) => vi.advanceTimersByTime(ms) });
   render(<LoginDialog onSuccess={onSuccess} />);
   return { user, input: screen.getByLabelText("Пароль родителя") as HTMLInputElement };

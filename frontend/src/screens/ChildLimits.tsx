@@ -93,9 +93,9 @@ export default function ChildLimits({ childId, onSaved }: Props) {
       return true;
     } catch (e) {
       if (!alive.current) return false;
-      const m = e instanceof CallError ? /^limits\.(\d)$/.exec(e.field ?? "") : null;
-      if (m) {
-        setErrors({ [Number(m[1])]: e.message });
+      const day = e instanceof CallError ? /^limits\.(\d)$/.exec(e.field ?? "") : null;
+      if (day) {
+        setErrors({ [Number(day[1])]: errorText(e) });
       } else {
         setFormError(errorText(e));
       }

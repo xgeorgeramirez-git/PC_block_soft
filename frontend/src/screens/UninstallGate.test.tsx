@@ -1,18 +1,18 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import UninstallGate from "./UninstallGate";
+import UninstallGate, { type UninstallDecision } from "./UninstallGate";
 import { DEFAULT_PASSWORD, installBackend, uninstallBackend, type MockBackend } from "../__mocks__/backend";
 
 // FR-4: удаление требует пароль родителя; забыл пароль - отдельное подтверждение администратора;
 // не настроена - без пароля. Галочка «Удалить статистику».
 
 let mock: MockBackend;
-let onDecision: ReturnType<typeof vi.fn>;
+let onDecision: Mock<(decision: UninstallDecision) => void>;
 
 function setup(opts: Parameters<typeof installBackend>[0] = {}) {
   mock = installBackend({ mode: "uninstall-gate", ...opts });
-  onDecision = vi.fn();
+  onDecision = vi.fn<(decision: UninstallDecision) => void>();
   render(<UninstallGate onDecision={onDecision} />);
   return userEvent.setup({ advanceTimers: (ms) => vi.advanceTimersByTime(ms) });
 }

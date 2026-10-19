@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi, type Mock } from "vitest";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import Wizard from "./Wizard";
@@ -7,11 +7,11 @@ import { installBackend, mockAccounts, uninstallBackend, type MockBackend } from
 // FR-1, FR-2, сценарий 8.3.1: мастер из 3 шагов. Ошибки у поля, недоступное объясняет почему.
 
 let mock: MockBackend;
-let openSettings: ReturnType<typeof vi.fn>;
+let openSettings: Mock<(password: string) => void>;
 
 function setup(opts: Parameters<typeof installBackend>[0] = {}) {
   mock = installBackend({ configured: false, mode: "wizard", ...opts });
-  openSettings = vi.fn();
+  openSettings = vi.fn<(password: string) => void>();
   render(<Wizard onOpenSettings={openSettings} />);
   return userEvent.setup();
 }
@@ -223,6 +223,7 @@ describe("Wizard: шаг 3, время", () => {
 
     await user.click(screen.getByRole("button", { name: "Открыть настройки" }));
     expect(openSettings).toHaveBeenCalledTimes(1);
+    expect(openSettings).toHaveBeenCalledWith("секрет-123");
   });
 
   it("лимит больше суток: ошибка у дня, мастер не отправляется", async () => {

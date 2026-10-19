@@ -9,8 +9,8 @@ import { validatePasswordPair, type PasswordPairErrors } from "../lib/password";
 import type { Account, WeekdayLimit } from "../types";
 
 interface Props {
-  /** Кнопка «Открыть настройки» на итоговом экране. */
-  onOpenSettings: () => void;
+  /** Кнопка «Открыть настройки» на итоговом экране; получает только что заданный пароль, чтобы войти сразу. */
+  onOpenSettings: (password: string) => void;
 }
 
 type Step = 1 | 2 | 3 | "done";
@@ -138,7 +138,7 @@ export default function Wizard({ onOpenSettings }: Props) {
         </h2>
         <p className="panel-text">Дальше можно открыть настройки: там видно, сколько времени осталось у каждого ребёнка.</p>
         <div className="form-actions">
-          <button type="button" className="btn btn-primary" onClick={onOpenSettings}>
+          <button type="button" className="btn btn-primary" onClick={() => onOpenSettings(password)}>
             Открыть настройки
           </button>
         </div>

@@ -22,7 +22,9 @@ const TextField = forwardRef<HTMLInputElement, Props>(function TextField(
   const id = useId();
   const errorId = `${id}-error`;
   const hintId = `${id}-hint`;
-  const described = [hint ? hintId : "", error ? errorId : ""].filter(Boolean).join(" ");
+  // Подсказка уступает место ошибке: часто это один и тот же текст («Не меньше 6 символов»).
+  const showHint = Boolean(hint) && !error;
+  const described = [showHint ? hintId : "", error ? errorId : ""].filter(Boolean).join(" ");
   return (
     <div className={error ? "field field-invalid" : "field"}>
       <label className="field-label" htmlFor={id}>
@@ -42,7 +44,7 @@ const TextField = forwardRef<HTMLInputElement, Props>(function TextField(
         aria-describedby={described || undefined}
         onChange={(e) => onChange(e.target.value)}
       />
-      {hint ? (
+      {showHint ? (
         <p id={hintId} className="field-hint">
           {hint}
         </p>
