@@ -11,9 +11,21 @@ async function mockProgram(page: Page, options: MockOptions = {}) {
   await page.addInitScript({ content: await mockScript(options) });
 }
 
+/** Ни окно, ни прокручиваемая область страницы не уходят вбок. */
 async function noHorizontalScroll(page: Page) {
-  const overflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
+  const overflow = await page.evaluate(() => {
+    const wider = (el: Element | null) => (el ? el.scrollWidth > el.clientWidth : false);
+    return wider(document.documentElement) || wider(document.querySelector(".content"));
+  });
   expect(overflow).toBe(false);
+}
+
+/**
+ * Окно приложения не растёт вместе со страницей: длинные страницы прокручиваются внутри.
+ * Для снимка длинной страницы целиком окно временно делаем выше.
+ */
+async function tallWindow(page: Page, height: number) {
+  await page.setViewportSize({ width: 960, height });
 }
 
 /** Лимит 2 ч на каждый день: снимок не зависит от дня недели, в который идёт сборка. */
@@ -32,14 +44,17 @@ const child = (over: Partial<MockChild>): MockChild => ({
   ...over,
 });
 
+// Один и тот же набор детей на «Сегодня», в «Детях» и в «Настройках»: Миша (мало времени, жёлтый),
+// Даша (обход защиты, красный), Егор (можно, зелёный).
 const family = (): MockChild[] => [
   child({}),
   child({ childId: 2, sid: "S-1-5-21-111-222-333-1002", name: "Даша", usedS: 2100, blocked: true }),
+  child({ childId: 3, sid: "S-1-5-21-111-222-333-1003", name: "Егор", usedS: 1800 }),
 ];
 
 // s00 — вход родителя: название, версия от программы, без горизонтальной прокрутки.
 test("s00 вход родителя", async ({ page }) => {
-  await mockProgram(page, { version: "0.0.1" });
+  await mockProgram(page);
   await page.goto("/");
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("PC Block");
   await expect(page.getByText("Версия 0.0.1")).toBeVisible();
@@ -51,7 +66,7 @@ test("s00 вход родителя", async ({ page }) => {
 // s00-dark — тот же вход в тёмной теме Windows.
 test("s00 вход родителя, тёмная тема", async ({ page }) => {
   await page.emulateMedia({ colorScheme: "dark" });
-  await mockProgram(page, { version: "0.0.1" });
+  await mockProgram(page);
   await page.goto("/");
   await expect(page.getByLabel("Пароль родителя")).toBeVisible();
   await page.screenshot({ path: `${SCREENS}/s00-login-dark.png`, fullPage: true });
@@ -70,36 +85,99 @@ test("s01 мастер, шаг пароля", async ({ page }) => {
   await page.screenshot({ path: `${SCREENS}/s01-wizard-password.png`, fullPage: true });
 });
 
-// s02 — «Сегодня»: статус словом и цветом, «Снять блокировку» при обходе (S3, S7).
+// s02 — «Сегодня»: статус словом и цветом (зелёный, жёлтый, красный), «Снять блокировку» при обходе (S3, S7).
 test("s02 сегодня", async ({ page }) => {
+  await tallWindow(page, 900);
   await mockProgram(page, { mode: "parent", sessionActive: true, children: family() });
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "Сегодня" })).toBeVisible();
   await expect(page.getByRole("article", { name: "Миша" }).getByText("Осталось 10 мин")).toBeVisible();
+  await expect(page.getByRole("article", { name: "Егор" }).getByText("Можно", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Снять блокировку" })).toBeVisible();
+  // У ребёнка, заблокированного за обход, «+время» нет, только «Снять блокировку».
+  const blocked = page.getByRole("article", { name: "Даша" });
+  await expect(blocked.getByRole("button", { name: "+15" })).toHaveCount(0);
+  await expect(blocked.getByRole("button")).toHaveCount(1);
+  await expect(page.getByRole("article", { name: "Егор" }).getByRole("button", { name: "+15" })).toBeVisible();
   await noHorizontalScroll(page);
   await page.screenshot({ path: `${SCREENS}/s02-today.png`, fullPage: true });
 });
 
 test("s02 сегодня, тёмная тема", async ({ page }) => {
   await page.emulateMedia({ colorScheme: "dark" });
+  await tallWindow(page, 900);
   await mockProgram(page, { mode: "parent", sessionActive: true, children: family() });
   await page.goto("/");
   await expect(page.getByRole("article", { name: "Даша" })).toBeVisible();
   await page.screenshot({ path: `${SCREENS}/s02-today-dark.png`, fullPage: true });
 });
 
-// s03 — лимиты ребёнка: правка показывает нижнюю панель «Сохранить» (FR-19).
+// s02 — предупреждение о нечитаемых правилах (R18): человеческими словами и с кнопкой в «Дети».
+test("s02 сегодня, правила не прочитаны", async ({ page }) => {
+  await tallWindow(page, 900);
+  await mockProgram(page, {
+    mode: "parent",
+    sessionActive: true,
+    children: family(),
+    notices: ["База данных была повреждена и восстановлена. Ограничения не действовали, пока служба не смогла её прочитать"],
+  });
+  await page.goto("/");
+  const alert = page.getByRole("alert");
+  await expect(alert).toContainText("Не удалось прочитать правила, поэтому сейчас ограничения не действуют");
+  await expect(alert).not.toContainText(/база данных|служб/i);
+  await expect(alert.getByRole("button", { name: "Открыть «Дети»" })).toBeVisible();
+  await noHorizontalScroll(page);
+  await page.screenshot({ path: `${SCREENS}/s02-today-notice.png`, fullPage: true });
+});
+
+// s03 — лимиты ребёнка: правка показывает нижнюю панель «Сохранить» (FR-19). Окно 960x640 как у родителя.
 test("s03 лимиты, несохранённые изменения", async ({ page }) => {
   await mockProgram(page, { mode: "parent", sessionActive: true, children: [child({})] });
   await page.goto("/");
   await page.getByRole("button", { name: "Дети" }).click();
   await expect(page.getByRole("table")).toBeVisible();
   await page.getByLabel("Часы, понедельник").fill("1");
-  await expect(page.getByText("Есть несохранённые изменения")).toBeVisible();
+  const bar = page.getByRole("region", { name: "Сохранение изменений" });
+  await expect(bar.getByText("Есть несохранённые изменения")).toBeVisible();
   await expect(page.getByRole("button", { name: "Сохранить" })).toHaveCount(1);
+
+  // Панель прижата к нижнему краю окна на всю ширину страницы и не накрывает таблицу:
+  // все семь дней, в том числе суббота и воскресенье, видны над панелью без прокрутки.
+  const barBox = (await bar.boundingBox())!;
+  expect(barBox.y + barBox.height).toBeCloseTo(640, 0);
+  expect(barBox.x + barBox.width).toBeCloseTo(960, 0);
+  expect(barBox.width).toBeGreaterThan(700);
+  for (const day of ["Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота", "Воскресенье"]) {
+    const row = page.getByRole("row", { name: new RegExp(day) });
+    await expect(row).toBeInViewport({ ratio: 1 });
+    const box = (await row.boundingBox())!;
+    expect(box.y + box.height, `${day} закрыт панелью`).toBeLessThanOrEqual(barBox.y + 0.5);
+  }
   await noHorizontalScroll(page);
   await page.screenshot({ path: `${SCREENS}/s03-limits.png`, fullPage: true });
+
+  // После «Сохранить» на той же панели - итог.
+  await bar.getByRole("button", { name: "Сохранить" }).click();
+  await expect(page.getByRole("region", { name: "Сохранение изменений" }).getByText("Сохранено. Новые правила уже действуют")).toBeVisible();
+  await page.screenshot({ path: `${SCREENS}/s03-limits-saved.png`, fullPage: true });
+});
+
+// s03 — несколько детей: вкладки отнимают место, страница прокручивается над панелью, суббота и воскресенье доступны.
+test("s03 лимиты нескольких детей, панель не закрывает таблицу", async ({ page }) => {
+  await mockProgram(page, { mode: "parent", sessionActive: true, children: family() });
+  await page.goto("/");
+  await page.getByRole("button", { name: "Дети" }).click();
+  await expect(page.getByRole("tab", { name: "Миша" })).toBeVisible();
+  await page.getByLabel("Часы, понедельник").fill("1");
+  const bar = page.getByRole("region", { name: "Сохранение изменений" });
+  await expect(bar).toBeVisible();
+  const sunday = page.getByRole("row", { name: /Воскресенье/ });
+  await sunday.scrollIntoViewIfNeeded();
+  const barBox = (await bar.boundingBox())!;
+  const box = (await sunday.boundingBox())!;
+  expect(box.y + box.height).toBeLessThanOrEqual(barBox.y + 0.5);
+  await expect(page.getByRole("row", { name: /Суббота/ })).toBeInViewport({ ratio: 1 });
+  await page.screenshot({ path: `${SCREENS}/s03-limits-family.png`, fullPage: true });
 });
 
 // s04 — журнал и настройки.
@@ -122,17 +200,41 @@ test("s04 журнал", async ({ page }) => {
 });
 
 test("s05 настройки", async ({ page }) => {
+  // Длинная страница: окно выше, чтобы на снимке были все разделы.
+  await tallWindow(page, 1500);
   await mockProgram(page, {
     mode: "parent",
     sessionActive: true,
-    children: [child({})],
-    version: "0.1.0",
+    children: family(),
+    // Учётки Windows: администратор, трое детей и одна свободная учётка для формы «Добавить».
+    accounts: [
+      { sid: "S-1-5-21-111-222-333-1000", name: "Анна", admin: true, child: false, current: true, canBeChild: false },
+      ...["Миша", "Даша", "Егор", "Лиза"].map((name, i) => ({
+        sid: `S-1-5-21-111-222-333-${1001 + i}`,
+        name,
+        admin: false,
+        child: false,
+        current: false,
+        canBeChild: true,
+      })),
+    ],
     notices: ["База данных была повреждена и восстановлена. Ограничения не действовали, пока служба не смогла её прочитать"],
   });
   await page.goto("/");
   await page.getByRole("button", { name: "Настройки" }).click();
-  await expect(page.getByRole("heading", { name: "Детские учётки" })).toBeVisible();
-  await expect(page.getByText("Версия 0.1.0").last()).toBeVisible();
+  const box = page.getByRole("region", { name: "Детские учётки" });
+  await expect(box.getByRole("heading", { name: "Детские учётки" })).toBeVisible();
+  // Те же трое детей, что на «Сегодня», каждый на своей карточке с учёткой Windows.
+  const cards = box.getByRole("listitem");
+  await expect(cards).toHaveCount(3);
+  for (const name of ["Миша", "Даша", "Егор"]) {
+    await expect(cards.filter({ hasText: name }).getByText(`Учётная запись Windows: ${name}`)).toBeVisible();
+  }
+  await expect(box.getByRole("heading", { name: "Добавить детскую учётку" })).toBeVisible();
+  // В «Помощнике» только работающий переключатель.
+  await expect(page.getByText(/в следующем обновлении/)).toHaveCount(0);
+  await expect(page.getByRole("alert")).not.toContainText(/база данных|служб/i);
+  await expect(page.getByText("Версия 0.0.1")).toHaveCount(2);
   await noHorizontalScroll(page);
   await page.screenshot({ path: `${SCREENS}/s05-settings.png`, fullPage: true });
 });
