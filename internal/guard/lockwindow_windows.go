@@ -33,6 +33,7 @@ var (
 	procGetForegroundWin   = user32.NewProc("GetForegroundWindow")
 	procIsWindowVisible    = user32.NewProc("IsWindowVisible")
 	procSetTimer           = user32.NewProc("SetTimer")
+	procKillTimer          = user32.NewProc("KillTimer")
 	procBeginPaint         = user32.NewProc("BeginPaint")
 	procEndPaint           = user32.NewProc("EndPaint")
 	procFillRect           = user32.NewProc("FillRect")
@@ -76,6 +77,7 @@ const (
 	wsExTopmost = 0x00000008
 	wsExToolWin = 0x00000080
 
+	swHide        = 0
 	swShow        = 5
 	swpNoMove     = 0x0002
 	swpNoSize     = 0x0001
@@ -156,6 +158,12 @@ type LockWindow struct {
 	hook     uintptr
 	view     LockView
 	hookDone bool
+
+	// onMsg получает сообщения, которые окно само не разбирает (кнопки, рисование кнопок,
+	// цвета поля пароля, смена разрешения): lockscreen_windows.go. Закрытие, Esc и Alt+F4
+	// окно отклоняет раньше и сюда не передаёт. onPaint рисует содержимое вместо заглушки.
+	onMsg   func(msg uint32, wParam, lParam uintptr) (uintptr, bool)
+	onPaint func(hdc uintptr, rc *rect)
 }
 
 var (
@@ -202,7 +210,7 @@ func NewLockWindow(v LockView) (*LockWindow, error) {
 		wsExTopmost|wsExToolWin,
 		uintptr(unsafe.Pointer(classNamePtr)),
 		uintptr(unsafe.Pointer(title)),
-		wsPopup|wsVisible,
+		wsPopup|wsVisible|wsClipChildren,
 		x, y, cx, cy,
 		0, 0, hInst, 0,
 	)
@@ -211,7 +219,6 @@ func NewLockWindow(v LockView) (*LockWindow, error) {
 	}
 	w.hwnd = hwnd
 	w.font = createFont()
-	w.createButtons(cx, cy)
 
 	procShowWindow.Call(hwnd, swShow)
 	procUpdateWindow.Call(hwnd)
@@ -253,37 +260,6 @@ func createFont() uintptr {
 	return f
 }
 
-func (w *LockWindow) createButtons(cx, cy uintptr) {
-	labels := []string{"Попросить ещё", "Пароль родителя", "Выйти из учётной записи"}
-	bw, bh, gap := int32(360), int32(48), int32(16)
-	left := (int32(cx) - bw) / 2
-	top := int32(cy) * 62 / 100
-	small := createSmallFont()
-	for i, label := range labels {
-		p, _ := windows.UTF16PtrFromString(label)
-		hbtn, _, _ := procCreateWindowEx.Call(
-			0,
-			uintptr(unsafe.Pointer(buttonClass)),
-			uintptr(unsafe.Pointer(p)),
-			wsChild|wsVisible,
-			uintptr(left), uintptr(top+int32(i)*(bh+gap)), uintptr(bw), uintptr(bh),
-			w.hwnd, uintptr(1000+i), w.hInst, 0,
-		)
-		if hbtn != 0 && small != 0 {
-			procSendMessage.Call(hbtn, wmSetFont, small, 1)
-		}
-	}
-}
-
-func createSmallFont() uintptr {
-	face, _ := windows.UTF16PtrFromString("Segoe UI")
-	f, _, _ := procCreateFont.Call(
-		^uintptr(0)-17, 0, 0, 0, 400, 0, 0, 0, 1, 0, 0, 0, 0,
-		uintptr(unsafe.Pointer(face)),
-	)
-	return f
-}
-
 // InstallKeyboardGuard ставит низкоуровневый перехват клавиатуры, глушащий
 // Win, Alt+Tab, Alt+F4, Esc (и Ctrl+Esc / Ctrl+Shift+Esc как Esc), пока показан
 // экран. Возвращает ошибку, если хук не установился.
@@ -300,6 +276,47 @@ func (w *LockWindow) InstallKeyboardGuard() error {
 
 // KeyboardGuardInstalled сообщает, установлен ли перехват клавиатуры.
 func (w *LockWindow) KeyboardGuardInstalled() bool { return w.hookDone }
+
+// RemoveKeyboardGuard снимает перехват клавиатуры: сочетания Windows снова работают. Зовётся,
+// когда экран спрятан (родительская сессия, нет связи со службой): глушить клавиши без экрана
+// нельзя (R23, FR-6).
+func (w *LockWindow) RemoveKeyboardGuard() {
+	if w.hook != 0 {
+		procUnhookWindowsHook.Call(w.hook)
+		w.hook = 0
+	}
+	w.hookDone = false
+	hookInstalled = false
+}
+
+// Hwnd возвращает ручку окна.
+func (w *LockWindow) Hwnd() uintptr { return w.hwnd }
+
+// Show показывает спрятанное окно и возвращает таймер «поверх всех окон».
+func (w *LockWindow) Show() {
+	procShowWindow.Call(w.hwnd, swShow)
+	procSetWindowPos.Call(w.hwnd, hwndTopmost, 0, 0, 0, 0, swpNoMove|swpNoSize)
+	procSetTimer.Call(w.hwnd, 1, 500, 0)
+}
+
+// Hide прячет окно и останавливает таймер: спрятанное окно не должно возвращаться наверх.
+func (w *LockWindow) Hide() {
+	procKillTimer.Call(w.hwnd, 1)
+	procShowWindow.Call(w.hwnd, swHide)
+}
+
+// Visible сообщает, видно ли окно.
+func (w *LockWindow) Visible() bool { return w.visible() }
+
+// FitVirtualScreen растягивает окно на весь виртуальный экран; зовётся при смене разрешения
+// или набора мониторов.
+func (w *LockWindow) FitVirtualScreen() {
+	x, _, _ := procGetSystemMetrics.Call(smXVirtScreen)
+	y, _, _ := procGetSystemMetrics.Call(smYVirtScreen)
+	cx, _, _ := procGetSystemMetrics.Call(smCXVirtScr)
+	cy, _, _ := procGetSystemMetrics.Call(smCYVirtScr)
+	procSetWindowPos.Call(w.hwnd, hwndTopmost, x, y, cx, cy, 0)
+}
 
 // SelfTest посылает окну WM_CLOSE, WM_SYSCOMMAND/SC_CLOSE и WM_KEYDOWN VK_ESCAPE
 // и после каждого проверяет IsWindowVisible. Вызывается из отдельной горутины,
@@ -368,6 +385,9 @@ func wndProc(hwnd, msg, wParam, lParam uintptr) uintptr {
 			return 0 // Esc не закрывает окно
 		}
 	case wmTimer:
+		if active == nil || active.hwnd != hwnd || !active.visible() {
+			return 0 // спрятанное окно наверх не возвращается
+		}
 		procSetWindowPos.Call(hwnd, hwndTopmost, 0, 0, 0, 0, swpNoMove|swpNoSize)
 		procSetForegroundWin.Call(hwnd)
 		return 0
@@ -377,6 +397,11 @@ func wndProc(hwnd, msg, wParam, lParam uintptr) uintptr {
 	case wmDestroy:
 		procPostQuitMessage.Call(0)
 		return 0
+	}
+	if active != nil && active.onMsg != nil {
+		if r, handled := active.onMsg(uint32(msg), wParam, lParam); handled {
+			return r
+		}
 	}
 	r, _, _ := procDefWindowProc.Call(hwnd, msg, wParam, lParam)
 	return r
@@ -392,6 +417,11 @@ func paint(hwnd uintptr) {
 	procGetClientRect.Call(hwnd, uintptr(unsafe.Pointer(&rc)))
 	procFillRect.Call(hdc, uintptr(unsafe.Pointer(&rc)), active.bgBrush)
 	procSetBkMode.Call(hdc, transparent)
+	if active.onPaint != nil {
+		active.onPaint(hdc, &rc)
+		procEndPaint.Call(hwnd, uintptr(unsafe.Pointer(&ps)))
+		return
+	}
 	old, _, _ := procSelectObject.Call(hdc, active.font)
 
 	drawCentered(hdc, &rc, active.view.Reason, colorText, 0.30)

@@ -10,6 +10,7 @@ import (
 	"log"
 	"os"
 
+	"pcblock/internal/guard"
 	"pcblock/internal/launch"
 	"pcblock/internal/service/winhost"
 	"pcblock/internal/ui"
@@ -43,8 +44,7 @@ func run(mode launch.Mode, opts launch.Options) int {
 	case launch.ModeTestRunAs:
 		return exitCode(winhost.TestRunAs(opts))
 	case launch.ModeGuard:
-		// Временная замена guard.Run (T10): процесс только присутствует в сеансе.
-		return exitCode(winhost.Hold("guard", opts))
+		return exitCode(guard.Run(opts))
 	case launch.ModeTray:
 		// Временная замена systray.Run (T11): процесс только присутствует в сеансе.
 		return exitCode(winhost.Hold("tray", opts))
