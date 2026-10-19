@@ -13,6 +13,7 @@ import (
 	"pcblock/internal/guard"
 	"pcblock/internal/launch"
 	"pcblock/internal/service/winhost"
+	"pcblock/internal/systray"
 	"pcblock/internal/ui"
 )
 
@@ -46,8 +47,7 @@ func run(mode launch.Mode, opts launch.Options) int {
 	case launch.ModeGuard:
 		return exitCode(guard.Run(opts))
 	case launch.ModeTray:
-		// Временная замена systray.Run (T11): процесс только присутствует в сеансе.
-		return exitCode(winhost.Hold("tray", opts))
+		return exitCode(systray.Run(opts))
 	}
 
 	assets, err := fs.Sub(embedded, "frontend/dist")

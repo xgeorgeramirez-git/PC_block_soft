@@ -10,6 +10,7 @@ import (
 
 	"pcblock/internal/core"
 	"pcblock/internal/ipc"
+	"pcblock/internal/launch"
 )
 
 var procPeekMessage = user32.NewProc("PeekMessageW")
@@ -178,5 +179,66 @@ func TestWarningPlateShowsAndAcknowledges(t *testing.T) {
 	p.hide()
 	if r, _, _ := procIsWindowVisible.Call(p.hwnd); r != 0 {
 		t.Fatal("плашка должна прятаться")
+	}
+}
+
+var procFindWindow = user32.NewProc("FindWindowW")
+
+func findHost(class string) uintptr {
+	h, _, _ := procFindWindow.Call(uintptr(unsafe.Pointer(utf16(class))), 0)
+	return h
+}
+
+// Ловит: страж не запускается без службы (падает, не создаёт окно, не занимает мьютекс),
+// второй страж в сеансе не выходит молча, закрытие окна не завершает Run. Без службы стражу
+// нечего показывать, и экран блокировки не появляется (NFR-10).
+func TestRunStartsOneGuardAndStopsOnClose(t *testing.T) {
+	if c, err := ipc.Dial(ipc.PipeName, 100*time.Millisecond); err == nil {
+		_ = c.Close()
+		t.Skip("на этой машине служба PCBlock уже работает")
+	}
+	opts := launch.Options{"session": "4242422"}
+	done := make(chan error, 1)
+	go func() { done <- Run(opts) }()
+
+	var host uintptr
+	for i := 0; i < 100 && host == 0; i++ {
+		host = findHost("PCBlockGuardHost")
+		time.Sleep(50 * time.Millisecond)
+	}
+	if host == 0 {
+		select {
+		case err := <-done:
+			t.Skipf("страж не запустился (нет рабочего стола?): %v", err)
+		default:
+			t.Fatal("окно стража не появилось за 5 секунд")
+		}
+	}
+
+	second := make(chan error, 1)
+	go func() { second <- Run(opts) }()
+	select {
+	case err := <-second:
+		if err != nil {
+			t.Fatalf("второй страж в сеансе должен выйти молча, а вернул: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("второй страж не вышел")
+	}
+
+	time.Sleep(600 * time.Millisecond) // один оборот таймера окон
+	if w := findHost("PCBlockLockWindow"); w != 0 {
+		if r, _, _ := procIsWindowVisible.Call(w); r != 0 {
+			t.Fatal("без службы экран блокировки показываться не должен")
+		}
+	}
+	procPostMessage.Call(host, wmClose, 0, 0)
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Run завершился с ошибкой: %v", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("Run не завершился после закрытия окна")
 	}
 }
