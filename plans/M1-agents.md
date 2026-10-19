@@ -14,4 +14,5 @@
 | T8 | m1-ipc-writer (sonnet 5.5) | писатель канала связи (дерево pc_block_soft-ipc, feature/m1-ipc) | done | 4 коммита, 42 теста, контракт 40 записей, ci и windows зелёные | 0 |
 | T11a+T9a | m1-tray-launch-writer (sonnet 5.5) | писатель: надпись и картинка значка, ключи запуска (основное дерево) | done | d5e34b4, e5b1ba6; 98,6 % и 100 %; мутации 24/24; ci зелёный | 0 |
 | T10a | m1-guard-logic-writer (sonnet 5.5) | писатель модели стража (основное дерево) | в работе | — | 0 |
-| T12-фронт | m1-parent-ui-writer (sonnet 5.5) | писатель экранов окна родителя (дерево pc_block_soft-ipc, feature/m1-ipc) | в работе | — | 0 |
+| T12-фронт | m1-parent-ui-writer (sonnet 5.5) | писатель экранов окна родителя (дерево pc_block_soft-ipc, feature/m1-ipc) | в работе (возобновлён) | d6f8716: формат, ошибки, лимиты, контраст; остальные экраны дорабатываются | 0 |
+| T9 | m1-service-writer (sonnet 5.5) | писатель службы Windows (основное дерево, feature/m1-time-limit) | в работе | — | 0 |
