@@ -6,6 +6,8 @@ import {
   formatEventTime,
   formatHour,
   formatLimit,
+  genitiveName,
+  localOffsetMin,
   formatUsed,
   weekdayName,
   weekdayOfMs,
@@ -125,5 +127,42 @@ describe("даты и время", () => {
   it("полночь после сдвига пояса переносит дату", () => {
     const at = Date.UTC(2026, 9, 19, 21, 5);
     expect(formatEventTime(at, 180)).toBe("20 окт, 00:05");
+  });
+});
+
+// Ловит: «Ограничения для Миша перестанут действовать» вместо «для Миши» (текст из ТЗ 8.3.8).
+describe("genitiveName", () => {
+  const cases: [string, string][] = [
+    ["Миша", "Миши"],
+    ["Даша", "Даши"],
+    ["Маша", "Маши"],
+    ["Анна", "Анны"],
+    ["Ольга", "Ольги"],
+    ["Ника", "Ники"],
+    ["Катя", "Кати"],
+    ["Ваня", "Вани"],
+    ["Мария", "Марии"],
+    ["Иван", "Ивана"],
+    ["Артём", "Артёма"],
+    ["Андрей", "Андрея"],
+    ["Игорь", "Игоря"],
+    ["Дмитрий", "Дмитрия"],
+    ["Тимофей", "Тимофея"],
+    ["Женя", "Жени"],
+    ["Саша", "Саши"],
+    ["Tom", "Tom"],
+    ["Лиза Петрова", "Лиза Петрова"],
+    ["", ""],
+  ];
+  it.each(cases)("%s -> %s", (name, want) => {
+    expect(genitiveName(name)).toBe(want);
+  });
+});
+
+describe("пояс окна", () => {
+  it("localOffsetMin: к востоку от UTC положительный, ноль без «минус нуля»", () => {
+    expect(Object.is(localOffsetMin(new Date(2026, 9, 19)), -0)).toBe(false);
+    const d = new Date(2026, 9, 19, 12);
+    expect(localOffsetMin(d)).toBe(-d.getTimezoneOffset() || 0);
   });
 });

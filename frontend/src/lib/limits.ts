@@ -48,19 +48,36 @@ export function normalizeLimits(limits: WeekdayLimit[] | null | undefined): Week
   });
 }
 
-/** Новый список, где у дня изменены поля. «Без лимита» обнуляет минуты. */
+/** Новый список, где у дня изменены поля. */
 export function setDay(
   limits: WeekdayLimit[],
   weekday: number,
   change: Partial<Pick<WeekdayLimit, "totalMin" | "unlimited">>,
 ): WeekdayLimit[] {
+  return limits.map((l) => (l.weekday === weekday ? { ...l, ...change } : l));
+}
+
+/**
+ * Переключатель «Без лимита». Минуты при включении помнятся и возвращаются при выключении,
+ * чтобы случайный щелчок не обнулил день. Если помнить нечего (0 минут), берётся значение
+ * шаблона: иначе «снял галочку» значило бы «компьютером нельзя».
+ */
+export function toggleUnlimited(limits: WeekdayLimit[], weekday: number, unlimited: boolean): WeekdayLimit[] {
   return limits.map((l) => {
     if (l.weekday !== weekday) {
       return l;
     }
-    const next = { ...l, ...change };
-    return next.unlimited ? { ...next, totalMin: 0 } : next;
+    if (unlimited) {
+      return { ...l, unlimited: true };
+    }
+    const fallback = templateLimits()[weekday - 1]?.totalMin ?? 120;
+    return { ...l, unlimited: false, totalMin: l.totalMin > 0 ? l.totalMin : fallback };
   });
+}
+
+/** Лимиты в том виде, в каком их ждёт программа: у «без лимита» минуты 0. */
+export function wireLimits(limits: WeekdayLimit[]): WeekdayLimit[] {
+  return limits.map((l) => ({ weekday: l.weekday, totalMin: l.unlimited ? 0 : l.totalMin, unlimited: l.unlimited }));
 }
 
 /** Переносит лимит дня from на дни to («Как в понедельник: на все будни»). */

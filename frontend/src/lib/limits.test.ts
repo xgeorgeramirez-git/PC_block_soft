@@ -6,6 +6,8 @@ import {
   limitsEqual,
   normalizeLimits,
   setDay,
+  toggleUnlimited,
+  wireLimits,
   splitMinutes,
   templateLimits,
   validateLimits,
@@ -75,11 +77,34 @@ describe("правка дней", () => {
     expect(next[1]).toEqual(base[1]);
   });
 
-  it("«без лимита» включается и выключается", () => {
-    const on = setDay(base, 2, { unlimited: true });
-    expect(on[1]).toEqual({ weekday: 2, totalMin: 0, unlimited: true });
-    const off = setDay(on, 2, { unlimited: false });
-    expect(off[1].unlimited).toBe(false);
+  // Ловит: случайный щелчок по «Без лимита» и обратно обнуляет день (а 0 - это «нельзя»).
+  it("«без лимита» помнит минуты дня", () => {
+    const on = toggleUnlimited(base, 2, true);
+    expect(on[1]).toEqual({ weekday: 2, totalMin: 120, unlimited: true });
+    const off = toggleUnlimited(on, 2, false);
+    expect(off[1]).toEqual({ weekday: 2, totalMin: 120, unlimited: false });
+  });
+
+  it("снять «без лимита» с дня без минут - не 0, а значение шаблона", () => {
+    const sunday = toggleUnlimited(base, 7, false);
+    expect(sunday[6]).toEqual({ weekday: 7, totalMin: 240, unlimited: false });
+    const tuesday = toggleUnlimited(toggleUnlimited(setDay(base, 2, { totalMin: 0 }), 2, true), 2, false);
+    expect(tuesday[1].totalMin).toBe(120);
+  });
+
+  it("другие дни и исходный список не меняются", () => {
+    const next = toggleUnlimited(base, 2, true);
+    expect(next[0]).toBe(base[0]);
+    expect(base[1].unlimited).toBe(false);
+  });
+
+  // Ловит: в программу уходят скрытые минуты «без лимита» (контракт: тогда TotalMin = 0).
+  it("wireLimits обнуляет минуты у «без лимита»", () => {
+    const hidden = toggleUnlimited(base, 1, true);
+    const sent = wireLimits(hidden);
+    expect(sent[0]).toEqual({ weekday: 1, totalMin: 0, unlimited: true });
+    expect(sent[1]).toEqual({ weekday: 2, totalMin: 120, unlimited: false });
+    expect(hidden[0].totalMin).toBe(120);
   });
 
   // Ловит: «Как в понедельник» захватывает субботу или не трогает пятницу.

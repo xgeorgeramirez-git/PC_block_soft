@@ -101,3 +101,36 @@ export function formatEventTime(ms: number, tzOffsetMin: number): string {
 function pad2(n: number): string {
   return n < 10 ? `0${n}` : `${n}`;
 }
+
+/**
+ * Имя в родительном падеже для фраз вроде «Ограничения для Миши перестанут действовать».
+ * Правила для обычных русских имён; составные и иностранные имена остаются как есть.
+ */
+export function genitiveName(name: string): string {
+  const n = name.trim();
+  if (n === "" || !/^[А-ЯЁа-яё-]+$/.test(n)) {
+    return n;
+  }
+  const last = n.slice(-1).toLowerCase();
+  const stem = n.slice(0, -1);
+  const prev = n.slice(-2, -1).toLowerCase();
+  switch (last) {
+    case "а":
+      return stem + ("гкхжчшщ".includes(prev) ? "и" : "ы");
+    case "я":
+      return `${stem}и`; // Катя - Кати, Мария - Марии
+    case "й":
+    case "ь":
+      return `${stem}я`;
+    case "е":
+    case "и":
+    case "о":
+    case "у":
+    case "ы":
+    case "ю":
+    case "э":
+      return n;
+    default:
+      return `${n}а`;
+  }
+}
