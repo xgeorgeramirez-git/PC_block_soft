@@ -62,6 +62,18 @@ jobs:
           exec > >(tee -a "$RUNNER_TEMP/ci.log") 2>&1
           wails build -clean -nsis -trimpath -ldflags "-s -w"
 
+      - name: Диагностика установщика
+        if: always()
+        shell: pwsh
+        run: |
+          Write-Host "::notice title=diag-bin::$((Get-ChildItem build -Recurse -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName.Replace($PWD.Path,'') + ' ' + $_.Length }) -join ' ; ')"
+          Write-Host "::notice title=diag-makensis::$((Get-Command makensis -ErrorAction SilentlyContinue).Source)"
+          Write-Host "::notice title=diag-nsis-dirs::$((Get-ChildItem 'C:\Program Files (x86)\NSIS','C:\Program Files\NSIS' -ErrorAction SilentlyContinue | Select-Object -First 8 | ForEach-Object { $_.FullName }) -join ' ; ')"
+          $log = Get-Content "$env:RUNNER_TEMP/ci.log" -ErrorAction SilentlyContinue
+          $hits = $log | Select-String -Pattern 'nsis|installer|makensis|warn|error|Built' -CaseSensitive:$false | Select-Object -Last 25
+          $i = 0
+          foreach ($h in $hits) { $i++; Write-Host "::notice title=diag-log-$i::$($h.Line)" }
+
       # Биндинги Wails в песочнице агента не генерируются. При ручном запуске на рабочей ветке
       # сгенерированные файлы коммитятся в ветку (как go.sum в ci.yml, Ruling 22), в остальных
       # случаях расхождение роняет сборку.
