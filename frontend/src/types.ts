@@ -235,3 +235,21 @@ export interface SetChildrenReply {
 export interface HelperState {
   state: Record<string, unknown>;
 }
+
+/** Строка «Моих правил»: день недели и лимит текстом (internal/ipc.MyRule). */
+export interface MyRule {
+  /** 1 = пн … 7 = вс. */
+  weekday: number;
+  /** «пн». */
+  day: string;
+  /** «2 ч», «Без лимита», «Нельзя». */
+  text: string;
+}
+
+/** Ответ MyToday: «Сегодня» и «Мои правила» текстом, только чтение (internal/ipc.MyTodayReply). */
+export interface MyTodayReply {
+  status: ChildStatus;
+  /** Строки «Сегодня». */
+  today: string[];
+  rules: MyRule[];
+}

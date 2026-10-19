@@ -61,6 +61,9 @@ const CASES: [string, string, (req: any) => Promise<unknown>][] = [
   ["GetHelperState", "GetHelperState", () => api.getHelperState()],
   ["GetHelperState", "GetHelperState#empty", () => api.getHelperState()],
   ["SaveHelperState", "SaveHelperState", (r) => api.saveHelperState(r.state)],
+  ["MyToday", "MyToday", () => api.myToday()],
+  ["MyToday", "MyToday#empty", () => api.myToday()],
+  ["FirstRunSeen", "FirstRunSeen", () => api.firstRunSeen()],
 ];
 
 describe("успешные ответы контракта", () => {
@@ -92,6 +95,7 @@ function payloadOf(command: string, payload: unknown): unknown {
     case "GetHelperState":
       return p.state;
     case "SaveHelperState":
+    case "FirstRunSeen":
     case "Logout":
     case "ResetPassword":
     case "Setup":
@@ -132,7 +136,7 @@ describe("отказы контракта", () => {
 
 describe("полнота", () => {
   // Ловит: новая команда окна родителя появилась в контракте, а обёртки для неё нет.
-  it("у каждой команды окна родителя есть пример и обёртка", () => {
+  it("у каждой команды окон родителя и ребёнка есть пример и обёртка", () => {
     const wrapped = new Set(CASES.map(([command]) => command));
     for (const command of [
       "Hello",
@@ -155,6 +159,8 @@ describe("полнота", () => {
       "SetChildren",
       "GetHelperState",
       "SaveHelperState",
+      "MyToday",
+      "FirstRunSeen",
     ]) {
       expect(examples[command], `нет примера ${command}`).toBeDefined();
       expect(wrapped.has(command), `нет обёртки ${command}`).toBe(true);

@@ -542,6 +542,108 @@ p {
   font-size: 14px;
 }
 
+/* --- Окна ребёнка: «Моя статистика» и первый вход ------------------------------------ */
+
+.my-stats {
+  width: 100%;
+  max-width: 640px;
+}
+
+.read-only-badge {
+  padding: 2px var(--space-2);
+  border: 1px solid var(--field-border);
+  border-radius: var(--radius-control);
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+.periods-note {
+  margin: calc(-1 * var(--space-2)) 0 var(--space-4);
+}
+
+.tab[aria-disabled="true"] {
+  color: var(--text-muted);
+  border-style: dashed;
+  cursor: not-allowed;
+}
+
+.stat-panel {
+  max-width: none;
+}
+
+.stat-lead {
+  margin-bottom: var(--space-1);
+  font-weight: 600;
+}
+
+.stat-list {
+  margin: var(--space-3) 0 0;
+}
+
+.stat-row {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-1) 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.stat-row dt,
+.stat-row dd {
+  margin: 0;
+}
+
+.stat-row-muted {
+  color: var(--text-muted);
+}
+
+.my-rules {
+  width: 100%;
+  margin-bottom: var(--space-3);
+  border-collapse: collapse;
+}
+
+.my-rules th,
+.my-rules td {
+  padding: var(--space-1) var(--space-2);
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+}
+
+.my-rules thead th {
+  color: var(--text-muted);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.my-rules tbody th {
+  font-weight: 400;
+}
+
+.my-rules tr[aria-current="date"] th,
+.my-rules tr[aria-current="date"] td {
+  font-weight: 600;
+}
+
+.today-mark {
+  color: var(--text-muted);
+  font-weight: 400;
+}
+
+.first-run {
+  width: 100%;
+  max-width: 560px;
+}
+
+.first-run-lines {
+  margin-bottom: var(--space-4);
+  font-size: 17px;
+}
+
+.first-run-lines p + p {
+  margin-top: var(--space-2);
+}
+
 /* --- Лимиты ------------------------------------------------------------------------ */
 
 .limits-table {

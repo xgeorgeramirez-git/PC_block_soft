@@ -18,6 +18,7 @@ import type {
   ListEventsRequest,
   LoginDenied,
   LoginReply,
+  MyTodayReply,
   Reply,
   SaveLimitsReply,
   SessionStateReply,
@@ -183,6 +184,35 @@ export async function setChildren(req: Partial<SetChildrenRequest>): Promise<Chi
   const body: SetChildrenRequest = { add: req.add ?? [], remove: req.remove ?? [], rename: req.rename ?? [] };
   const r = await call<object, { children?: ChildInfo[] | null }>("SetChildren", body);
   return r.children ?? [];
+}
+
+// --- Ребёнок о себе (только свой сеанс, только чтение) ------------------------------
+
+/** «Сегодня» и «Мои правила» ребёнка. Пустые списки приходят как null: приводим к []. */
+export async function myToday(): Promise<MyTodayReply> {
+  const r = await call<object, Partial<MyTodayReply>>("MyToday");
+  return { status: r.status as MyTodayReply["status"], today: r.today ?? [], rules: r.rules ?? [] };
+}
+
+/** Ребёнок прочитал окно первого входа: больше его не показывать. */
+export async function firstRunSeen(): Promise<void> {
+  await call("FirstRunSeen");
+}
+
+/**
+ * Закрывает окно с кодом выхода (мост Finish, Ruling 14). Вне окна программы, например в
+ * браузерных снимках, метода нет, и тогда ничего не происходит.
+ */
+export async function finish(code: number): Promise<void> {
+  const app = window.go?.ui?.App;
+  if (!app?.Finish) {
+    return;
+  }
+  try {
+    await app.Finish(code);
+  } catch {
+    // Окно уже закрывается или моста нет: сказать ребёнку нечего.
+  }
 }
 
 /** Состояние Помощника профиля родителя. Содержимое разбирает каталог Помощника, не окно. */

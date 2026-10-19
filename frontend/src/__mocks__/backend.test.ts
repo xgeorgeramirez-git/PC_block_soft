@@ -242,10 +242,8 @@ describe("журнал и удаление", () => {
     await expect(api.login("новый-секрет")).resolves.toBeDefined();
   });
 
-  it("неизвестная команда и команды ребёнка отдают пример контракта", async () => {
+  it("неизвестная команда отклоняется", async () => {
     const mock = installBackend({ sessionActive: true });
-    const raw = await mock.call("MyToday", "{}");
-    expect(JSON.parse(raw).ok).toBe(true);
     expect(JSON.parse(await mock.call("Nope", "{}")).ok).toBe(false);
   });
 
@@ -254,5 +252,73 @@ describe("журнал и удаление", () => {
     expect(await api.getHelperState()).toEqual({ enabled: true, seen: ["H-1"] });
     await api.saveHelperState({ enabled: false });
     expect(await api.getHelperState()).toEqual({ enabled: false });
+  });
+});
+
+describe("ребёнок о себе: MyToday, FirstRunSeen, Finish", () => {
+  // Ловит: подмена отдаёт одни и те же цифры всем детям или считает их мимо общего источника статуса.
+  it("MyToday: статус и правила своего ребёнка, без команд родителя и без сессии", async () => {
+    installBackend({
+      children: [
+        mockChild(),
+        mockChild({ childId: 2, sid: "S-1-5-21-111-222-333-1002", name: "Даша", usedS: 600 }),
+      ],
+    });
+    const mine = await api.myToday();
+    expect(mine.status.name).toBe("Миша");
+    expect(mine.status).toEqual(statusOf(mockChild(), Date.now()));
+    expect(mine.today).toEqual(["Сегодня осталось 1 ч 25 мин из 2 ч", "Использовано 35 мин"]);
+    expect(mine.rules.map((r) => [r.day, r.text])).toEqual([
+      ["пн", "2 ч"],
+      ["вт", "2 ч"],
+      ["ср", "1 ч 30 мин"],
+      ["чт", "2 ч"],
+      ["пт", "2 ч"],
+      ["сб", "4 ч"],
+      ["вс", "Без лимита"],
+    ]);
+    expect(mine.rules.map((r) => r.weekday)).toEqual([1, 2, 3, 4, 5, 6, 7]);
+  });
+
+  it("MyToday: другой ребёнок видит только себя", async () => {
+    installBackend({
+      myChildId: 2,
+      children: [mockChild(), mockChild({ childId: 2, sid: "S-1-5-21-111-222-333-1002", name: "Даша", usedS: 600 })],
+    });
+    const mine = await api.myToday();
+    expect(mine.status.name).toBe("Даша");
+    expect(JSON.stringify(mine)).not.toContain("Миша");
+  });
+
+  it("MyToday: ноль минут - «Нельзя»; время вышло - строка «Можно снова»", async () => {
+    const limits = [1, 2, 3, 4, 5, 6, 7].map((weekday) => ({ weekday, totalMin: 0, unlimited: false }));
+    installBackend({ children: [mockChild({ limits })] });
+    const mine = await api.myToday();
+    expect(mine.rules.every((r) => r.text === "Нельзя")).toBe(true);
+    expect(mine.today).toContain("Можно снова: завтра");
+  });
+
+  it("MyToday из сеанса не ребёнка: пустые списки, а не null", async () => {
+    installBackend({ myChildId: null });
+    const mine = await api.myToday();
+    expect(mine.status.status).toBe("notChild");
+    expect(mine.today).toEqual([]);
+    expect(mine.rules).toEqual([]);
+  });
+
+  it("FirstRunSeen запоминается, Finish отдаёт код окну", async () => {
+    const mock = installBackend();
+    expect(mock.state.firstRunSeen).toBe(false);
+    await api.firstRunSeen();
+    expect(mock.state.firstRunSeen).toBe(true);
+    expect(mock.state.finishCode).toBeNull();
+    await api.finish(0);
+    expect(mock.state.finishCode).toBe(0);
+  });
+
+  it("Finish без моста ничего не делает", async () => {
+    installBackend();
+    delete window.go!.ui!.App!.Finish;
+    await expect(api.finish(0)).resolves.toBeUndefined();
   });
 });

@@ -4,6 +4,8 @@
 import type { Reply } from "../types";
 
 export const LINK_ERROR_TEXT = "Программа не отвечает. Попробуйте ещё раз через минуту";
+/** То же для окон ребёнка: ему на «ты» (A4). */
+export const CHILD_LINK_ERROR_TEXT = "Программа не отвечает. Попробуй ещё раз через минуту";
 export const GENERIC_ERROR_TEXT = "Не получилось выполнить действие. Попробуйте ещё раз";
 
 /** Отказ команды или сбой связи. message всегда пригоден для показа человеку. */
@@ -64,4 +66,12 @@ export function errorText(e: unknown): string {
 /** Поле формы, к которому относится отказ программы (L-121); у сбоя связи поля нет. */
 export function errorField(e: unknown): string | undefined {
   return e instanceof CallError ? e.field : undefined;
+}
+
+/** Ошибка для окна ребёнка: сбой связи говорит с ним на «ты», остальной человеческий текст службы - как есть. */
+export function childErrorText(e: unknown): string {
+  if (e instanceof CallError && !e.link && e.message !== GENERIC_ERROR_TEXT) {
+    return e.message;
+  }
+  return CHILD_LINK_ERROR_TEXT;
 }

@@ -6,8 +6,10 @@ import { UnsavedGuardProvider, useAttemptNavigation } from "./guard";
 import { errorText } from "./lib/errors";
 import { SESSION_WARNING_TEXT } from "./session";
 import Children from "./screens/Children";
+import FirstRun from "./screens/FirstRun";
 import Journal from "./screens/Journal";
 import LoginDialog from "./screens/LoginDialog";
+import MyStats from "./screens/MyStats";
 import ResetPassword from "./screens/ResetPassword";
 import Settings from "./screens/Settings";
 import Today from "./screens/Today";
@@ -48,7 +50,8 @@ async function bootstrap(): Promise<Boot> {
 
 type VersionState = { kind: "loading" } | { kind: "ready"; value: string } | { kind: "failed" };
 
-function Topbar({ onLogout }: { onLogout?: () => void }) {
+/** Заголовок окна. В окнах ребёнка слов «Родительский контроль» нет: он видит только название и версию. */
+function Topbar({ onLogout, childWindow = false }: { onLogout?: () => void; childWindow?: boolean }) {
   const [version, setVersion] = useState<VersionState>({ kind: "loading" });
   useEffect(() => {
     let alive = true;
@@ -63,7 +66,7 @@ function Topbar({ onLogout }: { onLogout?: () => void }) {
   return (
     <header className="topbar">
       <h1 className="product">PC Block</h1>
-      <span className="product-note">Родительский контроль</span>
+      {childWindow ? null : <span className="product-note">Родительский контроль</span>}
       <span className="topbar-spacer" />
       <span className="product-version">
         {version.kind === "loading" && "Узнаю версию"}
@@ -140,9 +143,10 @@ export default function App() {
     );
   }
 
+  const childWindow = boot.kind === "simple" && (boot.mode === "mystats" || boot.mode === "firstrun");
   return (
     <div className="shell">
-      <Topbar />
+      <Topbar childWindow={childWindow} />
       <main className="content content-centered">{body}</main>
     </div>
   );
@@ -156,19 +160,9 @@ function SimpleScreen({ mode }: { mode: "reset-password" | "uninstall-gate" | "m
       // Окно само завершится с кодом для установщика; решение выбора пока некому передать.
       return <UninstallGate onDecision={() => undefined} />;
     case "mystats":
-      return (
-        <section className="panel">
-          <h2 className="panel-title">Моя статистика</h2>
-          <p className="panel-text">Этот экран появится в следующем обновлении.</p>
-        </section>
-      );
+      return <MyStats />;
     case "firstrun":
-      return (
-        <section className="panel">
-          <h2 className="panel-title">Добро пожаловать</h2>
-          <p className="panel-text">Это приветствие появится в следующем обновлении.</p>
-        </section>
-      );
+      return <FirstRun />;
   }
 }
 

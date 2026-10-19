@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  CHILD_LINK_ERROR_TEXT,
   CallError,
   GENERIC_ERROR_TEXT,
   LINK_ERROR_TEXT,
+  childErrorText,
   errorField,
   errorText,
   isTechnical,
@@ -88,5 +90,22 @@ describe("CallError и тексты", () => {
     expect(errorField(replyError({ ok: false, error: "Не меньше 6 символов", field: "password" }))).toBe("password");
     expect(errorField(linkError())).toBeUndefined();
     expect(errorField(new Error("x"))).toBeUndefined();
+  });
+});
+
+describe("childErrorText: ошибки для окон ребёнка", () => {
+  // Ловит: ребёнку отвечают на «вы» (A4): «Попробуйте» из родительского текста.
+  it("сбой связи - на «ты»", () => {
+    expect(childErrorText(linkError())).toBe(CHILD_LINK_ERROR_TEXT);
+    expect(childErrorText(new Error("window.go is undefined"))).toBe(CHILD_LINK_ERROR_TEXT);
+    expect(CHILD_LINK_ERROR_TEXT).not.toMatch(/Попробуйте/);
+  });
+
+  it("общий текст отказа тоже заменяется", () => {
+    expect(childErrorText(replyError({ ok: false, error: "ipc: кадр оборван" }))).toBe(CHILD_LINK_ERROR_TEXT);
+  });
+
+  it("человеческий текст отказа службы остаётся как есть", () => {
+    expect(childErrorText(replyError({ ok: false, error: "Сейчас это недоступно" }))).toBe("Сейчас это недоступно");
   });
 });
