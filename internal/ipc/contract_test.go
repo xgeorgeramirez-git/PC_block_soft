@@ -132,7 +132,7 @@ func examples() map[string]example {
 		}),
 		"GetToday#notices": ok(nil, GetTodayReply{
 			Children: []TodayCard{card(lockedStatus(), 0, false)},
-			Notices:  []string{"База данных была повреждена и восстановлена. Ограничения не действовали, пока служба не смогла её прочитать"},
+			Notices:  []string{"Не удалось прочитать правила, поэтому сейчас ограничения не действуют. Прежние данные сохранены. Задайте правила заново в разделе «Дети»"},
 		}),
 		"GetToday#empty": ok(nil, GetTodayReply{}),
 		CmdGetChildRules: ok(ChildRequest{ChildID: 1}, childRules()),

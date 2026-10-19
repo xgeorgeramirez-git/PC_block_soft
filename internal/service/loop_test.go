@@ -283,7 +283,8 @@ func TestRulesUnreadableSafeModeThenRecovers(t *testing.T) {
 	}
 }
 
-// Ловит: после порчи базы служба молчит: нет события, нет предупреждения родителю.
+// Ловит: после порчи базы служба молчит: нет события (с путём копии для разбора), нет
+// предупреждения родителю человеческими словами.
 func TestRecoveredDatabaseWritesEventAndNotice(t *testing.T) {
 	h := newHarness(t, withRecovered("pcblock.db.broken-20261019-120000"))
 	h.start()
@@ -291,7 +292,10 @@ func TestRecoveredDatabaseWritesEventAndNotice(t *testing.T) {
 	if len(evs) != 1 {
 		t.Fatalf("событий db_recovered %d, ждали 1", len(evs))
 	}
-	if v, ok, _ := h.store.GetSetting(settingDBNotice); !ok || !strings.Contains(v, "broken-20261019-120000") {
+	if cp, _ := evs[0].Details["copy"].(string); !strings.Contains(cp, "broken-20261019-120000") {
+		t.Fatalf("в событии нет пути копии испорченной базы: %v", evs[0].Details)
+	}
+	if v, ok, _ := h.store.GetSetting(settingDBNotice); !ok || v != textRecoveredNotice {
 		t.Fatalf("флаг предупреждения родителю не записан: %q %v", v, ok)
 	}
 }

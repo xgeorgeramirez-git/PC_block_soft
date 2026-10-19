@@ -224,10 +224,9 @@ func (s *Service) Start(real time.Time) error {
 func (s *Service) startRecovered() {
 	s.journal.Write(0, "db_recovered", map[string]any{
 		"copy": s.cfg.BrokenCopy,
-		"text": "База данных была повреждена и восстановлена. Прежние настройки не сохранились",
+		"text": textRecoveredNotice,
 	})
-	text := "База данных была повреждена и восстановлена. Прежние настройки не сохранились. Копия повреждённого файла: " + s.cfg.BrokenCopy
-	if err := s.cfg.Store.SetSetting(settingDBNotice, text); err != nil {
+	if err := s.cfg.Store.SetSetting(settingDBNotice, textRecoveredNotice); err != nil {
 		s.logRate("dbnotice", "не записано предупреждение о повреждённой базе: %v", err)
 	}
 	s.cfg.Logf("База данных повреждена и заменена новой, копия: %s. Ограничения не применяются", s.cfg.BrokenCopy)

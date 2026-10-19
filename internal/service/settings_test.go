@@ -551,16 +551,23 @@ func TestGetTodayEmptyHasNoNulls(t *testing.T) {
 	}
 }
 
-// Ловит: предупреждение о повреждённой базе не показывается родителю при входе или
-// показывается вечно (после конца сессии, в которой его показали, оно гаснет).
+// Ловит: предупреждение о повреждённой базе не показывается родителю при входе, показывается
+// вечно (после конца сессии, в которой его показали, оно гаснет) или написано техническими
+// словами (NFR-11).
 func TestDatabaseNoticeShownOnceThenCleared(t *testing.T) {
 	h := newHarness(t, configured(), withRecovered("pcblock.db.broken-20261019-120000"))
 	h.start()
 	tok := h.login(adminPeer())
 	var today ipc.GetTodayReply
 	h.ok(adminPeer(), tok, ipc.CmdGetToday, nil, &today)
-	if len(today.Notices) != 1 || !strings.Contains(today.Notices[0], "повреждена") {
+	if len(today.Notices) != 1 || today.Notices[0] != textRecoveredNotice {
 		t.Fatalf("сообщения: %v", today.Notices)
+	}
+	// NFR-11, L-112: родителю ни «базы данных», ни «службы», ни пути к файлу копии.
+	for _, bad := range []string{"баз", "служб", "broken", "pcblock", `\`} {
+		if strings.Contains(strings.ToLower(today.Notices[0]), bad) {
+			t.Fatalf("в сообщении техническое слово %q: %q", bad, today.Notices[0])
+		}
 	}
 	h.ok(adminPeer(), tok, ipc.CmdGetToday, nil, &today)
 	if len(today.Notices) != 1 {

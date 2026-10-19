@@ -70,7 +70,7 @@ func eventText(kind, name string, d map[string]any) string {
 	case "setup_done":
 		body = "программа настроена"
 	case "db_recovered":
-		body = "база данных была повреждена и восстановлена"
+		body = "не удалось прочитать правила, ограничения не действовали, прежние данные сохранены"
 	case "uninstall_forgot":
 		body = "удаление программы без пароля, пароль забыт"
 	default:
