@@ -54,7 +54,7 @@ describe("ChildLimits: таблица", () => {
     setup();
     await ready();
     expect(screen.getAllByRole("row")).toHaveLength(8); // шапка и 7 дней
-    expect(screen.getByRole("columnheader", { name: "Общее" })).toBeTruthy();
+    expect(screen.getByRole("columnheader", { name: "Время в день" })).toBeTruthy();
     expect(hours("понедельник").value).toBe("2");
     expect(minutes("понедельник").value).toBe("0");
     expect(hours("среда").value).toBe("1");
@@ -176,6 +176,36 @@ describe("ChildLimits: одна панель сохранения (L-44)", () =>
     expect(sent.limits[6]).toEqual({ weekday: 7, totalMin: 0, unlimited: true });
     expect(screen.queryByText("Есть несохранённые изменения")).toBeNull();
     expect(mock.state.children[0].limits[0].totalMin).toBe(90);
+  });
+
+  // Ловит: итог сохранения виден только вверху страницы, а родитель смотрит на нижнюю панель
+  // (ТЗ 8.3.3 п.5): нажал «Сохранить» и не понял, получилось ли.
+  it("итог «Сохранено» показан на самой панели внизу, кнопок на ней уже нет", async () => {
+    const user = setup();
+    await ready();
+    await user.click(unlimited("понедельник"));
+    const bar = screen.getByRole("region", { name: "Сохранение изменений" });
+    await user.click(within(bar).getByRole("button", { name: "Сохранить" }));
+    const done = await within(screen.getByRole("region", { name: "Сохранение изменений" })).findByText(
+      "Сохранено. Новые правила уже действуют",
+    );
+    expect(done.closest("[role=status]")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Сохранить" })).toBeNull();
+    expect(screen.queryByText("Есть несохранённые изменения")).toBeNull();
+    // Одно сообщение, а не два: вверху страницы его больше нет.
+    expect(screen.getAllByText("Сохранено. Новые правила уже действуют")).toHaveLength(1);
+  });
+
+  // Ловит: ошибка сохранения появляется вверху, пока родитель смотрит на нижнюю панель (L-121).
+  it("общий сбой сохранения показан на панели, рядом с кнопкой", async () => {
+    const user = setup();
+    await ready();
+    mock.override("SaveLimits", "reject", 1);
+    await user.click(unlimited("понедельник"));
+    await user.click(screen.getByRole("button", { name: "Сохранить" }));
+    const bar = screen.getByRole("region", { name: "Сохранение изменений" });
+    expect((await within(bar).findByRole("alert")).textContent).toBe("Программа не отвечает. Попробуйте ещё раз через минуту");
+    expect(within(bar).getByRole("button", { name: "Сохранить" })).toBeTruthy();
   });
 
   it("сообщение о сохранении уходит, когда родитель снова правит", async () => {

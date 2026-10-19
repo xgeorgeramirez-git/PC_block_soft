@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { getChildRules, saveLimits } from "../api";
 import LimitsTable from "../components/LimitsTable";
 import Notice from "../components/Notice";
+import SaveBar from "../components/SaveBar";
 import { useRegisterGuard } from "../guard";
 import { CallError, errorText } from "../lib/errors";
 import { copyDay, limitsEqual, normalizeLimits, validateLimits, wireLimits, WORKDAYS } from "../lib/limits";
@@ -129,34 +130,23 @@ export default function ChildLimits({ childId, onSaved }: Props) {
         Лимиты времени, {name}
       </h2>
       <p className="panel-text">Сколько времени в день можно пользоваться компьютером. Школа и учёба тоже считаются.</p>
-      {message ? <Notice tone="ok">{message}</Notice> : null}
-      {formError ? (
-        <Notice tone="warn" urgent>
-          {formError}
-        </Notice>
-      ) : null}
       <div className="quick-actions">
-        <button type="button" className="btn" onClick={() => change(copyDay(draft, 1, WORKDAYS.filter((d) => d !== 1)))}>
+        <button type="button" className="btn btn-small" onClick={() => change(copyDay(draft, 1, WORKDAYS.filter((d) => d !== 1)))}>
           Как в понедельник: на все будни
         </button>
-        <button type="button" className="btn" onClick={() => change(copyDay(draft, 6, [7]))}>
+        <button type="button" className="btn btn-small" onClick={() => change(copyDay(draft, 6, [7]))}>
           Как в субботу: на воскресенье
         </button>
       </div>
       <LimitsTable childName={name} limits={draft} onChange={change} errors={errors} />
-      {dirty ? (
-        <div className="savebar" role="region" aria-label="Несохранённые изменения">
-          <span className="savebar-text">Есть несохранённые изменения</span>
-          <div className="savebar-actions">
-            <button type="button" className="btn" onClick={discard} disabled={saving}>
-              Отменить изменения
-            </button>
-            <button type="button" className="btn btn-primary" onClick={() => void save()} disabled={saving}>
-              Сохранить
-            </button>
-          </div>
-        </div>
-      ) : null}
+      <SaveBar
+        dirty={dirty}
+        saving={saving}
+        savedText={message}
+        error={formError}
+        onSave={() => void save()}
+        onDiscard={discard}
+      />
     </section>
   );
 }

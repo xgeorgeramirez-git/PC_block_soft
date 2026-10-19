@@ -26,6 +26,8 @@
   --font-display: "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
 
   color-scheme: light;
+  /* Флажки и переключатели в цвет кнопок, а не в синий цвет браузера. */
+  accent-color: var(--primary);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -93,10 +95,11 @@ p {
 
 /* --- Каркас окна ------------------------------------------------------------ */
 
+/* Окно ровно по высоте экрана: меню и верхняя строка стоят на месте, прокручивается только страница. */
 .shell {
   display: flex;
   flex-direction: column;
-  min-height: 100%;
+  height: 100%;
 }
 
 .topbar {
@@ -131,11 +134,25 @@ p {
   min-height: 0;
 }
 
+/* Страница и под ней панель сохранения: панель всегда у нижнего края и не закрывает страницу. */
+.main-col {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.savebar-slot {
+  flex: none;
+}
+
 .menu {
   display: flex;
   flex-direction: column;
   width: 200px;
   flex: none;
+  overflow-y: auto;
   padding: var(--space-4) var(--space-3);
   background: var(--surface);
   border-right: 1px solid var(--line);
@@ -180,6 +197,8 @@ p {
 .content {
   flex: 1;
   min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
   padding: var(--space-6);
 }
 
@@ -407,6 +426,18 @@ p {
   border-left-color: var(--status-danger);
 }
 
+.notice-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+
+.notice-text {
+  flex: 1 1 280px;
+}
+
 .session-warning {
   display: flex;
   align-items: center;
@@ -423,15 +454,18 @@ p {
 
 .status {
   display: inline-flex;
-  align-items: center;
+  align-items: flex-start;
   gap: var(--space-2);
   font-weight: 600;
 }
 
+/* Точка у первой строки, а не посередине между строками, если слово статуса переносится. */
 .status::before {
   content: "";
+  flex: none;
   width: 10px;
   height: 10px;
+  margin-top: 0.45em;
   border-radius: 50%;
   background: currentColor;
 }
@@ -521,7 +555,7 @@ p {
 
 .limits-table th,
 .limits-table td {
-  padding: var(--space-2) var(--space-3);
+  padding: var(--space-1) var(--space-3);
   border-bottom: 1px solid var(--line);
   text-align: left;
   vertical-align: top;
@@ -550,6 +584,7 @@ p {
 
 .limits-num {
   width: 72px;
+  padding: var(--space-1) var(--space-2);
 }
 
 .limits-unit {
@@ -557,21 +592,33 @@ p {
 }
 
 .savebar {
-  position: sticky;
-  bottom: 0;
   display: flex;
   align-items: center;
   justify-content: space-between;
   flex-wrap: wrap;
   gap: var(--space-3);
-  max-width: 640px;
-  padding: var(--space-3) var(--space-4);
+  padding: var(--space-3) var(--space-6);
   background: var(--surface);
-  border: 1px solid var(--field-border);
-  border-radius: var(--radius-panel);
+  border-top: 1px solid var(--field-border);
+}
+
+.savebar-main {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
 }
 
 .savebar-text {
+  font-weight: 600;
+}
+
+.savebar-saved {
+  color: var(--status-ok);
+}
+
+.savebar-error {
+  color: var(--status-danger);
+  font-size: 14px;
   font-weight: 600;
 }
 
@@ -588,7 +635,7 @@ p {
 }
 
 .tab {
-  padding: var(--space-2) var(--space-4);
+  padding: var(--space-1) var(--space-4);
   background: var(--surface);
   border: 1px solid var(--field-border);
   border-radius: var(--radius-control);
@@ -682,12 +729,25 @@ p {
   justify-content: space-between;
   flex-wrap: wrap;
   gap: var(--space-3);
-  padding: var(--space-3) 0;
-  border-bottom: 1px solid var(--line);
+  margin-bottom: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-panel);
+}
+
+.child-row-info {
+  display: flex;
+  flex-direction: column;
 }
 
 .child-row-name {
   font-weight: 600;
+}
+
+.child-row-account {
+  color: var(--text-muted);
+  font-size: 14px;
 }
 
 .child-row-actions {
@@ -699,8 +759,17 @@ p {
   width: 100%;
 }
 
+/* Отдельный блок под списком детей: не часть карточки последнего ребёнка. */
 .add-child {
-  margin-top: var(--space-4);
+  margin-top: var(--space-6);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--line);
+}
+
+.subsection-title {
+  margin: 0 0 var(--space-3);
+  font-size: 15px;
+  font-weight: 600;
 }
 
 /* --- Журнал --------------------------------------------------------------------------- */
@@ -812,6 +881,10 @@ p {
   .content,
   .content-centered {
     padding: var(--space-4);
+  }
+
+  .savebar {
+    padding: var(--space-3) var(--space-4);
   }
 
   .limits-table th,

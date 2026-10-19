@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { hello, login, logout, mode as readMode, sessionState, version as readVersion } from "./api";
 import Notice from "./components/Notice";
+import { SaveBarSlotContext } from "./components/SaveBar";
 import { UnsavedGuardProvider, useAttemptNavigation } from "./guard";
 import { errorText } from "./lib/errors";
 import { SESSION_WARNING_TEXT } from "./session";
@@ -184,6 +185,7 @@ const MENU: { id: Screen; label: string }[] = [
 function ParentWindow({ onLoggedOut }: { onLoggedOut: () => void }) {
   const [screen, setScreen] = useState<Screen>("today");
   const [violationsOnly, setViolationsOnly] = useState(false);
+  const [saveSlot, setSaveSlot] = useState<HTMLElement | null>(null);
   const attempt = useAttemptNavigation();
   const { view, extend, restart } = useSessionWatcher();
 
@@ -204,64 +206,73 @@ function ParentWindow({ onLoggedOut }: { onLoggedOut: () => void }) {
   const ended = view.phase === "ended";
 
   return (
-    <div className="shell">
-      <Topbar onLogout={leave} />
-      <div className="shell-body" inert={ended}>
-        <nav className="menu" aria-label="Разделы">
-          <ul className="menu-list">
-            {MENU.map((item) => (
-              <li key={item.id}>
-                <button
-                  type="button"
-                  className="menu-item"
-                  aria-current={screen === item.id ? "page" : undefined}
-                  onClick={() => go(item.id)}
-                >
-                  {item.label}
-                </button>
-              </li>
-            ))}
-          </ul>
-          <button
-            type="button"
-            className="menu-item menu-help"
-            aria-current={screen === "help" ? "page" : undefined}
-            onClick={() => go("help")}
-          >
-            Помощь
-          </button>
-        </nav>
-        <main className="content">
-          {view.phase === "warning" ? (
-            <div className="session-warning" role="alert">
-              <span>{SESSION_WARNING_TEXT}</span>
-              <button type="button" className="btn btn-small" onClick={() => void extend()}>
-                Продолжить
-              </button>
-            </div>
-          ) : null}
-          {screen === "today" ? (
-            <Today onOpenJournal={(o) => go("journal", o)} onOpenSettings={() => go("settings")} />
-          ) : null}
-          {screen === "children" ? <Children onOpenSettings={() => go("settings")} /> : null}
-          {screen === "journal" ? <Journal key={String(violationsOnly)} violationsOnly={violationsOnly} /> : null}
-          {screen === "settings" ? <Settings /> : null}
-          {screen === "help" ? (
-            <section className="panel">
-              <h2 className="panel-title">Помощь</h2>
-              <p className="panel-text">Подсказки и обучение появятся в следующем обновлении.</p>
-            </section>
-          ) : null}
-        </main>
-      </div>
-      {ended ? (
-        <div className="overlay" role="dialog" aria-modal="true" aria-label="Сессия закончилась">
-          <LoginDialog
-            lead="Сессия закончилась. Введите пароль, чтобы продолжить: несохранённые правки на месте."
-            onSuccess={restart}
-          />
+    <SaveBarSlotContext.Provider value={saveSlot}>
+      <div className="shell">
+        <Topbar onLogout={leave} />
+        <div className="shell-body" inert={ended}>
+          <nav className="menu" aria-label="Разделы">
+            <ul className="menu-list">
+              {MENU.map((item) => (
+                <li key={item.id}>
+                  <button
+                    type="button"
+                    className="menu-item"
+                    aria-current={screen === item.id ? "page" : undefined}
+                    onClick={() => go(item.id)}
+                  >
+                    {item.label}
+                  </button>
+                </li>
+              ))}
+            </ul>
+            <button
+              type="button"
+              className="menu-item menu-help"
+              aria-current={screen === "help" ? "page" : undefined}
+              onClick={() => go("help")}
+            >
+              Помощь
+            </button>
+          </nav>
+          <div className="main-col">
+            <main className="content">
+              {view.phase === "warning" ? (
+                <div className="session-warning" role="alert">
+                  <span>{SESSION_WARNING_TEXT}</span>
+                  <button type="button" className="btn btn-small" onClick={() => void extend()}>
+                    Продолжить
+                  </button>
+                </div>
+              ) : null}
+              {screen === "today" ? (
+                <Today
+                  onOpenJournal={(o) => go("journal", o)}
+                  onOpenSettings={() => go("settings")}
+                  onOpenChildren={() => go("children")}
+                />
+              ) : null}
+              {screen === "children" ? <Children onOpenSettings={() => go("settings")} /> : null}
+              {screen === "journal" ? <Journal key={String(violationsOnly)} violationsOnly={violationsOnly} /> : null}
+              {screen === "settings" ? <Settings onOpenChildren={() => go("children")} /> : null}
+              {screen === "help" ? (
+                <section className="panel">
+                  <h2 className="panel-title">Помощь</h2>
+                  <p className="panel-text">Подсказки и обучение появятся в следующем обновлении.</p>
+                </section>
+              ) : null}
+            </main>
+            <div className="savebar-slot" ref={setSaveSlot} />
+          </div>
         </div>
-      ) : null}
-    </div>
+        {ended ? (
+          <div className="overlay" role="dialog" aria-modal="true" aria-label="Сессия закончилась">
+            <LoginDialog
+              lead="Сессия закончилась. Введите пароль, чтобы продолжить: несохранённые правки на месте."
+              onSuccess={restart}
+            />
+          </div>
+        ) : null}
+      </div>
+    </SaveBarSlotContext.Provider>
   );
 }

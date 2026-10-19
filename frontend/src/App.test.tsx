@@ -296,3 +296,62 @@ describe("сессия родителя (R19)", () => {
     expect(screen.queryByText("Сессия закончится через 1 минуту")).toBeNull();
   });
 });
+
+describe("окно: предупреждение о правилах и нижняя панель", () => {
+  // Ловит: предупреждение о нечитаемых правилах (R18) без следующего шага: родитель не знает, куда идти.
+  it("кнопка «Открыть «Дети»» у предупреждения ведёт к лимитам", async () => {
+    const user = setup({
+      mode: "parent",
+      sessionActive: true,
+      notices: ["База данных была повреждена и восстановлена. Ограничения не действовали, пока служба не смогла её прочитать"],
+    });
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).not.toMatch(/баз[аыу] данных|служб/i);
+    await user.click(within(alert).getByRole("button", { name: "Открыть «Дети»" }));
+    expect(await screen.findByRole("heading", { name: "Лимиты времени, Миша" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Дети" }).getAttribute("aria-current")).toBe("page");
+  });
+
+  it("то же предупреждение в «Настройках» тоже ведёт в «Дети»", async () => {
+    const user = setup({
+      mode: "parent",
+      sessionActive: true,
+      notices: ["База данных была повреждена и восстановлена"],
+    });
+    await screen.findByRole("heading", { name: "Сегодня" });
+    await user.click(screen.getByRole("button", { name: "Настройки" }));
+    const alert = await screen.findByRole("alert");
+    await user.click(within(alert).getByRole("button", { name: "Открыть «Дети»" }));
+    expect(await screen.findByRole("heading", { name: "Лимиты времени, Миша" })).toBeTruthy();
+  });
+
+  // Ловит: панель «Сохранить» лежит внутри прокручиваемой страницы и накрывает строки таблицы (FR-19).
+  it("панель сохранения стоит внизу окна, вне прокручиваемой страницы", async () => {
+    const user = setup({ mode: "parent", sessionActive: true });
+    await screen.findByRole("heading", { name: "Сегодня" });
+    await user.click(screen.getByRole("button", { name: "Дети" }));
+    await user.click(await screen.findByLabelText("Без лимита, понедельник"));
+    const bar = screen.getByRole("region", { name: "Сохранение изменений" });
+    expect(bar.closest("main")).toBeNull();
+    expect(bar.parentElement?.classList.contains("savebar-slot")).toBe(true);
+    // Слот идёт после страницы: панель ниже таблицы и всегда у нижнего края.
+    const main = document.querySelector("main.content")!;
+    expect(main.compareDocumentPosition(bar) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // Одна кнопка «Сохранить» на всё окно.
+    expect(screen.getAllByRole("button", { name: "Сохранить" })).toHaveLength(1);
+    await user.click(within(bar).getByRole("button", { name: "Сохранить" }));
+    const saved = await screen.findByText("Сохранено. Новые правила уже действуют");
+    expect(saved.closest(".savebar-slot")).toBeTruthy();
+  });
+
+  it("при уходе с несохранёнными правками панель остаётся честной: вопрос и выбор", async () => {
+    const user = setup({ mode: "parent", sessionActive: true });
+    await screen.findByRole("heading", { name: "Сегодня" });
+    await user.click(screen.getByRole("button", { name: "Дети" }));
+    await user.click(await screen.findByLabelText("Без лимита, понедельник"));
+    await user.click(screen.getByRole("button", { name: "Журнал" }));
+    expect(await screen.findByRole("dialog", { name: "Сохранить изменения?" })).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Не сохранять" }));
+    await vi.waitFor(() => expect(screen.queryByRole("region", { name: "Сохранение изменений" })).toBeNull());
+  });
+});

@@ -14,7 +14,7 @@ interface Props {
 
 const ZERO_HINT = "0 мин: в этот день компьютером пользоваться нельзя";
 
-/** Таблица 7 дней × «Общее»: часы, минуты и переключатель «Без лимита» (FR-16). */
+/** Таблица 7 дней × «Время в день»: часы, минуты и переключатель «Без лимита» (FR-16). */
 export default function LimitsTable({ childName, limits, onChange, errors = {} }: Props) {
   return (
     <table className="limits-table">
@@ -22,7 +22,7 @@ export default function LimitsTable({ childName, limits, onChange, errors = {} }
       <thead>
         <tr>
           <th scope="col">День</th>
-          <th scope="col">Общее</th>
+          <th scope="col">Время в день</th>
           <th scope="col">Без лимита</th>
         </tr>
       </thead>
