@@ -11,6 +11,12 @@ on:
     branches: [main]
     paths-ignore: ["docs/**", "plans/**", "**/*.md"]
   workflow_dispatch:
+    inputs:
+      scenario:
+        description: "Что прогнать после сборки: пусто = обычная сборка, smoke = ранний смоук службы (tools/accept/smoke.ps1)"
+        required: false
+        default: ""
+        type: string
 
 permissions:
   contents: write
@@ -56,14 +62,26 @@ jobs:
           exec > >(tee -a "$RUNNER_TEMP/ci.log") 2>&1
           wails build -clean -nsis -trimpath -ldflags "-s -w"
 
+      # Биндинги Wails в песочнице агента не генерируются. При ручном запуске на рабочей ветке
+      # сгенерированные файлы коммитятся в ветку (как go.sum в ci.yml, Ruling 22), в остальных
+      # случаях расхождение роняет сборку.
       - name: Биндинги интерфейса совпадают с закоммиченными
         run: |
           exec > >(tee -a "$RUNNER_TEMP/ci.log") 2>&1
           if [ -n "$(git status --porcelain frontend/wailsjs/go)" ]; then
             git status --porcelain frontend/wailsjs/go
             git diff -- frontend/wailsjs/go
-            echo "::error title=Биндинги::frontend/wailsjs/go устарели: закоммить файлы, сгенерированные wails build"
-            exit 1
+            if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ github.ref }}" != "refs/heads/main" ]; then
+              git config user.name "github-actions[bot]"
+              git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+              git add frontend/wailsjs/go
+              git commit -m "build: обновить биндинги Wails (wails build)"
+              git push origin "HEAD:${GITHUB_REF_NAME}"
+              echo "::notice title=Биндинги::frontend/wailsjs/go обновлены и закоммичены в ветку: сделайте git pull"
+            else
+              echo "::error title=Биндинги::frontend/wailsjs/go устарели: закоммить файлы, сгенерированные wails build"
+              exit 1
+            fi
           fi
 
       - name: Тесты Go на Windows
@@ -95,6 +113,15 @@ jobs:
           for ($i = 0; $i -lt 30 -and (Test-Path $exe.FullName); $i++) { Start-Sleep -Seconds 1 }
           if (Test-Path $exe.FullName) { Write-Host "::error::Программа не удалилась за 30 с"; exit 1 }
           Write-Host "Удалено начисто"
+
+      - name: Смоук службы (ручной запуск, scenario=smoke)
+        id: smoke
+        if: github.event_name == 'workflow_dispatch' && inputs.scenario == 'smoke'
+        shell: pwsh
+        run: ./tools/accept/smoke.ps1 -InstallerDir build/bin -LogPath "$env:RUNNER_TEMP/ci.log"
+      - name: Смоук службы, ошибки — в пометки сборки
+        if: failure() && steps.smoke.conclusion == 'failure'
+        run: bash tools/annotate-errors.sh "$RUNNER_TEMP/ci.log" "Смоук службы"
 
       - name: Версия и дата
         id: meta
