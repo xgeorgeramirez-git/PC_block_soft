@@ -322,3 +322,21 @@ describe("ребёнок о себе: MyToday, FirstRunSeen, Finish", () => {
     await expect(api.finish(0)).resolves.toBeUndefined();
   });
 });
+
+describe("учётка ребёнка стала администратором (R1)", () => {
+  it("статус «admin» с тем же словом, что у службы, и без лимитов", () => {
+    const status = statusOf(mockChild({ admin: true }), Date.now());
+    expect(status).toMatchObject({
+      status: "admin",
+      statusText: "Администратор: ограничения не действуют",
+      lock: "none",
+      unlimited: true,
+    });
+  });
+
+  it("GetToday отдаёт такую карточку", async () => {
+    installBackend({ sessionActive: true, children: [mockChild({ admin: true })] });
+    const today = await api.getToday();
+    expect(today.children[0].status.status).toBe("admin");
+  });
+});

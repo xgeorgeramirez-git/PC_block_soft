@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { addExtra, clearBlock, getToday, listEvents, undoExtra } from "../api";
 import Notice from "../components/Notice";
 import ServiceNotices from "../components/ServiceNotices";
+import HintSlot from "../guidance/HintSlot";
 import { errorText } from "../lib/errors";
 import { formatDateLong, formatUsed, localOffsetMin } from "../lib/format";
 import { isViolation, startOfDayMs } from "../lib/journal";
@@ -108,6 +109,9 @@ export default function Today({ onOpenJournal, onOpenSettings, onOpenChildren }:
       say(card.childId, reply.message);
     });
 
+  // Подсказка про кнопки «+15» одна на экран: встаёт у первой карточки, где такие кнопки есть.
+  const extraHintChild = cards?.find((c) => canAddTime(c.status.status))?.childId;
+
   return (
     <section aria-labelledby="today-title">
       <div className="page-head">
@@ -156,6 +160,7 @@ export default function Today({ onOpenJournal, onOpenSettings, onOpenChildren }:
                 <ChildCard
                   key={card.childId}
                   card={card}
+                  extraHint={card.childId === extraHintChild}
                   feedback={feedback[card.childId]}
                   busy={busy === card.childId}
                   onAdd={(m) => void add(card, m)}
@@ -173,6 +178,8 @@ export default function Today({ onOpenJournal, onOpenSettings, onOpenChildren }:
 
 interface CardProps {
   card: TodayCard;
+  /** Здесь встаёт подсказка про кнопки добавления времени. */
+  extraHint: boolean;
   feedback: Feedback | undefined;
   busy: boolean;
   onAdd: (minutes: number) => void;
@@ -180,14 +187,14 @@ interface CardProps {
   onUnblock: () => void;
 }
 
-function ChildCard({ card, feedback, busy, onAdd, onUndo, onUnblock }: CardProps) {
+function ChildCard({ card, extraHint, feedback, busy, onAdd, onUndo, onUnblock }: CardProps) {
   const s = card.status;
   const tone = statusTone(s.status);
   const limited = hasTimeLimits(s.status);
   const extraAllowed = canAddTime(s.status);
   const titleId = `child-${card.childId}-name`;
   return (
-    <article className="child-card" aria-labelledby={titleId}>
+    <article className="child-card" aria-labelledby={titleId} data-help-anchor="child-card">
       <header className="child-head">
         <h3 id={titleId} className="child-name">
           {card.name}
@@ -197,12 +204,14 @@ function ChildCard({ card, feedback, busy, onAdd, onUndo, onUnblock }: CardProps
         </span>
       </header>
 
+      <HintSlot anchor="child-card" subject={String(card.childId)} name={card.name} />
+
       {limited ? <p className="child-used">{formatUsed(s.usedS, s.limitS, s.unlimited)}</p> : null}
       {card.extraMin > 0 ? <p className="child-meta">{`Добавлено сегодня: ${card.extraMin} мин`}</p> : null}
       {s.lock === "bypass" && s.detail ? <p className="child-meta">{s.detail}</p> : null}
       {s.lock !== "none" && s.until ? <p className="child-meta">{s.until}</p> : null}
 
-      <div className="child-actions">
+      <div className="child-actions" data-help-anchor={extraAllowed ? "extra-buttons" : undefined}>
         {extraAllowed
           ? EXTRA_BUTTONS.map((m) => (
               <button key={m} type="button" className="btn" disabled={busy} onClick={() => onAdd(m)}>
@@ -216,6 +225,8 @@ function ChildCard({ card, feedback, busy, onAdd, onUndo, onUnblock }: CardProps
           </button>
         ) : null}
       </div>
+
+      {extraHint ? <HintSlot anchor="extra-buttons" /> : null}
 
       {feedback ? <FeedbackLine key={feedback.seq} feedback={feedback} onUndo={onUndo} /> : null}
     </article>

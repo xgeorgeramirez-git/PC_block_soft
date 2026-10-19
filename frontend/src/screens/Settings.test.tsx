@@ -2,6 +2,9 @@ import { afterEach, describe, expect, it, vi, type Mock } from "vitest";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import Settings from "./Settings";
+import GuidanceProvider from "../guidance/GuidanceProvider";
+import { HelperEngine } from "../guidance/engine";
+import { apiHelperIO } from "../guidance/io";
 import { RULES_NOT_READ_TEXT } from "../lib/notices";
 import { DEFAULT_PASSWORD, installBackend, mockAccounts, mockChild, uninstallBackend, type MockBackend } from "../__mocks__/backend";
 
@@ -320,6 +323,62 @@ describe("Settings: Помощник", () => {
     await user.click(toggle);
     expect(await within(section("Помощник")).findByText("Программа не отвечает. Попробуйте ещё раз через минуту")).toBeTruthy();
     expect(toggle.checked).toBe(true);
+  });
+});
+
+describe("Settings: Помощник в окне родителя", () => {
+  async function setupWithHelper(helper: Record<string, unknown>) {
+    mock = installBackend({ sessionActive: true, helper });
+    const user = userEvent.setup();
+    render(
+      <GuidanceProvider engine={new HelperEngine(apiHelperIO)} screen="settings" navigate={() => undefined}>
+        <div data-help-anchor="menu-today" />
+        <Settings />
+      </GuidanceProvider>,
+    );
+    await vi.waitFor(() => expect(screen.queryByText("Загружаю данные")).toBeNull());
+    const box = section("Помощник");
+    await vi.waitFor(() => expect(within(box).getByRole("checkbox").hasAttribute("disabled")).toBe(false));
+    return { user, box };
+  }
+
+  // Ловит: «Вернуть скрытые» стирает и выключатель, и пройденные туры.
+  it("«Вернуть скрытые подсказки» забывает скрытое, но не трогает выключатель и туры", async () => {
+    const { user, box } = await setupWithHelper({
+      enabled: false,
+      seen: ["H-M1-02"],
+      done: ["H-M1-01"],
+      muted: ["D-M1-01:1"],
+      tours: ["T-M1-01"],
+    });
+    await user.click(within(box).getByRole("button", { name: "Вернуть скрытые подсказки" }));
+    expect(await within(box).findByText("Скрытые подсказки снова будут появляться.")).toBeTruthy();
+    const state = (mock.state.helper ?? {}) as Record<string, unknown>;
+    expect(state.enabled).toBe(false);
+    expect(state.tours).toEqual(["T-M1-01"]);
+    expect(state.seen ?? []).toEqual([]);
+    expect(state.done ?? []).toEqual([]);
+    expect(state.muted ?? []).toEqual([]);
+  });
+
+  it("«Пройти обучение заново» запускает тур", async () => {
+    const { user, box } = await setupWithHelper({ enabled: false });
+    await user.click(within(box).getByRole("button", { name: "Пройти обучение заново" }));
+    expect(await screen.findByRole("dialog", { name: "Короткий тур по окну родителя" })).toBeTruthy();
+  });
+
+  // Ловит: выключатель подсказок объясняется так, будто выключает и обучение (S28).
+  it("сказано, что обучение в «Помощи» работает и при выключенных подсказках", async () => {
+    const { box } = await setupWithHelper({ enabled: false });
+    expect(within(box).getByText(/Обучение в разделе «Помощь» доступно всегда/)).toBeTruthy();
+  });
+
+  it("выключатель сохраняет состояние целиком и здесь", async () => {
+    const { user, box } = await setupWithHelper({ enabled: true, seen: ["H-M1-01"], snoozed: {} });
+    await user.click(within(box).getByRole("checkbox", { name: "Показывать подсказки" }));
+    await vi.waitFor(() => expect(mock.count("SaveHelperState")).toBeGreaterThan(0));
+    const last = mock.calls.filter((c) => c.command === "SaveHelperState").at(-1);
+    expect(last?.payload).toMatchObject({ state: { enabled: false, seen: ["H-M1-01"] } });
   });
 });
 

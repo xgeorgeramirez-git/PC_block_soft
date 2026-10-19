@@ -40,6 +40,8 @@ export interface MockChild {
   blocked: boolean;
   /** Подробность для экрана блокировки при обходе. */
   blockDetail: string;
+  /** Учётка стала администратором (R1): ограничения не действуют. */
+  admin?: boolean;
 }
 
 export interface MockOptions {
@@ -179,6 +181,22 @@ export function statusOf(child: MockChild, nowMs: number): ChildStatus {
     until: "",
     reason: "",
   };
+  if (child.admin) {
+    const text = "Администратор: ограничения не действуют";
+    return {
+      ...base,
+      status: "admin",
+      statusText: text,
+      label: "?",
+      tooltip: text,
+      summary: text,
+      remainingS: 0,
+      limitS: 0,
+      unlimited: true,
+      lock: "none",
+      used: "",
+    };
+  }
   const limit = todayLimit(child, nowMs);
   const limitMin = limit.totalMin + child.extraMin;
   const limitS = limit.unlimited ? 0 : limitMin * 60;
