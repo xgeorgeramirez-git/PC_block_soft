@@ -4,3 +4,4 @@ internal/core 90
 internal/storage 75
 internal/ipc 80
 internal/systray 70
+internal/service 85
