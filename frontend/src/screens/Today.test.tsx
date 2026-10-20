@@ -146,6 +146,7 @@ describe("Today: карточка ребёнка", () => {
               used: "",
             },
             extraMin: 0,
+            bonusBalance: 0,
             canClearBlock: false,
           },
         ],

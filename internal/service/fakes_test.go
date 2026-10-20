@@ -28,10 +28,14 @@ type fakeStore struct {
 	settings map[string]string
 	closed   bool
 
-	failLimits bool // GetDayLimits возвращает ошибку
-	failSave   bool // SaveDayState возвращает ошибку
-	failEvents bool // AppendEvent возвращает ошибку
-	failAuth   bool // GetAuth возвращает ошибку
+	schedule map[int64][]core.Interval // интервалы по ребёнку (M2)
+	bonus    map[int64][]BonusRecord   // история копилки по ребёнку (M2)
+
+	failLimits   bool // GetDayLimits возвращает ошибку
+	failSave     bool // SaveDayState возвращает ошибку
+	failEvents   bool // AppendEvent возвращает ошибку
+	failAuth     bool // GetAuth возвращает ошибку
+	failSchedule bool // GetSchedule возвращает ошибку
 }
 
 type savedDay struct {
@@ -43,6 +47,7 @@ func newFakeStore() *fakeStore {
 	return &fakeStore{
 		children: map[int64]*Child{}, removed: map[int64]bool{}, nextID: 1,
 		limits: map[int64][7]core.DayLimit{}, days: map[string]core.DayState{}, settings: map[string]string{},
+		schedule: map[int64][]core.Interval{}, bonus: map[int64][]BonusRecord{},
 	}
 }
 
@@ -116,6 +121,70 @@ func (f *fakeStore) GetDayLimits(id int64) ([7]core.DayLimit, error) {
 	}
 	return f.limits[id], nil
 }
+
+func (f *fakeStore) GetSchedule(id int64) ([]core.Interval, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.failSchedule {
+		return nil, errFake
+	}
+	out := make([]core.Interval, len(f.schedule[id]))
+	copy(out, f.schedule[id])
+	if out == nil {
+		out = []core.Interval{}
+	}
+	return out, nil
+}
+
+func (f *fakeStore) SetSchedule(id int64, intervals []core.Interval) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	cp := make([]core.Interval, len(intervals))
+	copy(cp, intervals)
+	f.schedule[id] = cp
+	return nil
+}
+
+func (f *fakeStore) AppendBonus(id int64, deltaMin int, reason string) (int, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if reason == "" || deltaMin == 0 {
+		return 0, errFake
+	}
+	cur := 0
+	if h := f.bonus[id]; len(h) > 0 {
+		cur = h[len(h)-1].Balance
+	}
+	after := cur + deltaMin
+	if after < 0 || after > 600 {
+		return 0, errFake
+	}
+	f.bonus[id] = append(f.bonus[id], BonusRecord{AtMs: timeNowService(), DeltaMin: deltaMin, Reason: reason, Balance: after})
+	return after, nil
+}
+
+func (f *fakeStore) GetBonusBalance(id int64) (int, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if h := f.bonus[id]; len(h) > 0 {
+		return h[len(h)-1].Balance, nil
+	}
+	return 0, nil
+}
+
+func (f *fakeStore) ListBonus(id int64) ([]BonusRecord, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	src := f.bonus[id]
+	out := make([]BonusRecord, 0, len(src))
+	for i := len(src) - 1; i >= 0; i-- { // новые первыми
+		out = append(out, src[i])
+	}
+	return out, nil
+}
+
+// timeNowService — момент для фейка копилки (тесты не проверяют конкретный момент).
+func timeNowService() int64 { return 0 }
 
 func dayKey(id int64, day string) string { return fmt.Sprintf("%d|%s", id, day) }
 

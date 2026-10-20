@@ -99,6 +99,7 @@ type childState struct {
 	haveSample bool
 	warns      []pendingWarning
 	undo       *undoRec
+	bonusUndo  *undoRec // отмена последнего начисления копилки на 10 с (FR-22)
 }
 
 // Service — служба PCBlock без привязки к Windows: логика на портах (doc.go).
@@ -316,7 +317,12 @@ func (s *Service) readRules(id int64) core.Rules {
 		s.logRate(fmt.Sprint("rules", id), "не удалось прочитать правила ребёнка %d, ограничения не применяются: %v", id, err)
 		return core.Rules{Broken: true}
 	}
-	return core.Rules{Week: week}
+	sched, err := s.cfg.Store.GetSchedule(id)
+	if err != nil {
+		s.logRate(fmt.Sprint("sched", id), "не удалось прочитать расписание ребёнка %d, ограничения не применяются: %v", id, err)
+		return core.Rules{Broken: true}
+	}
+	return core.Rules{Week: week, Schedule: sched}
 }
 
 // exempt сообщает, что для учётки сняты запрет A2 и правило R1 (тестовый режим, ТЗ 10.8).
@@ -377,7 +383,9 @@ func (s *Service) afterDecision(cs *childState, d core.Decision, extra map[strin
 	}
 	s.writeEvents(cs.child.ID, d.Events, extra)
 	if d.Warning != 0 {
-		cs.warns = append(cs.warns, pendingWarning{w: ipc.NewGuardWarning(d.Warning), at: s.real})
+		// Текст предупреждения зависит от вида ближайшего события (R9, FR-9): исчерпание
+		// времени, начало запретных часов или конец паузы.
+		cs.warns = append(cs.warns, pendingWarning{w: ipc.NewGuardWarningFor(d.Warning, d.WarningEvent), at: s.real})
 	}
 }
 
@@ -422,9 +430,14 @@ func (s *Service) cardOf(cs *childState) ipc.TodayCard {
 	if state.Day != st.Day && st.Day != "" {
 		extra = 0
 	}
+	bonus, err := s.cfg.Store.GetBonusBalance(cs.child.ID)
+	if err != nil {
+		s.logRate(fmt.Sprint("bonus", cs.child.ID), "не удалось прочитать копилку ребёнка %d: %v", cs.child.ID, err)
+		bonus = 0
+	}
 	return ipc.TodayCard{
 		ChildID: cs.child.ID, SID: cs.child.SID, Name: cs.child.Name, Status: st,
-		ExtraMin: extra, CanClearBlock: bypass != "",
+		ExtraMin: extra, BonusBalance: bonus, CanClearBlock: bypass != "",
 	}
 }
 

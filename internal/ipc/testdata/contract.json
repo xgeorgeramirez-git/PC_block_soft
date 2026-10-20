@@ -31,6 +31,7 @@
             "used": "Сегодня: 35 мин из 2 ч"
           },
           "extraMin": 30,
+          "bonusBalance": 0,
           "canClearBlock": false
         },
         "message": "Добавлено 30 минут",
@@ -83,6 +84,7 @@
             "used": "Сегодня: 35 мин из 2 ч"
           },
           "extraMin": 30,
+          "bonusBalance": 0,
           "canClearBlock": false
         },
         "message": "Добавлено 30 минут"
@@ -146,6 +148,7 @@
             "used": "Сегодня: 35 мин из 2 ч"
           },
           "extraMin": 0,
+          "bonusBalance": 0,
           "canClearBlock": false
         },
         "message": "Блокировка снята"
@@ -443,6 +446,7 @@
               "used": "Сегодня: 35 мин из 2 ч"
             },
             "extraMin": 0,
+            "bonusBalance": 0,
             "canClearBlock": false
           },
           {
@@ -469,6 +473,7 @@
               "used": "Сегодня: 35 мин из 2 ч"
             },
             "extraMin": 30,
+            "bonusBalance": 0,
             "canClearBlock": true
           }
         ],
@@ -514,6 +519,7 @@
               "used": "Сегодня: 2 ч 00 мин из 2 ч"
             },
             "extraMin": 0,
+            "bonusBalance": 0,
             "canClearBlock": false
           }
         ],
@@ -1017,6 +1023,7 @@
             "used": "Сегодня: 35 мин из 2 ч"
           },
           "extraMin": 0,
+          "bonusBalance": 0,
           "canClearBlock": false
         },
         "message": "Пауза до 18:30"
@@ -1055,6 +1062,7 @@
               "used": "Сегодня: 35 мин из 2 ч"
             },
             "extraMin": 0,
+            "bonusBalance": 0,
             "canClearBlock": false
           }
         ],
@@ -1208,6 +1216,7 @@
             "used": "Сегодня: 35 мин из 2 ч"
           },
           "extraMin": 0,
+          "bonusBalance": 0,
           "canClearBlock": false
         },
         "message": "Сохранено. Новые правила уже действуют"
@@ -1276,6 +1285,7 @@
             "used": "Сегодня: 35 мин из 2 ч"
           },
           "extraMin": 0,
+          "bonusBalance": 0,
           "canClearBlock": false
         },
         "message": "Сохранено. Новые правила уже действуют"
@@ -1453,6 +1463,7 @@
             "used": "Сегодня: 35 мин из 2 ч"
           },
           "extraMin": 30,
+          "bonusBalance": 0,
           "canClearBlock": false
         },
         "message": "Взято из копилки 30 мин",
@@ -1548,6 +1559,7 @@
             "used": "Сегодня: 35 мин из 2 ч"
           },
           "extraMin": 0,
+          "bonusBalance": 0,
           "canClearBlock": false
         },
         "message": "Добавленное время отменено"

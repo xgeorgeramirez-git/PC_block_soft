@@ -40,6 +40,14 @@ type EventQuery struct {
 	Limit   int
 }
 
+// BonusRecord — запись истории копилки (storage.BonusEntry) для службы (FR-22).
+type BonusRecord struct {
+	AtMs     int64
+	DeltaMin int
+	Reason   string
+	Balance  int
+}
+
 // Auth — пароль родителя и состояние неверных вводов (storage.Auth).
 type Auth struct {
 	Hash        string
@@ -56,6 +64,11 @@ type Store interface {
 	SetBypass(childID int64, detail string) error
 	SetDayLimits(childID int64, week [7]core.DayLimit) error
 	GetDayLimits(childID int64) ([7]core.DayLimit, error)
+	GetSchedule(childID int64) ([]core.Interval, error)
+	SetSchedule(childID int64, intervals []core.Interval) error
+	AppendBonus(childID int64, deltaMin int, reason string) (balanceAfter int, err error)
+	GetBonusBalance(childID int64) (int, error)
+	ListBonus(childID int64) ([]BonusRecord, error)
 	LoadDayState(childID int64, day string) (core.DayState, error)
 	SaveDayState(childID int64, st core.DayState) error
 	AppendEvent(e StoredEvent) error

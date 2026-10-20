@@ -284,6 +284,7 @@ type TodayCard struct {
 	Name          string      `json:"name"`
 	Status        ChildStatus `json:"status"`
 	ExtraMin      int         `json:"extraMin"`      // доп. время на сегодня, мин
+	BonusBalance  int         `json:"bonusBalance"`  // баланс копилки, мин (M2)
 	CanClearBlock bool        `json:"canClearBlock"` // есть блокировка за обход, кнопка «Снять блокировку»
 }
 

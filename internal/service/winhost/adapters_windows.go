@@ -64,6 +64,34 @@ func (a storeAdapter) GetDayLimits(childID int64) ([7]core.DayLimit, error) {
 	return a.s.GetDayLimits(childID)
 }
 
+func (a storeAdapter) GetSchedule(childID int64) ([]core.Interval, error) {
+	return a.s.GetSchedule(childID)
+}
+
+func (a storeAdapter) SetSchedule(childID int64, intervals []core.Interval) error {
+	return a.s.SetSchedule(childID, intervals)
+}
+
+func (a storeAdapter) AppendBonus(childID int64, deltaMin int, reason string) (int, error) {
+	return a.s.AppendBonus(childID, deltaMin, reason)
+}
+
+func (a storeAdapter) GetBonusBalance(childID int64) (int, error) {
+	return a.s.GetBonusBalance(childID)
+}
+
+func (a storeAdapter) ListBonus(childID int64) ([]service.BonusRecord, error) {
+	list, err := a.s.ListBonus(childID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]service.BonusRecord, 0, len(list))
+	for _, e := range list {
+		out = append(out, service.BonusRecord{AtMs: e.AtMs, DeltaMin: e.DeltaMin, Reason: e.Reason, Balance: e.BalanceAfter})
+	}
+	return out, nil
+}
+
 func (a storeAdapter) LoadDayState(childID int64, day string) (core.DayState, error) {
 	return a.s.LoadDayState(childID, day)
 }

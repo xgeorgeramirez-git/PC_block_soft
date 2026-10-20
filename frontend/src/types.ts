@@ -132,6 +132,7 @@ export interface TodayCard {
   name: string;
   status: ChildStatus;
   extraMin: number;
+  bonusBalance: number;
   canClearBlock: boolean;
 }
 

@@ -36,6 +36,8 @@ export interface MockChild {
   usedS: number;
   /** Доп. время на сегодня, минуты. */
   extraMin: number;
+  /** Баланс копилки, минуты (M2). */
+  bonusBalance?: number;
   /** Заблокирован за обход защиты, пока родитель не снимет. */
   blocked: boolean;
   /** Подробность для экрана блокировки при обходе. */
@@ -275,6 +277,7 @@ function cardOf(child: MockChild, nowMs: number): TodayCard {
     name: child.name,
     status: statusOf(child, nowMs),
     extraMin: child.extraMin,
+    bonusBalance: child.bonusBalance ?? 0,
     canClearBlock: child.blocked,
   };
 }
