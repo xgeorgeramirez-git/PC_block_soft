@@ -128,6 +128,11 @@ type SessionLauncher interface {
 	Launch(kind ProcKind, sessionID uint32, args []string) (Proc, error)
 	// Logoff выводит пользователя из сеанса (WTSLogoffSession).
 	Logoff(sessionID uint32) error
+	// Shutdown штатно выключает компьютер (с запросом закрыть программы, без принуждения).
+	Shutdown() error
+	// SwitchUser отключает сеанс без завершения (WTSDisconnectSession): Windows показывает
+	// экран выбора пользователя, программы и данные ребёнка остаются в сеансе.
+	SwitchUser(sessionID uint32) error
 	// Stamp возвращает момент создания процесса: пара (PID, Stamp) не повторяется,
 	// в отличие от PID. ok = false: процесса нет.
 	Stamp(pid uint32) (stamp uint64, ok bool)

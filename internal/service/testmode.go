@@ -21,13 +21,18 @@ const (
 	valClockStart     = "ClockStart"
 	valClockRealStart = "ClockRealStart"
 	valTestChildSID   = "TestChildSID"
+	valLockAutoSwitch = "LockAutoSwitchS"
 
 	// MaxClockSpeed — наибольшее ускорение: период тика не короче миллисекунды.
 	MaxClockSpeed = 1000
+
+	// MaxLockAutoSwitchS — наибольший срок автосмены пользователя в тестовом режиме, секунд:
+	// те же 15 минут, что в обычном режиме. Тестовый режим срок только сокращает.
+	MaxLockAutoSwitchS = 900
 )
 
 // TestModeValueNames — значения ключа, которые читает служба.
-var TestModeValueNames = []string{valDataDir, valClockSpeed, valClockStart, valClockRealStart, valTestChildSID}
+var TestModeValueNames = []string{valDataDir, valClockSpeed, valClockStart, valClockRealStart, valTestChildSID, valLockAutoSwitch}
 
 // TestMode — значения тестового режима.
 type TestMode struct {
@@ -37,6 +42,9 @@ type TestMode struct {
 	ClockStart     time.Time // момент часов ядра в начале теста (пн 19.10.2026 15:00); нулевой: настоящее время
 	ClockRealStart time.Time // настоящий момент начала теста; нулевой: момент создания часов
 	TestChildSID   string    // учётка раннера: для неё сняты запрет A2 и правило R1
+	// LockAutoSwitchS — срок автоматической смены пользователя на экране блокировки в секундах
+	// (1 до 900); 0: обычные 15 минут. Приёмка не ждёт 15 минут настоящих часов.
+	LockAutoSwitchS int
 }
 
 // momentLayouts — допустимые записи момента: с поясом или местное время без пояса.
@@ -101,6 +109,13 @@ func ParseTestMode(values map[string]string, loc *time.Location) (TestMode, erro
 			return TestMode{}, fmt.Errorf("Тестовый режим: %s должен быть идентификатором вида S-1-5-21-..., а не %q", valTestChildSID, s)
 		}
 		tm.TestChildSID = s
+	}
+	if s := strings.TrimSpace(values[valLockAutoSwitch]); s != "" {
+		n, err := strconv.Atoi(s)
+		if err != nil || n < 1 || n > MaxLockAutoSwitchS {
+			return TestMode{}, fmt.Errorf("Тестовый режим: %s должно быть целым числом от 1 до %d, а не %q", valLockAutoSwitch, MaxLockAutoSwitchS, s)
+		}
+		tm.LockAutoSwitchS = n
 	}
 	return tm, nil
 }

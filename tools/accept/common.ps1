@@ -445,7 +445,7 @@ function Install-Pcb {
 # Включает тестовый режим: временная папка данных, ускорение, начало часов ядра в понедельник 19.10.2026
 # в 15:00 (день недели не зависит от времени запуска CI), учётка раннера как "ребёнок" (ТЗ 10.8).
 # ClockRealStart пишется сейчас: после перезапуска службы время ядра продолжается, а не идёт назад.
-function Enable-TestMode([int]$Speed = 1, [string]$ChildSid = $script:MySid, [bool]$ExpectFresh = $true) {
+function Enable-TestMode([int]$Speed = 1, [string]$ChildSid = $script:MySid, [bool]$ExpectFresh = $true, [int]$LockAutoSwitchS = 0) {
   New-Item -Path $script:TestKey -Force | Out-Null
   $realStart = [DateTime]::UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ")
   New-ItemProperty -Path $script:TestKey -Name DataDir -Value $script:Data -PropertyType String -Force | Out-Null
@@ -453,6 +453,10 @@ function Enable-TestMode([int]$Speed = 1, [string]$ChildSid = $script:MySid, [bo
   New-ItemProperty -Path $script:TestKey -Name ClockStart -Value "2026-10-19T15:00:00" -PropertyType String -Force | Out-Null
   New-ItemProperty -Path $script:TestKey -Name ClockRealStart -Value $realStart -PropertyType String -Force | Out-Null
   New-ItemProperty -Path $script:TestKey -Name TestChildSID -Value $ChildSid -PropertyType String -Force | Out-Null
+  # Срок автосмены пользователя на экране блокировки в секундах (1...900); 0: по умолчанию, 15 минут.
+  if ($LockAutoSwitchS -gt 0) {
+    New-ItemProperty -Path $script:TestKey -Name LockAutoSwitchS -Value $LockAutoSwitchS -PropertyType DWord -Force | Out-Null
+  }
   $script:ClockSpeed = $Speed
   $script:ClockPausedByUs = $false
   Close-PipeConn
@@ -501,10 +505,10 @@ function Reset-Machine {
 }
 
 # Свежая установка и свежая папка данных (счётчик сбоев службы, Ruling 27), тестовый режим включён.
-function Initialize-Scenario([int]$Speed = 1) {
+function Initialize-Scenario([int]$Speed = 1, [int]$LockAutoSwitchS = 0) {
   Reset-Machine
   Install-Pcb
-  Enable-TestMode $Speed
+  Enable-TestMode $Speed $script:MySid $true $LockAutoSwitchS
 }
 
 function Write-Diagnostics {
@@ -744,7 +748,8 @@ function Format-GuardState($s) {
   $w = (@(List $s.warnings) | ForEach-Object { $_.threshold }) -join ","
   $b = (@(List $s.buttons)) -join ","
   $f = (@(List $s.fields) | ForEach-Object { "$($_.id)='$($_.text)'" }) -join ","
-  return "экран=$($s.lockShown)/$($s.lockKind); кнопки=[$b]; поля=[$f]; предупреждения=[$w]"
+  $x = (@(List $s.exits)) -join ","
+  return "экран=$($s.lockShown)/$($s.lockKind); кнопки=[$b]; поля=[$f]; предупреждения=[$w]; выходы=[$x]"
 }
 
 function Get-WarnThresholds($State) { return @(List $State.warnings | ForEach-Object { [int]$_.threshold }) }
@@ -762,6 +767,10 @@ function Wait-GuardState([scriptblock]$Cond, [double]$Seconds, [string]$What, [i
 }
 
 function Test-HasButton($State, [string]$Name) { return (@(List $State.buttons) -contains $Name) }
+
+# Выход, о котором страж просил службу в тестовом режиме (GuardState.Exits): "shutdown" или "switchUser".
+# Служба в тестовом режиме их не выполняет, а записывает (раннер CI нельзя выключить или отключить).
+function Test-HasExit($State, [string]$Name) { return (@(List $State.exits) -contains $Name) }
 
 # Нажимает кнопку экрана стража и ждёт, пока она исполнится: команда доходит до стража при его опросе (раз в секунду).
 function Invoke-GuardClick([string]$Target) { Invoke-TestGuard "click" $Target }

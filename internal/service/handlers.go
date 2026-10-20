@@ -38,7 +38,16 @@ func (s *Service) hHello(c *callCtx) ipc.Reply {
 	return ipc.OK(ipc.HelloReply{
 		Protocol: ipc.ProtocolVersion, Version: s.cfg.Version,
 		TestMode: s.cfg.Test.Enabled, Configured: s.configured(),
+		AutoSwitchS: s.autoSwitchS(),
 	})
+}
+
+// autoSwitchS: срок автосмены пользователя для стража в секундах, только в тестовом режиме.
+func (s *Service) autoSwitchS() int {
+	if !s.cfg.Test.Enabled {
+		return 0
+	}
+	return s.cfg.Test.LockAutoSwitchS
 }
 
 func (s *Service) hGetChildStatus(c *callCtx) ipc.Reply {
@@ -783,6 +792,36 @@ func (s *Service) hGuardLogoff(c *callCtx) ipc.Reply {
 	return ipc.OK(ipc.Empty{})
 }
 
+// hGuardShutdown выключает компьютер по просьбе стража после подтверждения на экране. В
+// тестовом режиме компьютер не выключается: раннер CI нельзя выключать, служба только
+// записывает, что выключение запрошено (GuardState.Exits).
+func (s *Service) hGuardShutdown(c *callCtx) ipc.Reply {
+	if s.cfg.Test.Enabled {
+		s.testExits = append(s.testExits, ipc.ExitShutdown)
+		return ipc.OK(ipc.Empty{})
+	}
+	if err := s.cfg.Launcher.Shutdown(); err != nil {
+		s.logRate("shutdown", "не удалось выключить компьютер: %v", err)
+		return ipc.Fail(textRetry)
+	}
+	return ipc.OK(ipc.Empty{})
+}
+
+// hGuardSwitchUser отключает сеанс ребёнка без завершения по просьбе стража: нажатие кнопки
+// «Смена пользователя» или автосмена через 15 минут. В тестовом режиме сеанс раннера не
+// отключается, служба только записывает запрос (GuardState.Exits).
+func (s *Service) hGuardSwitchUser(c *callCtx) ipc.Reply {
+	if s.cfg.Test.Enabled {
+		s.testExits = append(s.testExits, ipc.ExitSwitchUser)
+		return ipc.OK(ipc.Empty{})
+	}
+	if err := s.cfg.Launcher.SwitchUser(c.peer.SessionID); err != nil {
+		s.logRate("switchuser", "не удалось сменить пользователя в сеансе %d: %v", c.peer.SessionID, err)
+		return ipc.Fail(textRetry)
+	}
+	return ipc.OK(ipc.Empty{})
+}
+
 // --- тестовый режим -------------------------------------------------------------------------------
 
 var testActions = map[string]bool{
@@ -866,8 +905,11 @@ func (s *Service) hGuardState(c *callCtx) ipc.Reply {
 			best = v
 		}
 	}
+	// След выходов принадлежит службе: что прислал страж, отбрасывается.
 	if best == nil {
-		return ipc.OK(ipc.GuardStateReply{})
+		return ipc.OK(ipc.GuardStateReply{Exits: append([]string{}, s.testExits...)})
 	}
-	return ipc.OK(best.state)
+	out := best.state
+	out.Exits = append([]string{}, s.testExits...)
+	return ipc.OK(out)
 }

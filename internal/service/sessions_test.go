@@ -1,6 +1,7 @@
 package service
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -720,6 +721,90 @@ func TestGuardLogoffCallsLauncherForOwnSession(t *testing.T) {
 	h.fail(systemOtherPeer(), "", ipc.CmdGuardLogoff, nil)
 	if len(h.launcher.logoffs) != 0 {
 		t.Fatal("выход выполнен по просьбе постороннего")
+	}
+}
+
+// Ловит: просьба стража выключить компьютер не доходит до службы выключения или доходит от постороннего.
+func TestGuardShutdownCallsLauncher(t *testing.T) {
+	h := newHarness(t, withChild(childSID, "Миша", 120))
+	h.start()
+	h.childLogsIn()
+	h.ok(guardPeer(), "", ipc.CmdGuardShutdown, nil, nil)
+	if h.launcher.shutdowns != 1 {
+		t.Fatalf("выключений: %d, ждали 1", h.launcher.shutdowns)
+	}
+	h.fail(systemOtherPeer(), "", ipc.CmdGuardShutdown, nil)
+	h.fail(childPeer(), "", ipc.CmdGuardShutdown, nil)
+	if h.launcher.shutdowns != 1 {
+		t.Fatal("выключение выполнено по просьбе постороннего или самого ребёнка")
+	}
+	if len(h.launcher.logoffs) != 0 || len(h.launcher.switches) != 0 {
+		t.Fatal("вместе с выключением выполнен другой выход")
+	}
+}
+
+// Ловит: смена пользователя отключает не свой сеанс (другого ребёнка), выполняется по просьбе
+// постороннего, или вместо отключения сеанс завершается (выход).
+func TestGuardSwitchUserCallsLauncherForOwnSession(t *testing.T) {
+	h := newHarness(t, withChild(childSID, "Миша", 120))
+	h.start()
+	h.childLogsIn()
+	h.ok(guardPeer(), "", ipc.CmdGuardSwitchUser, nil, nil)
+	if len(h.launcher.switches) != 1 || h.launcher.switches[0] != childSession {
+		t.Fatalf("смены пользователя: %v", h.launcher.switches)
+	}
+	h.launcher.switches = nil
+	h.fail(systemOtherPeer(), "", ipc.CmdGuardSwitchUser, nil)
+	h.fail(childPeer(), "", ipc.CmdGuardSwitchUser, nil)
+	if len(h.launcher.switches) != 0 {
+		t.Fatal("смена пользователя выполнена по просьбе постороннего или самого ребёнка")
+	}
+	if len(h.launcher.logoffs) != 0 || h.launcher.shutdowns != 0 {
+		t.Fatal("вместе со сменой пользователя выполнен другой выход")
+	}
+}
+
+// Ловит: в тестовом режиме выключение и смена пользователя выполняются по-настоящему
+// (раннер CI падает) или не оставляют следа (приёмка не видит, что кнопку нажали); след
+// теряет порядок или не виден проверяющему.
+func TestExitsAreOnlyRecordedInTestMode(t *testing.T) {
+	h := newHarness(t, withChild(childSID, "Миша", 120), withTestMode(TestMode{ClockSpeed: 1}))
+	h.start()
+	h.childLogsIn()
+	var empty ipc.GuardStateReply
+	h.ok(adminPeer(), "", ipc.CmdGuardState, nil, &empty)
+	if empty.Exits == nil || len(empty.Exits) != 0 {
+		t.Fatalf("до нажатий Exits = %#v, ждали пустой не nil", empty.Exits)
+	}
+	h.ok(guardPeer(), "", ipc.CmdGuardSwitchUser, nil, nil)
+	h.ok(guardPeer(), "", ipc.CmdGuardShutdown, nil, nil)
+	h.ok(guardPeer(), "", ipc.CmdGuardSwitchUser, nil, nil)
+	if h.launcher.shutdowns != 0 || len(h.launcher.switches) != 0 || len(h.launcher.logoffs) != 0 {
+		t.Fatalf("в тестовом режиме выход выполнен по-настоящему: выключений %d, смен %v, выходов %v",
+			h.launcher.shutdowns, h.launcher.switches, h.launcher.logoffs)
+	}
+	var got ipc.GuardStateReply
+	h.ok(elevatedPeer(), "", ipc.CmdGuardState, nil, &got)
+	if want := []string{ipc.ExitSwitchUser, ipc.ExitShutdown, ipc.ExitSwitchUser}; !reflect.DeepEqual(got.Exits, want) {
+		t.Fatalf("Exits = %v, ждали %v", got.Exits, want)
+	}
+	// Страж присылает свой вид: след выходов принадлежит службе и вид его не стирает.
+	h.ok(guardPeer(), "", ipc.CmdGuardState, ipc.GuardStateReply{LockShown: true, Exits: []string{"подделка"}}, nil)
+	h.ok(adminPeer(), "", ipc.CmdGuardState, nil, &got)
+	if want := []string{ipc.ExitSwitchUser, ipc.ExitShutdown, ipc.ExitSwitchUser}; !reflect.DeepEqual(got.Exits, want) || !got.LockShown {
+		t.Fatalf("после вида стража: Exits = %v, LockShown = %v", got.Exits, got.LockShown)
+	}
+}
+
+// Ловит: без тестового режима команды записывают след в память службы (утечка и лишняя поверхность).
+func TestExitsLeaveNoTraceOutsideTestMode(t *testing.T) {
+	h := newHarness(t, withChild(childSID, "Миша", 120))
+	h.start()
+	h.childLogsIn()
+	h.ok(guardPeer(), "", ipc.CmdGuardSwitchUser, nil, nil)
+	h.ok(guardPeer(), "", ipc.CmdGuardShutdown, nil, nil)
+	if len(h.svc.testExits) != 0 {
+		t.Fatalf("след выходов вне тестового режима: %v", h.svc.testExits)
 	}
 }
 

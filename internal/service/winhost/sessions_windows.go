@@ -12,8 +12,17 @@ import (
 )
 
 var (
-	wtsapi32                = windows.NewLazySystemDLL("wtsapi32.dll")
-	procWTSLogoffSessionDLL = wtsapi32.NewProc("WTSLogoffSession")
+	wtsapi32                    = windows.NewLazySystemDLL("wtsapi32.dll")
+	procWTSLogoffSessionDLL     = wtsapi32.NewProc("WTSLogoffSession")
+	procWTSDisconnectSessionDLL = wtsapi32.NewProc("WTSDisconnectSession")
+	user32                      = windows.NewLazySystemDLL("user32.dll")
+	procExitWindowsExDLL        = user32.NewProc("ExitWindowsEx")
+)
+
+const (
+	ewxPowerOff     = 0x00000008 // EWX_POWEROFF: выключить питание, если оборудование это умеет
+	ewxForceIfHung  = 0x00000010 // EWX_FORCEIFHUNG: завершить только зависшие программы
+	shutdownPlanned = 0x80000000 // SHTDN_REASON_FLAG_PLANNED с причиной «другое»
 )
 
 // launcher запускает страж, значок и окна в сеансах Windows (service.SessionLauncher над
@@ -67,6 +76,31 @@ func (l launcher) Logoff(sessionID uint32) error {
 	r, _, err := procWTSLogoffSessionDLL.Call(0, uintptr(sessionID), 0)
 	if r == 0 {
 		return fmt.Errorf("WTSLogoffSession: %w", err)
+	}
+	return nil
+}
+
+// Shutdown штатно выключает компьютер: программы получают просьбу закрыться (несохранённое
+// предлагают сохранить), зависшие завершаются. Служба работает от имени системы: привилегия
+// SeShutdownPrivilege в её токене есть, но выключена, и включается здесь.
+func (l launcher) Shutdown() error {
+	if err := enablePrivilege("SeShutdownPrivilege"); err != nil {
+		return err
+	}
+	r, _, err := procExitWindowsExDLL.Call(uintptr(ewxPowerOff|ewxForceIfHung), uintptr(shutdownPlanned))
+	if r == 0 {
+		return fmt.Errorf("ExitWindowsEx: %w", err)
+	}
+	return nil
+}
+
+// SwitchUser отключает сеанс без завершения (WTSDisconnectSession): Windows показывает экран
+// выбора пользователя, программы и несохранённые данные ребёнка остаются в сеансе.
+func (l launcher) SwitchUser(sessionID uint32) error {
+	// 0 — WTS_CURRENT_SERVER_HANDLE; последний аргумент FALSE: не ждать завершения отключения.
+	r, _, err := procWTSDisconnectSessionDLL.Call(0, uintptr(sessionID), 0)
+	if r == 0 {
+		return fmt.Errorf("WTSDisconnectSession: %w", err)
 	}
 	return nil
 }

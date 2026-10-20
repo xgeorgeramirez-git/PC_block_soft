@@ -460,6 +460,12 @@
       }
     }
   },
+  "GuardShutdown": {
+    "reply": {
+      "ok": true,
+      "payload": {}
+    }
+  },
   "GuardState": {
     "reply": {
       "ok": true,
@@ -475,13 +481,18 @@
         "lockKind": "timeUp",
         "buttons": [
           "parentPassword",
-          "logoff"
+          "shutdown",
+          "logoff",
+          "switchUser"
         ],
         "fields": [
           {
             "id": "password",
             "text": ""
           }
+        ],
+        "exits": [
+          "switchUser"
         ]
       }
     }
@@ -494,8 +505,15 @@
         "lockShown": false,
         "lockKind": "",
         "buttons": [],
-        "fields": []
+        "fields": [],
+        "exits": []
       }
+    }
+  },
+  "GuardSwitchUser": {
+    "reply": {
+      "ok": true,
+      "payload": {}
     }
   },
   "Hello": {

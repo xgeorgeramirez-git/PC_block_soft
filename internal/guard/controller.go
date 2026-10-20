@@ -23,6 +23,9 @@ const (
 
 	textNoticeRetry  = "Не удалось выполнить. Попробуйте ещё раз"
 	textNoticeLogoff = "Не получилось выйти. Попробуй ещё раз"
+
+	textNoticeShutdown   = "Не получилось выключить. Попробуй ещё раз"
+	textNoticeSwitchUser = "Не получилось сменить пользователя. Попробуй ещё раз"
 )
 
 // Controller связывает модель стража с службой: раз в секунду собирает снимок датчиков и
@@ -298,6 +301,10 @@ func (c *Controller) ensureHello() {
 	c.mu.Lock()
 	c.helloDone, c.testMode = true, h.TestMode
 	c.mu.Unlock()
+	if h.TestMode && h.AutoSwitchS > 0 {
+		// Срок автосмены сокращается только в тестовом режиме: приёмка не ждёт 15 минут.
+		c.model.SetAutoSwitchAfter(time.Duration(h.AutoSwitchS) * time.Second)
+	}
 }
 
 func (c *Controller) takeEvents() []ipc.GuardEvent {
@@ -374,7 +381,7 @@ func (c *Controller) setNotice(text string) {
 func actsOnService(b Button) bool {
 	switch b {
 	case ButtonSubmitPassword, ButtonAdd15, ButtonAdd30, ButtonAdd60, ButtonClearBlock,
-		ButtonOpenSettings, ButtonConfirmLogoff:
+		ButtonOpenSettings, ButtonConfirmLogoff, ButtonConfirmShutdown, ButtonSwitchUser:
 		return true
 	}
 	return false
@@ -449,7 +456,35 @@ func (c *Controller) Run(act Action) {
 		if err := ipc.Call(c.call, ipc.CmdGuardLogoff, "", nil, nil); err != nil {
 			c.setNotice(failureText(err, textNoticeLogoff))
 		}
+	case ActShutdown:
+		if err := ipc.Call(c.call, ipc.CmdGuardShutdown, "", nil, nil); err != nil {
+			c.setNotice(failureText(err, textNoticeShutdown))
+		}
+	case ActSwitchUser:
+		if err := ipc.Call(c.call, ipc.CmdGuardSwitchUser, "", nil, nil); err != nil {
+			c.setNotice(failureText(err, textNoticeSwitchUser))
+		}
 	}
+}
+
+// AutoSwitch проверяет срок автоматической смены пользователя (ТЗ 8.2.3 п.10) и возвращает
+// действие, которое надо выполнить через Run, как после Press. Зовёт горутина опроса после
+// каждого PollOnce. Пока идёт другая команда стража (проверка пароля родителя), срок не
+// расходуется: действие придёт со следующим опросом после её конца.
+func (c *Controller) AutoSwitch() Action {
+	c.mu.Lock()
+	busy := c.busy
+	c.mu.Unlock()
+	if busy {
+		return Action{}
+	}
+	act := c.model.AutoSwitch(c.now())
+	if act.Kind != ActNone {
+		c.mu.Lock()
+		c.busy = true
+		c.mu.Unlock()
+	}
+	return act
 }
 
 // QueuedTests отдаёт накопленные действия TestGuard (пусто вне тестового режима).
@@ -477,7 +512,7 @@ func StateFromView(v View, lockKind string, shown []ipc.ShownWarning, fields map
 	st := ipc.GuardStateReply{
 		Warnings:  append([]ipc.ShownWarning{}, shown...),
 		LockShown: v.LockShown, LockKind: ipc.LockNone,
-		Buttons: []string{}, Fields: []ipc.GuardField{},
+		Buttons: []string{}, Fields: []ipc.GuardField{}, Exits: []string{},
 	}
 	if v.LockShown && lockKind != "" {
 		st.LockKind = lockKind

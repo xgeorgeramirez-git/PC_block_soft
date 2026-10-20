@@ -1,4 +1,4 @@
-﻿# Приёмка M1 на настоящей Windows: сценарии S1...S7 и S25...S27 по очереди, каждый в своём процессе
+﻿# Приёмка M1 на настоящей Windows: сценарии S1...S7, S25...S27 и LE1, LE2 (выходы с экрана блокировки) по очереди, каждый в своём процессе
 # на свежей установке и свежей папке данных (счётчик сбоев службы, Ruling 27). Падение одного не мешает
 # остальным: прогоняются все, код выхода 1 при любом падении. Снимки в папке accept-screens (PCB_ACCEPT_SHOTS).
 # S28 (подсказки и обучение) браузерный: frontend/e2e/s28-helper.spec.ts, идёт в ci.yml.
@@ -22,7 +22,9 @@ $all = @(
   @{ Id = "S7";  File = "s07-parent-account.ps1" },
   @{ Id = "S25"; File = "s25-reset.ps1" },
   @{ Id = "S26"; File = "s26-uninstall.ps1" },
-  @{ Id = "S27"; File = "s27-power-loss.ps1" }
+  @{ Id = "S27"; File = "s27-power-loss.ps1" },
+  @{ Id = "LE1"; File = "s-lockexits.ps1" },
+  @{ Id = "LE2"; File = "s-lockexits-auto.ps1" }
 )
 if ($Only.Count -gt 0) { $all = @($all | Where-Object { $Only -contains $_.Id }) }
 
@@ -49,6 +51,6 @@ if ($failed.Count -gt 0) {
 if ($Only.Count -gt 0) {
   Write-Host "::notice title=Приёмка M1::$($passed -join ', '): PASS (выборочный прогон)"
 } else {
-  Write-Host "::notice title=Приёмка M1::S1...S7, S25...S27: PASS"
+  Write-Host "::notice title=Приёмка M1::S1...S7, S25...S27, LE1, LE2: PASS"
 }
 exit 0

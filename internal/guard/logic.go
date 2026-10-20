@@ -14,6 +14,10 @@ const (
 	offlineAfter = 10 * time.Second // нет ответа службы дольше этого срока: экран снят (Ruling 15, NFR-10)
 	warningLife  = 15 * time.Second // плашка предупреждения закрывается сама (FR-9)
 	addedLife    = 5 * time.Second  // плашка «Добавлено N минут» (ТЗ 8.2.2 п.4)
+
+	// autoSwitchAfter — через сколько после появления экрана блокировки без родительского
+	// пароля сама выполняется «Смена пользователя» (ТЗ 8.2.3 п.10, D-40).
+	autoSwitchAfter = 15 * time.Minute
 )
 
 // EvGuardOffline — событие журнала «страж был без связи со службой»; пишется после
@@ -29,18 +33,21 @@ type Button int
 
 // Кнопки экрана блокировки, его панелей и плашки.
 const (
-	ButtonNone           Button = iota
-	ButtonParentPassword        // «Пароль родителя» на экране
-	ButtonLogoff                // «Выйти из учётной записи» на экране
-	ButtonSubmitPassword        // «Продолжить» на панели пароля (Enter)
-	ButtonCancel                // «Отмена» на любой панели
-	ButtonAdd15                 // «+15»
-	ButtonAdd30                 // «+30»
-	ButtonAdd60                 // «+60»
-	ButtonOpenSettings          // «Открыть настройки»
-	ButtonClearBlock            // «Снять блокировку» (блокировка за обход)
-	ButtonConfirmLogoff         // «Выйти» в подтверждении выхода
-	ButtonWarningOK             // «Понятно» на плашке предупреждения
+	ButtonNone            Button = iota
+	ButtonParentPassword         // «Пароль родителя» на экране
+	ButtonLogoff                 // «Выйти из учётной записи» на экране
+	ButtonSubmitPassword         // «Продолжить» на панели пароля (Enter)
+	ButtonCancel                 // «Отмена» на любой панели
+	ButtonAdd15                  // «+15»
+	ButtonAdd30                  // «+30»
+	ButtonAdd60                  // «+60»
+	ButtonOpenSettings           // «Открыть настройки»
+	ButtonClearBlock             // «Снять блокировку» (блокировка за обход)
+	ButtonConfirmLogoff          // «Выйти» в подтверждении выхода
+	ButtonShutdown               // «Выключить компьютер» на экране
+	ButtonConfirmShutdown        // «Выключить» в подтверждении выключения
+	ButtonSwitchUser             // «Смена пользователя» на экране
+	ButtonWarningOK              // «Понятно» на плашке предупреждения
 )
 
 // Panel — панель поверх экрана блокировки; одновременно открыта одна.
@@ -48,10 +55,11 @@ type Panel int
 
 // Панели.
 const (
-	PanelNone          Panel = iota // видны только кнопки экрана
-	PanelPassword                   // поле пароля родителя
-	PanelParentChoices              // выбор действия после верного пароля
-	PanelConfirmLogoff              // «Несохранённые документы закроются. Выйти?»
+	PanelNone            Panel = iota // видны только кнопки экрана
+	PanelPassword                     // поле пароля родителя
+	PanelParentChoices                // выбор действия после верного пароля
+	PanelConfirmLogoff                // «Несохранённые документы закроются. Выйти?»
+	PanelConfirmShutdown              // «Несохранённые документы закроются. Выключить компьютер?»
 )
 
 // ActionKind — что окну стража делать после нажатия: исполняет окно (T10b) через службу.
@@ -65,6 +73,8 @@ const (
 	ActClearBlock                      // попросить службу снять блокировку за обход
 	ActOpenSettings                    // попросить службу открыть окно родителя с родительской сессией
 	ActLogoff                          // попросить службу выйти из учётной записи (WTSLogoffSession)
+	ActShutdown                        // попросить службу выключить компьютер
+	ActSwitchUser                      // попросить службу отключить сеанс без завершения: экран выбора пользователя Windows
 )
 
 // Action — результат нажатия. Пароль есть только у ActCheckPassword и только в этом
@@ -105,9 +115,9 @@ type View struct {
 	Buttons   []ButtonView // кнопки экрана; пусто, пока открыта панель
 
 	Panel     Panel
-	PanelText string // вопрос подтверждения выхода; в остальных панелях пусто
+	PanelText string // вопрос подтверждения выхода или выключения; в остальных панелях пусто
 	// Choices — кнопки открытой панели сверху вниз (для PanelNone пусто): на панели пароля
-	// «Продолжить» и «Отмена», после пароля выбор действия, в подтверждении «Выйти» и «Отмена».
+	// «Продолжить» и «Отмена», после пароля выбор действия, в подтверждении «Выйти» или «Выключить» и «Отмена».
 	Choices []ButtonView
 
 	PasswordEnabled   bool   // поле пароля доступно
@@ -133,19 +143,23 @@ type PasswordResult struct {
 
 // Тексты кнопок и сообщений (ТЗ 8.2.2, 8.2.3; ребёнку на «ты», родителю на «вы», без тире).
 const (
-	textParentPassword = "Пароль родителя"
-	textLogoff         = "Выйти из учётной записи"
-	textSubmit         = "Продолжить"
-	textCancel         = "Отмена"
-	textOpenSettings   = "Открыть настройки"
-	textClearBlock     = "Снять блокировку"
-	textConfirmLogoff  = "Выйти"
-	textWarningOK      = "Понятно"
-	textLogoffQuestion = "Несохранённые документы закроются. Выйти?"
-	textEnterPassword  = "Введите пароль"
-	textWarn15         = "Через 15 минут время на сегодня закончится"
-	textWarn5          = "Через 5 минут время закончится. Сохрани игру"
-	textWarn1          = "Осталась 1 минута: "
+	textParentPassword   = "Пароль родителя"
+	textLogoff           = "Выйти из учётной записи"
+	textShutdown         = "Выключить компьютер"
+	textSwitchUser       = "Смена пользователя"
+	textSubmit           = "Продолжить"
+	textCancel           = "Отмена"
+	textOpenSettings     = "Открыть настройки"
+	textClearBlock       = "Снять блокировку"
+	textConfirmLogoff    = "Выйти"
+	textConfirmShutdown  = "Выключить"
+	textWarningOK        = "Понятно"
+	textLogoffQuestion   = "Несохранённые документы закроются. Выйти?"
+	textShutdownQuestion = "Несохранённые документы закроются. Выключить компьютер?"
+	textEnterPassword    = "Введите пароль"
+	textWarn15           = "Через 15 минут время на сегодня закончится"
+	textWarn5            = "Через 5 минут время закончится. Сохрани игру"
+	textWarn1            = "Осталась 1 минута: "
 )
 
 // warnThresholds — пороги R9, по которым бывают плашки, в минутах.
@@ -186,6 +200,13 @@ type Model struct {
 
 	wasShown  bool          // экран был показан после прошлого решения
 	shownKind core.LockKind // вид блокировки, которая показана
+
+	// autoDue — когда выполнить автоматическую смену пользователя. Имеет смысл, пока экран
+	// показан (wasShown): с новым появлением экрана срок ставится заново. Двигают его только
+	// появление экрана, верный пароль родителя и сама смена (на switchAfter вперёд); действия
+	// ребёнка не двигают.
+	autoDue   time.Time
+	autoAfter time.Duration // срок автосмены, заданный тестовым режимом; 0: autoSwitchAfter
 
 	panel        Panel
 	pwdErr       string    // ошибка у поля, кроме паузы
@@ -241,6 +262,26 @@ func (m *Model) resetUI() {
 	m.wasShown = false
 }
 
+// switchAfter возвращает срок автосмены: заданный тестовым режимом или 15 минут.
+func (m *Model) switchAfter() time.Duration {
+	if m.autoAfter > 0 {
+		return m.autoAfter
+	}
+	return autoSwitchAfter
+}
+
+// SetAutoSwitchAfter сокращает срок автосмены пользователя (только тестовый режим: приёмка не
+// ждёт 15 минут настоящих часов). Ноль, отрицательное значение и срок длиннее 15 минут не
+// принимаются: срок остаётся обычным.
+func (m *Model) SetAutoSwitchAfter(d time.Duration) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if d <= 0 || d > autoSwitchAfter {
+		d = 0
+	}
+	m.autoAfter = d
+}
+
 // advance приводит состояние к моменту now: обрыв связи, срок плашки, конец паузы.
 // Вызывается каждым изменяющим методом; View его не вызывает и состояния не меняет.
 func (m *Model) advance(now time.Time) {
@@ -282,6 +323,9 @@ func (m *Model) OnDecision(now time.Time, d core.Decision, hideForParent bool, n
 		// Экран появился или сменился его вид: панели начинаются заново, плашек поверх нет.
 		m.resetPanels()
 		m.warn = nil
+	}
+	if shown && !m.wasShown {
+		m.autoDue = now.Add(m.switchAfter()) // экран появился: отсчёт идёт, пока он показан
 	}
 	m.wasShown, m.shownKind = shown, d.Lock
 	if shown || hideForParent {
@@ -365,6 +409,7 @@ func (m *Model) OnPasswordResult(now time.Time, r PasswordResult) {
 		m.panel = PanelParentChoices
 		m.pwdErr = ""
 		m.blockedUntil = time.Time{}
+		m.autoDue = now.Add(m.switchAfter()) // родитель у экрана: ему даётся ещё срок на выбор
 		return
 	}
 	left := r.AttemptsLeft
@@ -398,6 +443,27 @@ func (m *Model) TakeEvents() []Event {
 	return out
 }
 
+// AutoSwitch проверяет срок автоматической смены пользователя в момент now (ТЗ 8.2.3 п.10).
+// Экран показан, пароль родителя за срок не введён: возвращает ActSwitchUser, закрывает панели
+// (в оставленном сеансе не должно висеть набранного пароля) и переносит срок на autoAfter
+// вперёд: ровно одно действие за срок, а если ребёнок вернулся к тому же экрану, через
+// 15 минут будет следующая смена. Нет экрана (нет связи, родительская сессия, блокировка снята):
+// ничего. Состояние меняется только здесь и в OnDecision, нажатия ребёнка срок не двигают.
+func (m *Model) AutoSwitch(now time.Time) Action {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.advance(now)
+	if !m.screenShown(now) || m.autoDue.IsZero() || now.Before(m.autoDue) {
+		return Action{}
+	}
+	m.autoDue = now.Add(m.switchAfter())
+	if m.panel != PanelNone {
+		m.resetPanels()
+		m.clearSeq++
+	}
+	return Action{Kind: ActSwitchUser}
+}
+
 // Press принимает нажатие кнопки b в момент now; password нужен только для
 // ButtonSubmitPassword. Кнопка, которой сейчас нет на экране, ничего не делает.
 func (m *Model) Press(now time.Time, b Button, password string) Action {
@@ -420,6 +486,8 @@ func (m *Model) Press(now time.Time, b Button, password string) Action {
 		return m.pressChoices(b)
 	case PanelConfirmLogoff:
 		return m.pressConfirmLogoff(b)
+	case PanelConfirmShutdown:
+		return m.pressConfirmShutdown(b)
 	default:
 		return m.pressScreen(b)
 	}
@@ -433,6 +501,11 @@ func (m *Model) pressScreen(b Button) Action {
 		m.clearSeq++
 	case ButtonLogoff:
 		m.panel = PanelConfirmLogoff
+	case ButtonShutdown:
+		m.panel = PanelConfirmShutdown
+	case ButtonSwitchUser:
+		// Без подтверждения: сеанс не завершается, данные сохраняются (ТЗ 8.2.3 п.9).
+		return Action{Kind: ActSwitchUser}
 	}
 	return Action{}
 }
@@ -493,6 +566,16 @@ func (m *Model) pressConfirmLogoff(b Button) Action {
 	return Action{}
 }
 
+func (m *Model) pressConfirmShutdown(b Button) Action {
+	switch b {
+	case ButtonCancel:
+		m.panel = PanelNone
+	case ButtonConfirmShutdown:
+		return Action{Kind: ActShutdown}
+	}
+	return Action{}
+}
+
 // plateVisible: плашка есть, не вышел её срок, не устарела и сейчас нет ни экрана
 // блокировки, ни родительской сессии, ни обрыва связи.
 func (m *Model) plateVisible(now time.Time) bool {
@@ -535,7 +618,11 @@ func (m *Model) View(now time.Time) View {
 	case PanelNone:
 		v.Buttons = []ButtonView{
 			{Button: ButtonParentPassword, Label: textParentPassword, Main: true, Enabled: true},
+			// Выходы не дают доступа ко времени, поэтому доступны всегда, в том числе при
+			// блокировке за обход (ТЗ 8.2.3 п.3).
+			{Button: ButtonShutdown, Label: textShutdown, Enabled: true},
 			{Button: ButtonLogoff, Label: textLogoff, Enabled: true},
+			{Button: ButtonSwitchUser, Label: textSwitchUser, Enabled: true},
 		}
 	case PanelPassword:
 		m.passwordView(now, &v)
@@ -545,6 +632,12 @@ func (m *Model) View(now time.Time) View {
 		v.PanelText = textLogoffQuestion
 		v.Choices = []ButtonView{
 			{Button: ButtonConfirmLogoff, Label: textConfirmLogoff, Main: true, Enabled: true},
+			{Button: ButtonCancel, Label: textCancel, Enabled: true},
+		}
+	case PanelConfirmShutdown:
+		v.PanelText = textShutdownQuestion
+		v.Choices = []ButtonView{
+			{Button: ButtonConfirmShutdown, Label: textConfirmShutdown, Main: true, Enabled: true},
 			{Button: ButtonCancel, Label: textCancel, Enabled: true},
 		}
 	}
