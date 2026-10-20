@@ -21,6 +21,7 @@ function status(over: Partial<ChildStatus> = {}): ChildStatus {
     reason: "",
     detail: "",
     until: "",
+    pauseUntil: "",
     used: "Сегодня: 35 мин из 2 ч",
     ...over,
   };

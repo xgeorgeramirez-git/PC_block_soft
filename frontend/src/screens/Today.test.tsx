@@ -142,6 +142,7 @@ describe("Today: карточка ребёнка", () => {
               reason: "",
               detail: "",
               until: "",
+              pauseUntil: "",
               used: "",
             },
             extraMin: 0,
