@@ -88,7 +88,30 @@ func windowKind(mode launch.Mode) (string, bool) {
 // Call отправляет команду службе и возвращает ответ канала связи в JSON как есть. Ошибка
 // возвращается, только если связи со службой нет: текст готов для показа человеку.
 func (a *App) Call(command string, payload string) (string, error) {
-	return a.client.Call(command, payload)
+	reply, err := a.client.Call(command, payload)
+	if err == nil {
+		a.noteReply(command, reply)
+	}
+	return reply, err
+}
+
+// noteReply запоминает итог команды, от которого зависит код выхода окна. Сброс пароля удался:
+// окно остаётся на экране с надписью «Пароль изменён», а код выхода уже 0, чем бы его ни закрыли
+// (FR-26). Остальные команды кода выхода не меняют.
+func (a *App) noteReply(command, reply string) {
+	if a.mode != launch.ModeResetPassword || command != ipc.CmdResetPassword {
+		return
+	}
+	var rep ipc.Reply
+	if json.Unmarshal([]byte(reply), &rep) == nil && rep.OK {
+		a.setExitCode(0)
+	}
+}
+
+func (a *App) setExitCode(code int) {
+	a.mu.Lock()
+	a.exitCode = code
+	a.mu.Unlock()
 }
 
 // Finish закрывает окно, и программа завершается с этим кодом. Окно удаления: 0 удалить и
@@ -98,8 +121,8 @@ func (a *App) Finish(code int) {
 	if code < 0 || code > 255 {
 		code = 1
 	}
+	a.setExitCode(code)
 	a.mu.Lock()
-	a.exitCode = code
 	ctx := a.ctx
 	a.mu.Unlock()
 	if ctx != nil {

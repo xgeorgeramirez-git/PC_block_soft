@@ -96,7 +96,7 @@ func (m Mode) Flag() string {
 func (m Mode) IsWindow() bool { return m.valid() && modeInfos[m].window }
 
 // Options — параметры запуска: ключ без дефисов и значение. Ключ без значения из
-// списка флагов (silent, delete-data) хранится как «1».
+// списка флагов (silent, delete-data, elevated) хранится как «1».
 type Options map[string]string
 
 // Flag — параметр-флаг включён: значение «1». Нет параметра, «0» и nil-карта дают false.
@@ -125,6 +125,9 @@ var params = map[string]paramInfo{
 	"silent": {flag: true, modes: []Mode{ModeInstallService, ModeRemoveService, ModeUninstallGate}},
 	// Удалить данные программы вместе с удалением.
 	"delete-data": {flag: true, modes: []Mode{ModeRemoveService, ModeUninstallGate}},
+	// Программа уже перезапущена с повышением прав (окно UAC показано): второй раз не просить.
+	// Без метки неудавшаяся проверка повышения вызывала бы окно UAC снова и снова.
+	"elevated": {flag: true, modes: []Mode{ModeResetPassword}},
 	// Запрос канала связи в JSON для --test-ipc.
 	"payload": {modes: []Mode{ModeTestIPC}},
 	// Учётка Windows, к которой относится служебная команда.

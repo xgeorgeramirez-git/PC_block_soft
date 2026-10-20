@@ -82,6 +82,13 @@ jobs:
           exec > >(tee -a "$RUNNER_TEMP/ci.log") 2>&1
           python3 tools/scan_ui_texts.py
 
+      # Свои шаблоны установщика (build/windows/installer): UTF-8 с BOM, иначе кириллица в установщике бьётся;
+      # комментарий не оканчивается обратной чертой, иначе NSIS теряет следующую строку.
+      - name: Шаблоны NSIS в UTF-8 с BOM
+        run: |
+          exec > >(tee -a "$RUNNER_TEMP/ci.log") 2>&1
+          bash tools/check_nsis_bom.sh
+
       # Каталог Помощника (FR-34): уникальные номера, длина текстов, нет длинных тире, каждый якорь известен,
       # матрица docs/HELPER_COVERAGE.md не отстаёт от каталога. Отдельным шагом, чтобы сбой было видно сразу.
       - name: Каталог помощника

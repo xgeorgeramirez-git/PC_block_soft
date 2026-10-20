@@ -33,7 +33,7 @@ var allModes = []struct {
 }
 
 // Параметры, у которых значение необязательно: без значения равны «1».
-var flagParams = []string{"silent", "delete-data"}
+var flagParams = []string{"silent", "delete-data", "elevated"}
 
 // Параметры со значением вида --key=value.
 var valueParams = []string{"out", "session", "handover", "password", "new-password", "payload", "user", "exe"}
@@ -47,6 +47,7 @@ var paramModes = map[string][]string{
 	"new-password": {"--reset-password"},
 	"silent":       {"--install-service", "--remove-service", "--uninstall-gate"},
 	"delete-data":  {"--remove-service", "--uninstall-gate"},
+	"elevated":     {"--reset-password"},
 	"payload":      {"--test-ipc"},
 	"user":         {"--test-setup", "--test-runas"},
 	"exe":          {"--test-runas"},
@@ -123,6 +124,7 @@ func TestParseEveryParameter(t *testing.T) {
 		{[]string{"--test-setup", "--password=Secret1", "--user=runner", "--out=o.json"}, ModeTestSetup,
 			Options{"password": "Secret1", "user": "runner", "out": "o.json"}},
 		{[]string{"--reset-password", "--new-password=Новый-Пароль-1"}, ModeResetPassword, Options{"new-password": "Новый-Пароль-1"}},
+		{[]string{"--reset-password", "--elevated"}, ModeResetPassword, Options{"elevated": "1"}},
 		{[]string{"--remove-service", "--silent", "--delete-data"}, ModeRemoveService, Options{"silent": "1", "delete-data": "1"}},
 		{[]string{"--uninstall-gate", "--silent", "--password=p"}, ModeUninstallGate, Options{"silent": "1", "password": "p"}},
 		{[]string{"--test-ipc", `--payload={"cmd":"Hello"}`, "--out=r.json"}, ModeTestIPC,

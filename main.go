@@ -15,6 +15,7 @@ import (
 	"pcblock/internal/service/winhost"
 	"pcblock/internal/systray"
 	"pcblock/internal/ui"
+	"pcblock/internal/winsession"
 )
 
 //go:embed all:frontend/dist
@@ -48,6 +49,19 @@ func run(mode launch.Mode, opts launch.Options) int {
 		return exitCode(guard.Run(opts))
 	case launch.ModeTray:
 		return exitCode(systray.Run(opts))
+	case launch.ModeResetPassword:
+		// С ключом --new-password окна нет: так сброс проверяет CI (S25), только в тестовом режиме.
+		if _, headless := opts["new-password"]; headless {
+			return exitCode(winhost.ResetPasswordNoWindow(opts))
+		}
+		if code, done := relaunchElevated(opts); done {
+			return code
+		}
+	case launch.ModeUninstallGate:
+		// Службы нет или тихий режим: окно не нужно, ответ готов (код 0, 1 или 2 для установщика).
+		if code, done := winhost.UninstallGate(opts); done {
+			return code
+		}
 	}
 
 	assets, err := fs.Sub(embedded, "frontend/dist")
@@ -61,6 +75,22 @@ func run(mode launch.Mode, opts launch.Options) int {
 		return 1
 	}
 	return code
+}
+
+// relaunchElevated: сброс пароля доступен только администратору с повышенными правами (R20, FR-26).
+// Запущенная из меню «Пуск» программа без повышения перезапускает себя через окно UAC и завершается,
+// окно откроется уже в новом процессе. Метка --elevated не даёт просить UAC второй раз.
+// Возвращает код выхода и признак «этот процесс окно не открывает».
+func relaunchElevated(opts launch.Options) (code int, done bool) {
+	if opts.Flag("elevated") || winsession.IsElevatedAdmin() {
+		return 0, false
+	}
+	args := append(append([]string{}, os.Args[1:]...), "--elevated")
+	if err := winsession.RelaunchElevated(args); err != nil {
+		log.Print(err)
+		return 1, true
+	}
+	return 0, true
 }
 
 // exitCode превращает итог служебного режима в код выхода: 0 или 1.

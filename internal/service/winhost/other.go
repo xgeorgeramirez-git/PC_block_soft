@@ -29,3 +29,9 @@ func TestIPC(opts launch.Options) error { return errOnlyWindows }
 
 // TestRunAs запускает программу от имени другой учётки (--test-runas).
 func TestRunAs(opts launch.Options) error { return errOnlyWindows }
+
+// UninstallGate решает вопрос об удалении без окна (--uninstall-gate); вне Windows отказ.
+func UninstallGate(opts launch.Options) (int, bool) { return 1, true }
+
+// ResetPasswordNoWindow сбрасывает пароль без окна (--reset-password --new-password=…).
+func ResetPasswordNoWindow(opts launch.Options) error { return errOnlyWindows }

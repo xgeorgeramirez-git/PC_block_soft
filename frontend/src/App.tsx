@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { hello, login, logout, mode as readMode, sessionState, version as readVersion } from "./api";
+import { finish, hello, login, logout, mode as readMode, sessionState, version as readVersion } from "./api";
 import Notice from "./components/Notice";
 import { SaveBarSlotContext } from "./components/SaveBar";
 import { UnsavedGuardProvider, useAttemptNavigation } from "./guard";
@@ -169,8 +169,8 @@ function SimpleScreen({ mode }: { mode: "reset-password" | "uninstall-gate" | "m
     case "reset-password":
       return <ResetPassword />;
     case "uninstall-gate":
-      // Окно само завершится с кодом для установщика; решение выбора пока некому передать.
-      return <UninstallGate onDecision={() => undefined} />;
+      // Установщик ждёт код выхода окна: 0 удалить и оставить статистику, 2 удалить вместе с ней (FR-4).
+      return <UninstallGate onDecision={(d) => void finish(d.deleteData ? 2 : 0)} />;
     case "mystats":
       return <MyStats />;
     case "firstrun":

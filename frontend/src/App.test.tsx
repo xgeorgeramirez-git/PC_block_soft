@@ -103,6 +103,30 @@ describe("выбор экрана по режиму", () => {
     expect(await screen.findByRole("heading", { name: "Удаление PC Block" })).toBeTruthy();
   });
 
+  // Ловит (FR-4): выбор в окне удаления не доходит до установщика: код выхода остаётся пустым,
+  // и галочка «Удалить статистику» ничего не меняет. 0 - удалить и оставить статистику, 2 - вместе с ней.
+  it.each([
+    ["без галочки", false, 0],
+    ["с галочкой «Удалить статистику»", true, 2],
+  ])("uninstall-gate %s: окно отдаёт установщику код %d", async (_name, tick, code) => {
+    const user = setup({ mode: "uninstall-gate", configured: false });
+    await screen.findByText(/пароль не нужен/);
+    expect(mock.state.finishCode).toBeNull();
+    if (tick) {
+      await user.click(screen.getByRole("checkbox", { name: "Удалить статистику" }));
+    }
+    await user.click(screen.getByRole("button", { name: "Продолжить удаление" }));
+    await vi.waitFor(() => expect(mock.state.finishCode).toBe(code));
+  });
+
+  // Ловит: отказ службы (неверный пароль) закрывает окно кодом «удалять»: пароль ничего не защищает.
+  it("uninstall-gate: неверный пароль не завершает окно", async () => {
+    const user = setup({ mode: "uninstall-gate" });
+    await user.type(await screen.findByLabelText("Пароль родителя"), "не-тот-пароль{Enter}");
+    await screen.findByText(/Неверный пароль/);
+    expect(mock.state.finishCode).toBeNull();
+  });
+
   // Ловит: окно ребёнка осталось заглушкой «появится в следующем обновлении» (FR-12, FR-32).
   it.each([
     ["mystats", "Моя статистика", "Только просмотр"],
