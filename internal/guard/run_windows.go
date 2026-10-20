@@ -190,13 +190,18 @@ func (a *app) readSensors(now time.Time) ipc.SensorSample {
 	return ReadSensors(now, speed)
 }
 
-// pollLoop опрашивает службу раз в секунду и сразу после команды, меняющей решение.
+// pollLoop опрашивает службу раз в секунду и сразу после команды, меняющей решение; после
+// каждого опроса проверяет срок автоматической смены пользователя.
 func (a *app) pollLoop(stop <-chan struct{}) {
 	t := time.NewTicker(time.Second)
 	defer t.Stop()
 	for {
 		safely(func() {
 			a.ctl.PollOnce()
+			// Экран показан 15 минут, пароль родителя не введён: смена пользователя (D-40).
+			if act := a.ctl.AutoSwitch(); act.Kind != ActNone {
+				go safely(func() { a.ctl.Run(act) })
+			}
 			a.ctl.PushState()
 		})
 		select {

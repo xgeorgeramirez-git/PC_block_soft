@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"pcblock/internal/core"
+	"pcblock/internal/ipc"
 )
 
 // Граница связи со службой (Ruling 15): ровно 10 с экран ещё показан, 10 с + 1 мс скрыт.
@@ -19,6 +20,11 @@ const (
 	testOffline   = 10 * time.Second
 	testWarnLife  = 15 * time.Second
 	testAddedLife = 5 * time.Second
+
+	// Автоматическая смена пользователя: 15 минут от появления экрана (ТЗ 8.2.3 п.10).
+	testAutoSwitch = 15 * time.Minute
+	// Кнопок на главном экране блокировки: пароль, выключение, выход, смена пользователя.
+	testScreenButtons = 4
 )
 
 // Начало отсчёта всех тестов (реальные часы стража, Ruling 4).
@@ -142,10 +148,14 @@ func TestReasonFallback(t *testing.T) {
 
 func TestMainButtonsOfM1(t *testing.T) {
 	// Ловит: кнопки M2 («Попросить ещё», «Взять из копилки») видны на экране M1 (Ruling 24);
-	// главная кнопка не «Пароль родителя»; при обходе набор отличается от времени.
+	// главная кнопка не «Пароль родителя»; нет одного из трёх выходов (выключение, выход,
+	// смена пользователя, ТЗ 8.2.3 п.3) или они стоят не в порядке ТЗ; выход недоступен или
+	// пропадает при блокировке за обход (выходы не считаются обходом и доступны всегда).
 	want := []ButtonView{
 		{Button: ButtonParentPassword, Label: "Пароль родителя", Main: true, Enabled: true},
+		{Button: ButtonShutdown, Label: "Выключить компьютер", Enabled: true},
 		{Button: ButtonLogoff, Label: "Выйти из учётной записи", Enabled: true},
+		{Button: ButtonSwitchUser, Label: "Смена пользователя", Enabled: true},
 	}
 	for name, d := range map[string]core.Decision{"время": timeUpDecision(), "обход": bypassDecision()} {
 		v := locked(d).View(t0)
@@ -338,7 +348,7 @@ func TestPauseSurvivesCancelAndReopen(t *testing.T) {
 	m.OnPasswordResult(t0, PasswordResult{BlockedUntil: at(60 * time.Second)})
 	keepAlive(m, timeUpDecision(), 1, 5)
 	m.Press(at(5*time.Second), ButtonCancel, "")
-	if v := m.View(at(5 * time.Second)); v.Panel != PanelNone || len(v.Buttons) != 2 {
+	if v := m.View(at(5 * time.Second)); v.Panel != PanelNone || len(v.Buttons) != testScreenButtons {
 		t.Fatalf("после «Отмена» нет экрана: %+v", v)
 	}
 	keepAlive(m, timeUpDecision(), 6, 10)
@@ -365,7 +375,7 @@ func TestCancelPasswordPanel(t *testing.T) {
 	}
 	m.Press(t0, ButtonCancel, "")
 	v := m.View(t0)
-	if v.Panel != PanelNone || v.PasswordError != "" || v.PasswordClearSeq <= seqWrong || len(v.Buttons) != 2 {
+	if v.Panel != PanelNone || v.PasswordError != "" || v.PasswordClearSeq <= seqWrong || len(v.Buttons) != testScreenButtons {
 		t.Fatalf("после «Отмена»: Panel=%v Error=%q Seq=%d Buttons=%d", v.Panel, v.PasswordError, v.PasswordClearSeq, len(v.Buttons))
 	}
 	m.Press(t0, ButtonParentPassword, "")
@@ -533,7 +543,7 @@ func TestExtraTimeIsNotRepeated(t *testing.T) {
 	if a := m.Press(t0, ButtonAdd30, ""); a.Kind != ActNone {
 		t.Fatalf("повторное нажатие дало действие %+v", a)
 	}
-	if v := m.View(t0); v.Panel != PanelNone || len(v.Buttons) != 2 {
+	if v := m.View(t0); v.Panel != PanelNone || len(v.Buttons) != testScreenButtons {
 		t.Fatalf("после выбора вернулся не экран: %+v", v)
 	}
 }
@@ -542,7 +552,7 @@ func TestCancelEndsParentChoice(t *testing.T) {
 	// Ловит: «Отмена» оставляет родителя вошедшим: следующее нажатие «+60» срабатывает без пароля.
 	m := withChoices(t, timeUpDecision())
 	m.Press(t0, ButtonCancel, "")
-	if v := m.View(t0); v.Panel != PanelNone || len(v.Buttons) != 2 {
+	if v := m.View(t0); v.Panel != PanelNone || len(v.Buttons) != testScreenButtons {
 		t.Fatalf("после «Отмена» нет экрана: %+v", v)
 	}
 	if a := m.Press(t0, ButtonAdd60, ""); a.Kind != ActNone {
@@ -557,7 +567,7 @@ func TestLateResultsAreIgnored(t *testing.T) {
 	m.Press(t0, ButtonSubmitPassword, "пароль")
 	m.Press(t0, ButtonCancel, "")
 	m.OnPasswordResult(t0, PasswordResult{OK: true})
-	if v := m.View(t0); v.Panel != PanelNone || len(v.Buttons) != 2 {
+	if v := m.View(t0); v.Panel != PanelNone || len(v.Buttons) != testScreenButtons {
 		t.Fatalf("верный ответ после «Отмена» открыл панель: %+v", v)
 	}
 	m.OnPasswordResult(t0, PasswordResult{AttemptsLeft: 2})
@@ -590,7 +600,7 @@ func TestResultWithoutScreenIsIgnored(t *testing.T) {
 	p.OnDecision(at(time.Second), timeUpDecision(), true, nil)
 	p.OnPasswordResult(at(time.Second), PasswordResult{OK: true})
 	p.OnDecision(at(2*time.Second), timeUpDecision(), false, nil)
-	if v := p.View(at(2 * time.Second)); v.Panel != PanelNone || len(v.Buttons) != 2 {
+	if v := p.View(at(2 * time.Second)); v.Panel != PanelNone || len(v.Buttons) != testScreenButtons {
 		t.Fatalf("после сессии родителя: %+v", v)
 	}
 }
@@ -617,7 +627,7 @@ func TestLogoffNeedsConfirmation(t *testing.T) {
 	m2 := locked(timeUpDecision())
 	m2.Press(t0, ButtonLogoff, "")
 	m2.Press(t0, ButtonCancel, "")
-	if v := m2.View(t0); v.Panel != PanelNone || v.PanelText != "" || len(v.Buttons) != 2 {
+	if v := m2.View(t0); v.Panel != PanelNone || v.PanelText != "" || len(v.Buttons) != testScreenButtons {
 		t.Fatalf("после «Отмена»: %+v", v)
 	}
 	if a := m2.Press(t0, ButtonConfirmLogoff, ""); a.Kind != ActNone {
@@ -629,13 +639,17 @@ func TestButtonMatrix(t *testing.T) {
 	// Ловит: кнопка срабатывает на чужой панели (например «Выйти» из окна пароля,
 	// «+30» с главного экрана, «Продолжить» из подтверждения выхода).
 	all := []Button{ButtonNone, ButtonParentPassword, ButtonLogoff, ButtonSubmitPassword, ButtonCancel, ButtonAdd15,
-		ButtonAdd30, ButtonAdd60, ButtonOpenSettings, ButtonClearBlock, ButtonConfirmLogoff, ButtonWarningOK}
+		ButtonAdd30, ButtonAdd60, ButtonOpenSettings, ButtonClearBlock, ButtonConfirmLogoff, ButtonWarningOK,
+		ButtonShutdown, ButtonConfirmShutdown, ButtonSwitchUser}
 	states := []struct {
 		name  string
 		build func(t *testing.T) *Model
 		ok    map[Button]Action
 	}{
-		{"главный экран", func(t *testing.T) *Model { return locked(timeUpDecision()) }, map[Button]Action{}},
+		{"главный экран", func(t *testing.T) *Model { return locked(timeUpDecision()) },
+			map[Button]Action{ButtonSwitchUser: {Kind: ActSwitchUser}}},
+		{"главный экран при обходе", func(t *testing.T) *Model { return locked(bypassDecision()) },
+			map[Button]Action{ButtonSwitchUser: {Kind: ActSwitchUser}}},
 		{"панель пароля", func(t *testing.T) *Model { return withPasswordPanel(t, timeUpDecision()) },
 			map[Button]Action{ButtonSubmitPassword: {Kind: ActCheckPassword, Password: "pw-123456"}}},
 		{"выбор при времени", func(t *testing.T) *Model { return withChoices(t, timeUpDecision()) },
@@ -649,6 +663,11 @@ func TestButtonMatrix(t *testing.T) {
 			m.Press(t0, ButtonLogoff, "")
 			return m
 		}, map[Button]Action{ButtonConfirmLogoff: {Kind: ActLogoff}}},
+		{"подтверждение выключения", func(t *testing.T) *Model {
+			m := locked(timeUpDecision())
+			m.Press(t0, ButtonShutdown, "")
+			return m
+		}, map[Button]Action{ButtonConfirmShutdown: {Kind: ActShutdown}}},
 	}
 	for _, s := range states {
 		for _, b := range all {
@@ -665,7 +684,8 @@ func TestNoScreenNoActions(t *testing.T) {
 	// Ловит: нажатия действуют, когда экрана нет (нет решения, блокировки нет, родительская
 	// сессия, нет связи): иначе невидимая кнопка может выйти из учётки или снять блокировку.
 	all := []Button{ButtonParentPassword, ButtonLogoff, ButtonSubmitPassword, ButtonCancel, ButtonAdd15,
-		ButtonAdd30, ButtonAdd60, ButtonOpenSettings, ButtonClearBlock, ButtonConfirmLogoff, ButtonWarningOK}
+		ButtonAdd30, ButtonAdd60, ButtonOpenSettings, ButtonClearBlock, ButtonConfirmLogoff, ButtonWarningOK,
+		ButtonShutdown, ButtonConfirmShutdown, ButtonSwitchUser}
 	cases := []struct {
 		name  string
 		build func() (*Model, time.Time)
@@ -793,7 +813,7 @@ func TestOfflineResetsAndScreenReturnsByFreshDecision(t *testing.T) {
 
 	m.OnDecision(at(30*time.Second), bypassDecision(), false, nil)
 	v := m.View(at(30 * time.Second))
-	if !v.LockShown || v.Lock.Reason != "Попытка обойти защиту" || v.Panel != PanelNone || v.PasswordError != "" || len(v.Buttons) != 2 {
+	if !v.LockShown || v.Lock.Reason != "Попытка обойти защиту" || v.Panel != PanelNone || v.PasswordError != "" || len(v.Buttons) != testScreenButtons {
 		t.Fatalf("после обрыва: %+v", v)
 	}
 	m.OnDecision(at(31*time.Second), runningDecision(900), false, nil)
@@ -830,7 +850,7 @@ func TestParentSessionHidesScreen(t *testing.T) {
 	// Конец сессии: экран снова по решению, чистый, и плашка из сессии не всплыла.
 	m.OnDecision(at(2*time.Second), timeUpDecision(), false, nil)
 	v = m.View(at(2 * time.Second))
-	if !v.LockShown || !v.SuppressKeys || v.Panel != PanelNone || len(v.Buttons) != 2 || v.Warning != nil {
+	if !v.LockShown || !v.SuppressKeys || v.Panel != PanelNone || len(v.Buttons) != testScreenButtons || v.Warning != nil {
 		t.Fatalf("после сессии: %+v", v)
 	}
 	// Если ограничения уже нет, экран не возвращается.
@@ -1198,7 +1218,7 @@ func TestLockKindChangeResetsPanel(t *testing.T) {
 	m := withChoices(t, timeUpDecision())
 	m.OnDecision(at(time.Second), bypassDecision(), false, nil)
 	v := m.View(at(time.Second))
-	if v.Panel != PanelNone || v.Lock.Reason != "Попытка обойти защиту" || len(v.Buttons) != 2 {
+	if v.Panel != PanelNone || v.Lock.Reason != "Попытка обойти защиту" || len(v.Buttons) != testScreenButtons {
 		t.Fatalf("после смены вида: %+v", v)
 	}
 	// Тот же вид блокировки: обновления решения панель не сбрасывают.
@@ -1217,7 +1237,7 @@ func TestLockGoneResetsPanel(t *testing.T) {
 	m.OnDecision(at(time.Second), runningDecision(900), false, nil)
 	m.OnDecision(at(2*time.Second), timeUpDecision(), false, nil)
 	v := m.View(at(2 * time.Second))
-	if v.Panel != PanelNone || len(v.Buttons) != 2 {
+	if v.Panel != PanelNone || len(v.Buttons) != testScreenButtons {
 		t.Fatalf("новый экран с прежней панелью: %+v", v)
 	}
 }
@@ -1238,6 +1258,11 @@ func TestDisabledButtonsExplainWhy(t *testing.T) {
 		"выход": func() (*Model, time.Time) {
 			m := locked(timeUpDecision())
 			m.Press(t0, ButtonLogoff, "")
+			return m, t0
+		},
+		"выключение": func() (*Model, time.Time) {
+			m := locked(timeUpDecision())
+			m.Press(t0, ButtonShutdown, "")
 			return m, t0
 		},
 	}
@@ -1283,6 +1308,16 @@ func TestTextsAreChildFriendly(t *testing.T) {
 	m3 := locked(timeUpDecision())
 	m3.Press(t0, ButtonLogoff, "")
 	all = append(all, m3.View(t0).PanelText)
+	m3.Press(t0, ButtonCancel, "")
+	m3.Press(t0, ButtonShutdown, "")
+	all = append(all, m3.View(t0).PanelText)
+	for _, b := range m3.View(t0).Choices {
+		all = append(all, b.Label)
+	}
+	m3.Press(t0, ButtonCancel, "")
+	for _, b := range m3.View(t0).Buttons {
+		all = append(all, b.Label)
+	}
 	m3.OnDecision(at(40*time.Second), timeUpDecision(), false, nil)
 	for _, e := range m3.TakeEvents() {
 		all = append(all, fmt.Sprint(e.Details["text"]))
@@ -1308,6 +1343,11 @@ func TestViewArraysAreNeverNull(t *testing.T) {
 		locked(timeUpDecision()),
 		withPasswordPanel(t, timeUpDecision()),
 		withChoices(t, bypassDecision()),
+		func() *Model {
+			m := locked(timeUpDecision())
+			m.Press(t0, ButtonShutdown, "")
+			return m
+		}(),
 	}
 	w := NewModel()
 	w.OnDecision(t0, runningDecision(300), false, []int{5})
@@ -1357,4 +1397,393 @@ func TestModelIsSafeForConcurrentUse(t *testing.T) {
 		}(g)
 	}
 	wg.Wait()
+}
+
+// --- выходы с экрана блокировки (ТЗ 8.2.3 п.7-10, D-40) ---------------------------------------------
+
+func TestShutdownNeedsConfirmation(t *testing.T) {
+	// Ловит: выключение без подтверждения (ТЗ 8.2.3 п.8); неверный вопрос или подписи кнопок;
+	// «Отмена» не возвращает на экран; «Выключить» срабатывает без вопроса; на панели
+	// выключения «Выйти» выходит из учётной записи.
+	for name, d := range map[string]core.Decision{"время": timeUpDecision(), "обход": bypassDecision()} {
+		m := locked(d)
+		if a := m.Press(t0, ButtonShutdown, ""); a.Kind != ActNone {
+			t.Fatalf("%s: нажатие «Выключить компьютер» сразу выключает: %+v", name, a)
+		}
+		v := m.View(t0)
+		want := []ButtonView{
+			{Button: ButtonConfirmShutdown, Label: "Выключить", Main: true, Enabled: true},
+			{Button: ButtonCancel, Label: "Отмена", Enabled: true},
+		}
+		if v.Panel != PanelConfirmShutdown || v.PanelText != "Несохранённые документы закроются. Выключить компьютер?" ||
+			!reflect.DeepEqual(v.Choices, want) || len(v.Buttons) != 0 {
+			t.Fatalf("%s: подтверждение: Panel=%v Text=%q Choices=%+v Buttons=%+v", name, v.Panel, v.PanelText, v.Choices, v.Buttons)
+		}
+		if a := m.Press(t0, ButtonConfirmLogoff, ""); a.Kind != ActNone {
+			t.Fatalf("%s: «Выйти» сработала на панели выключения: %+v", name, a)
+		}
+		if a := m.Press(t0, ButtonConfirmShutdown, ""); a != (Action{Kind: ActShutdown}) {
+			t.Fatalf("%s: «Выключить»: %+v", name, a)
+		}
+	}
+
+	m2 := locked(timeUpDecision())
+	m2.Press(t0, ButtonShutdown, "")
+	m2.Press(t0, ButtonCancel, "")
+	if v := m2.View(t0); v.Panel != PanelNone || v.PanelText != "" || len(v.Buttons) != testScreenButtons {
+		t.Fatalf("после «Отмена»: %+v", v)
+	}
+	if a := m2.Press(t0, ButtonConfirmShutdown, ""); a.Kind != ActNone {
+		t.Fatalf("«Выключить» сработала без вопроса: %+v", a)
+	}
+}
+
+func TestLogoffPanelIgnoresShutdownConfirm(t *testing.T) {
+	// Ловит: на панели выхода «Выключить» выключает компьютер (панели перепутаны).
+	m := locked(timeUpDecision())
+	m.Press(t0, ButtonLogoff, "")
+	if a := m.Press(t0, ButtonConfirmShutdown, ""); a.Kind != ActNone {
+		t.Fatalf("на панели выхода сработало выключение: %+v", a)
+	}
+	if a := m.Press(t0, ButtonConfirmLogoff, ""); a != (Action{Kind: ActLogoff}) {
+		t.Fatalf("выход перестал работать: %+v", a)
+	}
+}
+
+func TestSwitchUserHasNoConfirmation(t *testing.T) {
+	// Ловит: у «Смены пользователя» появилось подтверждение (ТЗ 8.2.3 п.9, D-40: данные
+	// сохраняются, спрашивать нечего); панель открылась; кнопки экрана пропали после нажатия
+	// (сеанс остаётся, ребёнок вернётся к тому же экрану).
+	for name, d := range map[string]core.Decision{"время": timeUpDecision(), "обход": bypassDecision()} {
+		m := locked(d)
+		if a := m.Press(t0, ButtonSwitchUser, ""); a != (Action{Kind: ActSwitchUser}) {
+			t.Fatalf("%s: нажатие «Смена пользователя»: %+v", name, a)
+		}
+		v := m.View(t0)
+		if v.Panel != PanelNone || v.PanelText != "" || len(v.Buttons) != testScreenButtons || !v.LockShown {
+			t.Fatalf("%s: после смены пользователя вид изменился: %+v", name, v)
+		}
+	}
+}
+
+func TestExitsAreAlwaysEnabledAndNeverNeedPassword(t *testing.T) {
+	// Ловит: выход закрыт паузой пароля или недоступен с пояснением (они не дают доступа ко
+	// времени, ТЗ 8.2.3 п.3); выход пропадает, когда пароль в паузе после серии ошибок.
+	m := withPasswordPanel(t, timeUpDecision())
+	m.OnPasswordResult(t0, PasswordResult{BlockedUntil: at(time.Minute)})
+	m.Press(at(time.Second), ButtonCancel, "")
+	v := m.View(at(time.Second))
+	got := map[Button]ButtonView{}
+	for _, b := range v.Buttons {
+		got[b.Button] = b
+	}
+	for _, b := range []Button{ButtonShutdown, ButtonLogoff, ButtonSwitchUser} {
+		if bv, ok := got[b]; !ok || !bv.Enabled || bv.Hint != "" {
+			t.Errorf("кнопка %d во время паузы пароля: %+v, есть=%v", b, bv, ok)
+		}
+	}
+	if a := m.Press(at(time.Second), ButtonSwitchUser, ""); a.Kind != ActSwitchUser {
+		t.Fatalf("смена пользователя во время паузы пароля: %+v", a)
+	}
+}
+
+func TestTargetsOfNewButtons(t *testing.T) {
+	// Ловит: у новых кнопок нет имён для канала связи (приёмка не сможет их нажать) или имена
+	// разошлись с ipc.Button*.
+	if TargetName(ButtonShutdown) != ipc.ButtonShutdown || TargetName(ButtonSwitchUser) != ipc.ButtonSwitchUser {
+		t.Fatalf("имена: %q, %q", TargetName(ButtonShutdown), TargetName(ButtonSwitchUser))
+	}
+	if ipc.ButtonShutdown != "shutdown" || ipc.ButtonSwitchUser != "switchUser" {
+		t.Fatalf("имена в канале связи изменились: %q, %q", ipc.ButtonShutdown, ipc.ButtonSwitchUser)
+	}
+	if b, ok := ButtonByTarget("confirmShutdown"); !ok || b != ButtonConfirmShutdown {
+		t.Fatalf("confirmShutdown -> %d, %v", b, ok)
+	}
+}
+
+// --- автоматическая смена пользователя через 15 минут -------------------------------------------------
+
+// aliveLocked показывает экран блокировки с t0 и держит связь живой решениями каждые 5 с
+// до момента to (включительно, если он кратен 5 с).
+func aliveLocked(d core.Decision, to time.Duration) *Model {
+	m := locked(d)
+	for s := 5 * time.Second; s <= to; s += 5 * time.Second {
+		m.OnDecision(at(s), d, false, nil)
+	}
+	return m
+}
+
+func TestAutoSwitchAfterFifteenMinutes(t *testing.T) {
+	// Ловит: порог не 15 минут (раньше или позже, ровно 15 минут считается); отсчёт не от
+	// появления экрана; второй вызов в тот же момент даёт второе действие.
+	m := aliveLocked(timeUpDecision(), testAutoSwitch-5*time.Second)
+	if a := m.AutoSwitch(at(testAutoSwitch - 5*time.Second)); a.Kind != ActNone {
+		t.Fatalf("за 5 с до срока: %+v", a)
+	}
+	if a := m.AutoSwitch(at(testAutoSwitch - time.Millisecond)); a.Kind != ActNone {
+		t.Fatalf("за 1 мс до срока: %+v", a)
+	}
+	m.OnDecision(at(testAutoSwitch), timeUpDecision(), false, nil)
+	if a := m.AutoSwitch(at(testAutoSwitch)); a != (Action{Kind: ActSwitchUser}) {
+		t.Fatalf("ровно через 15 минут: %+v", a)
+	}
+	if a := m.AutoSwitch(at(testAutoSwitch)); a.Kind != ActNone {
+		t.Fatalf("второе действие в тот же момент: %+v", a)
+	}
+	if a := m.AutoSwitch(at(testAutoSwitch + time.Second)); a.Kind != ActNone {
+		t.Fatalf("второе действие через секунду: %+v", a)
+	}
+}
+
+func TestAutoSwitchCountsFromScreenAppearance(t *testing.T) {
+	// Ловит: отсчёт идёт от запуска стража или от первого решения вместо появления экрана:
+	// сначала 40 минут экрана нет, потом экран появился.
+	m := NewModel()
+	shownAt := 40 * time.Minute
+	for s := time.Duration(0); s < shownAt; s += 5 * time.Second {
+		m.OnDecision(at(s), runningDecision(3000), false, nil)
+		if a := m.AutoSwitch(at(s)); a.Kind != ActNone {
+			t.Fatalf("смена без экрана блокировки, через %v", s)
+		}
+	}
+	var firedAt time.Duration = -1
+	for s := shownAt; s <= shownAt+testAutoSwitch; s += 5 * time.Second {
+		m.OnDecision(at(s), timeUpDecision(), false, nil)
+		if a := m.AutoSwitch(at(s)); a.Kind == ActSwitchUser && firedAt < 0 {
+			firedAt = s - shownAt
+		}
+	}
+	if firedAt != testAutoSwitch {
+		t.Fatalf("смена через %v после появления экрана, ждали %v", firedAt, testAutoSwitch)
+	}
+}
+
+func TestAutoSwitchFiresOncePerPeriod(t *testing.T) {
+	// Ловит: смена повторяется каждую секунду после срока (сеанс отключается снова и снова);
+	// следующая смена приходит раньше чем через 15 минут после предыдущей. Если ребёнок
+	// вернулся к тому же экрану, через 15 минут будет следующая смена.
+	d := timeUpDecision()
+	m := aliveLocked(d, testAutoSwitch)
+	if a := m.AutoSwitch(at(testAutoSwitch)); a.Kind != ActSwitchUser {
+		t.Fatalf("первая смена: %+v", a)
+	}
+	n := 0
+	for s := testAutoSwitch + 5*time.Second; s < 2*testAutoSwitch; s += 5 * time.Second {
+		m.OnDecision(at(s), d, false, nil)
+		if a := m.AutoSwitch(at(s)); a.Kind != ActNone {
+			n++
+		}
+	}
+	if n != 0 {
+		t.Fatalf("за следующие 15 минут лишних смен: %d", n)
+	}
+	m.OnDecision(at(2*testAutoSwitch), d, false, nil)
+	if a := m.AutoSwitch(at(2 * testAutoSwitch)); a.Kind != ActSwitchUser {
+		t.Fatalf("вторая смена через 15 минут после первой: %+v", a)
+	}
+}
+
+func TestAutoSwitchSkippedOnLateCall(t *testing.T) {
+	// Ловит: если вызов опоздал (стража не опрашивали), копится очередь смен: одно действие
+	// на вызов, следующее не раньше чем через 15 минут после этого.
+	m := aliveLocked(timeUpDecision(), testAutoSwitch+time.Minute)
+	late := testAutoSwitch + time.Minute
+	if a := m.AutoSwitch(at(late)); a.Kind != ActSwitchUser {
+		t.Fatalf("опоздавший вызов: %+v", a)
+	}
+	if a := m.AutoSwitch(at(late + testAutoSwitch - 5*time.Second)); a.Kind != ActNone {
+		t.Fatalf("следующая смена раньше срока: %+v", a)
+	}
+}
+
+func TestAutoSwitchNotWhenPasswordEnteredBeforeScreenGone(t *testing.T) {
+	// Ловит: смена пользователя после того, как родитель снял блокировку (доп. время): экрана
+	// уже нет, а таймер идёт.
+	d := timeUpDecision()
+	m := aliveLocked(d, 10*time.Minute)
+	for s := 10*time.Minute + 5*time.Second; s <= testAutoSwitch+time.Minute; s += 5 * time.Second {
+		m.OnDecision(at(s), runningDecision(900), false, nil)
+		if a := m.AutoSwitch(at(s)); a.Kind != ActNone {
+			t.Fatalf("смена без экрана блокировки, через %v: %+v", s, a)
+		}
+	}
+}
+
+func TestAutoSwitchRestartsWhenScreenReturns(t *testing.T) {
+	// Ловит: старый отсчёт переживает снятие экрана: экран вернулся через минуту, а смена
+	// приходит по прежнему таймеру. Отсчёт заново от нового появления.
+	d := timeUpDecision()
+	m := aliveLocked(d, 10*time.Minute)
+	gone := 10*time.Minute + 5*time.Second
+	m.OnDecision(at(gone), runningDecision(900), false, nil)
+	back := gone + time.Minute
+	m.OnDecision(at(back), d, false, nil)
+	for s := back + 5*time.Second; s < back+testAutoSwitch; s += 5 * time.Second {
+		m.OnDecision(at(s), d, false, nil)
+		if a := m.AutoSwitch(at(s)); a.Kind != ActNone {
+			t.Fatalf("смена через %v после нового появления экрана", s-back)
+		}
+	}
+	m.OnDecision(at(back+testAutoSwitch), d, false, nil)
+	if a := m.AutoSwitch(at(back + testAutoSwitch)); a.Kind != ActSwitchUser {
+		t.Fatalf("смена через 15 минут после нового появления: %+v", a)
+	}
+}
+
+func TestAutoSwitchRestartsAfterParentSession(t *testing.T) {
+	// Ловит: пока родитель в окне настроек (экран спрятан, Ruling 19), таймер идёт и ребёнка
+	// выбрасывает из сеанса посреди работы родителя.
+	d := timeUpDecision()
+	m := aliveLocked(d, 10*time.Minute)
+	m.OnDecision(at(10*time.Minute+5*time.Second), d, true, nil)
+	for s := 10*time.Minute + 10*time.Second; s <= testAutoSwitch+2*time.Minute; s += 5 * time.Second {
+		m.OnDecision(at(s), d, true, nil)
+		if a := m.AutoSwitch(at(s)); a.Kind != ActNone {
+			t.Fatalf("смена в родительской сессии, через %v: %+v", s, a)
+		}
+	}
+}
+
+func TestAutoSwitchNotWithoutLink(t *testing.T) {
+	// Ловит: смена по таймеру, когда службы нет дольше 10 с и экран снят (Ruling 15): страж
+	// без связи ничего не делает; обрыв связи сбрасывает отсчёт, по возвращении связи он идёт заново.
+	d := timeUpDecision()
+	m := aliveLocked(d, 5*time.Second)
+	if a := m.AutoSwitch(at(testAutoSwitch + time.Minute)); a.Kind != ActNone {
+		t.Fatalf("смена без связи со службой: %+v", a)
+	}
+
+	// Обрыв на 11 с в середине срока: экран снимается, отсчёт начинается заново.
+	m2 := aliveLocked(d, 7*time.Minute)
+	resume := 7*time.Minute + 16*time.Second
+	for s := resume; s <= resume+testAutoSwitch; s += 5 * time.Second {
+		m2.OnDecision(at(s), d, false, nil)
+		a := m2.AutoSwitch(at(s))
+		if s < resume+testAutoSwitch && a.Kind != ActNone {
+			t.Fatalf("отсчёт пережил обрыв связи: смена через %v после возвращения связи", s-resume)
+		}
+		if s == resume+testAutoSwitch && a.Kind != ActSwitchUser {
+			t.Fatalf("нет смены через 15 минут после возвращения связи: %+v", a)
+		}
+	}
+}
+
+func TestAutoSwitchNoScreenNoAction(t *testing.T) {
+	// Ловит: смена, когда нет решения или блокировки.
+	if a := NewModel().AutoSwitch(at(time.Hour)); a.Kind != ActNone {
+		t.Fatalf("без решения: %+v", a)
+	}
+	m := NewModel()
+	for s := time.Duration(0); s <= time.Hour; s += 5 * time.Second {
+		m.OnDecision(at(s), runningDecision(1800), false, nil)
+		if a := m.AutoSwitch(at(s)); a.Kind != ActNone {
+			t.Fatalf("без блокировки через %v: %+v", s, a)
+		}
+	}
+}
+
+func TestAutoSwitchIsNotExtendedByChild(t *testing.T) {
+	// Ловит: действия ребёнка на экране продлевают отсчёт (ТЗ 8.2.3 п.10): нажатия кнопок,
+	// панель пароля, неверные пароли, смена вида блокировки.
+	d := timeUpDecision()
+	m := locked(d)
+	step := 5 * time.Second
+	for s := step; s < testAutoSwitch; s += step {
+		m.OnDecision(at(s), d, false, nil)
+		switch s {
+		case 2 * time.Minute:
+			m.Press(at(s), ButtonParentPassword, "")
+		case 4 * time.Minute:
+			m.Press(at(s), ButtonSubmitPassword, "не тот")
+			m.OnPasswordResult(at(s), PasswordResult{AttemptsLeft: 4})
+		case 6 * time.Minute:
+			m.Press(at(s), ButtonCancel, "")
+			m.Press(at(s), ButtonLogoff, "")
+		case 8 * time.Minute:
+			m.Press(at(s), ButtonCancel, "")
+			m.Press(at(s), ButtonShutdown, "")
+		case 10 * time.Minute:
+			m.Press(at(s), ButtonCancel, "")
+		case 12 * time.Minute:
+			m.OnDecision(at(s), bypassDecision(), false, nil)
+		}
+		if a := m.AutoSwitch(at(s)); a.Kind != ActNone {
+			t.Fatalf("смена раньше срока, через %v", s)
+		}
+	}
+	m.OnDecision(at(testAutoSwitch), bypassDecision(), false, nil)
+	if a := m.AutoSwitch(at(testAutoSwitch)); a.Kind != ActSwitchUser {
+		t.Fatalf("смена через 15 минут после появления экрана: %+v", a)
+	}
+}
+
+func TestAutoSwitchWaitsAfterCorrectPassword(t *testing.T) {
+	// Ловит: родитель ввёл верный пароль, а ребёнка отключают посреди выбора действий
+	// (ТЗ 8.2.3 п.10: «пароль не введён»); после верного пароля у родителя ещё 15 минут.
+	d := timeUpDecision()
+	m := aliveLocked(d, 14*time.Minute)
+	m.Press(at(14*time.Minute), ButtonParentPassword, "")
+	m.Press(at(14*time.Minute), ButtonSubmitPassword, "верный")
+	m.OnPasswordResult(at(14*time.Minute), PasswordResult{OK: true})
+	for s := 14*time.Minute + 5*time.Second; s < 14*time.Minute+testAutoSwitch; s += 5 * time.Second {
+		m.OnDecision(at(s), d, false, nil)
+		if a := m.AutoSwitch(at(s)); a.Kind != ActNone {
+			t.Fatalf("смена через %v после верного пароля", s-14*time.Minute)
+		}
+	}
+	end := 14*time.Minute + testAutoSwitch
+	m.OnDecision(at(end), d, false, nil)
+	if a := m.AutoSwitch(at(end)); a.Kind != ActSwitchUser {
+		t.Fatalf("смена через 15 минут после верного пароля: %+v", a)
+	}
+}
+
+func TestAutoSwitchClosesPanelsAndClearsPassword(t *testing.T) {
+	// Ловит: после автосмены в оставленном сеансе висит открытая панель с набранным паролем
+	// родителя; по возвращении ребёнок увидел бы его в поле.
+	d := timeUpDecision()
+	m := aliveLocked(d, testAutoSwitch)
+	m.Press(at(testAutoSwitch), ButtonParentPassword, "")
+	before := m.View(at(testAutoSwitch)).PasswordClearSeq
+	if a := m.AutoSwitch(at(testAutoSwitch)); a.Kind != ActSwitchUser {
+		t.Fatalf("смена: %+v", a)
+	}
+	v := m.View(at(testAutoSwitch))
+	if v.Panel != PanelNone || len(v.Buttons) != testScreenButtons || v.PasswordClearSeq <= before {
+		t.Fatalf("после автосмены: Panel=%v Buttons=%d Seq=%d (было %d)", v.Panel, len(v.Buttons), v.PasswordClearSeq, before)
+	}
+}
+
+func TestAutoSwitchAfterIsConfigurable(t *testing.T) {
+	// Ловит: тестовый режим не может сократить срок (приёмка ждала бы 15 минут настоящих часов);
+	// ноль, отрицательное значение и срок длиннее 15 минут меняют настоящий срок.
+	d := timeUpDecision()
+	m := NewModel()
+	m.SetAutoSwitchAfter(20 * time.Second)
+	m.OnDecision(t0, d, false, nil)
+	for s := 5 * time.Second; s < 20*time.Second; s += 5 * time.Second {
+		m.OnDecision(at(s), d, false, nil)
+		if a := m.AutoSwitch(at(s)); a.Kind != ActNone {
+			t.Fatalf("смена через %v при сроке 20 с", s)
+		}
+	}
+	m.OnDecision(at(20*time.Second), d, false, nil)
+	if a := m.AutoSwitch(at(20 * time.Second)); a.Kind != ActSwitchUser {
+		t.Fatalf("смена через 20 с: %+v", a)
+	}
+	for _, bad := range []time.Duration{0, -time.Second, testAutoSwitch + time.Second, 24 * time.Hour} {
+		m3 := NewModel()
+		m3.SetAutoSwitchAfter(bad)
+		m3.OnDecision(t0, d, false, nil)
+		for s := 5 * time.Second; s < testAutoSwitch; s += 5 * time.Second {
+			m3.OnDecision(at(s), d, false, nil)
+			if a := m3.AutoSwitch(at(s)); a.Kind != ActNone {
+				t.Fatalf("срок %v: смена через %v", bad, s)
+			}
+		}
+		m3.OnDecision(at(testAutoSwitch), d, false, nil)
+		if a := m3.AutoSwitch(at(testAutoSwitch)); a.Kind != ActSwitchUser {
+			t.Fatalf("срок %v: нет смены через 15 минут: %+v", bad, a)
+		}
+	}
 }

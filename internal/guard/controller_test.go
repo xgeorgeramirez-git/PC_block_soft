@@ -524,6 +524,203 @@ func TestChoicesSendCommandsToService(t *testing.T) {
 			t.Fatalf("GuardLogoff отправлен %d раз", n)
 		}
 	})
+	t.Run("выключить компьютер", func(t *testing.T) {
+		r := newCtRig()
+		r.svc.status = ctTimeUpStatus()
+		r.poll()
+		r.ctl.Run(r.ctl.Press(ButtonShutdown, ""))
+		if n := len(r.svc.called(ipc.CmdGuardShutdown)); n != 0 {
+			t.Fatalf("GuardShutdown отправлен без подтверждения (%d раз)", n)
+		}
+		r.ctl.Run(r.ctl.Press(ButtonConfirmShutdown, ""))
+		if n := len(r.svc.called(ipc.CmdGuardShutdown)); n != 1 {
+			t.Fatalf("GuardShutdown отправлен %d раз", n)
+		}
+		if n := len(r.svc.called(ipc.CmdGuardLogoff)) + len(r.svc.called(ipc.CmdGuardSwitchUser)); n != 0 {
+			t.Fatalf("вместе с выключением ушли другие выходы (%d)", n)
+		}
+	})
+	t.Run("смена пользователя", func(t *testing.T) {
+		r := newCtRig()
+		r.svc.status = ctTimeUpStatus()
+		r.poll()
+		r.ctl.Run(r.ctl.Press(ButtonSwitchUser, ""))
+		if n := len(r.svc.called(ipc.CmdGuardSwitchUser)); n != 1 {
+			t.Fatalf("GuardSwitchUser отправлен %d раз (подтверждения нет, нужно одно нажатие)", n)
+		}
+		if n := len(r.svc.called(ipc.CmdGuardLogoff)) + len(r.svc.called(ipc.CmdGuardShutdown)); n != 0 {
+			t.Fatalf("вместе со сменой пользователя ушли другие выходы (%d)", n)
+		}
+	})
+}
+
+func TestShutdownAndSwitchFailureSpeakToChild(t *testing.T) {
+	// Ловит: отказ службы при выключении или смене пользователя молчит или показывает
+	// технический текст; тексты ребёнку на «ты», без длинных тире.
+	r := newCtRig()
+	r.svc.status = ctTimeUpStatus()
+	r.poll()
+	r.ctl.Press(ButtonShutdown, "")
+	r.svc.reply[ipc.CmdGuardShutdown] = func(m ipc.Msg) ipc.Reply { return ipc.Fail("") }
+	r.ctl.Run(r.ctl.Press(ButtonConfirmShutdown, ""))
+	if got := r.ctl.Notice(); got != "Не получилось выключить. Попробуй ещё раз" {
+		t.Fatalf("сообщение о выключении %q", got)
+	}
+	r.ctl.Press(ButtonCancel, "")
+	r.clk.Advance(noticeLife + time.Second)
+	r.svc.reply[ipc.CmdGuardSwitchUser] = func(m ipc.Msg) ipc.Reply { return ipc.Fail("") }
+	r.ctl.Run(r.ctl.Press(ButtonSwitchUser, ""))
+	if got := r.ctl.Notice(); got != "Не получилось сменить пользователя. Попробуй ещё раз" {
+		t.Fatalf("сообщение о смене пользователя %q", got)
+	}
+	for _, s := range []string{textNoticeShutdown, textNoticeSwitchUser} {
+		if strings.ContainsAny(s, "—–") {
+			t.Errorf("длинное тире в %q", s)
+		}
+	}
+}
+
+func TestExitButtonsIgnoredWhileCommandRuns(t *testing.T) {
+	// Ловит: двойное нажатие «Смена пользователя» или «Выключить» отправляет команду дважды.
+	r := newCtRig()
+	r.svc.status = ctTimeUpStatus()
+	r.poll()
+	first := r.ctl.Press(ButtonSwitchUser, "")
+	if first.Kind != ActSwitchUser {
+		t.Fatalf("первое нажатие: %+v", first)
+	}
+	if second := r.ctl.Press(ButtonSwitchUser, ""); second.Kind != ActNone {
+		t.Fatalf("повторное нажатие во время команды: %+v", second)
+	}
+	r.ctl.Run(first)
+	if n := len(r.svc.called(ipc.CmdGuardSwitchUser)); n != 1 {
+		t.Fatalf("GuardSwitchUser отправлен %d раз", n)
+	}
+	r.ctl.Press(ButtonShutdown, "")
+	a := r.ctl.Press(ButtonConfirmShutdown, "")
+	if a.Kind != ActShutdown {
+		t.Fatalf("«Выключить»: %+v", a)
+	}
+	if b := r.ctl.Press(ButtonConfirmShutdown, ""); b.Kind != ActNone {
+		t.Fatalf("повторное «Выключить» во время команды: %+v", b)
+	}
+	r.ctl.Run(a)
+}
+
+// pollFor опрашивает службу раз в 5 с, пока не пройдёт d, и возвращает действие, которое
+// предложила автосмена в каждый момент; пустые не копятся.
+func (r *ctRig) pollFor(d time.Duration) []Action {
+	var out []Action
+	for end := r.clk.Now().Add(d); r.clk.Now().Before(end); {
+		step := 5 * time.Second
+		if rest := end.Sub(r.clk.Now()); rest < step {
+			step = rest
+		}
+		r.clk.Advance(step)
+		r.ctl.PollOnce()
+		if a := r.ctl.AutoSwitch(); a.Kind != ActNone {
+			out = append(out, a)
+		}
+	}
+	return out
+}
+
+func TestControllerAutoSwitchAfterFifteenMinutes(t *testing.T) {
+	// Ловит: автосмена не доходит до службы; срабатывает раньше 15 минут или дважды за срок;
+	// после неё экран остаётся (сеанс ребёнка не завершён).
+	r := newCtRig()
+	r.svc.status = ctTimeUpStatus()
+	r.poll()
+	if got := r.pollFor(testAutoSwitch - 5*time.Second); len(got) != 0 {
+		t.Fatalf("смена раньше срока: %+v", got)
+	}
+	got := r.pollFor(5 * time.Second)
+	if len(got) != 1 || got[0].Kind != ActSwitchUser {
+		t.Fatalf("через 15 минут: %+v", got)
+	}
+	r.ctl.Run(got[0])
+	if n := len(r.svc.called(ipc.CmdGuardSwitchUser)); n != 1 {
+		t.Fatalf("GuardSwitchUser отправлен %d раз", n)
+	}
+	if n := len(r.svc.called(ipc.CmdGuardLogoff)) + len(r.svc.called(ipc.CmdGuardShutdown)); n != 0 {
+		t.Fatalf("автосмена отправила другой выход (%d)", n)
+	}
+	if got := r.pollFor(testAutoSwitch - 5*time.Second); len(got) != 0 {
+		t.Fatalf("лишняя смена в следующие 15 минут: %+v", got)
+	}
+	if v := r.ctl.View(); !v.LockShown {
+		t.Fatal("экран блокировки пропал после автосмены")
+	}
+}
+
+func TestControllerAutoSwitchBlocksRepeatedPressUntilDone(t *testing.T) {
+	// Ловит: пока автосмена идёт, ребёнок нажимает «Смена пользователя» ещё раз (команда
+	// уходит дважды); после конца команды кнопки снова работают.
+	r := newCtRig()
+	r.svc.status = ctTimeUpStatus()
+	r.poll()
+	r.pollFor(testAutoSwitch - 5*time.Second)
+	r.clk.Advance(5 * time.Second)
+	r.ctl.PollOnce()
+	auto := r.ctl.AutoSwitch()
+	if auto.Kind != ActSwitchUser {
+		t.Fatalf("автосмена: %+v", auto)
+	}
+	if again := r.ctl.Press(ButtonSwitchUser, ""); again.Kind != ActNone {
+		t.Fatalf("нажатие во время автосмены: %+v", again)
+	}
+	r.ctl.Run(auto)
+	if again := r.ctl.Press(ButtonSwitchUser, ""); again.Kind != ActSwitchUser {
+		t.Fatalf("нажатие после автосмены: %+v", again)
+	}
+}
+
+func TestControllerAutoSwitchWaitsForRunningCommand(t *testing.T) {
+	// Ловит: автосмена вклинивается, пока идёт другая команда стража (проверка пароля родителя):
+	// срок не пропадает, а переносится на следующий опрос.
+	r := newCtRig()
+	r.svc.status = ctTimeUpStatus()
+	r.poll()
+	r.pollFor(testAutoSwitch - 5*time.Second)
+	r.ctl.Press(ButtonParentPassword, "")
+	busy := r.ctl.Press(ButtonSubmitPassword, "пароль")
+	if busy.Kind != ActCheckPassword {
+		t.Fatalf("проверка пароля: %+v", busy)
+	}
+	r.clk.Advance(5 * time.Second)
+	r.ctl.PollOnce()
+	if a := r.ctl.AutoSwitch(); a.Kind != ActNone {
+		t.Fatalf("автосмена во время другой команды: %+v", a)
+	}
+	r.svc.reply[ipc.CmdLogin] = func(m ipc.Msg) ipc.Reply { return ipc.Fail("") }
+	r.ctl.Run(busy)
+	r.clk.Advance(time.Second)
+	r.ctl.PollOnce()
+	if a := r.ctl.AutoSwitch(); a.Kind != ActSwitchUser {
+		t.Fatalf("после команды автосмена не вернулась: %+v", a)
+	}
+}
+
+func TestControllerAutoSwitchShortenedOnlyInTestMode(t *testing.T) {
+	// Ловит: срок из Hello действует вне тестового режима (ребёнок не должен менять срок);
+	// в тестовом режиме срок не сокращается (приёмка ждала бы 15 минут настоящих часов).
+	const short = 20
+	for _, test := range []bool{true, false} {
+		r := newCtRig()
+		r.svc.test = test
+		r.svc.reply[ipc.CmdHello] = func(m ipc.Msg) ipc.Reply {
+			return ipc.OK(ipc.HelloReply{Protocol: ipc.ProtocolVersion, TestMode: test, AutoSwitchS: short})
+		}
+		r.svc.status = ctTimeUpStatus()
+		r.poll()
+		got := r.pollFor(short * time.Second)
+		if test && (len(got) != 1 || got[0].Kind != ActSwitchUser) {
+			t.Fatalf("тестовый режим: через %d с %+v", short, got)
+		}
+		if !test && len(got) != 0 {
+			t.Fatalf("вне тестового режима срок сокращён: %+v", got)
+		}
+	}
 }
 
 func TestFailedActionShowsNoticeAndLetsTryAgain(t *testing.T) {
@@ -651,7 +848,7 @@ func TestStateIsPushedOnlyInTestModeAndOnlyOnChange(t *testing.T) {
 	if err := calls[0].Into(&st); err != nil {
 		t.Fatal(err)
 	}
-	if !st.LockShown || st.LockKind != ipc.LockTimeUp || strings.Join(st.Buttons, ",") != TargetParentPassword+","+TargetLogoff {
+	if !st.LockShown || st.LockKind != ipc.LockTimeUp || strings.Join(st.Buttons, ",") != strings.Join([]string{TargetParentPassword, TargetShutdown, TargetLogoff, TargetSwitchUser}, ",") {
 		t.Fatalf("вид стража: %+v", st)
 	}
 	r.ctl.Press(ButtonParentPassword, "")
