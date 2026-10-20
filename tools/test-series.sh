@@ -76,7 +76,7 @@ run_fuzz() {
 step "фаззинг" run_fuzz
 
 # Фронт
-step "vitest" bash -c 'cd frontend && npx vitest run'
+step "vitest" bash -c 'cd frontend && npx vitest run --coverage'
 
 TOTAL=$(( $(date +%s) - START ))
 RESULT="Итог: $([ $FAILED -eq 0 ] && echo ЗЕЛЁНАЯ || echo КРАСНАЯ), время серии $TOTAL с"
