@@ -198,9 +198,11 @@ func examples() map[string]example {
 				{Kind: GuardCmdTest, Test: &TestGuardAction{Action: TestType, Target: "password", Text: "секрет-123"}},
 			},
 		}),
-		"GuardPoll#empty": ok(GuardPollRequest{Sample: SampleFromCore(core.SessionSample{AtMs: t0})}, GuardPollReply{Status: okStatus()}),
-		CmdGuardLogoff:    ok(nil, Empty{}),
-		CmdTrayClosing:    ok(nil, Empty{}),
+		"GuardPoll#empty":  ok(GuardPollRequest{Sample: SampleFromCore(core.SessionSample{AtMs: t0})}, GuardPollReply{Status: okStatus()}),
+		CmdGuardLogoff:     ok(nil, Empty{}),
+		CmdGuardShutdown:   ok(nil, Empty{}),
+		CmdGuardSwitchUser: ok(nil, Empty{}),
+		CmdTrayClosing:     ok(nil, Empty{}),
 
 		CmdTestGuard: ok(TestGuardRequest{SessionID: 2, Action: TestGuardAction{Action: TestClick, Target: ButtonParentPassword}}, Empty{}),
 		CmdTestClock: ok(TestClockRequest{Paused: true}, TestClockReply{Paused: true, NowMs: t0, Speed: 60}),
@@ -208,8 +210,9 @@ func examples() map[string]example {
 			Warnings:  []ShownWarning{{AtMs: t0 - 60_000, Threshold: 1, Text: "Осталась 1 минута"}},
 			LockShown: true,
 			LockKind:  LockTimeUp,
-			Buttons:   []string{ButtonParentPassword, ButtonLogoff},
+			Buttons:   []string{ButtonParentPassword, ButtonShutdown, ButtonLogoff, ButtonSwitchUser},
 			Fields:    []GuardField{{ID: "password", Text: ""}},
+			Exits:     []string{ExitSwitchUser},
 		}),
 		"GuardState#empty": ok(nil, GuardStateReply{}),
 	}
@@ -268,8 +271,8 @@ func TestContractHasEveryCommand(t *testing.T) {
 			t.Errorf("пример для %s есть, а в AllCommands её нет", c)
 		}
 	}
-	if len(AllCommands) != 31 {
-		t.Errorf("команд %d, в плане M1 их 31", len(AllCommands))
+	if len(AllCommands) != 33 {
+		t.Errorf("команд %d, ждали 33 (31 из плана M1 и две команды выходов с экрана блокировки, D-40)", len(AllCommands))
 	}
 }
 

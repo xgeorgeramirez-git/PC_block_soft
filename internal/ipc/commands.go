@@ -42,8 +42,10 @@ const (
 	CmdFirstRunSeen = "FirstRunSeen"
 
 	// Страж (только процесс системы в том же сеансе).
-	CmdGuardPoll   = "GuardPoll"
-	CmdGuardLogoff = "GuardLogoff"
+	CmdGuardPoll       = "GuardPoll"
+	CmdGuardLogoff     = "GuardLogoff"
+	CmdGuardShutdown   = "GuardShutdown"   // «Выключить компьютер» после подтверждения
+	CmdGuardSwitchUser = "GuardSwitchUser" // «Смена пользователя» и автосмена: сеанс отключается, не завершаясь
 
 	// Значок (только процесс пользователя своего сеанса).
 	CmdTrayClosing = "TrayClosing"
@@ -64,7 +66,7 @@ var AllCommands = []string{
 	CmdSaveLimits, CmdAddExtra, CmdUndoExtra, CmdClearBlock, CmdListEvents, CmdChangePassword,
 	CmdSetChildren, CmdGetHelperState, CmdSaveHelperState,
 	CmdMyToday, CmdFirstRunSeen,
-	CmdGuardPoll, CmdGuardLogoff,
+	CmdGuardPoll, CmdGuardLogoff, CmdGuardShutdown, CmdGuardSwitchUser,
 	CmdTrayClosing,
 	CmdTestGuard, CmdTestClock, CmdGuardState,
 }
@@ -92,10 +94,13 @@ const ProtocolVersion = 1
 
 // HelloReply — ответ Hello.
 type HelloReply struct {
-	Protocol   int    `json:"protocol"`
-	Version    string `json:"version"`    // версия программы, например «0.1.0»
-	TestMode   bool   `json:"testMode"`   // включён тестовый режим (ТЗ 10.8)
-	Configured bool   `json:"configured"` // пароль родителя задан, мастер пройден
+	Protocol int    `json:"protocol"`
+	Version  string `json:"version"`  // версия программы, например «0.1.0»
+	TestMode bool   `json:"testMode"` // включён тестовый режим (ТЗ 10.8)
+	// AutoSwitchS — срок автоматической смены пользователя в секундах; только в тестовом
+	// режиме и только если задан в реестре (короче 15 минут). 0: обычные 15 минут.
+	AutoSwitchS int  `json:"autoSwitchS,omitempty"`
+	Configured  bool `json:"configured"` // пароль родителя задан, мастер пройден
 }
 
 // Виды окон для OpenWindow и WindowClosing (Ruling 19).
@@ -454,6 +459,8 @@ const (
 const (
 	ButtonParentPassword = "parentPassword" // «Пароль родителя»
 	ButtonLogoff         = "logoff"         // «Выйти из учётной записи»
+	ButtonShutdown       = "shutdown"       // «Выключить компьютер»
+	ButtonSwitchUser     = "switchUser"     // «Смена пользователя»
 	ButtonAck            = "ack"            // «Понятно»
 )
 
@@ -557,4 +564,14 @@ type GuardStateReply struct {
 	LockKind  string         `json:"lockKind"`  // Lock*
 	Buttons   []string       `json:"buttons"`   // видимые кнопки (Button*)
 	Fields    []GuardField   `json:"fields"`    // поля ввода и их текст
+	// Exits — выходы, о которых страж просил службу в тестовом режиме (Exit*), по порядку.
+	// В тестовом режиме служба их не выполняет, а записывает: раннер CI нельзя выключить или
+	// отключить. Заполняет служба при чтении; то, что прислал страж, отбрасывается.
+	Exits []string `json:"exits"`
 }
+
+// Выходы с экрана блокировки для GuardStateReply.Exits (тестовый режим).
+const (
+	ExitShutdown   = "shutdown"   // выключение компьютера
+	ExitSwitchUser = "switchUser" // смена пользователя, в том числе автоматическая
+)
