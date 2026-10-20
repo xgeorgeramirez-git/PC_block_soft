@@ -568,8 +568,9 @@ export function createBackend(opts: MockOptions = {}): MockBackend {
       if (!req.reason) return fail("Укажите, за что начисляете", "reason");
       const cur = child.bonusBalance ?? 0;
       if (cur + m > 600) return fail(`Можно начислить не больше ${600 - cur} мин`, "minutes");
-      child.bonusBalance = cur + m;
-      child.bonusLedger = [{ atMs: now, tzOffsetMin: localOffsetMin(new Date(now)), deltaMin: m, reason: req.reason, balanceAfter: child.bonusBalance }, ...(child.bonusLedger ?? [])];
+      const after = cur + m;
+      child.bonusBalance = after;
+      child.bonusLedger = [{ atMs: now, tzOffsetMin: localOffsetMin(new Date(now)), deltaMin: m, reason: req.reason, balanceAfter: after }, ...(child.bonusLedger ?? [])];
       const bonusId = `b-${state.nextExtraId++}`;
       state.bonusUndo.set(bonusId, { childId: child.childId, minutes: m, undoUntilMs: now + UNDO_WINDOW_MS });
       addEvent(now, child, "bonus_grant", `${child.name}: начислено +${m} мин: ${req.reason}`);

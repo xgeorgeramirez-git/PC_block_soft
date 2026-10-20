@@ -9,20 +9,27 @@ import { genitiveName } from "../lib/format";
 export type EntryKind = "hint" | "detector" | "tour" | "whatsnew";
 
 /** Экраны окна родителя (совпадают с меню). */
-export type ScreenId = "today" | "children" | "journal" | "settings" | "help";
+export type ScreenId = "today" | "children" | "bonus" | "journal" | "settings" | "help";
 
 /** Действия кнопок карточки; что делает каждое, решает Provider. */
-export type ActionId = "ack" | "start-tour" | "open-limits" | "how-to-fix";
+export type ActionId = "ack" | "start-tour" | "open-limits" | "how-to-fix" | "open-schedule";
 
 /** Известные якоря окна родителя: элемент помечен data-help-anchor с тем же номером. */
 export const ANCHORS = [
   { id: "topbar", screen: "any" },
   { id: "menu-today", screen: "any" },
   { id: "menu-children", screen: "any" },
+  { id: "menu-bonus", screen: "any" },
   { id: "savebar", screen: "any" },
   { id: "child-card", screen: "today" },
   { id: "extra-buttons", screen: "today" },
+  { id: "child-card-pause", screen: "today" },
+  { id: "child-card-bonus", screen: "today" },
   { id: "limits-table", screen: "children" },
+  { id: "schedule-tab", screen: "children" },
+  { id: "interval-add", screen: "children" },
+  { id: "copy-rules", screen: "children" },
+  { id: "bonus-grant", screen: "bonus" },
 ] as const;
 
 export type AnchorId = (typeof ANCHORS)[number]["id"];
