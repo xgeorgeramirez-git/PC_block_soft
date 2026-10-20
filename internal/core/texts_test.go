@@ -1,6 +1,9 @@
 package core
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 // Ловит: длительность не по ТЗ 4 («40 мин», «1 ч 05 мин»): без ведущего нуля минут,
 // с округлением вверх (ребёнку показали бы больше, чем есть) или с минусом.
@@ -94,8 +97,14 @@ func TestUntilText(t *testing.T) {
 		{"ближайший из нескольких", Monday, only(Thursday, Saturday), "Можно снова: в четверг"},
 		{"вся неделя 0", Wednesday, only(), "Можно снова: когда родитель изменит правила"},
 	}
+	// now — полдень дня недели today на неделе 19–25.10.2026 (пн=19 … вс=25), чтобы
+	// «сегодня/завтра» считались от конкретной даты. Интервалов в этих правилах нет,
+	// поэтому конец интервала в ответе не появляется.
+	nowOf := func(wd Weekday) time.Time {
+		return time.Date(2026, 10, 18+int(wd), 12, 0, 0, 0, msk)
+	}
 	for _, tc := range cases {
-		if got := UntilText(tc.today, tc.rules); got != tc.want {
+		if got := UntilText(tc.today, tc.rules, nowOf(tc.today)); got != tc.want {
 			t.Errorf("%s: UntilText = %q, want %q", tc.name, got, tc.want)
 		}
 	}

@@ -92,10 +92,38 @@ type LockKind int
 
 // Виды блокировки.
 const (
-	LockNone   LockKind = iota // экрана блокировки нет
-	LockTimeUp                 // «Время на сегодня закончилось» (R4)
-	LockBypass                 // «Попытка обойти защиту» (R17)
+	LockNone      LockKind = iota // экрана блокировки нет
+	LockTimeUp                    // «Время на сегодня закончилось» (R4)
+	LockForbidden                 // «Сейчас нельзя пользоваться компьютером» — запретный интервал (R7)
+	LockBypass                    // «Попытка обойти защиту» (R17)
 )
+
+// WarnEvent — вид ближайшего события, к которому относится предупреждение R9: от него
+// зависит текст у стража («время закончится» / «начнутся запретные часы» / «закончится
+// пауза»). Нулевое значение — нет события.
+type WarnEvent int
+
+// Виды событий предупреждений.
+const (
+	WarnNone      WarnEvent = iota
+	WarnLimit               // исчерпание общего времени (R4)
+	WarnForbidden           // начало запретного интервала (R7)
+	WarnPauseEnd            // окончание паузы (R11, G11)
+)
+
+// String — короткий ключ вида события (для тестов и выбора текста).
+func (w WarnEvent) String() string {
+	switch w {
+	case WarnLimit:
+		return "limit"
+	case WarnForbidden:
+		return "forbidden"
+	case WarnPauseEnd:
+		return "pause_end"
+	default:
+		return "none"
+	}
+}
 
 // Status — состояние ребёнка сейчас; один источник статуса для значка, мини-панели,
 // «Моей статистики» и карточки родителя (Review Focus 5). Цвет по ТЗ 8.0 п.3.
@@ -106,8 +134,10 @@ const (
 	StatusOK        Status = iota // можно, осталось больше 15 мин (зелёный)
 	StatusLow                     // осталось 15 мин или меньше (янтарный)
 	StatusTimeUp                  // время вышло, экран блокировки (красный)
+	StatusForbidden               // запретные часы, экран блокировки (красный) — R7
 	StatusBypass                  // попытка обойти защиту, экран блокировки (красный)
 	StatusUnlimited               // на сегодня лимита нет
+	StatusPaused                  // пауза: ограничения не действуют, учёт идёт (R11)
 	StatusSafe                    // правила не прочитаны: ограничения не действуют (R18)
 )
 
@@ -118,6 +148,9 @@ const (
 	EvDayClosed    = "day_closed"    // сутки сменились, итог дня — в ClosedDay (R16)
 	EvBypass       = "bypass"        // попытка обойти защиту (R17)
 	EvBlockCleared = "block_cleared" // родитель снял блокировку за обход
+	EvPause        = "pause"         // родитель поставил паузу (R11)
+	EvPauseEnd     = "pause_end"     // пауза закончилась, правила снова действуют (R11)
+	EvBonusSpent   = "bonus_spent"   // ребёнок взял из копилки (R10, FR-11)
 )
 
 // Event — событие для журнала (R22): вид и данные; момент добавляет служба.

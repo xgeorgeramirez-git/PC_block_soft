@@ -20,20 +20,22 @@ var ErrExtraRange = errors.New("доп. время: можно от 1 до 240 �
 // единственный источник для значка, мини-панели, «Моей статистики» и карточки родителя
 // (Review Focus 5).
 type Decision struct {
-	Day        string    // день, к которому относятся цифры, YYYY-MM-DD
-	Lock       LockKind  // какой экран блокировки показать
-	Reason     string    // заголовок причины блокировки
-	Detail     string    // что произошло (только при обходе)
-	Until      string    // «Можно снова: завтра» (только «время вышло»)
-	Used       string    // «Сегодня: 2 ч 00 мин из 2 ч»
-	Warning    int       // 0 или порог 15/5/1, сработавший на этом тике
-	RemainingS int       // остаток общего времени, с (0 без лимита)
-	LimitS     int       // лимит дня вместе с доп. временем, с (0 без лимита)
-	UsedS      int       // общее время за день, с
-	Unlimited  bool      // лимита нет или правила не прочитаны
-	Status     Status    // статус ребёнка для значка и карточки
-	ClosedDay  *DayState // закончившийся при смене суток день: службе сохранить
-	Events     []Event   // события для журнала (R22); нет событий — [], не nil
+	Day          string    // день, к которому относятся цифры, YYYY-MM-DD
+	Lock         LockKind  // какой экран блокировки показать
+	Reason       string    // заголовок причины блокировки
+	Detail       string    // что произошло (только при обходе)
+	Until        string    // «Можно снова: завтра» (только «время вышло»)
+	PauseUntil   string    // «18:30» — конец активной паузы (R11); «» — нет паузы
+	Used         string    // «Сегодня: 2 ч 00 мин из 2 ч»
+	Warning      int       // 0 или порог 15/5/1, сработавший на этом тике
+	WarningEvent WarnEvent // вид события сработавшего предупреждения (лимит/интервал/пауза)
+	RemainingS   int       // остаток общего времени, с (0 без лимита)
+	LimitS       int       // лимит дня вместе с доп. временем, с (0 без лимита)
+	UsedS        int       // общее время за день, с
+	Unlimited    bool      // лимита нет или правила не прочитаны
+	Status       Status    // статус ребёнка для значка и карточки
+	ClosedDay    *DayState // закончившийся при смене суток день: службе сохранить
+	Events       []Event   // события для журнала (R22); нет событий — [], не nil
 }
 
 // Engine — ядро учёта и правил одного ребёнка. Порядок тика (уточнение 1 пакета M1):
@@ -209,12 +211,49 @@ func (e *Engine) limitFor(day string) (DayLimit, Weekday) {
 	return e.rules.For(wd), wd
 }
 
-// rearm взводит пороги заново по текущему остатку.
+// rearm взводит пороги заново по дельте до ближайшего события (R9): минимум из остатка
+// общего лимита, секунд до начала ближайшего запретного интервала и секунд до конца
+// паузы (если активна). Вид этого события кладётся в warnings для текста предупреждения.
 func (e *Engine) rearm() {
 	st := e.acc.State()
+	deltaS, ev, limited := e.nextEvent(st, e.now())
+	e.warn.arm(deltaS, ev, limited)
+}
+
+// nextEvent возвращает секунды до ближайшего события ограничения, его вид и признак, что
+// событие вообще есть (limited). Паузой события отодвигаются: пока пауза активна,
+// ближайшее событие — её конец. Без лимита и без интервалов событий нет.
+func (e *Engine) nextEvent(st DayState, now time.Time) (deltaS int, ev WarnEvent, limited bool) {
+	if e.rules.Broken {
+		return 0, WarnNone, false
+	}
+	// Пауза активна: единственное ближайшее событие — её конец (G11).
+	if until, ok := e.pauseUntil(st); ok && now.Before(until) {
+		return int(until.Sub(now).Seconds()), WarnPauseEnd, true
+	}
+	best, bestEv, has := 0, WarnNone, false
+	// Исчерпание общего лимита.
 	lim, _ := e.limitFor(st.Day)
-	rem, unl := RemainingTotalS(lim, st.ExtraMin, st.TotalS)
-	e.warn.arm(rem, !unl && !e.rules.Broken)
+	if rem, unl := RemainingTotalS(lim, st.ExtraMin, st.TotalS); !unl {
+		best, bestEv, has = rem, WarnLimit, true
+	}
+	// Начало ближайшего запретного интервала.
+	if start, ok := NextForbiddenStart(e.rules, now); ok {
+		d := int(start.Sub(now).Seconds())
+		if d >= 0 && (!has || d < best) {
+			best, bestEv, has = d, WarnForbidden, true
+		}
+	}
+	return best, bestEv, has
+}
+
+// pauseUntil возвращает момент конца активной паузы (R11); в Task 2 паузы нет — Task 3
+// добавит реальное значение из состояния дня.
+func (e *Engine) pauseUntil(st DayState) (time.Time, bool) {
+	if st.PauseUntilMs == nil {
+		return time.Time{}, false
+	}
+	return time.UnixMilli(*st.PauseUntilMs).In(e.loc), true
 }
 
 // decide строит решение по состоянию дня st; fire — тик: сработавший порог гасится.
@@ -225,6 +264,7 @@ func (e *Engine) decide(st DayState, fire bool) Decision {
 		d.Used = UsedText(st.TotalS, 0, true)
 		return d
 	}
+	now := e.now()
 	lim, wd := e.limitFor(st.Day)
 	rem, unl := RemainingTotalS(lim, st.ExtraMin, st.TotalS)
 	d.RemainingS, d.Unlimited = rem, unl
@@ -234,16 +274,31 @@ func (e *Engine) decide(st DayState, fire bool) Decision {
 		d.LimitS = limitMin * 60
 	}
 	d.Used = UsedText(st.TotalS, limitMin, unl)
+
+	paused := false
+	if until, ok := e.pauseUntil(st); ok && now.Before(until) {
+		paused = true
+		d.PauseUntil = FormatClock(until)
+	}
+	inForbidden, forbiddenEnd := InForbidden(e.rules, now)
+
 	switch {
 	case e.bypass != "":
 		d.Lock, d.Status, d.Reason, d.Detail = LockBypass, StatusBypass, ReasonBypass, e.bypass
 		d.Until = UntilBypass
+	case paused:
+		// Пауза снимает все ограничения (R11); учёт идёт (Tick засчитывает секунды).
+		d.Status = StatusPaused
+	case inForbidden:
+		d.Lock, d.Status, d.Reason = LockForbidden, StatusForbidden, ReasonForbidden
+		d.Until = UntilForbidden(now, forbiddenEnd)
 	case !unl && rem <= 0:
 		d.Lock, d.Status, d.Reason = LockTimeUp, StatusTimeUp, ReasonTimeUp
-		d.Until = UntilText(wd, e.rules)
+		d.Until = UntilText(wd, e.rules, now)
 	default:
 		if fire {
-			d.Warning = e.warn.fire(rem)
+			deltaS, _, _ := e.nextEvent(st, now)
+			d.Warning, d.WarningEvent = e.warn.fire(deltaS)
 		}
 		switch {
 		case unl:

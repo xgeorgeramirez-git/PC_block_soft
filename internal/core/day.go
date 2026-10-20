@@ -6,12 +6,13 @@ import "time"
 // целые секунды; TotalS — общее время R4 (игры + видео + прочее), учёба отдельно (D-7);
 // ExtraMin — доп. время за этот день (R10).
 type DayState struct {
-	Day      string // YYYY-MM-DD по местному времени
-	TotalS   int
-	GamesS   int
-	VideoS   int
-	StudyS   int
-	ExtraMin int
+	Day          string // YYYY-MM-DD по местному времени
+	TotalS       int
+	GamesS       int
+	VideoS       int
+	StudyS       int
+	ExtraMin     int
+	PauseUntilMs *int64 // момент конца паузы, UTC мс; nil — паузы нет (R11)
 }
 
 // DayOf возвращает дату дня момента t по его поясу в формате YYYY-MM-DD (ТЗ 4).
