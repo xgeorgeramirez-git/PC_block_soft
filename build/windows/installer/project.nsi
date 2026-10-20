@@ -89,6 +89,41 @@ ShowUninstDetails show
     ${EndIf}
 !macroend
 
+# Освобождает PCBlock.exe перед перезаписью при установке поверх (B-17): служба и её
+# сеансные процессы (значок, страж) держат файл ещё доли секунды после остановки, и
+# wails.files тогда падает «файл занят». Макрос ждёт освобождения (до ~10 с), пробуя
+# открыть файл на запись; если не дождался, переименовывает запущенный образ в .old
+# (Windows это разрешает даже для работающего exe) и помечает .old на удаление при
+# перезагрузке, чтобы новая версия встала сразу, без перезагрузки.
+!macro pcb.freeExe
+    Push $R0
+    Push $R1
+    StrCpy $R1 0
+    ${Do}
+        ClearErrors
+        FileOpen $R0 "$INSTDIR\${PRODUCT_EXECUTABLE}" a
+        ${IfNot} ${Errors}
+            FileClose $R0
+            ${Break}
+        ${EndIf}
+        IntOp $R1 $R1 + 1
+        ${If} $R1 >= 20
+            ${Break}
+        ${EndIf}
+        Sleep 500
+    ${Loop}
+    ${If} $R1 >= 20
+        DetailPrint "Файл программы ещё занят, освобождаю через переименование"
+        ClearErrors
+        Rename "$INSTDIR\${PRODUCT_EXECUTABLE}" "$INSTDIR\${PRODUCT_EXECUTABLE}.old"
+        ${IfNot} ${Errors}
+            Delete /REBOOTOK "$INSTDIR\${PRODUCT_EXECUTABLE}.old"
+        ${EndIf}
+    ${EndIf}
+    Pop $R1
+    Pop $R0
+!macroend
+
 Function .onInit
     !insertmacro wails.checkArchitecture
 
@@ -108,12 +143,15 @@ Section
 
     !insertmacro wails.webview2runtime
 
-    # Установка поверх (Ruling 21): служба и процессы в сеансах держат PCBlock.exe, пока их не
-    # остановили. Данные не трогаем: ключ --delete-data не передаётся.
+    # Установка поверх (Ruling 21, B-17): служба и процессы в сеансах держат PCBlock.exe, пока их
+    # не остановили. Данные не трогаем: ключ --delete-data не передаётся. После остановки ждём,
+    # пока файл освободится (сеансные значок и страж умирают не мгновенно), иначе wails.files
+    # падает «файл занят».
     ${If} ${FileExists} "$INSTDIR\${PRODUCT_EXECUTABLE}"
         DetailPrint "Останавливаю прежнюю версию PC Block"
         !insertmacro pcb.exec "--remove-service --silent"
         DetailPrint "Прежняя версия остановлена, код выхода $0"
+        !insertmacro pcb.freeExe
     ${EndIf}
 
     SetOutPath $INSTDIR
