@@ -196,12 +196,12 @@ jobs:
             Wait-Until { -not (Get-Process -Name "Au_" -ErrorAction SilentlyContinue) } 60 "завершение деинсталлятора"
           }
           function Assert-Installed([string]$When) {
-            if (-not (Test-Path $exe)) { throw "$When: программа удалена, а должна остаться" }
-            if ((Get-Service -Name PCBlock -ErrorAction SilentlyContinue).Status -ne "Running") { throw "$When: служба не работает, а должна работать" }
+            if (-not (Test-Path $exe)) { throw "${When}: программа удалена, а должна остаться" }
+            if ((Get-Service -Name PCBlock -ErrorAction SilentlyContinue).Status -ne "Running") { throw "${When}: служба не работает, а должна работать" }
           }
           function Assert-Removed([string]$When) {
-            Wait-Until { -not (Test-Path $exe) } 60 "$When: PCBlock.exe удалён"
-            Wait-Until { -not (Get-Service -Name PCBlock -ErrorAction SilentlyContinue) } 30 "$When: служба удалена"
+            Wait-Until { -not (Test-Path $exe) } 60 "${When}: PCBlock.exe удалён"
+            Wait-Until { -not (Get-Service -Name PCBlock -ErrorAction SilentlyContinue) } 30 "${When}: служба удалена"
           }
 
           try {
