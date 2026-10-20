@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"runtime/debug"
 	"strconv"
 	"strings"
 
@@ -19,6 +20,13 @@ import (
 
 	"pcblock/internal/auth"
 )
+
+// freeBuffers возвращает системе 64 МБ рабочего буфера Argon2id сразу после операции с паролем.
+// Без этого рабочий набор долгоживущей службы остаётся раздутым (сборщик мусора Go отдаёт
+// освобождённые страницы ОС лениво), и служба в простое не укладывается в NFR-5 (≤ 50 МБ).
+// Операции с паролем редки (настройка, вход, сброс, удаление) — полная сборка здесь не на
+// горячем пути. Проверяется приёмочным сценарием S1 (замер памяти службы в простое).
+func freeBuffers() { debug.FreeOSMemory() }
 
 // ErrMalformed — строка хеша из базы испорчена или не в формате PHC Argon2id.
 var ErrMalformed = errors.New("pwhash: строка хеша не в формате argon2id")
@@ -63,6 +71,7 @@ func Hash(pw string) (string, error) {
 }
 
 func hashWith(pw string, p params, r io.Reader) (string, error) {
+	defer freeBuffers()
 	salt := make([]byte, saltLen)
 	if _, err := io.ReadFull(r, salt); err != nil {
 		return "", fmt.Errorf("pwhash: соль не получена: %w", err)
@@ -80,6 +89,7 @@ func Verify(hash, pw string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
+	defer freeBuffers()
 	got := argon2.IDKey([]byte(pw), salt, p.iterations, p.memoryKiB, p.threads, uint32(len(sum)))
 	return subtle.ConstantTimeCompare(got, sum) == 1, nil
 }
