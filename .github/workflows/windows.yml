@@ -17,6 +17,11 @@ on:
         required: false
         default: ""
         type: string
+      only:
+        description: "С scenario=accept: какие сценарии прогнать, через запятую (например S1,S4); пусто = все"
+        required: false
+        default: ""
+        type: string
 
 permissions:
   contents: write
@@ -256,7 +261,9 @@ jobs:
         shell: pwsh
         env:
           PCB_ACCEPT_SHOTS: ${{ github.workspace }}/accept-screens
-        run: ./tools/accept/run-all.ps1 -InstallerDir build/bin -LogPath "$env:RUNNER_TEMP/ci.log"
+        run: |
+          $only = @("${{ inputs.only }}" -split "[,\s]+" | Where-Object { $_ })
+          ./tools/accept/run-all.ps1 -InstallerDir build/bin -LogPath "$env:RUNNER_TEMP/ci.log" -Only $only
       - name: Приёмка M1, ошибки — в пометки сборки
         if: failure() && steps.accept.conclusion == 'failure'
         run: bash tools/annotate-errors.sh "$RUNNER_TEMP/ci.log" "Приёмка M1"

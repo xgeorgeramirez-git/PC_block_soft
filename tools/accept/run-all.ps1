@@ -46,5 +46,9 @@ if ($failed.Count -gt 0) {
   Write-Host "::error title=Приёмка M1::не пройдены: $($failed -join ', '); пройдены: $($passed -join ', ')"
   exit 1
 }
-Write-Host "::notice title=Приёмка M1::S1...S7, S25...S27: PASS"
+if ($Only.Count -gt 0) {
+  Write-Host "::notice title=Приёмка M1::$($passed -join ', '): PASS (выборочный прогон)"
+} else {
+  Write-Host "::notice title=Приёмка M1::S1...S7, S25...S27: PASS"
+}
 exit 0

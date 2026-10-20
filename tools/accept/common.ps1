@@ -269,6 +269,17 @@ function Get-MemoryMb([int]$ProcessId) {
   return [math]::Round($p.WorkingSet64 / 1MB, 1)
 }
 
+# Память процесса, МБ: общий рабочий набор, личный рабочий набор (столбец «Память» Диспетчера задач) и личные байты.
+function Get-MemoryInfo([int]$ProcessId) {
+  $w = Get-CimInstance Win32_PerfFormattedData_PerfProc_Process -Filter "IDProcess=$ProcessId" -ErrorAction Stop | Select-Object -First 1
+  if (-not $w) { throw "Нет счётчиков памяти процесса $ProcessId" }
+  return [pscustomobject]@{
+    Ws = [math]::Round($w.WorkingSet / 1MB, 1)
+    Private = [math]::Round($w.WorkingSetPrivate / 1MB, 1)
+    Bytes = [math]::Round($w.PrivateBytes / 1MB, 1)
+  }
+}
+
 function Stop-AllPcb {
   try {
     Get-PcbProcs | ForEach-Object { & taskkill.exe /F /T /PID $_.ProcessId 2>&1 | Out-Null }

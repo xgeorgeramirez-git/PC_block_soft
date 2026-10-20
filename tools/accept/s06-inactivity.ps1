@@ -12,12 +12,12 @@ Invoke-Scenario "S6" "Бездействие 20 мин и полноэкранн
     Test-InputSim
   }
 
-  $base = 0
+  $script:Base = 0
   Step "Лимит 60 мин, ребёнок готов, часы на паузе" {
     Start-Child 60 $false
     $st = Get-Status
-    $base = [int]$st.usedS
-    Write-Log "Начало испытания: израсходовано $base с, остаток $($st.remainingS) с"
+    $script:Base = [int]$st.usedS
+    Write-Log "Начало испытания: израсходовано $($script:Base) с, остаток $($st.remainingS) с"
     Assert-That ($st.remainingS -ge 3500) "Остаток перед испытанием $($st.remainingS) с, ждали около 3600"
   }
 
@@ -29,7 +29,7 @@ Invoke-Scenario "S6" "Бездействие 20 мин и полноэкранн
     $sw = [Diagnostics.Stopwatch]::StartNew()
     Start-Sleep -Seconds 20
     Suspend-Clock
-    $used = [int](Get-Status).usedS - $base
+    $used = [int](Get-Status).usedS - $script:Base
     Write-Log ("Прошло {0:N1} с настоящего времени (около 20 мин часов ядра); учтено {1} с, простой ввода {2} мс" -f $sw.Elapsed.TotalSeconds, $used, [PcbNative]::IdleMs())
     Assert-Between ($used / 60.0) 4 6 "Учтено за 20 мин без ввода, мин"
   }
@@ -48,7 +48,7 @@ Invoke-Scenario "S6" "Бездействие 20 мин и полноэкранн
   }
 
   Step "Итого учтено 25 мин (допуск 1 мин)" {
-    $total = ([int](Get-Status).usedS - $base) / 60.0
+    $total = ([int](Get-Status).usedS - $script:Base) / 60.0
     Assert-Between $total 24 26 "Всего учтено, мин"
     Save-Screen "s06-fullscreen"
   }

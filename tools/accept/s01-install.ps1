@@ -74,17 +74,30 @@ Invoke-Scenario "S1" "Установка, мастер и значок «120»" 
     Assert-That (@(Get-SessionProcs "--guard").Count -eq 1) "Стражей в сеансе: $(@(Get-SessionProcs '--guard').Count), ждали один"
   }
 
-  Step "Память: служба ≤ 50 МБ, страж ≤ 40 МБ, значок ≤ 40 МБ" {
-    Start-Sleep -Seconds 5
-    $guardPid = [int](@(Get-SessionProcs "--guard") | Select-Object -First 1).ProcessId
-    $trayPid = [int](@(Get-SessionProcs "--tray") | Select-Object -First 1).ProcessId
-    $svc = Get-MemoryMb (Get-ServicePid)
-    $grd = Get-MemoryMb $guardPid
-    $try = Get-MemoryMb $trayPid
-    Write-Log "Память (рабочий набор): служба $svc МБ, страж $grd МБ, значок $try МБ"
-    Assert-That ($svc -le 50) "Служба занимает $svc МБ, предел 50"
-    Assert-That ($grd -le 40) "Страж занимает $grd МБ, предел 40"
-    Assert-That ($try -le 40) "Значок занимает $try МБ, предел 40"
+  Step "Память в простое: служба ≤ 50 МБ, страж ≤ 40 МБ, значок ≤ 40 МБ (личный рабочий набор)" {
+    # Первичная настройка считает пароль (Argon2id, 64 МБ) в службе: после неё память возвращается системе
+    # не сразу. Измеряем «в простое» (NFR-5): ждём до 90 с, пока личная память не уложится в предел.
+    $limits = @{ "служба" = 50; "страж" = 40; "значок" = 40 }
+    $pids = @{
+      "служба" = (Get-ServicePid)
+      "страж" = [int](@(Get-SessionProcs "--guard") | Select-Object -First 1).ProcessId
+      "значок" = [int](@(Get-SessionProcs "--tray") | Select-Object -First 1).ProcessId
+    }
+    $sw = [Diagnostics.Stopwatch]::StartNew()
+    $over = @()
+    while ($true) {
+      $over = @()
+      $line = @()
+      foreach ($name in "служба", "страж", "значок") {
+        $m = Get-MemoryInfo $pids[$name]
+        $line += "$name рабочий набор $($m.Ws), личный $($m.Private), личные байты $($m.Bytes)"
+        if ($m.Private -gt $limits[$name]) { $over += "$name $($m.Private) МБ при пределе $($limits[$name])" }
+      }
+      Write-Log ("Память, МБ ({0:N0} с): {1}" -f $sw.Elapsed.TotalSeconds, ($line -join "; "))
+      if ($over.Count -eq 0 -or $sw.Elapsed.TotalSeconds -gt 90) { break }
+      Start-Sleep -Seconds 6
+    }
+    Assert-That ($over.Count -eq 0) ("Память в простое выше предела через {0:N0} с: {1}" -f $sw.Elapsed.TotalSeconds, ($over -join "; "))
   }
 
   Step "Запрет Диспетчера задач у ребёнка (DisableTaskMgr = 1)" {

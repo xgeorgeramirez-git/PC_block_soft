@@ -22,7 +22,7 @@ Invoke-Scenario "S4" "Пять неверных паролей: пауза 60 с
     [void](Wait-GuardState { param($s) (@(List $s.fields) | Where-Object { $_.id -eq "password" }).Count -ge 1 } 8 "панель пароля с полем")
   }
 
-  $blockedAt = $null
+  $script:BlockedAt = $null
   Step "Пять неверных паролей подряд" {
     foreach ($n in 1..5) {
       $wrong = "Неверный-$n"
@@ -31,7 +31,7 @@ Invoke-Scenario "S4" "Пять неверных паролей: пауза 60 с
       # Страж очищает поле, когда служба ответила на проверку: это и есть конец попытки.
       [void](Wait-GuardState { param($s) (@(List $s.fields) | Where-Object { $_.id -eq "password" -and $_.text -eq "" }).Count -ge 1 } 10 "ответ службы на неверный пароль $n (поле очищено)")
       Write-Log "Неверный пароль $n отправлен, ответ получен за $([math]::Round($script:WaitElapsed, 1)) с"
-      if ($n -eq 5) { $blockedAt = Get-Date; Save-Screen "s04-blocked-input" }
+      if ($n -eq 5) { $script:BlockedAt = Get-Date; Save-Screen "s04-blocked-input" }
     }
   }
 
@@ -51,7 +51,7 @@ Invoke-Scenario "S4" "Пять неверных паролей: пауза 60 с
   }
 
   Step "Пауза кончилась: верный пароль принят, в журнале ровно 5 записей «Неверный пароль»" {
-    $left = 62 - ((Get-Date) - $blockedAt).TotalSeconds
+    $left = 62 - ((Get-Date) - $script:BlockedAt).TotalSeconds
     if ($left -gt 0) { Write-Log ("Ждём конец паузы: {0:N0} с" -f $left); Start-Sleep -Seconds ([int][math]::Ceiling($left)) }
     Open-Parent
     $wrong = Find-Events 'неверный пароль'
