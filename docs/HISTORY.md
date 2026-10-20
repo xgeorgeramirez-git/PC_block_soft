@@ -2,6 +2,21 @@
 
 Новые записи — в начало. Запись делается в конце каждой рабочей сессии (чата вехи, фидбек-раунда).
 
+## 2026-10-21 — Claude Opus 4.8 (оркестратор M2) — ПРОМЕЖУТОЧНЫЙ рубеж: бэкенд M2 готов
+
+**Задача:** веха M2 «Расписание, доп. время и копилка» по dev-methodology (вход B). Фазы 1–2 закрыты (план `plans/2026-10-20-M2.md` прошёл ревью, Issues Found исправлены); Фаза 3 — бэкенд завершён.
+**Сделано (ветка `feature/m2-schedule`, зелёный CI R0–R2 на go1.27):**
+- **Ядро** (Task 1–4): запретные интервалы R7 (`schedule.go`: Interval, Rules.Schedule, NormalizeIntervals/InForbidden/NextForbiddenStart/IntervalsFor), блокировка по интервалу + предупреждения на ближайшее событие R9 с видом события WarnEvent (устранён I2 ревью), пауза R11 и трата из копилки R10/FR-11 (`Pause`, `SpendBonus`, `StatusPaused`, события), эталоны **G6/G7/G8/G11** golden зелёные (формат расширен schedule+actions). Статусы LockForbidden/StatusForbidden/StatusPaused.
+- **storage** (Task 5): `GetSchedule/SetSchedule`, `AppendBonus` (баланс в одной транзакции, граница 0–600), `GetBonusBalance/ListBonus`, `Load/SaveDayState` пишут `pause_until`. Миграции НЕ создавали — таблицы в `001_init.sql` (Ruling P1).
+- **ipc** (Task 6): 10 команд (`commands_m2.go` + contract.json), статусы forbidden/paused + lock forbidden (`status.go`), `TodayCard.BonusBalance`, `ChildStatus.PauseUntil`, `NewGuardWarningFor(порог, вид события)`; TS-зеркало (types.ts/api.ts/contract.test.ts).
+- **service** (Task 7): `handlers_m2.go` — 10 обработчиков; права в `commandRules` + check `childSelf` (ребёнок тратит только свою копилку, минор m3); `readRules` дочитывает расписание; `cardOf` +баланс; `afterDecision` шлёт предупреждение по виду события; матрица прав `wantAllowed` расширена; winhost storeAdapter +методы M2.
+- **Установщик** (Task 13, B-17): `pcb.freeExe` в `project.nsi` — ждёт освобождения exe при установке поверх, иначе переименовывает запущенный образ в .old. Accept-сценарий обновления — в Task 15.
+**Локальный контур прогонов (важно для след. сессии):** go.mod требует Go 1.27, а в песочнице его нет (raw.githubusercontent и DNS proxy.golang.org закрыты). `tools/localtest.sh ./internal/<пакет>/` гоняет пакеты на стдлиб+x/sys на go1.25 во временной копии репо с пониженной go-директивой; `tools/coretest-local.sh` — только ядро. storage (modernc sqlite), Wails и Windows-сборка — только CI. npm в песочнице нестабилен (ENOTFOUND registry) — фронт-тесты (vitest/tsc) гонит CI.
+**НЕ сделано (осталось в вехе):** экраны фронта — Task 8 (запретные часы FR-17 + CopyRules FR-33: вкладки в ChildLimits, ScheduleEditor+DayStrip), Task 9 (копилка Bonus.tsx, пауза PausePicker, AskMorePanel/SpendBonusDialog, «Пауза для всех» в Settings), Task 10 (полная мини-панель systray FR-8), Task 11 (экран блокировки guard: копилка/доп.время с учётом интервала); Task 12 (Помощник: записи H-M2-01..04, D-M2-01, T-M2-01, N-0.2.0 в оба зеркала + `validate.go` ActionOpenSchedule/ScreenBonus + `docs/HELPER_COVERAGE.md` + detectors.ts); Task 14 (миноры M1 из BACKLOG назначенные M2: B-3,4,5,6,7,8,10,12,13,14,15,16; B-9/B-11 — вопросы заказчику, НЕ трогать); Task 15 (приёмка S8–S11 + accept-скрипты + регресс S3/S7/S25/S26 + снимки + visual-reviewer + UX-аудит); Task 16 (версия 0.2.0 в version.go+wails.json, CHANGELOG, README, CLAUDE.md, LESSONS, CODEMAP, BACKLOG, HISTORY, R4, PR→main→merge, релиз).
+**Как продолжать:** читать `plans/2026-10-20-M2.md` (план) и `plans/M2-agents.md` (реестр); ветка `feature/m2-schedule` (10 коммитов, зелёный CI). Начать с Task 8 (экраны), образцы — `ChildLimits.tsx`/`Children.tsx`/`LimitsTable.tsx`/`lib/limits.ts`. Прогоны фронта — только CI (vitest/tsc), Go — `tools/localtest.sh`.
+**Изменения ТЗ:** нет (Q5 подтверждён заказчиком: доп. время/копилка расширяют все три лимита, R10 — уже так записано).
+**Ветка / коммиты:** документы — main; код — `feature/m2-schedule` (`7d76e92`…`89de1bd`). Версия пока 0.1.1 (0.2.0 — на закрытии).
+
 ## 2026-10-20 — Claude Opus 4.8 (фидбек-раунд после 0.1.0) — выходы с экрана блокировки
 
 **Задача:** правка заказчика (D-40) после выпуска 0.1.0: на экране блокировки добавить «Выключить компьютер» и «Смена пользователя» (переключение без завершения сеанса ребёнка); авто-смена пользователя через 15 мин бездействия. Обсуждено и согласовано с заказчиком до кода.
