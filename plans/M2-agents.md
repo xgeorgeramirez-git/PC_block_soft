@@ -5,4 +5,4 @@
 | Кому | agentId | роль | статус | вердикт (1 строка) | возвратов |
 |------|---------|------|--------|--------------------|-----------|
 | разведка зон M2 | af26c8753cf0c0872 | reader (Explore) | done | карта сигнатур storage/ipc/service/ui/systray/front/guidance/CI/golden | — |
-| ревью плана M2 | — | plan-reviewer | pending | — | — |
+| ревью плана M2 | a96a9181af96a5653 | plan-reviewer | done | Issues Found: I1 (validate.go в T12), I2 (вид события предупреждения), 3 минора | — |
