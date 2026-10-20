@@ -16,6 +16,7 @@ import Journal from "./screens/Journal";
 import LoginDialog from "./screens/LoginDialog";
 import MyStats from "./screens/MyStats";
 import ResetPassword from "./screens/ResetPassword";
+import Bonus from "./screens/Bonus";
 import Settings from "./screens/Settings";
 import Today from "./screens/Today";
 import UninstallGate from "./screens/UninstallGate";
@@ -178,11 +179,12 @@ function SimpleScreen({ mode }: { mode: "reset-password" | "uninstall-gate" | "m
   }
 }
 
-type Screen = "today" | "children" | "journal" | "settings" | "help";
+type Screen = "today" | "children" | "bonus" | "journal" | "settings" | "help";
 
-const MENU: { id: Screen; label: string; anchor?: "menu-today" | "menu-children" }[] = [
+const MENU: { id: Screen; label: string; anchor?: "menu-today" | "menu-children" | "menu-bonus" }[] = [
   { id: "today", label: "Сегодня", anchor: "menu-today" },
   { id: "children", label: "Дети", anchor: "menu-children" },
+  { id: "bonus", label: "Копилка", anchor: "menu-bonus" },
   { id: "journal", label: "Журнал" },
   { id: "settings", label: "Настройки" },
 ];
@@ -301,6 +303,7 @@ function ParentWindow({ screen, onScreen, bindGo, onLoggedOut }: ParentWindowPro
               {screen === "children" ? (
                 <Children initialChildId={childToOpen} onOpenSettings={() => go("settings")} />
               ) : null}
+              {screen === "bonus" ? <Bonus /> : null}
               {screen === "journal" ? <Journal key={String(violationsOnly)} violationsOnly={violationsOnly} /> : null}
               {screen === "settings" ? <Settings onOpenChildren={() => go("children")} /> : null}
               {screen === "help" ? <HelpCenter /> : null}

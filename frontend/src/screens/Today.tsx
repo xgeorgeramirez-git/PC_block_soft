@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { addExtra, clearBlock, getToday, listEvents, undoExtra } from "../api";
+import { addExtra, clearBlock, getToday, grantBonus, listEvents, pause, undoExtra } from "../api";
 import Notice from "../components/Notice";
+import PausePicker from "../components/PausePicker";
 import ServiceNotices from "../components/ServiceNotices";
 import HintSlot from "../guidance/HintSlot";
 import { errorText } from "../lib/errors";
 import { formatDateLong, formatUsed, localOffsetMin } from "../lib/format";
 import { isViolation, startOfDayMs } from "../lib/journal";
 import { canAddTime, hasTimeLimits, statusTone } from "../lib/status";
-import type { TodayCard } from "../types";
+import type { PausePreset, TodayCard } from "../types";
 
 interface Props {
   /** Ссылка «Нарушения сегодня: N». */
@@ -109,6 +110,20 @@ export default function Today({ onOpenJournal, onOpenSettings, onOpenChildren }:
       say(card.childId, reply.message);
     });
 
+  const pauseChild = (card: TodayCard, preset: PausePreset) =>
+    run(card.childId, async () => {
+      const reply = await pause(card.childId, preset);
+      replaceCard(reply.card);
+      say(card.childId, reply.message);
+    });
+
+  const grant = (card: TodayCard, minutes: number) =>
+    run(card.childId, async () => {
+      const reply = await grantBonus(card.childId, minutes, "за дела по дому");
+      say(card.childId, reply.message);
+      await load();
+    });
+
   // Подсказка про кнопки «+15» одна на экран: встаёт у первой карточки, где такие кнопки есть.
   const extraHintChild = cards?.find((c) => canAddTime(c.status.status))?.childId;
 
@@ -166,6 +181,8 @@ export default function Today({ onOpenJournal, onOpenSettings, onOpenChildren }:
                   onAdd={(m) => void add(card, m)}
                   onUndo={(id) => void undo(card, id)}
                   onUnblock={() => void unblock(card)}
+                  onPause={(p) => void pauseChild(card, p)}
+                  onGrant={(m) => void grant(card, m)}
                 />
               ))}
             </div>
@@ -185,9 +202,11 @@ interface CardProps {
   onAdd: (minutes: number) => void;
   onUndo: (extraId: string) => void;
   onUnblock: () => void;
+  onPause: (preset: PausePreset) => void;
+  onGrant: (minutes: number) => void;
 }
 
-function ChildCard({ card, extraHint, feedback, busy, onAdd, onUndo, onUnblock }: CardProps) {
+function ChildCard({ card, extraHint, feedback, busy, onAdd, onUndo, onUnblock, onPause, onGrant }: CardProps) {
   const s = card.status;
   const tone = statusTone(s.status);
   const limited = hasTimeLimits(s.status);
@@ -208,6 +227,8 @@ function ChildCard({ card, extraHint, feedback, busy, onAdd, onUndo, onUnblock }
 
       {limited ? <p className="child-used">{formatUsed(s.usedS, s.limitS, s.unlimited)}</p> : null}
       {card.extraMin > 0 ? <p className="child-meta">{`Добавлено сегодня: ${card.extraMin} мин`}</p> : null}
+      {card.bonusBalance > 0 ? <p className="child-meta">{`Копилка: ${card.bonusBalance} мин`}</p> : null}
+      {s.status === "paused" && s.pauseUntil ? <p className="child-meta">{`Пауза до ${s.pauseUntil}`}</p> : null}
       {s.lock === "bypass" && s.detail ? <p className="child-meta">{s.detail}</p> : null}
       {s.lock !== "none" && s.until ? <p className="child-meta">{s.until}</p> : null}
 
@@ -219,6 +240,10 @@ function ChildCard({ card, extraHint, feedback, busy, onAdd, onUndo, onUnblock }
               </button>
             ))
           : null}
+        <PausePicker disabled={busy} onPick={onPause} />
+        <button type="button" className="btn" disabled={busy} onClick={() => onGrant(30)} data-help-anchor="child-card-bonus">
+          В копилку +30
+        </button>
         {card.canClearBlock ? (
           <button type="button" className="btn btn-primary" disabled={busy} onClick={onUnblock}>
             Снять блокировку
