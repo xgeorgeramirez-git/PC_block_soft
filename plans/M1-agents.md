@@ -33,4 +33,6 @@
 | Кому | Имя агента | Роль | Статус | Вердикт (1 строка) | Возвратов |
 |---|---|---|---|---|---|
 | lock-exits код | lockexits-writer (sonnet) | писатель кнопок выключения/смены пользователя и авто-смены (ветка fix/lock-exits) | done | cd7e4b1, 96eaaa8, 5f2377e; guard/ipc/service; ci 39436272347 и windows 39436934629 зелёные; 40 мутаций. Rulings: logoff в тест-режиме НЕ подавлен (не трогал, приёмка его не жмёт), shutdown/switchUser подавлены (пишутся в GuardState.Exits); автосмена повторяется каждые 15 мин; верный пароль переносит срок; панели/пароль очищаются при автосмене. Lesson PL-4 (пакет неверно утверждал про подавление logoff) | 0 |
-| lock-exits приёмка | lockexits-accept (sonnet) | приёмка 4 кнопок и авто-смены на Windows | в работе | — | — |
+| lock-exits приёмка | lockexits-accept (sonnet) | приёмка 4 кнопок и авто-смены на Windows | done | 2ed3822; s-lockexits.ps1 (LE1) + s-lockexits-auto.ps1 (LE2); windows.yml 39441323391 LE1,LE2 PASS; снимки s-lockexits*. Наблюдение: флейк TestRunStartsOneGuardAndStopsOnClose → B-16 | 0 |
+| lock-exits визуал | lockexits-visual (sonnet) | визуал 3 снимков новых кнопок | done | 1/3 PASS, 0 Critical/High; MEDIUM → B-14 (главная кнопка), B-15 (дефолт-фокус подтверждения) | — |
+| lock-exits выпуск | оркестратор (opus 4.8) | версия 0.1.1, R4, PR #4, выпуск | done | 7284e50; R4 39442911893 зелёная (534 с); PR #4 слит (2183ed9); выпуск v0.1.1 в Releases | — |
