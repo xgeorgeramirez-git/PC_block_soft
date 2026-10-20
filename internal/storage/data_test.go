@@ -335,7 +335,7 @@ func TestLoadDayStateMissingIsEmptyState(t *testing.T) {
 }
 
 // Ловит: поля состояния перепутаны местами (игры/видео/учёба), второй Save дублирует строку
-// или стирает другие дни и другого ребёнка, затирает pause_until (поле M2).
+// или стирает другие дни и другого ребёнка; nil-пауза сохраняется как NULL (R11).
 func TestSaveLoadDayStateRoundTrip(t *testing.T) {
 	s := openTemp(t)
 	a := mustChild(t, s, "S-1-5-21-1", "Миша")
@@ -351,10 +351,6 @@ func TestSaveLoadDayStateRoundTrip(t *testing.T) {
 	if err := s.SaveDayState(b, core.DayState{Day: day1, TotalS: 7}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.db.Exec(`UPDATE day_state SET pause_until = 12345 WHERE child_id = ? AND day = ?`, a, day1); err != nil {
-		t.Fatal(err)
-	}
-
 	st2 := core.DayState{Day: day1, TotalS: 5401, GamesS: 1801, VideoS: 901, StudyS: 601, ExtraMin: 16}
 	if err := s.SaveDayState(a, st2); err != nil {
 		t.Fatal(err)
@@ -371,8 +367,10 @@ func TestSaveLoadDayStateRoundTrip(t *testing.T) {
 	if n := rawNull(t, s, `SELECT count(*) FROM day_state WHERE child_id = ? AND day = ?`, a, day1); n.Int64 != 1 {
 		t.Errorf("строк за день = %d, want 1", n.Int64)
 	}
-	if p := rawNull(t, s, `SELECT pause_until FROM day_state WHERE child_id = ? AND day = ?`, a, day1); p.Int64 != 12345 {
-		t.Errorf("pause_until = %+v, want 12345 (поле M2 не трогаем)", p)
+	// SaveDayState c PauseUntilMs=nil записывает pause_until как NULL (M2: пауза в R11
+	// управляется этим полем; round-trip установленной паузы — в TestSaveLoadDayStatePauseUntil).
+	if p := rawNull(t, s, `SELECT pause_until FROM day_state WHERE child_id = ? AND day = ?`, a, day1); p.Valid {
+		t.Errorf("pause_until = %+v, want NULL (nil-пауза сохраняется как NULL)", p)
 	}
 }
 

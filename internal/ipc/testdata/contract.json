@@ -27,6 +27,7 @@
             "reason": "",
             "detail": "",
             "until": "",
+            "pauseUntil": "",
             "used": "Сегодня: 35 мин из 2 ч"
           },
           "extraMin": 30,
@@ -47,6 +48,61 @@
       "ok": false,
       "error": "Можно добавить от 1 до 240 минут",
       "field": "minutes"
+    }
+  },
+  "AskMore": {
+    "request": {
+      "childId": 1,
+      "minutes": 30,
+      "password": "секрет-123"
+    },
+    "reply": {
+      "ok": true,
+      "payload": {
+        "card": {
+          "childId": 1,
+          "sid": "S-1-5-21-111-222-333-1001",
+          "name": "Миша",
+          "status": {
+            "name": "Миша",
+            "status": "ok",
+            "statusText": "Можно",
+            "label": "85",
+            "tooltip": "Осталось 1 ч 25 мин",
+            "summary": "Сегодня осталось 1 ч 25 мин из 2 ч",
+            "day": "2026-10-19",
+            "remainingS": 5100,
+            "limitS": 7200,
+            "usedS": 2100,
+            "unlimited": false,
+            "lock": "none",
+            "reason": "",
+            "detail": "",
+            "until": "",
+            "pauseUntil": "",
+            "used": "Сегодня: 35 мин из 2 ч"
+          },
+          "extraMin": 30,
+          "canClearBlock": false
+        },
+        "message": "Добавлено 30 минут"
+      }
+    }
+  },
+  "AskMore#denied": {
+    "request": {
+      "childId": 1,
+      "minutes": 30,
+      "password": "не тот"
+    },
+    "reply": {
+      "ok": false,
+      "error": "Неверный пароль. Осталось попыток: 4",
+      "field": "password",
+      "payload": {
+        "attemptsLeft": 4,
+        "pauseS": 0
+      }
     }
   },
   "ChangePassword": {
@@ -86,12 +142,69 @@
             "reason": "",
             "detail": "",
             "until": "",
+            "pauseUntil": "",
             "used": "Сегодня: 35 мин из 2 ч"
           },
           "extraMin": 0,
           "canClearBlock": false
         },
         "message": "Блокировка снята"
+      }
+    }
+  },
+  "CopyRules": {
+    "request": {
+      "fromChildId": 2,
+      "toChildId": 1
+    },
+    "reply": {
+      "ok": true,
+      "payload": {
+        "limits": [
+          {
+            "weekday": 1,
+            "totalMin": 120,
+            "unlimited": false
+          },
+          {
+            "weekday": 2,
+            "totalMin": 120,
+            "unlimited": false
+          },
+          {
+            "weekday": 3,
+            "totalMin": 90,
+            "unlimited": false
+          },
+          {
+            "weekday": 4,
+            "totalMin": 120,
+            "unlimited": false
+          },
+          {
+            "weekday": 5,
+            "totalMin": 120,
+            "unlimited": false
+          },
+          {
+            "weekday": 6,
+            "totalMin": 240,
+            "unlimited": false
+          },
+          {
+            "weekday": 7,
+            "totalMin": 0,
+            "unlimited": true
+          }
+        ],
+        "intervals": [
+          {
+            "weekday": 1,
+            "startMin": 1260,
+            "endMin": 420
+          }
+        ],
+        "message": "Правила скопированы. Проверьте и сохраните"
       }
     }
   },
@@ -109,6 +222,47 @@
     "reply": {
       "ok": true,
       "payload": {}
+    }
+  },
+  "GetBonus": {
+    "request": {
+      "childId": 1
+    },
+    "reply": {
+      "ok": true,
+      "payload": {
+        "childId": 1,
+        "balance": 45,
+        "entries": [
+          {
+            "atMs": 1760000000000,
+            "tzOffsetMin": 180,
+            "deltaMin": 30,
+            "reason": "за уборку",
+            "balanceAfter": 45
+          },
+          {
+            "atMs": 1759996400000,
+            "tzOffsetMin": 180,
+            "deltaMin": -15,
+            "reason": "взято из копилки",
+            "balanceAfter": 15
+          }
+        ]
+      }
+    }
+  },
+  "GetBonus#empty": {
+    "request": {
+      "childId": 1
+    },
+    "reply": {
+      "ok": true,
+      "payload": {
+        "childId": 1,
+        "balance": 0,
+        "entries": []
+      }
     }
   },
   "GetChildRules": {
@@ -179,6 +333,7 @@
         "reason": "",
         "detail": "",
         "until": "",
+        "pauseUntil": "",
         "used": "Сегодня: 35 мин из 2 ч"
       }
     }
@@ -202,6 +357,7 @@
         "reason": "",
         "detail": "",
         "until": "",
+        "pauseUntil": "",
         "used": ""
       }
     }
@@ -225,6 +381,36 @@
       "ok": true,
       "payload": {
         "state": {}
+      }
+    }
+  },
+  "GetSchedule": {
+    "request": {
+      "childId": 1
+    },
+    "reply": {
+      "ok": true,
+      "payload": {
+        "childId": 1,
+        "intervals": [
+          {
+            "weekday": 1,
+            "startMin": 1260,
+            "endMin": 420
+          }
+        ]
+      }
+    }
+  },
+  "GetSchedule#empty": {
+    "request": {
+      "childId": 1
+    },
+    "reply": {
+      "ok": true,
+      "payload": {
+        "childId": 1,
+        "intervals": []
       }
     }
   },
@@ -253,6 +439,7 @@
               "reason": "",
               "detail": "",
               "until": "",
+              "pauseUntil": "",
               "used": "Сегодня: 35 мин из 2 ч"
             },
             "extraMin": 0,
@@ -278,6 +465,7 @@
               "reason": "Попытка обойти защиту",
               "detail": "Изменено системное время",
               "until": "Можно снова: когда родитель снимет блокировку",
+              "pauseUntil": "",
               "used": "Сегодня: 35 мин из 2 ч"
             },
             "extraMin": 30,
@@ -322,6 +510,7 @@
               "reason": "Время на сегодня закончилось",
               "detail": "",
               "until": "Можно снова: завтра",
+              "pauseUntil": "",
               "used": "Сегодня: 2 ч 00 мин из 2 ч"
             },
             "extraMin": 0,
@@ -332,6 +521,34 @@
           "Не удалось прочитать правила, поэтому сейчас ограничения не действуют. Прежние данные сохранены. Задайте правила заново в разделе «Дети»"
         ]
       }
+    }
+  },
+  "GrantBonus": {
+    "request": {
+      "childId": 1,
+      "minutes": 30,
+      "reason": "за уборку"
+    },
+    "reply": {
+      "ok": true,
+      "payload": {
+        "balanceAfter": 75,
+        "message": "Начислено 30 минут. Баланс 75 мин",
+        "bonusId": "b-21",
+        "undoUntilMs": 1760000010000
+      }
+    }
+  },
+  "GrantBonus#invalid": {
+    "request": {
+      "childId": 1,
+      "minutes": 600,
+      "reason": "много"
+    },
+    "reply": {
+      "ok": false,
+      "error": "Можно начислить не больше 540 мин",
+      "field": "minutes"
     }
   },
   "GuardLogoff": {
@@ -393,6 +610,7 @@
           "reason": "Время на сегодня закончилось",
           "detail": "",
           "until": "Можно снова: завтра",
+          "pauseUntil": "",
           "used": "Сегодня: 2 ч 00 мин из 2 ч"
         },
         "warnings": [
@@ -453,6 +671,7 @@
           "reason": "",
           "detail": "",
           "until": "",
+          "pauseUntil": "",
           "used": "Сегодня: 35 мин из 2 ч"
         },
         "warnings": [],
@@ -680,6 +899,7 @@
           "reason": "",
           "detail": "",
           "until": "",
+          "pauseUntil": "",
           "used": "Сегодня: 35 мин из 2 ч"
         },
         "today": [
@@ -746,6 +966,7 @@
           "reason": "",
           "detail": "",
           "until": "",
+          "pauseUntil": "",
           "used": ""
         },
         "today": [],
@@ -761,6 +982,95 @@
       "ok": true,
       "payload": {
         "opened": true
+      }
+    }
+  },
+  "Pause": {
+    "request": {
+      "childId": 1,
+      "preset": "hour1"
+    },
+    "reply": {
+      "ok": true,
+      "payload": {
+        "card": {
+          "childId": 1,
+          "sid": "S-1-5-21-111-222-333-1001",
+          "name": "Миша",
+          "status": {
+            "name": "Миша",
+            "status": "ok",
+            "statusText": "Можно",
+            "label": "85",
+            "tooltip": "Осталось 1 ч 25 мин",
+            "summary": "Сегодня осталось 1 ч 25 мин из 2 ч",
+            "day": "2026-10-19",
+            "remainingS": 5100,
+            "limitS": 7200,
+            "usedS": 2100,
+            "unlimited": false,
+            "lock": "none",
+            "reason": "",
+            "detail": "",
+            "until": "",
+            "pauseUntil": "",
+            "used": "Сегодня: 35 мин из 2 ч"
+          },
+          "extraMin": 0,
+          "canClearBlock": false
+        },
+        "message": "Пауза до 18:30"
+      }
+    }
+  },
+  "PauseAll": {
+    "request": {
+      "preset": "hour1"
+    },
+    "reply": {
+      "ok": true,
+      "payload": {
+        "children": [
+          {
+            "childId": 1,
+            "sid": "S-1-5-21-111-222-333-1001",
+            "name": "Миша",
+            "status": {
+              "name": "Миша",
+              "status": "ok",
+              "statusText": "Можно",
+              "label": "85",
+              "tooltip": "Осталось 1 ч 25 мин",
+              "summary": "Сегодня осталось 1 ч 25 мин из 2 ч",
+              "day": "2026-10-19",
+              "remainingS": 5100,
+              "limitS": 7200,
+              "usedS": 2100,
+              "unlimited": false,
+              "lock": "none",
+              "reason": "",
+              "detail": "",
+              "until": "",
+              "pauseUntil": "",
+              "used": "Сегодня: 35 мин из 2 ч"
+            },
+            "extraMin": 0,
+            "canClearBlock": false
+          }
+        ],
+        "message": "Пауза для всех детей на 1 ч"
+      }
+    }
+  },
+  "PauseAll#empty": {
+    "request": {
+      "preset": "hour2"
+    },
+    "reply": {
+      "ok": true,
+      "payload": {
+        "children": [],
+        "message": ""
       }
     }
   },
@@ -894,6 +1204,7 @@
             "reason": "",
             "detail": "",
             "until": "",
+            "pauseUntil": "",
             "used": "Сегодня: 35 мин из 2 ч"
           },
           "extraMin": 0,
@@ -918,6 +1229,74 @@
       "ok": false,
       "error": "Не больше 24 ч",
       "field": "limits.3"
+    }
+  },
+  "SaveSchedule": {
+    "request": {
+      "childId": 1,
+      "intervals": [
+        {
+          "weekday": 1,
+          "startMin": 1260,
+          "endMin": 420
+        }
+      ]
+    },
+    "reply": {
+      "ok": true,
+      "payload": {
+        "intervals": [
+          {
+            "weekday": 1,
+            "startMin": 1260,
+            "endMin": 420
+          }
+        ],
+        "card": {
+          "childId": 1,
+          "sid": "S-1-5-21-111-222-333-1001",
+          "name": "Миша",
+          "status": {
+            "name": "Миша",
+            "status": "ok",
+            "statusText": "Можно",
+            "label": "85",
+            "tooltip": "Осталось 1 ч 25 мин",
+            "summary": "Сегодня осталось 1 ч 25 мин из 2 ч",
+            "day": "2026-10-19",
+            "remainingS": 5100,
+            "limitS": 7200,
+            "usedS": 2100,
+            "unlimited": false,
+            "lock": "none",
+            "reason": "",
+            "detail": "",
+            "until": "",
+            "pauseUntil": "",
+            "used": "Сегодня: 35 мин из 2 ч"
+          },
+          "extraMin": 0,
+          "canClearBlock": false
+        },
+        "message": "Сохранено. Новые правила уже действуют"
+      }
+    }
+  },
+  "SaveSchedule#invalid": {
+    "request": {
+      "childId": 1,
+      "intervals": [
+        {
+          "weekday": 1,
+          "startMin": 600,
+          "endMin": 600
+        }
+      ]
+    },
+    "reply": {
+      "ok": false,
+      "error": "Начало и конец совпадают",
+      "field": "end"
     }
   },
   "SessionState": {
@@ -1042,6 +1421,56 @@
       "field": "password"
     }
   },
+  "SpendBonus": {
+    "request": {
+      "childId": 1,
+      "minutes": 30
+    },
+    "reply": {
+      "ok": true,
+      "payload": {
+        "card": {
+          "childId": 1,
+          "sid": "S-1-5-21-111-222-333-1001",
+          "name": "Миша",
+          "status": {
+            "name": "Миша",
+            "status": "ok",
+            "statusText": "Можно",
+            "label": "85",
+            "tooltip": "Осталось 1 ч 25 мин",
+            "summary": "Сегодня осталось 1 ч 25 мин из 2 ч",
+            "day": "2026-10-19",
+            "remainingS": 5100,
+            "limitS": 7200,
+            "usedS": 2100,
+            "unlimited": false,
+            "lock": "none",
+            "reason": "",
+            "detail": "",
+            "until": "",
+            "pauseUntil": "",
+            "used": "Сегодня: 35 мин из 2 ч"
+          },
+          "extraMin": 30,
+          "canClearBlock": false
+        },
+        "message": "Взято из копилки 30 мин",
+        "balanceAfter": 15
+      }
+    }
+  },
+  "SpendBonus#forbidden": {
+    "request": {
+      "childId": 1,
+      "minutes": 30
+    },
+    "reply": {
+      "ok": false,
+      "error": "Из копилки можно взять с 07:00",
+      "field": "minutes"
+    }
+  },
   "TestClock": {
     "request": {
       "paused": true
@@ -1074,6 +1503,19 @@
       "payload": {}
     }
   },
+  "UndoBonus": {
+    "request": {
+      "childId": 1,
+      "bonusId": "b-21"
+    },
+    "reply": {
+      "ok": true,
+      "payload": {
+        "balanceAfter": 45,
+        "message": "Начисление отменено"
+      }
+    }
+  },
   "UndoExtra": {
     "request": {
       "childId": 1,
@@ -1102,6 +1544,7 @@
             "reason": "",
             "detail": "",
             "until": "",
+            "pauseUntil": "",
             "used": "Сегодня: 35 мин из 2 ч"
           },
           "extraMin": 0,
