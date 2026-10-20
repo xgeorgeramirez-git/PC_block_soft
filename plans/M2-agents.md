@@ -6,3 +6,6 @@
 |------|---------|------|--------|--------------------|-----------|
 | разведка зон M2 | af26c8753cf0c0872 | reader (Explore) | done | карта сигнатур storage/ipc/service/ui/systray/front/guidance/CI/golden | — |
 | ревью плана M2 | a96a9181af96a5653 | plan-reviewer | done | Issues Found: I1 (validate.go в T12), I2 (вид события предупреждения), 3 минора | — |
+| Task 1-4 ядро | оркестратор | writer | done | интервалы R7, блокировка+предупреждения R9, пауза+копилка R10/R11, эталоны G6-G8/G11 зелёные (CI) | 0 |
+| Task 5 storage | оркестратор | writer | done | GetSchedule/SetSchedule, AppendBonus, pause_until; прогон в CI | 0 |
+| Task 6 ipc+фронт | оркестратор(+субагент прерван) | writer | done | 10 команд, DTO, статусы forbidden/paused, вид события предупреждения, TS-зеркало | 0 |
