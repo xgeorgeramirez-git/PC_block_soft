@@ -81,6 +81,24 @@ Invoke-Scenario "S1" "Установка, мастер и значок «120»" 
     Assert-That (@(Get-SessionProcs "--guard").Count -eq 1) "Стражей в сеансе: $(@(Get-SessionProcs '--guard').Count), ждали один"
   }
 
+  Step "Запрет Диспетчера задач у ребёнка (DisableTaskMgr = 1)" {
+    $key = "Registry::HKEY_USERS\$($script:MySid)\Software\Microsoft\Windows\CurrentVersion\Policies\System"
+    Wait-Until {
+      $v = Get-ItemProperty -Path $key -Name DisableTaskMgr -ErrorAction SilentlyContinue
+      $v -and $v.DisableTaskMgr -eq 1
+    } 20 "DisableTaskMgr=1 в ветке ребёнка"
+  }
+
+  Step "Снимки значка у часов и мини-панели" {
+    [void](Show-TrayIconOnTaskbar)
+    Start-Sleep -Seconds 3
+    Save-TrayCorner "s01-tray"
+    if (-not (Show-TrayPanel "s01-minipanel")) {
+      Write-Log "Мини-панель по значку не открылась; для разбора сохраняю весь экран (s01-minipanel-fallback)"
+      Save-Screen "s01-minipanel-fallback"
+    }
+  }
+
   Step "Память в простое: служба ≤ 50 МБ, страж ≤ 40 МБ, значок ≤ 40 МБ (личный рабочий набор)" {
     # Первичная настройка считает пароль (Argon2id, 64 МБ) в службе: после неё память возвращается системе
     # не сразу. Измеряем «в простое» (NFR-5): ждём до 90 с, пока личная память не уложится в предел.
@@ -109,24 +127,6 @@ Invoke-Scenario "S1" "Установка, мастер и значок «120»" 
     if ($over.Count -gt 0) {
       foreach ($l in $samples) { Write-Fail "замер памяти, МБ: $l" }
       throw ("Память в простое выше предела через {0:N0} с: {1}" -f $sw.Elapsed.TotalSeconds, ($over -join "; "))
-    }
-  }
-
-  Step "Запрет Диспетчера задач у ребёнка (DisableTaskMgr = 1)" {
-    $key = "Registry::HKEY_USERS\$($script:MySid)\Software\Microsoft\Windows\CurrentVersion\Policies\System"
-    Wait-Until {
-      $v = Get-ItemProperty -Path $key -Name DisableTaskMgr -ErrorAction SilentlyContinue
-      $v -and $v.DisableTaskMgr -eq 1
-    } 20 "DisableTaskMgr=1 в ветке ребёнка"
-  }
-
-  Step "Снимки значка у часов и мини-панели" {
-    [void](Show-TrayIconOnTaskbar)
-    Start-Sleep -Seconds 3
-    Save-TrayCorner "s01-tray"
-    if (-not (Show-TrayPanel "s01-minipanel")) {
-      Write-Log "Мини-панель по значку не открылась; для разбора сохраняю весь экран (s01-minipanel-fallback)"
-      Save-Screen "s01-minipanel-fallback"
     }
   }
 
