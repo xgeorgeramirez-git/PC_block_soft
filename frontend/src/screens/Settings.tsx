@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
-import { changePassword, getHelperState, getToday, listAccounts, saveHelperState, setChildren, version } from "../api";
+import { changePassword, getToday, listAccounts, setChildren, version } from "../api";
+import { useHelperSwitch } from "../guidance/useHelperSwitch";
 import Dialog from "../components/Dialog";
 import Notice from "../components/Notice";
 import ServiceNotices from "../components/ServiceNotices";
@@ -361,41 +362,13 @@ function ChildrenSection({ list, accounts, loadError, onReload, onChanged }: Chi
 // --- Помощник --------------------------------------------------------------------
 
 function HelperSection() {
-  const [state, setState] = useState<Record<string, unknown> | null>(null);
-  const [error, setError] = useState("");
-  const alive = useRef(true);
+  const helper = useHelperSwitch();
+  const [done, setDone] = useState("");
 
-  useEffect(() => {
-    alive.current = true;
-    getHelperState().then(
-      (s) => alive.current && setState(s),
-      (e) => {
-        if (alive.current) {
-          setState({});
-          setError(errorText(e));
-        }
-      },
-    );
-    return () => {
-      alive.current = false;
-    };
-  }, []);
-
-  const enabled = state === null ? true : state.enabled !== false;
-
-  const toggle = async (on: boolean) => {
-    const before = state ?? {};
-    const next = { ...before, enabled: on };
-    setState(next);
-    setError("");
-    try {
-      await saveHelperState(next);
-    } catch (e) {
-      if (alive.current) {
-        setState(before);
-        setError(errorText(e));
-      }
-    }
+  const reset = async () => {
+    setDone("");
+    await helper.resetHidden();
+    setDone("Скрытые подсказки снова будут появляться.");
   };
 
   return (
@@ -404,13 +377,36 @@ function HelperSection() {
         Помощник
       </h3>
       <label className="switch">
-        <input type="checkbox" checked={enabled} disabled={state === null} onChange={(e) => void toggle(e.target.checked)} />
+        <input
+          type="checkbox"
+          checked={helper.enabled}
+          disabled={!helper.loaded}
+          onChange={(e) => void helper.toggle(e.target.checked)}
+        />
         <span>Показывать подсказки</span>
       </label>
       <p className="field-hint">
         Подсказки при первом открытии экранов и напоминания о важном, например когда у ребёнка не задано ни одного лимита.
       </p>
-      {error ? <p className="field-error">{error}</p> : null}
+      {helper.error ? <p className="field-error">{helper.error}</p> : null}
+      {helper.hasProvider ? (
+        <>
+          <p className="field-hint">Обучение в разделе «Помощь» доступно всегда, даже когда подсказки выключены.</p>
+          <div className="form-actions">
+            <button type="button" className="btn btn-small" onClick={() => void reset()}>
+              Вернуть скрытые подсказки
+            </button>
+            <button type="button" className="btn btn-small" onClick={() => helper.restartTour()}>
+              Пройти обучение заново
+            </button>
+          </div>
+          {done ? (
+            <p className="field-hint" role="status">
+              {done}
+            </p>
+          ) : null}
+        </>
+      ) : null}
     </section>
   );
 }

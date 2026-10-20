@@ -8,12 +8,14 @@ import ChildLimits from "./ChildLimits";
 
 interface Props {
   onOpenSettings: () => void;
+  /** Какого ребёнка открыть сразу (переход из подсказки «Задать лимиты»). */
+  initialChildId?: number;
 }
 
 /** Раздел «Дети» (сценарий 8.3.3): выбор ребёнка и его лимиты. Другой ребёнок с правками - вопрос. */
-export default function Children({ onOpenSettings }: Props) {
+export default function Children({ onOpenSettings, initialChildId }: Props) {
   const [children, setChildren] = useState<TodayCard[] | null>(null);
-  const [selected, setSelected] = useState<number | null>(null);
+  const [selected, setSelected] = useState<number | null>(initialChildId ?? null);
   const [error, setError] = useState("");
   const attempt = useAttemptNavigation();
   const alive = useRef(true);

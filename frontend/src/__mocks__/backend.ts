@@ -1,4 +1,4 @@
-// Подменная программа для тестов и снимков экранов: ставит window.go.ui.App.{Call, Mode, Version}
+// Подменная программа для тестов и снимков экранов: ставит window.go.ui.App.{Call, Mode, Version, Finish}
 // и отвечает на команды так же, как служба (форматы - internal/ipc/commands.go, примеры -
 // internal/ipc/testdata/contract.json). Состояние настраивается: настроена ли программа, дети,
 // лимиты, журнал, попытки пароля, родительская сессия.
@@ -6,13 +6,15 @@
 // Файл собирается и в браузерный сценарий Playwright (e2e/helpers.ts): экспорты доступны
 // там как PCBlockMock.installBackend(...).
 import contract from "../../../internal/ipc/testdata/contract.json";
-import { formatDuration, formatLimit, localOffsetMin, weekdayOfMs } from "../lib/format";
+import { formatDuration, formatLimit, localOffsetMin, weekdayOfMs, weekdayShort } from "../lib/format";
 import { normalizeLimits } from "../lib/limits";
 import type {
   Account,
   ChildInfo,
   ChildStatus,
   JournalEntry,
+  MyRule,
+  MyTodayReply,
   Reply,
   TodayCard,
   WeekdayLimit,
@@ -38,6 +40,8 @@ export interface MockChild {
   blocked: boolean;
   /** Подробность для экрана блокировки при обходе. */
   blockDetail: string;
+  /** Учётка стала администратором (R1): ограничения не действуют. */
+  admin?: boolean;
 }
 
 export interface MockOptions {
@@ -61,6 +65,11 @@ export interface MockOptions {
   notices?: string[];
   /** Содержимое состояния Помощника. */
   helper?: Record<string, unknown>;
+  /**
+   * Чей сеанс у окна ребёнка (MyToday): childId; null - сеанс не ребёнка (родитель в своей учётке).
+   * По умолчанию - первый ребёнок.
+   */
+  myChildId?: number | null;
   /** Связи с программой нет: любой вызов Call отклоняется как сбой моста. */
   linkDown?: boolean;
 }
@@ -83,6 +92,11 @@ export interface MockState {
   events: JournalEntry[];
   notices: string[];
   helper: Record<string, unknown>;
+  myChildId: number | null;
+  /** Ребёнок нажал «Понятно» в окне первого входа (FirstRunSeen). */
+  firstRunSeen: boolean;
+  /** Код, с которым окно закрыли через Finish; null - не закрывали. */
+  finishCode: number | null;
   linkDown: boolean;
   nextChildId: number;
   nextExtraId: number;
@@ -167,6 +181,22 @@ export function statusOf(child: MockChild, nowMs: number): ChildStatus {
     until: "",
     reason: "",
   };
+  if (child.admin) {
+    const text = "Администратор: ограничения не действуют";
+    return {
+      ...base,
+      status: "admin",
+      statusText: text,
+      label: "?",
+      tooltip: text,
+      summary: text,
+      remainingS: 0,
+      limitS: 0,
+      unlimited: true,
+      lock: "none",
+      used: "",
+    };
+  }
   const limit = todayLimit(child, nowMs);
   const limitMin = limit.totalMin + child.extraMin;
   const limitS = limit.unlimited ? 0 : limitMin * 60;
@@ -246,6 +276,28 @@ function cardOf(child: MockChild, nowMs: number): TodayCard {
   };
 }
 
+/** «Мои правила» текстом, как их собирает служба: «2 ч», «Без лимита», «Нельзя». */
+function myRules(child: MockChild): MyRule[] {
+  return normalizeLimits(child.limits).map((l) => ({
+    weekday: l.weekday,
+    day: weekdayShort(l.weekday),
+    text: l.unlimited ? "Без лимита" : l.totalMin === 0 ? "Нельзя" : formatLimit(l.totalMin),
+  }));
+}
+
+/** Ответ MyToday ребёнка: строки «Сегодня» и правила. Не ребёнок - пустые списки (не null). */
+function myToday(child: MockChild | undefined, nowMs: number): MyTodayReply {
+  if (!child) {
+    return examples["MyToday#empty"].reply.payload as MyTodayReply;
+  }
+  const status = statusOf(child, nowMs);
+  const today = [status.summary, `Использовано ${formatDuration(status.usedS)}`];
+  if (status.lock === "timeUp" && status.until) {
+    today.push(status.until);
+  }
+  return { status, today, rules: myRules(child) };
+}
+
 const PARENT_COMMANDS = new Set([
   "GetToday",
   "GetChildRules",
@@ -284,6 +336,9 @@ function makeState(opts: MockOptions): MockState {
     events: opts.events ?? [],
     notices: opts.notices ?? [],
     helper: opts.helper ?? {},
+    myChildId: opts.myChildId === undefined ? (children[0]?.childId ?? null) : opts.myChildId,
+    firstRunSeen: false,
+    finishCode: null,
     linkDown: opts.linkDown ?? false,
     nextChildId: Math.max(0, ...children.map((c) => c.childId)) + 1,
     nextExtraId: 17,
@@ -526,6 +581,13 @@ export function createBackend(opts: MockOptions = {}): MockBackend {
       return okReply({ children });
     },
 
+    MyToday: (_req, now) => okReply(myToday(childById(state.myChildId ?? -1), now)),
+
+    FirstRunSeen: () => {
+      state.firstRunSeen = true;
+      return okReply();
+    },
+
     GetHelperState: () => okReply({ state: state.helper }),
 
     SaveHelperState: (req) => {
@@ -592,6 +654,10 @@ export function installBackend(opts: MockOptions = {}, target: Window = window):
         Call: (command, payload) => backend.call(command, payload),
         Mode: () => Promise.resolve(backend.state.mode),
         Version: () => Promise.resolve(backend.state.version),
+        Finish: (code) => {
+          backend.state.finishCode = code;
+          return Promise.resolve();
+        },
       },
     },
   };

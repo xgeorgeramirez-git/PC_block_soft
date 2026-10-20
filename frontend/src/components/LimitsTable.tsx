@@ -17,7 +17,7 @@ const ZERO_HINT = "0 мин: в этот день компьютером пол�
 /** Таблица 7 дней × «Время в день»: часы, минуты и переключатель «Без лимита» (FR-16). */
 export default function LimitsTable({ childName, limits, onChange, errors = {} }: Props) {
   return (
-    <table className="limits-table">
+    <table className="limits-table" data-help-anchor="limits-table">
       <caption className="visually-hidden">Лимиты на каждый день недели, {childName}</caption>
       <thead>
         <tr>

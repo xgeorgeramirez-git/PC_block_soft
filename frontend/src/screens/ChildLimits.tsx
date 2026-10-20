@@ -4,6 +4,7 @@ import LimitsTable from "../components/LimitsTable";
 import Notice from "../components/Notice";
 import SaveBar from "../components/SaveBar";
 import { useRegisterGuard } from "../guard";
+import HintSlot from "../guidance/HintSlot";
 import { CallError, errorText } from "../lib/errors";
 import { copyDay, limitsEqual, normalizeLimits, validateLimits, wireLimits, WORKDAYS } from "../lib/limits";
 import type { WeekdayLimit } from "../types";
@@ -138,6 +139,7 @@ export default function ChildLimits({ childId, onSaved }: Props) {
           Как в субботу: на воскресенье
         </button>
       </div>
+      <HintSlot anchor="limits-table" />
       <LimitsTable childName={name} limits={draft} onChange={change} errors={errors} />
       <SaveBar
         dirty={dirty}

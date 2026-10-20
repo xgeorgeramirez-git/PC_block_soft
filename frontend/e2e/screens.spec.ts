@@ -8,7 +8,10 @@ import type { MockChild, MockOptions } from "../src/__mocks__/backend";
 const SCREENS = "screens";
 
 async function mockProgram(page: Page, options: MockOptions = {}) {
-  await page.addInitScript({ content: await mockScript(options) });
+  // Помощник по умолчанию выключен: его карточки появляются с задержкой и сдвигают страницу, а снимки и
+  // проверки остальных экранов должны быть одинаковыми при каждом прогоне. Свои снимки Помощника
+  // (s07, s08) включают его явно.
+  await page.addInitScript({ content: await mockScript({ helper: { enabled: false }, ...options }) });
 }
 
 /** Ни окно, ни прокручиваемая область страницы не уходят вбок. */
@@ -237,4 +240,85 @@ test("s05 настройки", async ({ page }) => {
   await expect(page.getByText("Версия 0.0.1")).toHaveCount(2);
   await noHorizontalScroll(page);
   await page.screenshot({ path: `${SCREENS}/s05-settings.png`, fullPage: true });
+});
+
+// s06 — окна ребёнка (FR-12, FR-32): «Моя статистика» только для просмотра, «Первый вход» с правилами на сегодня.
+test("s06 моя статистика ребёнка", async ({ page }) => {
+  await mockProgram(page, { mode: "mystats", children: family(), myChildId: 1 });
+  await page.goto("/");
+  await expect(page.getByRole("heading", { name: "Моя статистика" })).toBeVisible();
+  await expect(page.getByText("Только просмотр", { exact: true })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Итоги" })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Мои правила" })).toBeVisible();
+  // Ребёнок видит только своё: ни полей ввода, ни слов родительского окна, ни других детей.
+  await expect(page.getByRole("textbox")).toHaveCount(0);
+  await expect(page.getByText("Родительский контроль")).toHaveCount(0);
+  await expect(page.getByText("Даша")).toHaveCount(0);
+  await noHorizontalScroll(page);
+  await page.screenshot({ path: `${SCREENS}/s06-my-stats.png`, fullPage: true });
+});
+
+test("s06 первый вход ребёнка", async ({ page }) => {
+  await mockProgram(page, { mode: "firstrun", children: family(), myChildId: 1 });
+  await page.goto("/");
+  await expect(page.getByRole("heading", { name: "Теперь время за компьютером считается" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Понятно" })).toBeVisible();
+  await expect(page.getByText("Родительский контроль")).toHaveCount(0);
+  await noHorizontalScroll(page);
+  await page.screenshot({ path: `${SCREENS}/s06-first-run.png`, fullPage: true });
+});
+
+// s07 — «Помощь»: туры, первые шаги с отметками, «Что нового».
+test("s07 помощь", async ({ page }) => {
+  await tallWindow(page, 1100);
+  await mockProgram(page, { mode: "parent", sessionActive: true, children: family() });
+  await page.goto("/");
+  await page.getByRole("button", { name: "Помощь" }).click();
+  await expect(page.getByRole("heading", { name: "Помощь" })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Обучение" })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Первые шаги" }).getByText("Пароль родителя задан")).toBeVisible();
+  await expect(page.getByRole("region", { name: "Что нового" })).toBeVisible();
+  await expect(page.getByText(/в следующем обновлении/)).toHaveCount(0);
+  await noHorizontalScroll(page);
+  await page.screenshot({ path: `${SCREENS}/s07-help.png`, fullPage: true });
+});
+
+// s08 — Помощник включён: приглашение в тур, не перекрывающее окно, и сам тур с подсветкой.
+test("s08 приглашение и тур", async ({ page }) => {
+  await mockProgram(page, { mode: "parent", sessionActive: true, children: family(), helper: {} });
+  await page.goto("/");
+  const invite = page.getByRole("status").filter({ hasText: "Короткий тур по окну родителя" });
+  await expect(invite).toBeVisible();
+  // Карточка в потоке страницы: меню по-прежнему доступно. Имя кнопки берём точное и только из меню:
+  // «Нарушения сегодня: N» на главной тоже содержит это слово.
+  await expect(page.getByRole("navigation", { name: "Разделы" }).getByRole("button", { name: "Сегодня", exact: true })).toBeVisible();
+  await noHorizontalScroll(page);
+  await page.screenshot({ path: `${SCREENS}/s08-helper-invite.png`, fullPage: true });
+  await invite.getByRole("button", { name: "Начать" }).click();
+  const tour = page.getByRole("dialog", { name: "Короткий тур по окну родителя" });
+  await expect(tour).toBeVisible();
+  await expect(tour.getByRole("button", { name: "Пропустить тур" })).toBeVisible();
+  await expect(page.locator(".tour-spot")).toBeVisible();
+  await page.screenshot({ path: `${SCREENS}/s08-helper-tour.png`, fullPage: true });
+  await tour.getByRole("button", { name: "Пропустить тур" }).click();
+  await expect(tour).toHaveCount(0);
+});
+
+// s08 — напоминание о риске на карточке ребёнка: «Без лимита» во все дни.
+test("s08 напоминание на карточке ребёнка", async ({ page }) => {
+  await tallWindow(page, 900);
+  const unlimited = [1, 2, 3, 4, 5, 6, 7].map((weekday) => ({ weekday, totalMin: 0, unlimited: true }));
+  await mockProgram(page, {
+    mode: "parent",
+    sessionActive: true,
+    children: [child({ limits: unlimited, usedS: 600 })],
+    helper: { done: ["H-M1-01", "H-M1-03"] },
+  });
+  await page.goto("/");
+  const card = page.getByRole("article", { name: "Миша" }).getByRole("status");
+  await expect(card).toContainText("Похоже, у Миши нет ограничений ни в один день");
+  await expect(card.getByRole("button", { name: "Задать лимиты" })).toBeVisible();
+  await expect(card.getByRole("button", { name: "Больше не напоминать" })).toBeVisible();
+  await noHorizontalScroll(page);
+  await page.screenshot({ path: `${SCREENS}/s08-helper-reminder.png`, fullPage: true });
 });

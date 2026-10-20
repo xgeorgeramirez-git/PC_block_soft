@@ -103,13 +103,19 @@ describe("выбор экрана по режиму", () => {
     expect(await screen.findByRole("heading", { name: "Удаление PC Block" })).toBeTruthy();
   });
 
+  // Ловит: окно ребёнка осталось заглушкой «появится в следующем обновлении» (FR-12, FR-32).
   it.each([
-    ["mystats", "Моя статистика"],
-    ["firstrun", "Добро пожаловать"],
-  ])("%s: заглушка «появится»", async (mode, title) => {
+    ["mystats", "Моя статистика", "Только просмотр"],
+    ["firstrun", "Теперь время за компьютером считается", "Понятно"],
+  ])("%s: настоящий экран ребёнка без входа родителя", async (mode, title, mark) => {
     setup({ mode });
     expect(await screen.findByRole("heading", { name: title })).toBeTruthy();
-    expect(screen.getByText(/появится в следующем обновлении/)).toBeTruthy();
+    expect(screen.getAllByText(mark).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/появится в следующем обновлении/)).toBeNull();
+    expect(screen.queryByLabelText("Пароль родителя")).toBeNull();
+    // Ребёнку не пишут «Родительский контроль» в заголовке окна и не показывают меню родителя.
+    expect(screen.queryByText("Родительский контроль")).toBeNull();
+    expect(screen.queryByRole("navigation", { name: "Разделы" })).toBeNull();
   });
 
   it("неизвестный режим ведёт себя как обычное окно", async () => {
