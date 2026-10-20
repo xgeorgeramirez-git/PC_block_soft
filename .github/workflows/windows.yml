@@ -119,8 +119,11 @@ jobs:
           $lnkDir = Join-Path $env:ProgramData "Microsoft\Windows\Start Menu\Programs"
           $lnk = Get-ChildItem $lnkDir -Filter "*сброс пароля родителя*.lnk" -ErrorAction SilentlyContinue | Select-Object -First 1
           if (-not $lnk) { Write-Host "::error::Нет ярлыка сброса пароля в меню Пуск ($lnkDir)"; exit 1 }
-          $sc = (New-Object -ComObject WScript.Shell).CreateShortcut($lnk.FullName)
-          if ($sc.Arguments -ne "--reset-password" -or $sc.TargetPath -ne $exe.FullName) { Write-Host "::error::Ярлык сброса пароля ведёт не туда: $($sc.TargetPath) $($sc.Arguments)"; exit 1 }
+          # В .lnk цель и ключи лежат строками UTF-16: читаем файл как есть, не через COM.
+          $lnkText = [Text.Encoding]::Unicode.GetString([IO.File]::ReadAllBytes($lnk.FullName))
+          if ($lnkText -notmatch [regex]::Escape("--reset-password") -or $lnkText -notmatch [regex]::Escape("PCBlock.exe")) {
+            Write-Host "::error::Ярлык сброса пароля ведёт не туда: в $($lnk.FullName) ($($lnk.Length) б) нет --reset-password или PCBlock.exe"; exit 1
+          }
           Write-Host "::notice title=Установка::$($exe.FullName); служба PCBlock работает; ярлык «$($lnk.BaseName)» ведёт на --reset-password"
           $un = Join-Path $dir "uninstall.exe"
           if (-not (Test-Path $un)) { Write-Host "::error::Нет uninstall.exe в $dir"; exit 1 }
