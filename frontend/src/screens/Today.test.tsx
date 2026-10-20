@@ -85,14 +85,16 @@ describe("Today: карточка ребёнка", () => {
   });
 
   // Ловит: у ребёнка, заблокированного за обход, лежат «+15/+30/+60» рядом со «Снять блокировку»:
-  // родитель добавляет время, а блокировка остаётся.
-  it("при блокировке за обход «+время» спрятано, остаётся только «Снять блокировку»", async () => {
+  // родитель добавляет время, а блокировка остаётся. Пауза и копилка доступны всегда (ТЗ 8.3.2).
+  it("при блокировке за обход «+время» спрятано, есть «Снять блокировку», «Пауза», «В копилку»", async () => {
     setup({ children: [mockChild({ blocked: true }), mockChild({ childId: 2, sid: "S-2", name: "Даша" })] });
     const misha = await screen.findByRole("article", { name: "Миша" });
     for (const m of ["+15", "+30", "+60"]) {
       expect(within(misha).queryByRole("button", { name: m })).toBeNull();
     }
-    expect(within(misha).getAllByRole("button").map((b) => b.textContent)).toEqual(["Снять блокировку"]);
+    expect(within(misha).getByRole("button", { name: "Снять блокировку" })).toBeTruthy();
+    expect(within(misha).getByRole("button", { name: "Пауза" })).toBeTruthy();
+    expect(within(misha).getByRole("button", { name: "В копилку +30" })).toBeTruthy();
     // У соседа без блокировки кнопки на месте.
     expect(within(card("Даша")).getByRole("button", { name: "+15" })).toBeTruthy();
   });

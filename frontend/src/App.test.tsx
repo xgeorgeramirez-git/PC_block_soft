@@ -195,6 +195,7 @@ describe("меню окна родителя", () => {
     expect(within(nav).getAllByRole("button").map((b) => b.textContent)).toEqual([
       "Сегодня",
       "Дети",
+      "Копилка",
       "Журнал",
       "Настройки",
       "Помощь",
@@ -208,7 +209,7 @@ describe("меню окна родителя", () => {
     const nav = screen.getByRole("navigation", { name: "Разделы" });
 
     await user.click(within(nav).getByRole("button", { name: "Дети" }));
-    expect(await screen.findByRole("heading", { name: /Лимиты времени, Миша/ })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: /Правила, Миша/ })).toBeTruthy();
     expect(within(nav).getByRole("button", { name: "Дети" }).getAttribute("aria-current")).toBe("page");
     expect(within(nav).getByRole("button", { name: "Сегодня" }).getAttribute("aria-current")).toBeNull();
 
@@ -243,7 +244,7 @@ describe("меню окна родителя", () => {
     await user.click(screen.getByRole("button", { name: "Журнал" }));
     const dialog = screen.getByRole("dialog", { name: "Сохранить изменения?" });
     await user.click(within(dialog).getByRole("button", { name: "Остаться" }));
-    expect(screen.getByRole("heading", { name: /Лимиты времени/ })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: /Правила/ })).toBeTruthy();
 
     await user.click(screen.getByRole("button", { name: "Журнал" }));
     await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Сохранить" }));
@@ -338,7 +339,7 @@ describe("окно: предупреждение о правилах и нижн
     const alert = await screen.findByRole("alert");
     expect(alert.textContent).not.toMatch(/баз[аыу] данных|служб/i);
     await user.click(within(alert).getByRole("button", { name: "Открыть «Дети»" }));
-    expect(await screen.findByRole("heading", { name: "Лимиты времени, Миша" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "Правила, Миша" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Дети" }).getAttribute("aria-current")).toBe("page");
   });
 
@@ -352,7 +353,7 @@ describe("окно: предупреждение о правилах и нижн
     await user.click(screen.getByRole("button", { name: "Настройки" }));
     const alert = await screen.findByRole("alert");
     await user.click(within(alert).getByRole("button", { name: "Открыть «Дети»" }));
-    expect(await screen.findByRole("heading", { name: "Лимиты времени, Миша" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "Правила, Миша" })).toBeTruthy();
   });
 
   // Ловит: панель «Сохранить» лежит внутри прокручиваемой страницы и накрывает строки таблицы (FR-19).

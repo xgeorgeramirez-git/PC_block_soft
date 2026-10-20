@@ -26,15 +26,17 @@ afterEach(() => {
 });
 
 describe("Children", () => {
-  it("один ребёнок: сразу его лимиты, без выбора", async () => {
+  it("один ребёнок: сразу его лимиты, без выбора ребёнка", async () => {
     setup();
     expect(await screen.findByRole("table")).toBeTruthy();
-    expect(screen.queryByRole("tablist")).toBeNull();
+    // Вкладок выбора ребёнка нет (один ребёнок); вкладки правил «Лимиты/Запретные часы» есть.
+    expect(screen.queryByRole("tablist", { name: "Дети" })).toBeNull();
   });
 
   it("несколько детей: вкладки с именами, открыт первый", async () => {
     setup({ children: two() });
-    const tabs = await screen.findAllByRole("tab");
+    const list = await screen.findByRole("tablist", { name: "Дети" });
+    const tabs = within(list).getAllByRole("tab");
     expect(tabs.map((t) => t.textContent)).toEqual(["Миша", "Даша"]);
     expect(tabs[0].getAttribute("aria-selected")).toBe("true");
     expect(await screen.findByRole("heading", { name: /Правила, Миша/ })).toBeTruthy();
@@ -52,7 +54,7 @@ describe("Children", () => {
   it("вкладки управляются стрелками, фокус только у выбранной", async () => {
     const user = setup({ children: two() });
     await screen.findByRole("table");
-    const tabs = screen.getAllByRole("tab");
+    const tabs = within(screen.getByRole("tablist", { name: "Дети" })).getAllByRole("tab");
     expect(tabs.map((t) => t.tabIndex)).toEqual([0, -1]);
     tabs[0].focus();
     await user.keyboard("{ArrowRight}");

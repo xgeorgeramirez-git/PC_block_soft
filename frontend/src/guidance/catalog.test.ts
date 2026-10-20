@@ -70,6 +70,7 @@ describe("зеркало каталога на Go", () => {
       ScreenAny: "any",
       ScreenToday: "today",
       ScreenChildren: "children",
+      ScreenBonus: "bonus",
       ScreenJournal: "journal",
       ScreenSettings: "settings",
       ScreenHelp: "help",

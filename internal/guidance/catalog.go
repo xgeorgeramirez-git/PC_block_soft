@@ -21,10 +21,11 @@ const (
 // Идентификаторы действий кнопок карточки. Что делает каждое, решает окно, но список закрыт:
 // действие, которого нет здесь, не пройдёт проверку.
 const (
-	ActionAck        = "ack"         // «Понятно»: принято, больше не показывать
-	ActionStartTour  = "start-tour"  // запустить тур
-	ActionOpenLimits = "open-limits" // открыть «Дети → Лимиты» этого ребёнка
-	ActionHowToFix   = "how-to-fix"  // показать шаги исправления
+	ActionAck          = "ack"           // «Понятно»: принято, больше не показывать
+	ActionStartTour    = "start-tour"    // запустить тур
+	ActionOpenLimits   = "open-limits"   // открыть «Дети → Лимиты» этого ребёнка
+	ActionHowToFix     = "how-to-fix"    // показать шаги исправления
+	ActionOpenSchedule = "open-schedule" // открыть «Дети → Запретные часы» (M2, I1 ревью)
 )
 
 // Action — кнопка-действие карточки.
@@ -81,13 +82,14 @@ const (
 	ScreenAny      = "any"
 	ScreenToday    = "today"
 	ScreenChildren = "children"
+	ScreenBonus    = "bonus" // экран «Копилка» (M2, I1 ревью)
 	ScreenJournal  = "journal"
 	ScreenSettings = "settings"
 	ScreenHelp     = "help"
 )
 
 // Screens — экраны, на которые может ссылаться шаг тура.
-var Screens = []string{ScreenToday, ScreenChildren, ScreenJournal, ScreenSettings, ScreenHelp}
+var Screens = []string{ScreenToday, ScreenChildren, ScreenBonus, ScreenJournal, ScreenSettings, ScreenHelp}
 
 // Anchors — известные якоря окна родителя. Новая подсказка привязывается только к якорю из
 // этого списка; сам элемент в экране помечается data-help-anchor с тем же номером.
@@ -95,10 +97,15 @@ var Anchors = []Anchor{
 	{ID: "topbar", Screen: ScreenAny},
 	{ID: "menu-today", Screen: ScreenAny},
 	{ID: "menu-children", Screen: ScreenAny},
+	{ID: "menu-bonus", Screen: ScreenAny},
 	{ID: "savebar", Screen: ScreenAny},
 	{ID: "child-card", Screen: ScreenToday},
 	{ID: "extra-buttons", Screen: ScreenToday},
+	{ID: "child-card-pause", Screen: ScreenToday},
+	{ID: "child-card-bonus", Screen: ScreenToday},
 	{ID: "limits-table", Screen: ScreenChildren},
+	{ID: "schedule-tab", Screen: ScreenChildren},
+	{ID: "bonus-grant", Screen: ScreenBonus},
 }
 
 // Подписи окна Помощника, общие для всех записей: кнопки карточки и тура.

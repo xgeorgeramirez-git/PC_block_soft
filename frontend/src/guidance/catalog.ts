@@ -27,8 +27,6 @@ export const ANCHORS = [
   { id: "child-card-bonus", screen: "today" },
   { id: "limits-table", screen: "children" },
   { id: "schedule-tab", screen: "children" },
-  { id: "interval-add", screen: "children" },
-  { id: "copy-rules", screen: "children" },
   { id: "bonus-grant", screen: "bonus" },
 ] as const;
 
