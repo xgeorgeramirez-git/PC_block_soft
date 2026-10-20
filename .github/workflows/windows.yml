@@ -99,8 +99,14 @@ jobs:
       - name: Тихая установка и удаление
         shell: pwsh
         run: |
-          $inst = Get-ChildItem build/bin -Filter "*installer*.exe" | Select-Object -First 1
-          if (-not $inst) { Write-Host "::error::Установщик не собран"; exit 1 }
+          $inst = Get-ChildItem build/bin -Filter "*installer*.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $inst) {
+            Write-Host "::error::Установщик не собран. Содержимое build/bin:"
+            Get-ChildItem build/bin -ErrorAction SilentlyContinue | ForEach-Object { Write-Host ("::error::  bin/" + $_.Name + " (" + $_.Length + " б)") }
+            Write-Host "::error::Файлы build/windows (шаблоны NSIS):"
+            Get-ChildItem build/windows -Recurse -ErrorAction SilentlyContinue | ForEach-Object { Write-Host ("::error::  " + $_.FullName.Replace((Get-Location).Path + '\','')) }
+            exit 1
+          }
           Start-Process $inst.FullName -ArgumentList "/S" -Wait
           $exe = Get-ChildItem "$env:ProgramFiles" -Recurse -Filter "PCBlock.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
           if (-not $exe) { Write-Host "::error::После установки PCBlock.exe не найден в Program Files"; exit 1 }
