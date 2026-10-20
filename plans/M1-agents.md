@@ -21,4 +21,5 @@
 | T10b+T11b | m1-session-ui-writer (sonnet 5.5) | писатель стража и значка на Windows | done | 26af538, 58b657c; смоук Windows зелёный (страж и значок в сеансе) | 0 |
 | T13+T14 | m1-helper-writer (sonnet 5.5) | писатель окон ребёнка и Помощника (дерево pc_block_soft-ui2) | done | bcf0789, bcaa33c, 800cb28; 741 тест, валидатор каталога зелёный | 1 |
 | T15 | m1-installer-writer (sonnet 5.5) | писатель установщика NSIS (основное дерево) | в работе | — | 0 |
-| Ревью | m1-code-review | код-ревью Фазы 6 свежим контекстом (старшая модель) | в работе | — | — |
+| Ревью | m1-code-review | код-ревью Фазы 6 свежим контекстом (старшая модель) | done | With fixes: 0 Critical, 1 Important (recover в loop), 3 minor | — |
+| IMPORTANT-1 | m1-service-writer (sonnet 5.5) | фикс recover в цикле службы (дерево pc_block_soft-loopfix) | в работе | — | 0 |
