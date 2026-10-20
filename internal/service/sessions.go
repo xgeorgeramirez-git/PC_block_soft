@@ -50,7 +50,7 @@ func (s *Service) OnSession(ev SessionEvent, id uint32, real time.Time) {
 	if s.stopping || !s.started {
 		return
 	}
-	s.syncSessions(real)
+	s.guard("session", nil, func() { s.syncSessions(real) })
 }
 
 // syncSessions сверяет список сеансов Windows с тем, что запущено: заводит новые сеансы,
@@ -94,7 +94,8 @@ func (s *Service) syncSessions(real time.Time) {
 		}
 	}
 	for _, id := range s.sessionOrder() {
-		s.superviseSession(s.sessions[id], real)
+		ss := s.sessions[id]
+		s.guard("session", nil, func() { s.superviseSession(ss, real) })
 	}
 	s.saveProcs()
 }
