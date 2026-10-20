@@ -72,10 +72,29 @@ jobs:
           out=$(gofmt -l $(git ls-files '*.go'))
           if [ -n "$out" ]; then echo "::error title=gofmt::Не отформатированы: $out"; exit 1; fi
 
+      - name: Без сетевых пакетов (NFR-1)
+        run: |
+          exec > >(tee -a "$RUNNER_TEMP/ci.log") 2>&1
+          bash tools/check_imports.sh
+
       - name: Тексты интерфейса без длинных тире
         run: |
           exec > >(tee -a "$RUNNER_TEMP/ci.log") 2>&1
           python3 tools/scan_ui_texts.py
+
+      # Свои шаблоны установщика (build/windows/installer): UTF-8 с BOM, иначе кириллица в установщике бьётся;
+      # комментарий не оканчивается обратной чертой, иначе NSIS теряет следующую строку.
+      - name: Шаблоны NSIS в UTF-8 с BOM
+        run: |
+          exec > >(tee -a "$RUNNER_TEMP/ci.log") 2>&1
+          bash tools/check_nsis_bom.sh
+
+      # Каталог Помощника (FR-34): уникальные номера, длина текстов, нет длинных тире, каждый якорь известен,
+      # матрица docs/HELPER_COVERAGE.md не отстаёт от каталога. Отдельным шагом, чтобы сбой было видно сразу.
+      - name: Каталог помощника
+        run: |
+          exec > >(tee -a "$RUNNER_TEMP/ci.log") 2>&1
+          go test -count=1 ./internal/guidance/...
 
       - name: go vet и сборка для Windows (кросс-компиляция)
         env:

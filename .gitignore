@@ -4,11 +4,14 @@
 *.test
 *.out
 coverage*.txt
+!tools/coverage-thresholds.txt
 /go.work
 /go.work.sum
 
 # --- Wails: служебные файлы, которые генерируются при сборке
 /build/windows/installer/tmp/
+# Wails пишет его заново при каждой сборке из своего шаблона; свои правки живут в project.nsi
+/build/windows/installer/wails_tools.nsh
 frontend/wailsjs/runtime/
 frontend/package.json.md5
 

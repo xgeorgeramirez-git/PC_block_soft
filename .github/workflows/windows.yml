@@ -11,6 +11,17 @@ on:
     branches: [main]
     paths-ignore: ["docs/**", "plans/**", "**/*.md"]
   workflow_dispatch:
+    inputs:
+      scenario:
+        description: "Что прогнать после сборки: пусто = обычная сборка, smoke = ранний смоук службы (tools/accept/smoke.ps1), accept = приёмка M1 S1...S7, S25...S27 (tools/accept/run-all.ps1)"
+        required: false
+        default: ""
+        type: string
+      only:
+        description: "С scenario=accept: какие сценарии прогнать, через запятую (например S1,S4); пусто = все"
+        required: false
+        default: ""
+        type: string
 
 permissions:
   contents: write
@@ -23,7 +34,7 @@ jobs:
   build:
     name: R3 установщик, окно, тесты Windows
     runs-on: windows-latest
-    timeout-minutes: 40
+    timeout-minutes: 75
     defaults:
       run:
         shell: bash
@@ -56,14 +67,26 @@ jobs:
           exec > >(tee -a "$RUNNER_TEMP/ci.log") 2>&1
           wails build -clean -nsis -trimpath -ldflags "-s -w"
 
+      # Биндинги Wails в песочнице агента не генерируются. При ручном запуске на рабочей ветке
+      # сгенерированные файлы коммитятся в ветку (как go.sum в ci.yml, Ruling 22), в остальных
+      # случаях расхождение роняет сборку.
       - name: Биндинги интерфейса совпадают с закоммиченными
         run: |
           exec > >(tee -a "$RUNNER_TEMP/ci.log") 2>&1
           if [ -n "$(git status --porcelain frontend/wailsjs/go)" ]; then
             git status --porcelain frontend/wailsjs/go
             git diff -- frontend/wailsjs/go
-            echo "::error title=Биндинги::frontend/wailsjs/go устарели: закоммить файлы, сгенерированные wails build"
-            exit 1
+            if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ github.ref }}" != "refs/heads/main" ]; then
+              git config user.name "github-actions[bot]"
+              git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+              git add frontend/wailsjs/go
+              git commit -m "build: обновить биндинги Wails (wails build)"
+              git push origin "HEAD:${GITHUB_REF_NAME}"
+              echo "::notice title=Биндинги::frontend/wailsjs/go обновлены и закоммичены в ветку: сделайте git pull"
+            else
+              echo "::error title=Биндинги::frontend/wailsjs/go устарели: закоммить файлы, сгенерированные wails build"
+              exit 1
+            fi
           fi
 
       - name: Тесты Go на Windows
@@ -81,20 +104,183 @@ jobs:
       - name: Тихая установка и удаление
         shell: pwsh
         run: |
-          $inst = Get-ChildItem build/bin -Filter "*installer*.exe" | Select-Object -First 1
-          if (-not $inst) { Write-Host "::error::Установщик не собран"; exit 1 }
+          $inst = Get-ChildItem build/bin -Filter "*installer*.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $inst) {
+            Write-Host "::error::Установщик не собран. Содержимое build/bin:"
+            Get-ChildItem build/bin -ErrorAction SilentlyContinue | ForEach-Object { Write-Host ("::error::  bin/" + $_.Name + " (" + $_.Length + " б)") }
+            Write-Host "::error::Файлы build/windows (шаблоны NSIS):"
+            Get-ChildItem build/windows -Recurse -ErrorAction SilentlyContinue | ForEach-Object { Write-Host ("::error::  " + $_.FullName.Replace((Get-Location).Path + '\','')) }
+            exit 1
+          }
           Start-Process $inst.FullName -ArgumentList "/S" -Wait
           $exe = Get-ChildItem "$env:ProgramFiles" -Recurse -Filter "PCBlock.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
           if (-not $exe) { Write-Host "::error::После установки PCBlock.exe не найден в Program Files"; exit 1 }
           Write-Host "Установлено: $($exe.FullName)"
           $dir = $exe.DirectoryName
+          # Свой шаблон установщика (build/windows/installer/project.nsi), а не шаблон Wails: папка, служба, ярлык сброса пароля.
+          if ($dir -ne (Join-Path $env:ProgramFiles "PCBlock")) { Write-Host "::error::Папка установки $dir, ждали $env:ProgramFiles\PCBlock"; exit 1 }
+          $svc = Get-Service -Name PCBlock -ErrorAction SilentlyContinue
+          if (-not $svc -or $svc.Status -ne "Running") { Write-Host "::error::После тихой установки служба PCBlock не работает: $($svc.Status)"; exit 1 }
+          $lnkDir = Join-Path $env:ProgramData "Microsoft\Windows\Start Menu\Programs"
+          $lnk = Get-ChildItem $lnkDir -Filter "*сброс пароля родителя*.lnk" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $lnk) { Write-Host "::error::Нет ярлыка сброса пароля в меню Пуск ($lnkDir)"; exit 1 }
+          # В .lnk цель и ключи лежат строками UTF-16: читаем файл как есть, не через COM.
+          # Смещение строки в файле может быть нечётным, поэтому читаем с обоих смещений и как ANSI.
+          $lnkBytes = [IO.File]::ReadAllBytes($lnk.FullName)
+          $lnkText = [Text.Encoding]::Unicode.GetString($lnkBytes) + [Text.Encoding]::Unicode.GetString($lnkBytes, 1, $lnkBytes.Length - 1) + [Text.Encoding]::Latin1.GetString($lnkBytes)
+          if ($lnkText -notmatch [regex]::Escape("--reset-password") -or $lnkText -notmatch [regex]::Escape("PCBlock.exe")) {
+            Write-Host "::error::Ярлык сброса пароля ведёт не туда: в $($lnk.FullName) ($($lnk.Length) б) нет --reset-password или PCBlock.exe"; exit 1
+          }
+          Write-Host "::notice title=Установка::$($exe.FullName); служба PCBlock работает; ярлык «$($lnk.BaseName)» ведёт на --reset-password"
           $un = Join-Path $dir "uninstall.exe"
           if (-not (Test-Path $un)) { Write-Host "::error::Нет uninstall.exe в $dir"; exit 1 }
           Start-Process $un -ArgumentList "/S" -Wait
           # Деинсталлятор NSIS копирует себя во временную папку и завершается раньше удаления: ждём.
-          for ($i = 0; $i -lt 30 -and (Test-Path $exe.FullName); $i++) { Start-Sleep -Seconds 1 }
-          if (Test-Path $exe.FullName) { Write-Host "::error::Программа не удалилась за 30 с"; exit 1 }
+          for ($i = 0; $i -lt 60 -and (Test-Path $exe.FullName); $i++) { Start-Sleep -Seconds 1 }
+          if (Test-Path $exe.FullName) { Write-Host "::error::Программа не удалилась за 60 с"; exit 1 }
+          # Ненастроенная программа удаляется без пароля (Ruling 21); следы проверяем циклом ожидания, а не сразу.
+          $safeBoot = "HKLM:\SYSTEM\CurrentControlSet\Control\SafeBoot\Minimal\PCBlock", "HKLM:\SYSTEM\CurrentControlSet\Control\SafeBoot\Network\PCBlock"
+          for ($i = 0; $i -lt 30; $i++) {
+            $left = @()
+            if (Get-Service -Name PCBlock -ErrorAction SilentlyContinue) { $left += "служба" }
+            foreach ($k in $safeBoot) { if (Test-Path $k) { $left += "ключ $k" } }
+            if (Get-ChildItem $lnkDir -Filter "*сброс пароля родителя*.lnk" -ErrorAction SilentlyContinue) { $left += "ярлык" }
+            if (Test-Path $dir) { $left += "папка $dir" }
+            if ($left.Count -eq 0) { break }
+            Start-Sleep -Seconds 1
+          }
+          if ($left.Count -gt 0) { Write-Host "::error::После удаления осталось: $($left -join ', ')"; exit 1 }
+          # Статистика без просьбы не удаляется (FR-4): папка данных на месте. Для следующих шагов убираем её.
+          $dataDir = Join-Path $env:ProgramData "PCBlock"
+          if (-not (Test-Path (Join-Path $dataDir "pcblock.db"))) { Write-Host "::error::База пропала без просьбы её удалять"; exit 1 }
+          Remove-Item $dataDir -Recurse -Force -ErrorAction SilentlyContinue
+          Write-Host "::notice title=Удаление::программа, служба, ключи SafeBoot и ярлык убраны, база осталась на месте"
           Write-Host "Удалено начисто"
+
+      # Настроенная программа (тестовый режим, пароль задан): удаление без пароля и с неверным паролем отказывает,
+      # с верным удаляет и оставляет статистику, с /DELETEDATA удаляет и её. Полный S26 пишет задача T16.
+      - name: Удаление настроенной программы (пароль и «Удалить статистику»)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $inst = Get-ChildItem build/bin -Filter "*installer*.exe" | Select-Object -First 1
+          $pw = "PcbUninst-2026"
+          $testKey = "HKLM:\SOFTWARE\PCBlock\TestMode"
+          $data = Join-Path $env:RUNNER_TEMP "pcb-uninst-data"
+          $prog = Join-Path $env:ProgramFiles "PCBlock"
+          $exe = Join-Path $prog "PCBlock.exe"
+          $un = Join-Path $prog "uninstall.exe"
+          $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+          $gateLog = Join-Path $data "logs\boot.log"
+
+          function Wait-Until([scriptblock]$Cond, [int]$Seconds, [string]$What) {
+            $deadline = (Get-Date).AddSeconds($Seconds)
+            while (-not (& $Cond)) {
+              if ((Get-Date) -gt $deadline) { throw "За $Seconds с не дождались: $What" }
+              Start-Sleep -Milliseconds 500
+            }
+          }
+          function Install-Program([bool]$Setup) {
+            Start-Process $inst.FullName -ArgumentList "/S" -Wait
+            if (-not (Test-Path $exe)) { throw "Установка не положила PCBlock.exe в $prog" }
+            New-Item -Path $testKey -Force | Out-Null
+            New-ItemProperty -Path $testKey -Name DataDir -Value $data -PropertyType String -Force | Out-Null
+            New-ItemProperty -Path $testKey -Name ClockSpeed -Value 1 -PropertyType DWord -Force | Out-Null
+            New-ItemProperty -Path $testKey -Name TestChildSID -Value $sid -PropertyType String -Force | Out-Null
+            Restart-Service -Name PCBlock -Force
+            Wait-Until { (Get-Service -Name PCBlock).Status -eq "Running" } 35 "служба в тестовом режиме"
+            if ($Setup) {
+              $out = Join-Path $env:RUNNER_TEMP "pcb-uninst-setup.json"
+              $p = Start-Process $exe -ArgumentList "--test-setup", "--password=$pw", "--user=$env:USERNAME", "--out=$out" -Wait -PassThru -WindowStyle Hidden
+              if ($p.ExitCode -ne 0) { throw "Первичная настройка не удалась: код $($p.ExitCode) $(Get-Content $out -Raw -ErrorAction SilentlyContinue)" }
+            }
+          }
+          # Ждёт, пока деинсталлятор дойдёт до проверки и запишет её итог в журнал запуска.
+          function Wait-GateAnswer([string]$Pattern) {
+            Wait-Until { (Test-Path $gateLog) -and (Select-String -Path $gateLog -Pattern $Pattern -Quiet) } 60 "ответ проверки удаления '$Pattern'"
+            Wait-Until { -not (Get-Process -Name "Au_" -ErrorAction SilentlyContinue) } 60 "завершение деинсталлятора"
+          }
+          function Assert-Installed([string]$When) {
+            if (-not (Test-Path $exe)) { throw "${When}: программа удалена, а должна остаться" }
+            if ((Get-Service -Name PCBlock -ErrorAction SilentlyContinue).Status -ne "Running") { throw "${When}: служба не работает, а должна работать" }
+          }
+          function Assert-Removed([string]$When) {
+            Wait-Until { -not (Test-Path $exe) } 60 "${When}: PCBlock.exe удалён"
+            Wait-Until { -not (Get-Service -Name PCBlock -ErrorAction SilentlyContinue) } 30 "${When}: служба удалена"
+          }
+
+          try {
+            Install-Program $true
+
+            Start-Process $un -ArgumentList "/S" -Wait
+            Wait-GateAnswer "не указан"
+            Assert-Installed "удаление без пароля"
+
+            Start-Process $un -ArgumentList "/S", "/PASSWORD=Wrong-Pass-1" -Wait
+            Wait-GateAnswer "Неверный пароль"
+            Assert-Installed "удаление с неверным паролем"
+
+            Start-Process $un -ArgumentList "/S", "/PASSWORD=$pw" -Wait
+            Assert-Removed "верный пароль"
+            if (-not (Test-Path (Join-Path $data "pcblock.db"))) { throw "Статистика пропала без /DELETEDATA" }
+            Write-Host "::notice title=Удаление с паролем::без пароля и с неверным отказ, с верным удалено, статистика осталась"
+
+            # Повторная установка: статистика и пароль вернулись, служба снова работает.
+            Install-Program $false
+            Start-Process $un -ArgumentList "/S", "/PASSWORD=$pw", "/DELETEDATA" -Wait
+            Assert-Removed "верный пароль и /DELETEDATA"
+            Wait-Until { -not (Test-Path $data) } 30 "папка данных удалена по /DELETEDATA"
+            Write-Host "::notice title=Удалить статистику::/DELETEDATA удалил и папку данных"
+          } catch {
+            Write-Host "::error title=Удаление настроенной программы::$($_.Exception.Message)"
+            Get-Content $gateLog -Tail 15 -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "::error title=boot.log::$_" }
+            exit 1
+          } finally {
+            if (Test-Path $un) { Start-Process $un -ArgumentList "/S", "/PASSWORD=$pw", "/DELETEDATA" -Wait }
+            Get-Process -Name "PCBlock", "Au_" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+            Remove-Item -Path $testKey -Recurse -Force -ErrorAction SilentlyContinue
+            Remove-Item -Path "HKLM:\SYSTEM\CurrentControlSet\Control\SafeBoot\Minimal\PCBlock", "HKLM:\SYSTEM\CurrentControlSet\Control\SafeBoot\Network\PCBlock" -Recurse -Force -ErrorAction SilentlyContinue
+            Remove-Item $data, (Join-Path $env:ProgramData "PCBlock") -Recurse -Force -ErrorAction SilentlyContinue
+          }
+
+      - name: Смоук службы (ручной запуск, scenario=smoke)
+        id: smoke
+        if: github.event_name == 'workflow_dispatch' && inputs.scenario == 'smoke'
+        shell: pwsh
+        run: ./tools/accept/smoke.ps1 -InstallerDir build/bin -LogPath "$env:RUNNER_TEMP/ci.log"
+      - name: Смоук службы, ошибки — в пометки сборки
+        if: failure() && steps.smoke.conclusion == 'failure'
+        run: bash tools/annotate-errors.sh "$RUNNER_TEMP/ci.log" "Смоук службы"
+
+      # Приёмка M1 на настоящей Windows: S1...S7 и S25...S27, каждый на свежей установке и свежей папке данных.
+      # Идёт по одному сценарию за раз (одна учётка раннера, одна служба, один экран). Снимки sNN-*.png уходят
+      # в ветку screenshots (папка screens/<ветка>); S28 браузерный и идёт в ci.yml.
+      - name: Приёмка M1 (ручной запуск, scenario=accept)
+        id: accept
+        if: github.event_name == 'workflow_dispatch' && inputs.scenario == 'accept'
+        shell: pwsh
+        env:
+          PCB_ACCEPT_SHOTS: ${{ github.workspace }}/accept-screens
+        run: |
+          $only = @("${{ inputs.only }}" -split "[,\s]+" | Where-Object { $_ })
+          ./tools/accept/run-all.ps1 -InstallerDir build/bin -LogPath "$env:RUNNER_TEMP/ci.log" -Only $only
+      - name: Приёмка M1, ошибки — в пометки сборки
+        if: failure() && steps.accept.conclusion == 'failure'
+        run: bash tools/annotate-errors.sh "$RUNNER_TEMP/ci.log" "Приёмка M1"
+      - name: Приёмка M1, снимки — в ветку screenshots
+        if: always() && steps.accept.conclusion != 'skipped'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SCREENS_BRANCH_NAME: ${{ github.ref_name }}
+        run: bash tools/push-screenshots.sh accept-screens
+      - uses: actions/upload-artifact@v6
+        if: always() && steps.accept.conclusion != 'skipped'
+        with:
+          name: accept-screens-${{ github.sha }}
+          path: accept-screens/
+          retention-days: 14
+          if-no-files-found: ignore
 
       - name: Версия и дата
         id: meta

@@ -38,6 +38,7 @@ say "Тест-серия R4, $(date '+%d.%m.%Y %H:%M'), GOMAXPROCS=$GOMAXPROCS, 
 # R0 статика
 step "gofmt" bash -c 'out=$(gofmt -l $(git ls-files "*.go")); [ -z "$out" ] || { echo "$out"; exit 1; }'
 step "go vet" go vet -tags "$TAGS" ./...
+step "без сетевых пакетов" bash tools/check_imports.sh
 step "тексты интерфейса" python tools/scan_ui_texts.py
 step "tsc" bash -c 'cd frontend && npm run typecheck'
 
@@ -75,7 +76,7 @@ run_fuzz() {
 step "фаззинг" run_fuzz
 
 # Фронт
-step "vitest" bash -c 'cd frontend && npx vitest run'
+step "vitest" bash -c 'cd frontend && npx vitest run --coverage'
 
 TOTAL=$(( $(date +%s) - START ))
 RESULT="Итог: $([ $FAILED -eq 0 ] && echo ЗЕЛЁНАЯ || echo КРАСНАЯ), время серии $TOTAL с"

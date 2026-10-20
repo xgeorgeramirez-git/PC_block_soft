@@ -1,0 +1,529 @@
+package guard
+
+import (
+	"encoding/json"
+	"errors"
+	"sync"
+	"time"
+
+	"pcblock/internal/core"
+	"pcblock/internal/ipc"
+)
+
+// EvKindOffline — вид события стража «был без связи со службой». В канале связи такого вида
+// нет (ipc.GuardEv*): страж отправляет его как есть, Threshold несёт длительность в секундах,
+// Detail несёт текст для журнала. Пока служба его не разбирает, событие ею просто пропускается.
+const EvKindOffline = "guardOffline"
+
+// Пределы и тексты контроллера.
+const (
+	maxQueuedEvents = 100             // очередь событий не растёт без связи со службой
+	noticeLife      = 6 * time.Second // сколько виден короткий ответ под заголовком экрана
+	maxShownLog     = 50              // журнал показанных предупреждений для GuardState
+
+	textNoticeRetry  = "Не удалось выполнить. Попробуйте ещё раз"
+	textNoticeLogoff = "Не получилось выйти. Попробуй ещё раз"
+)
+
+// Controller связывает модель стража с службой: раз в секунду собирает снимок датчиков и
+// отправляет GuardPoll, прогоняет ответ через Model, исполняет нажатия (Login, AddExtra,
+// ClearBlock, OpenWindow, GuardLogoff) и копит журнал показанного. Здесь нет Windows: окна
+// (T10b, *_windows.go) только рисуют View и сообщают нажатия. Методы безопасны для вызова из
+// нескольких горутин; PollOnce зовёт одна горутина опроса.
+type Controller struct {
+	model *Model
+	call  ipc.Caller
+	now   func() time.Time
+	read  func(now time.Time) ipc.SensorSample
+	wake  func()
+	kick  chan struct{}
+
+	mu        sync.Mutex
+	events    []ipc.GuardEvent
+	shown     []ipc.ShownWarning
+	pendThr   int // порог, который служба сообщила в этом ответе; нужен, пока не ясно, показана ли плашка
+	curThr    int // порог плашки, которая показана сейчас; 0 — плашки нет или она не про порог
+	seenPlate int // ID последней плашки, о которой уже известно
+	lockWas   bool
+	lastLock  string
+	last      View
+	helloDone bool
+	testMode  bool
+	busy      bool
+	notice    string
+	noticeEnd time.Time
+	tests     []ipc.TestGuardAction
+	fields    map[string]string
+	sentState []byte
+}
+
+// NewController собирает контроллер. now — настоящие часы (Ruling 4), read — чтение датчиков,
+// wake — «что-то изменилось, перерисуй» (может быть nil); вызывается из любой горутины.
+func NewController(model *Model, call ipc.Caller, now func() time.Time, read func(time.Time) ipc.SensorSample, wake func()) *Controller {
+	if wake == nil {
+		wake = func() {}
+	}
+	return &Controller{
+		model: model, call: call, now: now, read: read, wake: wake,
+		kick:   make(chan struct{}, 1),
+		fields: map[string]string{},
+	}
+}
+
+// Kicked возвращает канал, в который контроллер пишет, когда опрос нужен немедленно (после
+// нажатия, которое меняет решение службы).
+func (c *Controller) Kicked() <-chan struct{} { return c.kick }
+
+// Kick просит горутину опроса не ждать секунду.
+func (c *Controller) Kick() {
+	select {
+	case c.kick <- struct{}{}:
+	default:
+	}
+}
+
+// TestMode: служба сообщила, что включён тестовый режим (ТЗ 10.8).
+func (c *Controller) TestMode() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.testMode
+}
+
+// Commands — команды службы стражу из ответа GuardPoll, разобранные по видам.
+type Commands struct {
+	HideLock      bool                  // родительская сессия открыта: экран спрятать (Ruling 19)
+	NoticeMinutes []int                 // «Добавлено N минут»: плашка на 5 с
+	Tests         []ipc.TestGuardAction // действия TestGuard (только тестовый режим)
+}
+
+// ClassifyCommands раскладывает команды службы; незнакомые виды пропускаются.
+func ClassifyCommands(cmds []ipc.GuardCommand) Commands {
+	var out Commands
+	for _, c := range cmds {
+		switch c.Kind {
+		case ipc.GuardCmdHideLock:
+			out.HideLock = true
+		case ipc.GuardCmdNotice:
+			if n, ok := NoticeMinutes(c.Text); ok {
+				out.NoticeMinutes = append(out.NoticeMinutes, n)
+			}
+		case ipc.GuardCmdTest:
+			if c.Test != nil {
+				out.Tests = append(out.Tests, *c.Test)
+			}
+		}
+	}
+	return out
+}
+
+// NoticeMinutes достаёт число минут из сообщения службы вида «Добавлено 30 минут» или
+// «Добавлена 1 минута»: первое целое число в тексте. Нет числа или оно не больше нуля: false.
+func NoticeMinutes(text string) (int, bool) {
+	n, found := 0, false
+	for _, r := range text {
+		if r >= '0' && r <= '9' {
+			if n > 100000 {
+				break
+			}
+			n, found = n*10+int(r-'0'), true
+			continue
+		}
+		if found {
+			break
+		}
+	}
+	return n, found && n > 0
+}
+
+// DecisionFromStatus превращает статус из ответа службы в решение для модели. Модели нужны вид
+// блокировки, тексты экрана и цифры остатка; статус ядра ей не нужен, но восстанавливается.
+func DecisionFromStatus(s ipc.ChildStatus) core.Decision {
+	d := core.Decision{
+		Day: s.Day, Reason: s.Reason, Detail: s.Detail, Until: s.Until, Used: s.Used,
+		RemainingS: s.RemainingS, LimitS: s.LimitS, UsedS: s.UsedS, Unlimited: s.Unlimited,
+		Events: []core.Event{},
+	}
+	switch s.Lock {
+	case ipc.LockTimeUp:
+		d.Lock = core.LockTimeUp
+	case ipc.LockBypass:
+		d.Lock = core.LockBypass
+	}
+	switch s.Status {
+	case ipc.StatusOK:
+		d.Status = core.StatusOK
+	case ipc.StatusLow:
+		d.Status = core.StatusLow
+	case ipc.StatusTimeUp:
+		d.Status = core.StatusTimeUp
+	case ipc.StatusBypass:
+		d.Status = core.StatusBypass
+	case ipc.StatusUnlimited:
+		d.Status = core.StatusUnlimited
+	default:
+		d.Status = core.StatusSafe
+	}
+	return d
+}
+
+// Thresholds достаёт пороги из предупреждений службы.
+func Thresholds(ws []ipc.GuardWarning) []int {
+	out := make([]int, 0, len(ws))
+	for _, w := range ws {
+		out = append(out, w.Threshold)
+	}
+	return out
+}
+
+// LoginOutcome — итог проверки пароля родителя для модели и для сообщения под заголовком.
+type LoginOutcome struct {
+	Result  PasswordResult // что сообщить модели; имеет смысл, только если Decided
+	Decided bool           // служба дала определённый ответ: пароль верный, неверный или пауза
+	Notice  string         // что сказать человеку, если ответа по паролю нет (связи нет, сбой службы)
+}
+
+// LoginOutcomeOf разбирает итог команды Login. Пауза после серии ошибок приходит отказом с
+// LoginDenied.PauseS (R19); неверный пароль, с LoginDenied.AttemptsLeft. Отказ без этих данных
+// (программа не настроена, служба занята) и обрыв связи пароля не оценивают: показывается
+// текст службы или «Программа не отвечает».
+func LoginOutcomeOf(err error, now time.Time) LoginOutcome {
+	if err == nil {
+		return LoginOutcome{Result: PasswordResult{OK: true}, Decided: true}
+	}
+	var re *ipc.ReplyError
+	if errors.As(err, &re) && len(re.Payload) > 0 {
+		var d ipc.LoginDenied
+		if json.Unmarshal(re.Payload, &d) == nil && (d.PauseS > 0 || re.Field == ipc.FieldPassword) {
+			if d.PauseS > 0 {
+				return LoginOutcome{Decided: true, Result: PasswordResult{BlockedUntil: now.Add(time.Duration(d.PauseS) * time.Second)}}
+			}
+			return LoginOutcome{Decided: true, Result: PasswordResult{AttemptsLeft: d.AttemptsLeft}}
+		}
+	}
+	return LoginOutcome{Notice: failureText(err, textNoticeRetry)}
+}
+
+// failureText возвращает текст ошибки для человека: ответ службы как есть, обрыв связи
+// как «Программа не отвечает. Попробуйте ещё раз» (подробности канала не показываются, L-112),
+// иначе запасной текст.
+func failureText(err error, fallback string) string {
+	var re *ipc.ReplyError
+	if errors.As(err, &re) && re.Text != "" {
+		return re.Text
+	}
+	var ie *ipc.Error
+	if errors.As(err, &ie) {
+		return ie.Error() + ". Попробуйте ещё раз"
+	}
+	return fallback
+}
+
+// PollResult — итог одного опроса.
+type PollResult struct {
+	Err      error // нет ответа службы: модель подведена к «без связи»
+	Commands Commands
+}
+
+// PollOnce опрашивает службу один раз: снимок датчиков и накопленные события уходят в GuardPoll,
+// ответ идёт в модель. Нет ответа: события возвращаются в очередь, модель узнаёт о потере связи
+// (через 10 с экран и плашки снимаются, Ruling 15).
+func (c *Controller) PollOnce() PollResult {
+	c.ensureHello()
+	now := c.now()
+	req := ipc.GuardPollRequest{Sample: c.read(now), Events: c.takeEvents()}
+	var rep ipc.GuardPollReply
+	if err := ipc.Call(c.call, ipc.CmdGuardPoll, "", req, &rep); err != nil {
+		c.requeue(req.Events)
+		c.mu.Lock()
+		c.helloDone = false
+		c.mu.Unlock()
+		c.model.OnServiceUnreachable(c.now())
+		c.wake()
+		return PollResult{Err: err}
+	}
+
+	now = c.now()
+	cmds := ClassifyCommands(rep.Commands)
+	thr := Thresholds(rep.Warnings)
+	c.model.OnDecision(now, DecisionFromStatus(rep.Status), cmds.HideLock, thr)
+	for _, minutes := range cmds.NoticeMinutes {
+		c.model.OnExtraAdded(now, minutes)
+	}
+	v := c.model.View(now)
+
+	c.mu.Lock()
+	c.lastLock = rep.Status.Lock
+	if v.Warning != nil && v.Warning.ID != c.seenPlate {
+		c.seenPlate, c.curThr = v.Warning.ID, 0
+		if t := mostUrgent(thr); t != 0 && len(cmds.NoticeMinutes) == 0 {
+			c.curThr = t
+			c.addEventLocked(ipc.GuardEvent{Kind: ipc.GuardEvWarningShown, AtMs: now.UnixMilli(), Threshold: t})
+			c.shown = append(c.shown, ipc.ShownWarning{AtMs: now.UnixMilli(), Threshold: t, Text: v.Warning.Text})
+			if len(c.shown) > maxShownLog {
+				c.shown = c.shown[len(c.shown)-maxShownLog:]
+			}
+		}
+	}
+	for _, e := range c.model.TakeEvents() {
+		if e.Kind != EvGuardOffline {
+			continue
+		}
+		secs, _ := e.Details["seconds"].(int)
+		text, _ := e.Details["text"].(string)
+		c.addEventLocked(ipc.GuardEvent{Kind: EvKindOffline, AtMs: now.UnixMilli(), Threshold: secs, Detail: text})
+	}
+	for _, t := range cmds.Tests {
+		if c.testMode {
+			c.tests = append(c.tests, t)
+		}
+	}
+	c.mu.Unlock()
+	c.wake()
+	return PollResult{Commands: cmds}
+}
+
+// ensureHello один раз за соединение узнаёт у службы, включён ли тестовый режим. Ошибка не
+// важна: повторится при следующем опросе.
+func (c *Controller) ensureHello() {
+	c.mu.Lock()
+	done := c.helloDone
+	c.mu.Unlock()
+	if done {
+		return
+	}
+	var h ipc.HelloReply
+	if err := ipc.Call(c.call, ipc.CmdHello, "", nil, &h); err != nil {
+		return
+	}
+	c.mu.Lock()
+	c.helloDone, c.testMode = true, h.TestMode
+	c.mu.Unlock()
+}
+
+func (c *Controller) takeEvents() []ipc.GuardEvent {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	out := c.events
+	c.events = nil
+	if out == nil {
+		out = []ipc.GuardEvent{}
+	}
+	return out
+}
+
+// requeue возвращает неотправленные события в начало очереди.
+func (c *Controller) requeue(evs []ipc.GuardEvent) {
+	if len(evs) == 0 {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.events = append(append([]ipc.GuardEvent{}, evs...), c.events...)
+	if over := len(c.events) - maxQueuedEvents; over > 0 {
+		c.events = c.events[over:]
+	}
+}
+
+func (c *Controller) addEventLocked(e ipc.GuardEvent) {
+	c.events = append(c.events, e)
+	if over := len(c.events) - maxQueuedEvents; over > 0 {
+		c.events = c.events[over:]
+	}
+}
+
+// View подводит модель к настоящему моменту и возвращает, что показать. Зовёт окно: по
+// таймеру и по сигналу wake. Заодно ведёт события «экран показан/снят».
+func (c *Controller) View() View {
+	now := c.now()
+	c.model.Tick(now)
+	v := c.model.View(now)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if v.LockShown != c.lockWas {
+		kind := ipc.GuardEvLockHidden
+		if v.LockShown {
+			kind = ipc.GuardEvLockShown
+		}
+		c.addEventLocked(ipc.GuardEvent{Kind: kind, AtMs: now.UnixMilli()})
+		c.lockWas = v.LockShown
+	}
+	c.last = v
+	return v
+}
+
+// Notice возвращает короткий ответ под заголовком экрана («Не удалось выполнить…»); пусто,
+// если ответа нет или он устарел.
+func (c *Controller) Notice() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.notice == "" || !c.now().Before(c.noticeEnd) {
+		c.notice = ""
+		return ""
+	}
+	return c.notice
+}
+
+func (c *Controller) setNotice(text string) {
+	c.mu.Lock()
+	c.notice, c.noticeEnd = text, c.now().Add(noticeLife)
+	c.mu.Unlock()
+}
+
+// actsOnService: нажатие этой кнопки может отправить команду службе. Пока команда идёт,
+// такие нажатия игнорируются: пароль не проверится дважды, время не добавится дважды.
+func actsOnService(b Button) bool {
+	switch b {
+	case ButtonSubmitPassword, ButtonAdd15, ButtonAdd30, ButtonAdd60, ButtonClearBlock,
+		ButtonOpenSettings, ButtonConfirmLogoff:
+		return true
+	}
+	return false
+}
+
+// Press передаёт нажатие кнопки модели и записывает событие. Возвращённое действие надо
+// выполнить через Run (в отдельной горутине: ответ службы может прийти не сразу), даже если оно
+// пустое. password нужен только для ButtonSubmitPassword и в события не попадает.
+func (c *Controller) Press(b Button, password string) Action {
+	c.mu.Lock()
+	if c.busy && actsOnService(b) {
+		c.mu.Unlock()
+		return Action{}
+	}
+	c.mu.Unlock()
+	now := c.now()
+	act := c.model.Press(now, b, password)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if name := TargetName(b); name != "" {
+		c.addEventLocked(ipc.GuardEvent{Kind: ipc.GuardEvButton, AtMs: now.UnixMilli(), Button: name})
+	}
+	if b == ButtonWarningOK && c.curThr != 0 {
+		c.addEventLocked(ipc.GuardEvent{Kind: ipc.GuardEvWarningAck, AtMs: now.UnixMilli(), Threshold: c.curThr})
+		c.curThr = 0
+	}
+	if act.Kind != ActNone {
+		c.busy = true
+	}
+	return act
+}
+
+// Run выполняет действие, которое вернул Press: команда службе и разбор ответа. Блокирует до
+// ответа (до 10 с без связи), поэтому зовётся не из потока окна.
+func (c *Controller) Run(act Action) {
+	if act.Kind == ActNone {
+		return
+	}
+	defer func() {
+		c.mu.Lock()
+		c.busy = false
+		c.mu.Unlock()
+		c.Kick()
+		c.wake()
+	}()
+	switch act.Kind {
+	case ActCheckPassword:
+		err := ipc.Call(c.call, ipc.CmdLogin, "", ipc.LoginRequest{Password: act.Password}, nil)
+		now := c.now()
+		out := LoginOutcomeOf(err, now)
+		if out.Decided {
+			c.model.OnPasswordResult(now, out.Result)
+		}
+		if out.Notice != "" {
+			c.setNotice(out.Notice)
+		}
+	case ActAddExtra:
+		if err := ipc.Call(c.call, ipc.CmdAddExtra, "", ipc.AddExtraRequest{Minutes: act.Minutes}, nil); err != nil {
+			c.setNotice(failureText(err, textNoticeRetry))
+			return
+		}
+		c.model.OnExtraAdded(c.now(), act.Minutes)
+	case ActClearBlock:
+		if err := ipc.Call(c.call, ipc.CmdClearBlock, "", ipc.ChildRequest{}, nil); err != nil {
+			c.setNotice(failureText(err, textNoticeRetry))
+		}
+	case ActOpenSettings:
+		if err := ipc.Call(c.call, ipc.CmdOpenWindow, "", ipc.OpenWindowRequest{Kind: ipc.WindowParent}, nil); err != nil {
+			c.setNotice(failureText(err, textNoticeRetry))
+		}
+	case ActLogoff:
+		if err := ipc.Call(c.call, ipc.CmdGuardLogoff, "", nil, nil); err != nil {
+			c.setNotice(failureText(err, textNoticeLogoff))
+		}
+	}
+}
+
+// QueuedTests отдаёт накопленные действия TestGuard (пусто вне тестового режима).
+func (c *Controller) QueuedTests() []ipc.TestGuardAction {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	out := c.tests
+	c.tests = nil
+	return out
+}
+
+// SetField запоминает текст поля для GuardState; только в тестовом режиме, иначе то, что
+// набрано в поле пароля, нигде не хранится.
+func (c *Controller) SetField(id, text string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if !c.testMode {
+		return
+	}
+	c.fields[id] = text
+}
+
+// StateFromView собирает ответ GuardState: что страж показывает сейчас. Все срезы не nil.
+func StateFromView(v View, lockKind string, shown []ipc.ShownWarning, fields map[string]string) ipc.GuardStateReply {
+	st := ipc.GuardStateReply{
+		Warnings:  append([]ipc.ShownWarning{}, shown...),
+		LockShown: v.LockShown, LockKind: ipc.LockNone,
+		Buttons: []string{}, Fields: []ipc.GuardField{},
+	}
+	if v.LockShown && lockKind != "" {
+		st.LockKind = lockKind
+	}
+	add := func(list []ButtonView) {
+		for _, b := range list {
+			if name := TargetName(b.Button); name != "" {
+				st.Buttons = append(st.Buttons, name)
+			}
+		}
+	}
+	add(v.Buttons)
+	add(v.Choices)
+	if v.Warning != nil {
+		add(v.Warning.Buttons)
+	}
+	if v.Panel == PanelPassword {
+		st.Fields = append(st.Fields, ipc.GuardField{ID: FieldPasswordID, Text: fields[FieldPasswordID]})
+	}
+	return st
+}
+
+// PushState в тестовом режиме отправляет службе вид стража (GuardState), если он изменился
+// с прошлой отправки. Зовёт горутина опроса после PollOnce.
+func (c *Controller) PushState() {
+	c.mu.Lock()
+	if !c.testMode {
+		c.mu.Unlock()
+		return
+	}
+	st := StateFromView(c.last, c.lastLock, c.shown, c.fields)
+	c.mu.Unlock()
+	raw, err := json.Marshal(st)
+	if err != nil {
+		return
+	}
+	c.mu.Lock()
+	same := string(raw) == string(c.sentState)
+	c.mu.Unlock()
+	if same {
+		return
+	}
+	if err := ipc.Call(c.call, ipc.CmdGuardState, "", st, nil); err != nil {
+		return
+	}
+	c.mu.Lock()
+	c.sentState = raw
+	c.mu.Unlock()
+}
