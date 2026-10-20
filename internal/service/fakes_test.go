@@ -362,6 +362,8 @@ type fakeLauncher struct {
 	launchErr error
 	failNext  int // следующие N запусков не удаются
 	logoffs   []uint32
+	shutdowns int               // сколько раз просили выключить компьютер
+	switches  []uint32          // сеансы, которым просили сменить пользователя
 	stamps    map[uint32]uint64 // PID -> момент создания; нет записи: процесса нет
 	killed    []uint32          // PID, завершённые через KillStale
 	stale     map[uint32]uint64 // PID -> stamp, которые KillStale считает «теми же»
@@ -401,6 +403,20 @@ func (l *fakeLauncher) Logoff(session uint32) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.logoffs = append(l.logoffs, session)
+	return nil
+}
+
+func (l *fakeLauncher) Shutdown() error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.shutdowns++
+	return nil
+}
+
+func (l *fakeLauncher) SwitchUser(session uint32) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.switches = append(l.switches, session)
 	return nil
 }
 

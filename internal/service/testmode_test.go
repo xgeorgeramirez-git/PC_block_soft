@@ -75,6 +75,10 @@ func TestParseTestModeRejectsGarbage(t *testing.T) {
 		{"ClockStart": "вчера"},
 		{"ClockRealStart": "2026-13-45T00:00:00Z"},
 		{"TestChildSID": "pcbtest"},
+		{"LockAutoSwitchS": "0"},
+		{"LockAutoSwitchS": "-1"},
+		{"LockAutoSwitchS": "901"},
+		{"LockAutoSwitchS": "скоро"},
 	}
 	for _, v := range bad {
 		_, err := ParseTestMode(v, tzMSK)
@@ -141,5 +145,20 @@ func TestTestModeClockWithoutRealStartBeginsAtClockStart(t *testing.T) {
 	c := TestMode{Enabled: true, ClockSpeed: 60, ClockStart: start}.NewClock(time.Now)
 	if d := c.Now().Sub(start); d < 0 || d > 5*time.Second*60 {
 		t.Fatalf("сдвиг от ClockStart %v, ждали почти 0", d)
+	}
+}
+
+// Ловит: срок автосмены пользователя из реестра читается не в то поле, принимается больше
+// 15 минут (тестовый режим только сокращает срок) или по умолчанию не нулевой.
+func TestParseTestModeLockAutoSwitch(t *testing.T) {
+	def, err := ParseTestMode(map[string]string{}, tzMSK)
+	if err != nil || def.LockAutoSwitchS != 0 {
+		t.Fatalf("по умолчанию: %+v, %v", def, err)
+	}
+	for in, want := range map[string]int{" 20 ": 20, "1": 1, "900": 900} {
+		tm, err := ParseTestMode(map[string]string{"LockAutoSwitchS": in}, tzMSK)
+		if err != nil || tm.LockAutoSwitchS != want {
+			t.Fatalf("%q: %+v, %v; ждали %d", in, tm, err, want)
+		}
 	}
 }

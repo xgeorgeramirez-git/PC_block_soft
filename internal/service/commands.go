@@ -211,8 +211,10 @@ func init() {
 		ipc.CmdMyToday:      {users(), (*Service).hMyToday},
 		ipc.CmdFirstRunSeen: {users(), (*Service).hFirstRunSeen},
 
-		ipc.CmdGuardPoll:   {kinds(kindGuard), (*Service).hGuardPoll},
-		ipc.CmdGuardLogoff: {kinds(kindGuard), (*Service).hGuardLogoff},
+		ipc.CmdGuardPoll:       {kinds(kindGuard), (*Service).hGuardPoll},
+		ipc.CmdGuardLogoff:     {kinds(kindGuard), (*Service).hGuardLogoff},
+		ipc.CmdGuardShutdown:   {kinds(kindGuard), (*Service).hGuardShutdown},
+		ipc.CmdGuardSwitchUser: {kinds(kindGuard), (*Service).hGuardSwitchUser},
 
 		ipc.CmdTrayClosing: {users(), (*Service).hTrayClosing},
 

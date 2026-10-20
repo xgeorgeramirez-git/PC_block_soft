@@ -115,6 +115,10 @@ type Service struct {
 	guardCmd map[uint32][]ipc.GuardCommand
 	guardUI  map[uint32]*guardView
 
+	// testExits — выходы с экрана блокировки, которые в тестовом режиме запрошены, но не
+	// выполнены (Exit*, по порядку); читаются через GuardState.
+	testExits []string
+
 	names map[int64]string // имена всех известных детей, в том числе убранных: для журнала
 
 	clockPaused bool

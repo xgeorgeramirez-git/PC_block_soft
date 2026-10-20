@@ -15,7 +15,8 @@
 //   - testmode_windows.go: чтение HKLM\SOFTWARE\PCBlock\TestMode (Ruling 4);
 //   - sessions_windows.go, proc_windows.go: SessionLauncher над winsession: сеансы, запуск
 //     стража от имени системы и значка с окнами от имени пользователя, ручки процессов,
-//     момент создания процесса (пара PID и момент не повторяется), WTSLogoffSession;
+//     момент создания процесса (пара PID и момент не повторяется), WTSLogoffSession,
+//     WTSDisconnectSession (смена пользователя), ExitWindowsEx (выключение);
 //   - admincheck_windows.go: AdminChecker (R1, NetUserGetLocalGroups с косвенным членством) и
 //     список локальных учёток для мастера;
 //   - policy_windows.go: политика Диспетчера задач DisableTaskMgr (FR-29, Ruling 20), при

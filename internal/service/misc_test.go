@@ -281,6 +281,52 @@ func TestGuardLogoffFailureIsFriendly(t *testing.T) {
 	}
 }
 
+// Ловит: ошибка выключения или смены пользователя возвращает ребёнку технический текст WTS.
+func TestGuardExitFailuresAreFriendly(t *testing.T) {
+	h := newHarness(t, withChild(childSID, "Миша", 120))
+	h.start()
+	h.childLogsIn()
+	h.svc.cfg.Launcher = &exitsFailLauncher{fakeLauncher: h.launcher}
+	for _, cmd := range []string{ipc.CmdGuardShutdown, ipc.CmdGuardSwitchUser} {
+		rep := h.fail(guardPeer(), "", cmd, nil)
+		if rep.Error != textRetry || strings.Contains(rep.Error, "WTS") || strings.Contains(rep.Error, "отказано") {
+			t.Fatalf("%s: ответ %q", cmd, rep.Error)
+		}
+	}
+	if !strings.Contains(h.logText(), "отказано") {
+		t.Errorf("причина сбоя не попала в журнал работы:\n%s", h.logText())
+	}
+}
+
+type exitsFailLauncher struct{ *fakeLauncher }
+
+func (l *exitsFailLauncher) Shutdown() error {
+	return errors.New("InitiateSystemShutdownEx: отказано")
+}
+
+func (l *exitsFailLauncher) SwitchUser(uint32) error {
+	return errors.New("WTSDisconnectSession: отказано")
+}
+
+// Ловит: срок автосмены из тестового режима не доходит до стража через Hello или попадает в
+// обычный режим.
+func TestHelloCarriesAutoSwitchOnlyInTestMode(t *testing.T) {
+	h := newHarness(t, configured(), withTestMode(TestMode{ClockSpeed: 1, LockAutoSwitchS: 20}))
+	h.start()
+	var hr ipc.HelloReply
+	h.ok(guardPeer(), "", ipc.CmdHello, nil, &hr)
+	if hr.AutoSwitchS != 20 {
+		t.Fatalf("AutoSwitchS = %d, ждали 20", hr.AutoSwitchS)
+	}
+	h2 := newHarness(t, configured(), func(h *harness) { h.cfg.Test = TestMode{LockAutoSwitchS: 20} })
+	h2.start()
+	var hr2 ipc.HelloReply
+	h2.ok(guardPeer(), "", ipc.CmdHello, nil, &hr2)
+	if hr2.AutoSwitchS != 0 {
+		t.Fatalf("вне тестового режима AutoSwitchS = %d, ждали 0", hr2.AutoSwitchS)
+	}
+}
+
 type logoffFailLauncher struct{ *fakeLauncher }
 
 func (l *logoffFailLauncher) Logoff(uint32) error {
