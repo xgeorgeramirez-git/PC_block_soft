@@ -16,6 +16,9 @@ const (
 // ErrExtraRange — доп. время вне 1…240 минут.
 var ErrExtraRange = errors.New("доп. время: можно от 1 до 240 минут")
 
+// ErrPausePast — конец паузы не позже текущего момента.
+var ErrPausePast = errors.New("пауза: конец должен быть в будущем")
+
 // Decision — решение ядра на этот момент: что показать стражу и значку. Цифры и тексты —
 // единственный источник для значка, мини-панели, «Моей статистики» и карточки родителя
 // (Review Focus 5).
@@ -53,6 +56,8 @@ type Engine struct {
 	pending  []Event
 	started  time.Time // начало учёта — первый тик (отсчёт сохранений, G10)
 	saveSlot int       // последний 30-секундный отрезок, на который ответили «сохранить»
+
+	pauseWasActive bool // пауза была активна на прошлом тике (для события EvPauseEnd)
 }
 
 // NewEngine создаёт ядро ребёнка. loc — местный пояс (сутки и дни недели; nil —
@@ -80,7 +85,10 @@ func (e *Engine) Tick(s SessionSample) Decision {
 		e.started = now
 	}
 	closed := e.advance(now)
+	e.checkPauseEnd(now)
 	d := e.decide(e.acc.State(), true)
+	// Пауза снимает все ограничения, но учёт идёт (R11): секунда засчитывается, даже если
+	// без паузы здесь была бы блокировка. Блокирует учёт только показанный экран.
 	e.acc.Tick(now, s, d.Lock != LockNone)
 	return e.finish(d, closed)
 }
@@ -110,6 +118,41 @@ func (e *Engine) AddExtra(min int) (Decision, error) {
 	e.acc.AddExtra(min)
 	e.rearm()
 	e.pending = append(e.pending, Event{Kind: EvExtraTime, Details: map[string]any{"minutes": min, "text": ExtraText(min)}})
+	return e.finish(e.decide(e.acc.State(), false), closed), nil
+}
+
+// Pause ставит паузу до момента until (R11): пока активна, блокировки не показываются,
+// статус «пауза», учёт идёт. Пороги предупреждений взводятся на конец паузы (G11).
+// until в прошлом паузу не ставит. Событие EvPause в журнал.
+func (e *Engine) Pause(until time.Time) (Decision, error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	closed := e.advance(e.now())
+	if !until.After(e.now()) {
+		return e.finish(e.decide(e.acc.State(), false), closed), ErrPausePast
+	}
+	ms := until.UnixMilli()
+	e.acc.SetPause(&ms)
+	e.pauseWasActive = true
+	e.rearm()
+	e.pending = append(e.pending, Event{Kind: EvPause, Details: map[string]any{"until_ms": ms, "text": PauseText(e.now(), until)}})
+	return e.finish(e.decide(e.acc.State(), false), closed), nil
+}
+
+// SpendBonus тратит min минут из копилки (R10, FR-11): увеличивает доп. время на сегодня
+// (как AddExtra), снимает блокировку «время вышло», если остаток стал больше нуля; пороги
+// взводятся заново. Баланс копилки ядро не хранит — проверку и запись в журнал бонусов
+// делает служба; ядро получает уже одобренные минуты. Событие EvBonusSpent.
+func (e *Engine) SpendBonus(min int) (Decision, error) {
+	if min < 1 || min > MaxExtraMin {
+		return e.Current(), ErrExtraRange
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	closed := e.advance(e.now())
+	e.acc.AddExtra(min)
+	e.rearm()
+	e.pending = append(e.pending, Event{Kind: EvBonusSpent, Details: map[string]any{"minutes": min, "text": BonusSpentText(min)}})
 	return e.finish(e.decide(e.acc.State(), false), closed), nil
 }
 
@@ -189,6 +232,8 @@ func (e *Engine) advance(now time.Time) *DayState {
 	if !e.acc.Advance(now) {
 		return nil
 	}
+	// Новый день начинается без паузы (R16): «до конца дня» и любая пауза закончились.
+	e.pauseWasActive = false
 	e.rearm()
 	closed := e.acc.ClosedDays()
 	if len(closed) == 0 {
@@ -199,6 +244,23 @@ func (e *Engine) advance(now time.Time) *DayState {
 		"day": c.Day, "total_s": c.TotalS, "games_s": c.GamesS, "video_s": c.VideoS, "study_s": c.StudyS, "extra_min": c.ExtraMin,
 	}})
 	return &c
+}
+
+// checkPauseEnd ловит окончание паузы: если пауза была активна и момент now уже не
+// раньше её конца, пороги взводятся заново на новое ближайшее событие (R9, G11), а в
+// журнал уходит EvPauseEnd. Истёкший момент паузы из состояния не стирается — он
+// безвреден (decide и nextEvent сверяют с now) и уйдёт сам при смене суток.
+func (e *Engine) checkPauseEnd(now time.Time) {
+	if !e.pauseWasActive {
+		return
+	}
+	st := e.acc.State()
+	until, ok := e.pauseUntil(st)
+	if !ok || !now.Before(until) {
+		e.pauseWasActive = false
+		e.rearm()
+		e.pending = append(e.pending, Event{Kind: EvPauseEnd, Details: map[string]any{"text": PauseEndText}})
+	}
 }
 
 // limitFor возвращает лимит и день недели дня day; день не разобран — без лимита.
@@ -288,7 +350,12 @@ func (e *Engine) decide(st DayState, fire bool) Decision {
 		d.Until = UntilBypass
 	case paused:
 		// Пауза снимает все ограничения (R11); учёт идёт (Tick засчитывает секунды).
+		// Предупреждения о конце паузы срабатывают во время паузы (G11).
 		d.Status = StatusPaused
+		if fire {
+			deltaS, _, _ := e.nextEvent(st, now)
+			d.Warning, d.WarningEvent = e.warn.fire(deltaS)
+		}
 	case inForbidden:
 		d.Lock, d.Status, d.Reason = LockForbidden, StatusForbidden, ReasonForbidden
 		d.Until = UntilForbidden(now, forbiddenEnd)

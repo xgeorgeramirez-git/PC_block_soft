@@ -118,3 +118,21 @@ func startOfDayAfter(now time.Time, k int) time.Time {
 
 // ExtraText — запись журнала о доп. времени, как в эталоне G7: «Доп. время +30 мин».
 func ExtraText(min int) string { return fmt.Sprintf("Доп. время +%d мин", min) }
+
+// PauseText — запись журнала о паузе, как в эталоне G11: «Пауза 1 ч». Длительность —
+// от now до until, округляется к ближайшей читаемой величине (минуты/часы).
+func PauseText(now, until time.Time) string {
+	min := int(until.Sub(now).Minutes())
+	if min < 0 {
+		min = 0
+	}
+	return "Пауза " + FormatLimit(min)
+}
+
+// PauseEndText — запись журнала об окончании паузы (R11).
+const PauseEndText = "Пауза закончилась"
+
+// BonusSpentText — запись журнала о трате из копилки (FR-11): «Взято из копилки 30 мин».
+func BonusSpentText(min int) string {
+	return fmt.Sprintf("Взято из копилки %d мин", min)
+}
