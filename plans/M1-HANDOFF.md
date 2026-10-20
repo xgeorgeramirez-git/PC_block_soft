@@ -47,7 +47,12 @@
 
 ## Начало сессии (инвентаризация)
 
-1. Скиллы: dev-methodology (вход B), git-guru.
+1. Скиллы — по строке «Skills to load» в шапке `plans/2026-10-18-M1.md` и по `SKILLS.md`:
+   - сразу: **dev-methodology** (вход B, Фаза 3 — исполнение вехи) и **git-guru** (коммиты);
+   - при фикс-раундах экранов: **uiux-design** (режим «рабочее приложение», ТЗ 8.0) и **in-app-guidance** (каждая новая или изменённая функция попадает в пул подсказок Помощника; гейт «да» — D-37);
+   - когда готовы снимки T16: **usability-heuristics** (UX-аудит) и агент **visual-reviewer** (снимки разбирает только он, главный агент картинки не читает);
+   - на ревью диффа интерфейса: **web-design-guidelines**.
+   Скилл сверх списка — запись Ruling в ledger с причиной.
 2. Репозиторий: если клона нет — `add_repo` (owner `xgeorgeramirez-git`, repo `PC_block_soft`, access push) и клон в `/home/claude/pc_block_soft`. Клон неглубокий: ветки забирать явно — `git fetch origin +refs/heads/feature/m1-time-limit:refs/remotes/origin/feature/m1-time-limit`.
 3. Деревья (они живут только внутри сессии, их надо создавать заново): основное `/home/claude/pc_block_soft` на `feature/m1-time-limit` — для писателя кода; документы — `git worktree add ../pc_block_soft-docs main` — оркестратор коммитит туда план, ledger, реестр, пульт, ТЗ.
 4. `git status`, `git log origin/<ветка>..HEAD`, `gh run list --branch feature/m1-time-limit --limit 6` — ничего не потерять, сверить с этим файлом.
@@ -66,4 +71,4 @@
 
 ## Промпт для новой сессии (заказчику — вставить как первое сообщение)
 
-> Продолжи веху M1 проекта PC_block_soft (https://github.com/xgeorgeramirez-git/PC_block_soft) как оркестратор по методике dev-methodology, вход B. Всё состояние и правила — в репозитории: прочитай `CLAUDE.md`, затем `plans/M1-HANDOFF.md` и действуй по нему. Отвечай мне по-русски и просто. Блокировки на моём компьютере не запускать.
+> Продолжи веху M1 проекта PC_block_soft (https://github.com/xgeorgeramirez-git/PC_block_soft) как оркестратор. Первым делом загрузи скилл dev-methodology (вход B) и git-guru; остальные скиллы подключай по списку из `plans/M1-HANDOFF.md`, раздел «Начало сессии». Всё состояние и правила — в репозитории: прочитай `CLAUDE.md`, затем `plans/M1-HANDOFF.md` и действуй по нему. Отвечай мне по-русски и просто. Программу и её блокировки на моём компьютере не устанавливать и не запускать: испытания — только на временных машинах Windows в GitHub (CI).
