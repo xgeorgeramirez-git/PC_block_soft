@@ -120,7 +120,9 @@ jobs:
           $lnk = Get-ChildItem $lnkDir -Filter "*сброс пароля родителя*.lnk" -ErrorAction SilentlyContinue | Select-Object -First 1
           if (-not $lnk) { Write-Host "::error::Нет ярлыка сброса пароля в меню Пуск ($lnkDir)"; exit 1 }
           # В .lnk цель и ключи лежат строками UTF-16: читаем файл как есть, не через COM.
-          $lnkText = [Text.Encoding]::Unicode.GetString([IO.File]::ReadAllBytes($lnk.FullName))
+          # Смещение строки в файле может быть нечётным, поэтому читаем с обоих смещений и как ANSI.
+          $lnkBytes = [IO.File]::ReadAllBytes($lnk.FullName)
+          $lnkText = [Text.Encoding]::Unicode.GetString($lnkBytes) + [Text.Encoding]::Unicode.GetString($lnkBytes, 1, $lnkBytes.Length - 1) + [Text.Encoding]::Latin1.GetString($lnkBytes)
           if ($lnkText -notmatch [regex]::Escape("--reset-password") -or $lnkText -notmatch [regex]::Escape("PCBlock.exe")) {
             Write-Host "::error::Ярлык сброса пароля ведёт не туда: в $($lnk.FullName) ($($lnk.Length) б) нет --reset-password или PCBlock.exe"; exit 1
           }
