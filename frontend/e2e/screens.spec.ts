@@ -289,8 +289,9 @@ test("s08 приглашение и тур", async ({ page }) => {
   await page.goto("/");
   const invite = page.getByRole("status").filter({ hasText: "Короткий тур по окну родителя" });
   await expect(invite).toBeVisible();
-  // Карточка в потоке страницы: меню и «Сегодня» по-прежнему доступны.
-  await expect(page.getByRole("button", { name: "Сегодня" })).toBeVisible();
+  // Карточка в потоке страницы: меню по-прежнему доступно. Имя кнопки берём точное и только из меню:
+  // «Нарушения сегодня: N» на главной тоже содержит это слово.
+  await expect(page.getByRole("navigation", { name: "Разделы" }).getByRole("button", { name: "Сегодня", exact: true })).toBeVisible();
   await noHorizontalScroll(page);
   await page.screenshot({ path: `${SCREENS}/s08-helper-invite.png`, fullPage: true });
   await invite.getByRole("button", { name: "Начать" }).click();
