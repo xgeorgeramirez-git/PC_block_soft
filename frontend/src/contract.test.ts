@@ -64,6 +64,19 @@ const CASES: [string, string, (req: any) => Promise<unknown>][] = [
   ["MyToday", "MyToday", () => api.myToday()],
   ["MyToday", "MyToday#empty", () => api.myToday()],
   ["FirstRunSeen", "FirstRunSeen", () => api.firstRunSeen()],
+  ["GetSchedule", "GetSchedule", (r) => api.getSchedule(r.childId)],
+  ["GetSchedule", "GetSchedule#empty", (r) => api.getSchedule(r.childId)],
+  ["SaveSchedule", "SaveSchedule", (r) => api.saveSchedule(r.childId, r.intervals)],
+  ["Pause", "Pause", (r) => api.pause(r.childId, r.preset)],
+  ["PauseAll", "PauseAll", (r) => api.pauseAll(r.preset)],
+  ["PauseAll", "PauseAll#empty", (r) => api.pauseAll(r.preset)],
+  ["GrantBonus", "GrantBonus", (r) => api.grantBonus(r.childId, r.minutes, r.reason)],
+  ["UndoBonus", "UndoBonus", (r) => api.undoBonus(r.childId, r.bonusId)],
+  ["GetBonus", "GetBonus", (r) => api.getBonus(r.childId)],
+  ["GetBonus", "GetBonus#empty", (r) => api.getBonus(r.childId)],
+  ["CopyRules", "CopyRules", (r) => api.copyRules(r.fromChildId, r.toChildId)],
+  ["AskMore", "AskMore", (r) => api.askMore(r.childId, r.minutes, r.password)],
+  ["SpendBonus", "SpendBonus", (r) => api.spendBonus(r.childId, r.minutes)],
 ];
 
 describe("успешные ответы контракта", () => {
@@ -115,6 +128,10 @@ describe("отказы контракта", () => {
     ["AddExtra", "AddExtra#invalid", (r) => api.addExtra(r.childId, r.minutes)],
     ["SaveLimits", "SaveLimits#invalid", (r) => api.saveLimits(r.childId, r.limits as WeekdayLimit[])],
     ["Setup", "Setup#invalid", (r) => api.setup(r.password, r.children)],
+    ["SaveSchedule", "SaveSchedule#invalid", (r) => api.saveSchedule(r.childId, r.intervals)],
+    ["GrantBonus", "GrantBonus#invalid", (r) => api.grantBonus(r.childId, r.minutes, r.reason)],
+    ["AskMore", "AskMore#denied", (r) => api.askMore(r.childId, r.minutes, r.password)],
+    ["SpendBonus", "SpendBonus#forbidden", (r) => api.spendBonus(r.childId, r.minutes)],
   ];
 
   it.each([...denied, ...extra])("%s: пример %s - отказ с текстом и полем", async (_command, key, run) => {

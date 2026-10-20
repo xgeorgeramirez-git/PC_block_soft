@@ -30,13 +30,15 @@ export type StatusKind =
   | "ok"
   | "low"
   | "timeUp"
+  | "forbidden"
   | "bypass"
   | "unlimited"
+  | "paused"
   | "safe"
   | "admin"
   | "notChild";
 
-export type LockKind = "none" | "timeUp" | "bypass";
+export type LockKind = "none" | "timeUp" | "forbidden" | "bypass";
 
 export interface ChildStatus {
   name: string;
@@ -54,6 +56,7 @@ export interface ChildStatus {
   reason: string;
   detail: string;
   until: string;
+  pauseUntil: string;
   used: string;
 }
 
@@ -252,4 +255,131 @@ export interface MyTodayReply {
   /** Строки «Сегодня». */
   today: string[];
   rules: MyRule[];
+}
+
+// --- M2: расписание, пауза, копилка ---------------------------------------
+
+/** Запретный интервал расписания (R7): день недели 1=пн..7=вс, минуты от полуночи. */
+export interface Interval {
+  weekday: number;
+  startMin: number;
+  endMin: number;
+}
+
+export interface GetScheduleRequest {
+  childId: number;
+}
+
+export interface GetScheduleReply {
+  childId: number;
+  intervals: Interval[];
+}
+
+export interface SaveScheduleRequest {
+  childId: number;
+  intervals: Interval[];
+}
+
+export interface SaveScheduleReply {
+  intervals: Interval[];
+  card: TodayCard;
+  message: string;
+}
+
+/** Срок паузы (R11): 15 мин, 1 ч, 2 ч, до конца дня. */
+export type PausePreset = "min15" | "hour1" | "hour2" | "endOfDay";
+
+export interface PauseRequest {
+  childId: number;
+  preset: PausePreset;
+}
+
+export interface PauseReply {
+  card: TodayCard;
+  message: string;
+}
+
+export interface PauseAllRequest {
+  preset: PausePreset;
+}
+
+export interface PauseAllReply {
+  children: TodayCard[];
+  message: string;
+}
+
+export interface GrantBonusRequest {
+  childId: number;
+  minutes: number;
+  reason: string;
+}
+
+export interface GrantBonusReply {
+  balanceAfter: number;
+  message: string;
+  bonusId: string;
+  undoUntilMs: number;
+}
+
+export interface UndoBonusRequest {
+  childId: number;
+  bonusId: string;
+}
+
+export interface UndoBonusReply {
+  balanceAfter: number;
+  message: string;
+}
+
+/** Запись истории копилки (FR-22). */
+export interface BonusEntry {
+  atMs: number;
+  tzOffsetMin: number;
+  /** + начисление, - трата. */
+  deltaMin: number;
+  reason: string;
+  balanceAfter: number;
+}
+
+export interface GetBonusRequest {
+  childId: number;
+}
+
+export interface GetBonusReply {
+  childId: number;
+  balance: number;
+  entries: BonusEntry[];
+}
+
+export interface CopyRulesRequest {
+  fromChildId: number;
+  toChildId: number;
+}
+
+export interface CopyRulesReply {
+  limits: WeekdayLimit[];
+  intervals: Interval[];
+  message: string;
+}
+
+export interface AskMoreRequest {
+  childId: number;
+  minutes: number;
+  password: string;
+}
+
+export interface AskMoreReply {
+  card: TodayCard;
+  message: string;
+}
+
+export interface SpendBonusRequest {
+  childId: number;
+  minutes: number;
+}
+
+export interface SpendBonusReply {
+  card: TodayCard;
+  message: string;
+  balanceAfter: number;
 }
