@@ -55,6 +55,13 @@ Invoke-Scenario "S1" "Установка, мастер и значок «120»" 
     Wait-Until { (Get-ServiceState) -eq "Running" } 20 "служба работает после закрытия окна мастера"
   }
 
+  $script:MemBefore = $null
+  Step "Память службы до настройки (для сравнения, не проверяется)" {
+    $m = Get-MemoryInfo (Get-ServicePid)
+    $script:MemBefore = "служба до настройки: рабочий набор $($m.Ws), личный $($m.Private), личные байты $($m.Bytes)"
+    Write-Log "Память, МБ: $($script:MemBefore)"
+  }
+
   $sw = [Diagnostics.Stopwatch]::StartNew()
   Step "Первичная настройка, как в мастере: пароль, ребёнок «Тест», 2 ч на каждый день" {
     Invoke-Setup 120
@@ -85,6 +92,7 @@ Invoke-Scenario "S1" "Установка, мастер и значок «120»" 
     }
     $sw = [Diagnostics.Stopwatch]::StartNew()
     $over = @()
+    $samples = @($script:MemBefore)
     while ($true) {
       $over = @()
       $line = @()
@@ -93,11 +101,15 @@ Invoke-Scenario "S1" "Установка, мастер и значок «120»" 
         $line += "$name рабочий набор $($m.Ws), личный $($m.Private), личные байты $($m.Bytes)"
         if ($m.Private -gt $limits[$name]) { $over += "$name $($m.Private) МБ при пределе $($limits[$name])" }
       }
+      $samples += ("через {0:N0} с: {1}" -f $sw.Elapsed.TotalSeconds, ($line -join "; "))
       Write-Log ("Память, МБ ({0:N0} с): {1}" -f $sw.Elapsed.TotalSeconds, ($line -join "; "))
       if ($over.Count -eq 0 -or $sw.Elapsed.TotalSeconds -gt 90) { break }
       Start-Sleep -Seconds 6
     }
-    Assert-That ($over.Count -eq 0) ("Память в простое выше предела через {0:N0} с: {1}" -f $sw.Elapsed.TotalSeconds, ($over -join "; "))
+    if ($over.Count -gt 0) {
+      foreach ($l in $samples) { Write-Fail "замер памяти, МБ: $l" }
+      throw ("Память в простое выше предела через {0:N0} с: {1}" -f $sw.Elapsed.TotalSeconds, ($over -join "; "))
+    }
   }
 
   Step "Запрет Диспетчера задач у ребёнка (DisableTaskMgr = 1)" {
