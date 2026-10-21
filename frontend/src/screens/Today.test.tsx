@@ -145,6 +145,8 @@ describe("Today: карточка ребёнка", () => {
               detail: "",
               until: "",
               pauseUntil: "",
+              bonusBalance: 0,
+              forbiddenNote: "",
               used: "",
             },
             extraMin: 0,

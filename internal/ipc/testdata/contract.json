@@ -28,7 +28,9 @@
             "detail": "",
             "until": "",
             "pauseUntil": "",
-            "used": "Сегодня: 35 мин из 2 ч"
+            "used": "Сегодня: 35 мин из 2 ч",
+            "bonusBalance": 0,
+            "forbiddenNote": ""
           },
           "extraMin": 30,
           "bonusBalance": 0,
@@ -81,7 +83,9 @@
             "detail": "",
             "until": "",
             "pauseUntil": "",
-            "used": "Сегодня: 35 мин из 2 ч"
+            "used": "Сегодня: 35 мин из 2 ч",
+            "bonusBalance": 0,
+            "forbiddenNote": ""
           },
           "extraMin": 30,
           "bonusBalance": 0,
@@ -145,7 +149,9 @@
             "detail": "",
             "until": "",
             "pauseUntil": "",
-            "used": "Сегодня: 35 мин из 2 ч"
+            "used": "Сегодня: 35 мин из 2 ч",
+            "bonusBalance": 0,
+            "forbiddenNote": ""
           },
           "extraMin": 0,
           "bonusBalance": 0,
@@ -337,7 +343,9 @@
         "detail": "",
         "until": "",
         "pauseUntil": "",
-        "used": "Сегодня: 35 мин из 2 ч"
+        "used": "Сегодня: 35 мин из 2 ч",
+        "bonusBalance": 0,
+        "forbiddenNote": ""
       }
     }
   },
@@ -361,7 +369,9 @@
         "detail": "",
         "until": "",
         "pauseUntil": "",
-        "used": ""
+        "used": "",
+        "bonusBalance": 0,
+        "forbiddenNote": ""
       }
     }
   },
@@ -443,7 +453,9 @@
               "detail": "",
               "until": "",
               "pauseUntil": "",
-              "used": "Сегодня: 35 мин из 2 ч"
+              "used": "Сегодня: 35 мин из 2 ч",
+              "bonusBalance": 0,
+              "forbiddenNote": ""
             },
             "extraMin": 0,
             "bonusBalance": 0,
@@ -470,7 +482,9 @@
               "detail": "Изменено системное время",
               "until": "Можно снова: когда родитель снимет блокировку",
               "pauseUntil": "",
-              "used": "Сегодня: 35 мин из 2 ч"
+              "used": "Сегодня: 35 мин из 2 ч",
+              "bonusBalance": 0,
+              "forbiddenNote": ""
             },
             "extraMin": 30,
             "bonusBalance": 0,
@@ -516,7 +530,9 @@
               "detail": "",
               "until": "Можно снова: завтра",
               "pauseUntil": "",
-              "used": "Сегодня: 2 ч 00 мин из 2 ч"
+              "used": "Сегодня: 2 ч 00 мин из 2 ч",
+              "bonusBalance": 0,
+              "forbiddenNote": ""
             },
             "extraMin": 0,
             "bonusBalance": 0,
@@ -617,7 +633,9 @@
           "detail": "",
           "until": "Можно снова: завтра",
           "pauseUntil": "",
-          "used": "Сегодня: 2 ч 00 мин из 2 ч"
+          "used": "Сегодня: 2 ч 00 мин из 2 ч",
+          "bonusBalance": 0,
+          "forbiddenNote": ""
         },
         "warnings": [
           {
@@ -678,7 +696,9 @@
           "detail": "",
           "until": "",
           "pauseUntil": "",
-          "used": "Сегодня: 35 мин из 2 ч"
+          "used": "Сегодня: 35 мин из 2 ч",
+          "bonusBalance": 0,
+          "forbiddenNote": ""
         },
         "warnings": [],
         "commands": []
@@ -906,7 +926,9 @@
           "detail": "",
           "until": "",
           "pauseUntil": "",
-          "used": "Сегодня: 35 мин из 2 ч"
+          "used": "Сегодня: 35 мин из 2 ч",
+          "bonusBalance": 0,
+          "forbiddenNote": ""
         },
         "today": [
           "Сегодня осталось 1 ч 25 мин из 2 ч",
@@ -973,7 +995,9 @@
           "detail": "",
           "until": "",
           "pauseUntil": "",
-          "used": ""
+          "used": "",
+          "bonusBalance": 0,
+          "forbiddenNote": ""
         },
         "today": [],
         "rules": []
@@ -1020,7 +1044,9 @@
             "detail": "",
             "until": "",
             "pauseUntil": "",
-            "used": "Сегодня: 35 мин из 2 ч"
+            "used": "Сегодня: 35 мин из 2 ч",
+            "bonusBalance": 0,
+            "forbiddenNote": ""
           },
           "extraMin": 0,
           "bonusBalance": 0,
@@ -1059,7 +1085,9 @@
               "detail": "",
               "until": "",
               "pauseUntil": "",
-              "used": "Сегодня: 35 мин из 2 ч"
+              "used": "Сегодня: 35 мин из 2 ч",
+              "bonusBalance": 0,
+              "forbiddenNote": ""
             },
             "extraMin": 0,
             "bonusBalance": 0,
@@ -1213,7 +1241,9 @@
             "detail": "",
             "until": "",
             "pauseUntil": "",
-            "used": "Сегодня: 35 мин из 2 ч"
+            "used": "Сегодня: 35 мин из 2 ч",
+            "bonusBalance": 0,
+            "forbiddenNote": ""
           },
           "extraMin": 0,
           "bonusBalance": 0,
@@ -1282,7 +1312,9 @@
             "detail": "",
             "until": "",
             "pauseUntil": "",
-            "used": "Сегодня: 35 мин из 2 ч"
+            "used": "Сегодня: 35 мин из 2 ч",
+            "bonusBalance": 0,
+            "forbiddenNote": ""
           },
           "extraMin": 0,
           "bonusBalance": 0,
@@ -1460,7 +1492,9 @@
             "detail": "",
             "until": "",
             "pauseUntil": "",
-            "used": "Сегодня: 35 мин из 2 ч"
+            "used": "Сегодня: 35 мин из 2 ч",
+            "bonusBalance": 0,
+            "forbiddenNote": ""
           },
           "extraMin": 30,
           "bonusBalance": 0,
@@ -1556,7 +1590,9 @@
             "detail": "",
             "until": "",
             "pauseUntil": "",
-            "used": "Сегодня: 35 мин из 2 ч"
+            "used": "Сегодня: 35 мин из 2 ч",
+            "bonusBalance": 0,
+            "forbiddenNote": ""
           },
           "extraMin": 0,
           "bonusBalance": 0,

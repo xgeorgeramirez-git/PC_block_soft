@@ -190,7 +190,9 @@ export function statusOf(child: MockChild, nowMs: number): ChildStatus {
     usedS: child.usedS,
     detail: "",
     until: "",
-    pauseUntil: "",
+    pauseUntil: child.pauseUntil ?? "",
+    bonusBalance: child.bonusBalance ?? 0,
+    forbiddenNote: "",
     reason: "",
   };
   if (child.admin) {
@@ -232,6 +234,8 @@ export function statusOf(child: MockChild, nowMs: number): ChildStatus {
       detail: child.blockDetail,
       until: "Можно снова: когда родитель снимет блокировку",
       pauseUntil: "",
+      bonusBalance: 0,
+      forbiddenNote: "",
       used: usedText,
     };
   }
@@ -264,6 +268,8 @@ export function statusOf(child: MockChild, nowMs: number): ChildStatus {
       reason: "Время на сегодня закончилось",
       until: "Можно снова: завтра",
       pauseUntil: "",
+      bonusBalance: 0,
+      forbiddenNote: "",
     };
   }
   const left = formatDuration(remainingS);

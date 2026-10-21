@@ -58,6 +58,8 @@ export interface ChildStatus {
   until: string;
   pauseUntil: string;
   used: string;
+  bonusBalance: number;
+  forbiddenNote: string;
 }
 
 export interface Account {

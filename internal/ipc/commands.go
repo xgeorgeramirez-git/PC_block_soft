@@ -174,23 +174,25 @@ const (
 // core.Decision без пересчёта (ChildStatusFrom); надпись, подсказка и слово статуса
 // собираются в одном месте, поэтому на всех экранах они одинаковы (Review Focus 5).
 type ChildStatus struct {
-	Name       string `json:"name"`       // имя ребёнка
-	Status     string `json:"status"`     // Status*; цвет определяет только он (ТЗ 8.0 п.3)
-	StatusText string `json:"statusText"` // статус словом для карточки родителя: «Можно», «Время вышло»
-	Label      string `json:"label"`      // надпись на значке: минуты остатка «85», «0», «∞»
-	Tooltip    string `json:"tooltip"`    // подсказка значка: «Осталось 1 ч 25 мин»
-	Summary    string `json:"summary"`    // строка мини-панели: «Сегодня осталось 1 ч 25 мин из 2 ч»
-	Day        string `json:"day"`        // день цифр, YYYY-MM-DD
-	RemainingS int    `json:"remainingS"` // остаток общего времени, с (0 без лимита)
-	LimitS     int    `json:"limitS"`     // лимит дня с доп. временем, с (0 без лимита)
-	UsedS      int    `json:"usedS"`      // общее время за день, с
-	Unlimited  bool   `json:"unlimited"`  // лимита нет или правила не прочитаны
-	Lock       string `json:"lock"`       // Lock*
-	Reason     string `json:"reason"`     // заголовок экрана блокировки
-	Detail     string `json:"detail"`     // что произошло (только при обходе)
-	Until      string `json:"until"`      // «Можно снова: завтра»
-	PauseUntil string `json:"pauseUntil"` // «18:30» — конец активной паузы (R11); «» — нет паузы
-	Used       string `json:"used"`       // «Сегодня: 2 ч 00 мин из 2 ч»
+	Name          string `json:"name"`          // имя ребёнка
+	Status        string `json:"status"`        // Status*; цвет определяет только он (ТЗ 8.0 п.3)
+	StatusText    string `json:"statusText"`    // статус словом для карточки родителя: «Можно», «Время вышло»
+	Label         string `json:"label"`         // надпись на значке: минуты остатка «85», «0», «∞»
+	Tooltip       string `json:"tooltip"`       // подсказка значка: «Осталось 1 ч 25 мин»
+	Summary       string `json:"summary"`       // строка мини-панели: «Сегодня осталось 1 ч 25 мин из 2 ч»
+	Day           string `json:"day"`           // день цифр, YYYY-MM-DD
+	RemainingS    int    `json:"remainingS"`    // остаток общего времени, с (0 без лимита)
+	LimitS        int    `json:"limitS"`        // лимит дня с доп. временем, с (0 без лимита)
+	UsedS         int    `json:"usedS"`         // общее время за день, с
+	Unlimited     bool   `json:"unlimited"`     // лимита нет или правила не прочитаны
+	Lock          string `json:"lock"`          // Lock*
+	Reason        string `json:"reason"`        // заголовок экрана блокировки
+	Detail        string `json:"detail"`        // что произошло (только при обходе)
+	Until         string `json:"until"`         // «Можно снова: завтра»
+	PauseUntil    string `json:"pauseUntil"`    // «18:30» — конец активной паузы (R11); «» — нет паузы
+	Used          string `json:"used"`          // «Сегодня: 2 ч 00 мин из 2 ч»
+	BonusBalance  int    `json:"bonusBalance"`  // баланс копилки, мин (M2, для мини-панели ребёнка)
+	ForbiddenNote string `json:"forbiddenNote"` // «Сегодня нельзя с 21:00 до 07:00»; «» — нет ближайшего интервала
 }
 
 // --- Мастер и администратор --------------------------------------------------

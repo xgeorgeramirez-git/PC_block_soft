@@ -415,11 +415,32 @@ func (s *Service) logRate(key, format string, args ...any) {
 // --- статусы и карточки -----------------------------------------------------------------
 
 // statusOf возвращает статус ребёнка: единственный источник для значка, стража, карточки и окон.
+// Дополняет статус ядра балансом копилки и текстом ближайшего запретного интервала (M2, FR-8).
 func (s *Service) statusOf(cs *childState) ipc.ChildStatus {
 	if cs.admin {
 		return ipc.ChildStatusAdmin(cs.child.Name)
 	}
-	return ipc.ChildStatusFrom(cs.child.Name, cs.eng.Current())
+	st := ipc.ChildStatusFrom(cs.child.Name, cs.eng.Current())
+	if bal, err := s.cfg.Store.GetBonusBalance(cs.child.ID); err == nil {
+		st.BonusBalance = bal
+	}
+	st.ForbiddenNote = s.forbiddenNote(cs)
+	return st
+}
+
+// forbiddenNote — строка о ближайшем запретном интервале сегодня для мини-панели (ТЗ 8.2.1):
+// «Сегодня нельзя с 21:00 до 07:00». Пусто, если интервалов сегодня впереди нет.
+func (s *Service) forbiddenNote(cs *childState) string {
+	now := s.cfg.Clock.Now().In(s.cfg.Loc)
+	if in, end := core.InForbidden(cs.rules, now); in {
+		return "Сейчас нельзя до " + core.FormatClock(end)
+	}
+	if start, ok := core.NextForbiddenStart(cs.rules, now); ok {
+		// Конец интервала, начинающегося в start: момент внутри интервала даёт его конец.
+		_, end := core.InForbidden(cs.rules, start.Add(time.Second))
+		return "Сегодня нельзя с " + core.FormatClock(start) + " до " + core.FormatClock(end)
+	}
+	return ""
 }
 
 // cardOf возвращает карточку ребёнка для «Сегодня».

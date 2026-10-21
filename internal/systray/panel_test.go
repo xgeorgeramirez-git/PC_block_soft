@@ -31,14 +31,49 @@ func TestBuildPanelChild(t *testing.T) {
 	if v.Bar == nil || v.Bar.Status != StatusNormal || v.Bar.Fraction < 0.70 || v.Bar.Fraction > 0.71 {
 		t.Fatalf("полоса: %+v", v.Bar)
 	}
-	if got := strings.Join(labels(v), "|"); got != "Моя статистика|Настройки для родителя" {
+	// FR-8: без баланса копилки кнопки «Попросить ещё», «Моя статистика» (главная),
+	// «Настройки для родителя» (мелкая). «Взять из копилки» — только когда есть баланс.
+	if got := strings.Join(labels(v), "|"); got != "Попросить ещё|Моя статистика|Настройки для родителя" {
 		t.Fatalf("кнопки: %s", got)
 	}
-	if !v.Buttons[0].Main || v.Buttons[0].Small || !v.Buttons[1].Small || v.Buttons[1].Main {
+	stats := findButton(v, PanelMyStats)
+	parent := findButton(v, PanelParent)
+	if stats == nil || !stats.Main || stats.Small || parent == nil || !parent.Small || parent.Main {
 		t.Fatalf("«Моя статистика» главная, «Настройки для родителя» мелкая: %+v", v.Buttons)
 	}
-	if v.Buttons[0].Kind != PanelMyStats || v.Buttons[1].Kind != PanelParent {
-		t.Fatalf("виды кнопок: %+v", v.Buttons)
+}
+
+// findButton возвращает кнопку панели заданного вида или nil.
+func findButton(v PanelView, kind PanelKind) *PanelButton {
+	for i := range v.Buttons {
+		if v.Buttons[i].Kind == kind {
+			return &v.Buttons[i]
+		}
+	}
+	return nil
+}
+
+// Ловит: «Взять из копилки» появляется без баланса, не прячется/не блокируется в
+// запретный интервал (FR-8, FR-11, L-17).
+func TestBuildPanelBonusButton(t *testing.T) {
+	// Есть баланс, обычный статус: кнопка «Взять из копилки» доступна.
+	st := okStatus(85*60, 7200)
+	st.BonusBalance = 45
+	v := BuildPanel(freshSnapshot(st), "")
+	b := findButton(v, PanelSpendBonus)
+	if b == nil || b.Disabled {
+		t.Fatalf("«Взять из копилки» должна быть доступна при балансе: %+v", v.Buttons)
+	}
+	if !strings.Contains(strings.Join(v.Lines, "|"), "Копилка: 45 мин") {
+		t.Fatalf("строка копилки: %v", v.Lines)
+	}
+	// Запретный интервал: кнопка недоступна с пояснением (L-17).
+	forb := ipc.ChildStatusFrom("Миша", core.Decision{Status: core.StatusForbidden, Lock: core.LockForbidden, Reason: core.ReasonForbidden})
+	forb.BonusBalance = 45
+	vf := BuildPanel(freshSnapshot(forb), "")
+	bf := findButton(vf, PanelSpendBonus)
+	if bf == nil || !bf.Disabled || bf.DisabledNote == "" {
+		t.Fatalf("в запретный интервал «Взять из копилки» недоступна с пояснением: %+v", bf)
 	}
 }
 

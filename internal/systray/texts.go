@@ -7,9 +7,12 @@ const (
 	textPanelErrorParent = "Не удалось получить данные. Попробуйте через минуту"
 	textPanelNotChild    = "В этой учётной записи время не ограничено"
 
-	textButtonMyStats = "Моя статистика"
-	textButtonParent  = "Настройки для родителя"
-	textButtonRefresh = "Обновить"
+	textButtonMyStats    = "Моя статистика"
+	textButtonParent     = "Настройки для родителя"
+	textButtonRefresh    = "Обновить"
+	textButtonAskMore    = "Попросить ещё"
+	textButtonSpendBonus = "Взять из копилки"
+	textBonusForbidden   = "Из копилки можно взять, когда закончатся запретные часы"
 
 	textOpenFailed       = "Не получилось открыть окно. Попробуй ещё раз"
 	textOpenFailedParent = "Не получилось открыть окно. Попробуйте ещё раз"

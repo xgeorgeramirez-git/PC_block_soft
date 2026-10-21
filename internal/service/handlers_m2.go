@@ -278,8 +278,10 @@ func (s *Service) hSpendBonus(c *callCtx) ipc.Reply {
 		return bad()
 	}
 	// childSelf гарантировал c.self — ребёнок своего сеанса. Тратить можно только свою копилку.
+	// Значок своего сеанса childID не знает и шлёт 0: берём ребёнка из c.self; если childID
+	// задан, он обязан совпадать (минор m3 ревью: не тронуть чужую копилку).
 	cs := c.self
-	if cs == nil || req.ChildID != cs.child.ID {
+	if cs == nil || (req.ChildID != 0 && req.ChildID != cs.child.ID) {
 		return ipc.Fail(textNoSuchChild)
 	}
 	if req.Minutes < 1 {

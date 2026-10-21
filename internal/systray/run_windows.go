@@ -312,10 +312,24 @@ func (a *app) togglePanel() {
 
 // onPanelButton выполняет нажатие кнопки мини-панели.
 func (a *app) onPanelButton(b PanelButton) {
+	if b.Disabled {
+		// Недоступная кнопка объясняет, почему (L-17): показываем пояснение в note.
+		a.setNote(b.DisabledNote)
+		return
+	}
 	if b.Kind == PanelRefresh {
 		a.setNote("")
 		a.kickPoll()
 		return
+	}
+	if b.Kind == PanelSpendBonus {
+		a.onSpendBonus()
+		return
+	}
+	if b.Kind == PanelAskMore {
+		// «Попросить ещё» открывает окно «Моя статистика», где ребёнок зовёт родителя
+		// вводом пароля; значок сам пароль не принимает (мини-панель — нативное окно).
+		b.Kind = PanelMyStats
 	}
 	kind, ok := b.Kind.OpenKind()
 	if !ok {
@@ -339,6 +353,42 @@ func (a *app) onPanelButton(b PanelButton) {
 			ok = 0
 		}
 		procPostMessage.Call(a.host, wmOpenDone, ok, 0)
+	})
+}
+
+// onSpendBonus тратит из копилки 30 минут (или весь остаток, если его меньше) без пароля
+// (FR-11); результат показывает в note. Полный выбор суммы с подтверждением — на экране
+// блокировки и в «Моей статистике» (WebView).
+func (a *app) onSpendBonus() {
+	st := a.tracker.Snapshot(time.Now()).Status
+	minutes := 30
+	if st.BonusBalance > 0 && st.BonusBalance < minutes {
+		minutes = st.BonusBalance
+	}
+	if minutes <= 0 {
+		return
+	}
+	a.setNote("")
+	a.panel.setBusy(true)
+	go safely(func() {
+		var rep ipc.SpendBonusReply
+		// ChildID 0: служба берёт ребёнка этого сеанса (childSelf).
+		err := ipc.Call(a.caller, ipc.CmdSpendBonus, "", ipc.SpendBonusRequest{Minutes: minutes}, &rep)
+		if err != nil {
+			text := ""
+			var re *ipc.ReplyError
+			if errors.As(err, &re) {
+				text = re.Text
+			}
+			if text == "" {
+				text = textPanelError
+			}
+			a.setNote(text)
+		} else {
+			a.setNote(rep.Message)
+		}
+		a.kickPoll()
+		procPostMessage.Call(a.host, wmOpenDone, 1, 0)
 	})
 }
 
