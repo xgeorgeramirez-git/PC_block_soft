@@ -48,10 +48,10 @@ const child = (over: Partial<MockChild>): MockChild => ({
 });
 
 // Один и тот же набор детей на «Сегодня», в «Детях» и в «Настройках»: Миша (мало времени, жёлтый),
-// Даша (обход защиты, красный), Егор (можно, зелёный).
+// Даша (время вышло, красный), Егор (можно, зелёный).
 const family = (): MockChild[] => [
   child({}),
-  child({ childId: 2, sid: "S-1-5-21-111-222-333-1002", name: "Даша", usedS: 2100, blocked: true }),
+  child({ childId: 2, sid: "S-1-5-21-111-222-333-1002", name: "Даша", usedS: 7200 }),
   child({ childId: 3, sid: "S-1-5-21-111-222-333-1003", name: "Егор", usedS: 1800 }),
 ];
 
@@ -88,7 +88,8 @@ test("s01 мастер, шаг пароля", async ({ page }) => {
   await page.screenshot({ path: `${SCREENS}/s01-wizard-password.png`, fullPage: true });
 });
 
-// s02 — «Сегодня»: статус словом и цветом (зелёный, жёлтый, красный), «Снять блокировку» при обходе (S3, S7).
+// s02 — «Сегодня»: статус словом и цветом (зелёный, жёлтый, красный); обход больше не
+// блокирует экран, кнопки сгруппированы, «Снять блокировку» нет (D-41, FB-5).
 test("s02 сегодня", async ({ page }) => {
   await tallWindow(page, 900);
   await mockProgram(page, { mode: "parent", sessionActive: true, children: family() });
@@ -96,14 +97,18 @@ test("s02 сегодня", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "Сегодня" })).toBeVisible();
   await expect(page.getByRole("article", { name: "Миша" }).getByText("Осталось 10 мин")).toBeVisible();
   await expect(page.getByRole("article", { name: "Егор" }).getByText("Можно", { exact: true })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Снять блокировку" })).toBeVisible();
-  // У ребёнка, заблокированного за обход, «+время» нет; «Снять блокировку», «Пауза» и
-  // «В копилку» доступны всегда (ТЗ 8.3.2, M2).
-  const blocked = page.getByRole("article", { name: "Даша" });
-  await expect(blocked.getByRole("button", { name: "+15" })).toHaveCount(0);
-  await expect(blocked.getByRole("button", { name: "Снять блокировку" })).toBeVisible();
-  await expect(blocked.getByRole("button", { name: "Пауза" })).toBeVisible();
-  await expect(page.getByRole("article", { name: "Егор" }).getByRole("button", { name: "+15" })).toBeVisible();
+  // Даша: время вышло (красный), «+время» доступно, «Снять блокировку» нигде нет (D-41).
+  const dasha = page.getByRole("article", { name: "Даша" });
+  await expect(dasha.getByText("Время вышло")).toBeVisible();
+  await expect(dasha.getByRole("button", { name: "+15" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Снять блокировку" })).toHaveCount(0);
+  // Кнопки «Сегодня» сгруппированы: у Миши есть группа «Доп. время», «Пауза», «Статистика» (FB-5).
+  const misha = page.getByRole("article", { name: "Миша" });
+  await expect(misha.getByText("Доп. время")).toBeVisible();
+  await expect(misha.getByRole("button", { name: "−30" })).toBeVisible();
+  await expect(misha.getByRole("button", { name: "Своё время…" })).toBeVisible();
+  await expect(misha.getByRole("button", { name: "Пауза" })).toBeVisible();
+  await expect(misha.getByRole("button", { name: "Статистика" })).toBeVisible();
   await noHorizontalScroll(page);
   await page.screenshot({ path: `${SCREENS}/s02-today.png`, fullPage: true });
 });
@@ -193,7 +198,7 @@ test("s04 журнал", async ({ page }) => {
     sessionActive: true,
     children: [child({})],
     events: [
-      { atMs: now - 600_000, tzOffsetMin: 180, childId: 1, childName: "Миша", kind: "bypass", text: "Миша: попытка обойти защиту. Экран заблокирован" },
+      { atMs: now - 600_000, tzOffsetMin: 180, childId: 1, childName: "Миша", kind: "bypass", text: "Миша: попытка обойти защиту. Закрыт значок программы" },
       { atMs: now - 3_600_000, tzOffsetMin: 180, childId: 1, childName: "Миша", kind: "extra_time", text: "Миша: доп. время +30 мин" },
     ],
   });
