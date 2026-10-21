@@ -97,7 +97,7 @@ test.describe("S28 Помощник", () => {
 
     // «Дети → Лимиты»: подсказка про дни недели стоит над таблицей лимитов, а не поверх неё.
     await menu(page, "Дети").click();
-    await expect(page.getByRole("heading", { name: /Лимиты времени/ })).toBeVisible();
+    await expect(page.getByRole("heading", { name: /Правила/ })).toBeVisible();
     const hint = card(page, "H-M1-02");
     await expect(hint).toBeVisible();
     await expect(hint).toContainText("Лимиты по дням недели");
@@ -178,7 +178,7 @@ test.describe("S28 Помощник", () => {
     const fourth = await context.newPage();
     await openWindow(fourth, { children: [unlimited], helper: done });
     await card(fourth, "D-M1-01").getByRole("button", { name: "Задать лимиты" }).click();
-    await expect(fourth.getByRole("heading", { name: "Лимиты времени, Миша" })).toBeVisible();
+    await expect(fourth.getByRole("heading", { name: "Правила, Миша" })).toBeVisible();
   });
 
   // Подсказки выключены: карточек нет нигде, а «Помощь» и тур открываются.
@@ -187,7 +187,7 @@ test.describe("S28 Помощник", () => {
     await page.waitForTimeout(SETTLE_MS);
     await expect(cards(page)).toHaveCount(0);
     await menu(page, "Дети").click();
-    await expect(page.getByRole("heading", { name: /Лимиты времени/ })).toBeVisible();
+    await expect(page.getByRole("heading", { name: /Правила/ })).toBeVisible();
     await page.waitForTimeout(SETTLE_MS);
     await expect(cards(page)).toHaveCount(0);
 
