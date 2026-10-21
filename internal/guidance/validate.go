@@ -76,7 +76,7 @@ func knownScreen(id string) bool {
 
 func knownAction(id string) bool {
 	switch id {
-	case ActionAck, ActionStartTour, ActionOpenLimits, ActionHowToFix:
+	case ActionAck, ActionStartTour, ActionOpenLimits, ActionHowToFix, ActionOpenSchedule:
 		return true
 	}
 	return false

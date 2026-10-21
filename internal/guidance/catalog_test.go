@@ -35,6 +35,11 @@ func TestCatalogM1Contents(t *testing.T) {
 		"D-M1-01": KindDetector, "D-M1-02": KindDetector,
 		"T-M1-01": KindTour,
 		"N-0.1.0": KindWhatsNew,
+		// M2: расписание, копилка, пауза (раздел «Покрытие Помощника» плана M2).
+		"H-M2-01": KindHint, "H-M2-02": KindHint, "H-M2-03": KindHint,
+		"D-M2-01": KindDetector,
+		"T-M2-01": KindTour,
+		"N-0.2.0": KindWhatsNew,
 	}
 	got := map[string]Kind{}
 	for _, e := range Catalog() {
