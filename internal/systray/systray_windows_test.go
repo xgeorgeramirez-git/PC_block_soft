@@ -129,7 +129,8 @@ func TestPanelBuildsButtonsAndHides(t *testing.T) {
 	defer p.close()
 
 	p.setView(BuildPanel(freshSnapshot(okStatus(85*60, 7200)), ""))
-	if len(p.buttons) != 2 || p.height <= 0 {
+	// M2: у ребёнка без блокировки «Попросить ещё», «Моя статистика», «Настройки для родителя».
+	if len(p.buttons) != 3 || p.height <= 0 {
 		t.Fatalf("ребёнок: кнопок %d, высота %d", len(p.buttons), p.height)
 	}
 	p.setView(BuildPanel(Snapshot{}, "Не получилось открыть окно. Попробуй ещё раз"))
