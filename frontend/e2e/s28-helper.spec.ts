@@ -197,7 +197,12 @@ test.describe("S28 Помощник", () => {
     await noHorizontalScroll(page);
     await page.screenshot({ path: `${SCREENS}/s28-helper-off.png`, fullPage: true });
 
-    await page.getByRole("region", { name: "Обучение" }).getByRole("button", { name: "Начать" }).click();
+    // Туров теперь несколько: «Начать» берём в строке нужного тура, иначе две кнопки.
+    const tourItem = page
+      .getByRole("region", { name: "Обучение" })
+      .locator("li.help-item")
+      .filter({ hasText: "Короткий тур по окну родителя" });
+    await tourItem.getByRole("button", { name: "Начать" }).click();
     const tour = page.getByRole("dialog", { name: "Короткий тур по окну родителя" });
     await expect(tour).toBeVisible();
     await expect(tour.getByRole("button", { name: "Пропустить тур" })).toBeVisible();
