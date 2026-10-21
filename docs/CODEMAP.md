@@ -78,6 +78,7 @@
 - `src/screens/Journal.tsx`
 - `src/screens/LoginDialog.tsx`
 - `src/screens/MyStats.tsx`
+- `src/screens/ParentStats.tsx`
 - `src/screens/ResetPassword.tsx`
 - `src/screens/Settings.tsx`
 - `src/screens/Today.tsx`
