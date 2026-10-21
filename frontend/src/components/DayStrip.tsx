@@ -31,7 +31,7 @@ export default function DayStrip({ all, weekday }: Props) {
         <span>18</span>
         <span>24</span>
       </div>
-      {hasCarry ? <p className="day-strip-note">Штриховка — запрет с {prevDayName(weekday)}</p> : null}
+      {hasCarry ? <p className="day-strip-note">Штриховка: запрет с {prevDayName(weekday)}</p> : null}
     </div>
   );
 }
