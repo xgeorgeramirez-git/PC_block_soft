@@ -220,14 +220,19 @@ func init() {
 		ipc.CmdGetChildRules:  {parentToken(false), (*Service).hGetChildRules},
 		ipc.CmdSaveLimits:     {parentToken(true), (*Service).hSaveLimits},
 		ipc.CmdAddExtra:       {or(parentToken(true), bound()), (*Service).hAddExtra},
+		ipc.CmdReduceExtra:    {parentToken(true), (*Service).hReduceExtra},
+		ipc.CmdClearExtra:     {parentToken(true), (*Service).hClearExtra},
 		ipc.CmdUndoExtra:      {parentToken(true), (*Service).hUndoExtra},
 		ipc.CmdClearBlock:     {or(parentToken(true), bound()), (*Service).hClearBlock},
 		ipc.CmdListEvents:     {parentToken(false), (*Service).hListEvents},
 		ipc.CmdChangePassword: {parentToken(true), (*Service).hChangePassword},
 		ipc.CmdSetChildren:    {parentToken(true), (*Service).hSetChildren},
+		ipc.CmdParentStats:    {parentToken(false), (*Service).hParentStats},
 
 		ipc.CmdGetHelperState:  {or(parentToken(false), users()), (*Service).hGetHelperState},
 		ipc.CmdSaveHelperState: {or(parentToken(true), users()), (*Service).hSaveHelperState},
+		ipc.CmdGetDiag:         {parentToken(false), (*Service).hGetDiag},
+		ipc.CmdSetDiag:         {parentToken(true), (*Service).hSetDiag},
 
 		ipc.CmdGetSchedule:  {parentToken(false), (*Service).hGetSchedule},
 		ipc.CmdSaveSchedule: {parentToken(true), (*Service).hSaveSchedule},
@@ -286,6 +291,7 @@ func (s *Service) Handle(peer ipc.Peer, msg ipc.Msg, real time.Time) (rep ipc.Re
 		s.logRate(fmt.Sprintf("deny %s %d %s", msg.Cmd, peer.PID, c.kind), "Отказ: команда %s от процесса %s (%s): %s", msg.Cmd, peer, c.kind, denial)
 		return ipc.Fail(denial)
 	}
+	s.vlogf("команда %s от процесса %s (%s)", msg.Cmd, peer, c.kind)
 	defer func() {
 		if p := recover(); p != nil {
 			s.cfg.Logf("Внутренняя ошибка в команде %s: %v", msg.Cmd, p)

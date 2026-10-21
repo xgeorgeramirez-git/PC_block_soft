@@ -26,16 +26,23 @@ const (
 	CmdGetChildRules  = "GetChildRules"
 	CmdSaveLimits     = "SaveLimits"
 	CmdAddExtra       = "AddExtra"
+	CmdReduceExtra    = "ReduceExtra" // убавить доп. время (R10, D-43)
+	CmdClearExtra     = "ClearExtra"  // обнулить доп. время (R10, D-43)
 	CmdUndoExtra      = "UndoExtra"
 	CmdClearBlock     = "ClearBlock"
 	CmdListEvents     = "ListEvents"
 	CmdChangePassword = "ChangePassword"
 	CmdSetChildren    = "SetChildren"
+	CmdParentStats    = "ParentStats" // статистика выбранного ребёнка за сегодня для родителя (FR-23, D-44)
 
 	// Состояние Помощника: профиль родителя (из родительской сессии) или ребёнка
 	// (из его сеанса); какой именно, решает служба по тому, кто спрашивает.
 	CmdGetHelperState  = "GetHelperState"
 	CmdSaveHelperState = "SaveHelperState"
+
+	// Диагностика: подробные логи (FR-25, D-42).
+	CmdGetDiag = "GetDiag" // прочитать, включены ли подробные логи
+	CmdSetDiag = "SetDiag" // включить/выключить подробные логи
 
 	// Расписание, копилка, пауза (M2).
 	CmdGetSchedule  = "GetSchedule"  // запретные интервалы ребёнка (R7)
@@ -77,8 +84,8 @@ var AllCommands = []string{
 	CmdHello, CmdGetChildStatus, CmdOpenWindow, CmdWindowClosing,
 	CmdListAccounts, CmdSetup, CmdResetPassword, CmdUninstallCheck,
 	CmdLogin, CmdExtendSession, CmdLogout, CmdSessionState, CmdGetToday, CmdGetChildRules,
-	CmdSaveLimits, CmdAddExtra, CmdUndoExtra, CmdClearBlock, CmdListEvents, CmdChangePassword,
-	CmdSetChildren, CmdGetHelperState, CmdSaveHelperState,
+	CmdSaveLimits, CmdAddExtra, CmdReduceExtra, CmdClearExtra, CmdUndoExtra, CmdClearBlock, CmdListEvents, CmdChangePassword,
+	CmdSetChildren, CmdParentStats, CmdGetHelperState, CmdSaveHelperState, CmdGetDiag, CmdSetDiag,
 	CmdGetSchedule, CmdSaveSchedule, CmdPause, CmdPauseAll,
 	CmdGrantBonus, CmdUndoBonus, CmdGetBonus, CmdCopyRules,
 	CmdMyToday, CmdFirstRunSeen, CmdAskMore, CmdSpendBonus,
@@ -328,12 +335,40 @@ type AddExtraRequest struct {
 	Minutes int   `json:"minutes"`
 }
 
-// AddExtraReply — ответ AddExtra: карточка с новым лимитом и «Отменить» на 10 с.
+// AddExtraReply — ответ AddExtra, ReduceExtra и ClearExtra: карточка с новым лимитом,
+// сообщение и «Отменить» на 10 с.
 type AddExtraReply struct {
 	Card        TodayCard `json:"card"`
-	Message     string    `json:"message"`     // «Добавлено 30 минут»
+	Message     string    `json:"message"`     // «Добавлено 30 минут» / «Убрано 30 минут» / «Доп. время убрано»
 	ExtraID     string    `json:"extraId"`     // для UndoExtra
 	UndoUntilMs int64     `json:"undoUntilMs"` // до какого момента работает «Отменить», UTC мс
+}
+
+// ReduceExtraRequest — убавить родительское доп. время на сегодня (R10, D-43): 1…240 мин.
+// Суммарный дневной лимит не опускается ниже 0.
+type ReduceExtraRequest struct {
+	ChildID int64 `json:"childId"`
+	Minutes int   `json:"minutes"`
+}
+
+// ClearExtraRequest — обнулить сегодняшнее доп. время ребёнка (R10, D-43, «Убрать доп. время»).
+type ClearExtraRequest struct {
+	ChildID int64 `json:"childId"`
+}
+
+// ParentStatsRequest — статистика выбранного ребёнка за сегодня для родителя (FR-23, D-44).
+type ParentStatsRequest struct {
+	ChildID int64 `json:"childId"`
+}
+
+// DiagReply — состояние переключателя «Подробные логи для диагностики» (FR-25, D-42).
+type DiagReply struct {
+	Verbose bool `json:"verbose"`
+}
+
+// SetDiagRequest — включить или выключить подробные логи (FR-25, D-42).
+type SetDiagRequest struct {
+	Verbose bool `json:"verbose"`
 }
 
 // UndoExtraRequest — отменить только что добавленное время.

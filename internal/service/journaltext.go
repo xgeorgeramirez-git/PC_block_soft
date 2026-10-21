@@ -45,7 +45,7 @@ func eventText(kind, name string, d map[string]any) string {
 	case core.EvExtraTime:
 		body = fmt.Sprintf("доп. время +%d мин", detInt(d, "minutes"))
 	case "extra_undone":
-		body = fmt.Sprintf("доп. время отменено, -%d мин", detInt(d, "minutes"))
+		body = "изменение доп. времени отменено"
 	case core.EvBypass:
 		body = "попытка обойти защиту"
 		if det := detStr(d, "detail"); det != "" {

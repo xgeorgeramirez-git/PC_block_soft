@@ -145,6 +145,15 @@ func examples() map[string]example {
 			Card: card(okStatus(), 30, false), Message: "Добавлено 30 минут", ExtraID: "e-17", UndoUntilMs: t0 + 10_000,
 		}),
 		"AddExtra#invalid": fail(AddExtraRequest{ChildID: 1, Minutes: 500}, "Можно добавить от 1 до 240 минут", FieldMinutes, nil),
+		CmdReduceExtra: ok(ReduceExtraRequest{ChildID: 1, Minutes: 30}, AddExtraReply{
+			Card: card(okStatus(), 0, false), Message: "Убрано 30 минут", ExtraID: "e-18", UndoUntilMs: t0 + 10_000,
+		}),
+		"ReduceExtra#invalid": fail(ReduceExtraRequest{ChildID: 1, Minutes: 500}, "Можно убрать от 1 до 240 минут", FieldMinutes, nil),
+		CmdClearExtra: ok(ClearExtraRequest{ChildID: 1}, AddExtraReply{
+			Card: card(okStatus(), 0, false), Message: "Доп. время убрано", ExtraID: "e-19", UndoUntilMs: t0 + 10_000,
+		}),
+		CmdGetDiag: ok(Empty{}, DiagReply{Verbose: false}),
+		CmdSetDiag: ok(SetDiagRequest{Verbose: true}, DiagReply{Verbose: true}),
 		CmdUndoExtra: ok(UndoExtraRequest{ChildID: 1, ExtraID: "e-17"}, CardReply{
 			Card: card(okStatus(), 0, false), Message: "Добавленное время отменено",
 		}),
@@ -218,6 +227,15 @@ func examples() map[string]example {
 			},
 		}),
 		"MyToday#empty": ok(nil, MyTodayReply{Status: ChildStatusNotChild()}),
+		CmdParentStats: ok(ParentStatsRequest{ChildID: 1}, MyTodayReply{
+			Status: okStatus(),
+			Today:  []string{"Сегодня осталось 1 ч 25 мин из 2 ч", "Использовано 35 мин"},
+			Rules: []MyRule{
+				{Weekday: 1, Day: "пн", Text: "2 ч"}, {Weekday: 2, Day: "вт", Text: "2 ч"}, {Weekday: 3, Day: "ср", Text: "1 ч 30 мин"},
+				{Weekday: 4, Day: "чт", Text: "2 ч"}, {Weekday: 5, Day: "пт", Text: "2 ч"}, {Weekday: 6, Day: "сб", Text: "4 ч"},
+				{Weekday: 7, Day: "вс", Text: "Без лимита"},
+			},
+		}),
 		CmdFirstRunSeen: ok(nil, Empty{}),
 
 		CmdGuardPoll: ok(GuardPollRequest{
@@ -309,8 +327,8 @@ func TestContractHasEveryCommand(t *testing.T) {
 			t.Errorf("пример для %s есть, а в AllCommands её нет", c)
 		}
 	}
-	if len(AllCommands) != 43 {
-		t.Errorf("команд %d, ждали 43 (33 из M1 и D-40 плюс 10 команд M2: расписание, пауза, копилка, доп. время)", len(AllCommands))
+	if len(AllCommands) != 48 {
+		t.Errorf("команд %d, ждали 48 (43 из M1/M2 плюс 5 из фидбек-раунда 0.2.1: ReduceExtra, ClearExtra, ParentStats, GetDiag, SetDiag)", len(AllCommands))
 	}
 }
 

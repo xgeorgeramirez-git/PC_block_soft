@@ -50,7 +50,29 @@ func (s *Service) OnSession(ev SessionEvent, id uint32, real time.Time) {
 	if s.stopping || !s.started {
 		return
 	}
+	s.vlogf("событие сеанса %d: %v", id, ev)
+	if ev == SessionLogoff || ev == SessionDisconnect {
+		// Штатный выход из учётки или смена пользователя завершает процессы сеанса —
+		// это не обход (R17, D-41): помечаем их как ожидаемое завершение.
+		if ss := s.sessions[id]; ss != nil {
+			s.expectSessionProcs(ss)
+		}
+	}
 	s.guard("session", nil, func() { s.syncSessions(real) })
+}
+
+// expectSessionProcs помечает значок, страж и окна сеанса как штатно завершаемые, чтобы их
+// гибель при выходе из учётки или смене пользователя не считалась обходом (R17, D-41).
+func (s *Service) expectSessionProcs(ss *sessState) {
+	if ss.guard != nil {
+		ss.guard.expected = true
+	}
+	if ss.tray != nil {
+		ss.tray.expected = true
+	}
+	for _, sp := range ss.windows {
+		sp.expected = true
+	}
 }
 
 // syncSessions сверяет список сеансов Windows с тем, что запущено: заводит новые сеансы,
@@ -218,7 +240,7 @@ func (s *Service) procDied(ss *sessState, sp *supProc, real time.Time) {
 		detail, subtype = detailGuardClosed, "guard_closed"
 	}
 	s.cfg.Logf("Процесс %s в сеансе %d завершился без сообщения интерфейса", sp.role, ss.id)
-	s.bypassIn(ss, detail, subtype)
+	s.bypassIn(ss, detail, subtype, real)
 }
 
 // backoff возвращает паузу перед следующей попыткой запуска: 1, 2, 4 ... не больше 30 с.
@@ -244,9 +266,9 @@ func (s *Service) launchProc(ss *sessState, sp *supProc, args []string, real tim
 	return true
 }
 
-// bypassIn ставит блокировку за обход ребёнку сеанса. В сеансе, где работает не ребёнок, и у
-// ребёнка-администратора (R1) обхода нет.
-func (s *Service) bypassIn(ss *sessState, detail, subtype string) {
+// bypassIn записывает попытку обхода ребёнку сеанса (R17, D-41): только журнал, без
+// блокировки. В сеансе, где работает не ребёнок, и у ребёнка-администратора (R1) обхода нет.
+func (s *Service) bypassIn(ss *sessState, detail, subtype string, real time.Time) {
 	if ss.childID == 0 {
 		return
 	}
@@ -254,20 +276,19 @@ func (s *Service) bypassIn(ss *sessState, detail, subtype string) {
 	if cs == nil || cs.admin {
 		return
 	}
-	s.markBypass(cs, detail, subtype)
+	s.markBypass(cs, detail, subtype, real)
 }
 
-// markBypass ставит блокировку за обход и запоминает её в базе (Ruling 18). Уже стоящая
-// блокировка не меняется и события не плодит: страж повторяет сообщение каждую секунду.
-func (s *Service) markBypass(cs *childState, detail, subtype string) bool {
-	if _, cur := cs.eng.State(); cur != "" {
+// markBypass пишет попытку обхода подробным событием в журнал (R17в, D-41): экран не
+// блокируется, время не отключается. Страж повторяет сообщение каждую секунду, поэтому
+// одинаковая подробность в пределах bypassLogWindow записывается один раз.
+func (s *Service) markBypass(cs *childState, detail, subtype string, real time.Time) bool {
+	if cs.lastBypass == detail && !real.IsZero() && real.Sub(cs.lastBypassAt) < bypassLogWindow {
+		cs.lastBypassAt = real
 		return false
 	}
+	cs.lastBypass, cs.lastBypassAt = detail, real
 	d := cs.eng.MarkBypass(detail)
-	_, eff := cs.eng.State()
-	if err := s.cfg.Store.SetBypass(cs.child.ID, eff); err != nil {
-		s.logRate("bypass", "не записана блокировка за обход для %s: %v", cs.child.Name, err)
-	}
 	s.afterDecision(cs, d, map[string]any{"subtype": subtype})
 	return true
 }
@@ -289,7 +310,7 @@ func (s *Service) superviseWindow(ss *sessState, kind string, sp *supProc, real 
 	if ss.childID == 0 {
 		return
 	}
-	s.bypassIn(ss, detailWindowClosed, "window_closed")
+	s.bypassIn(ss, detailWindowClosed, "window_closed", real)
 	if _, err := s.openWindow(ss, kind, false, real); err != nil {
 		s.logRate(fmt.Sprint("reopen", ss.id), "окно %s не открыто заново: %v", kind, err)
 	}

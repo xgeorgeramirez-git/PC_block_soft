@@ -383,38 +383,39 @@ func TestTickAfterShutdownDoesNothing(t *testing.T) {
 	}
 }
 
-// Ловит: блокировка за обход не переживает перезапуск службы (Ruling 18): ребёнок
-// выходом из учётки или перезапуском службы снимал бы её.
-func TestBypassSurvivesRestart(t *testing.T) {
+// Ловит: попытка обхода поднимает блокировку, переживающую перезапуск (D-41 — не должно):
+// обход только пишется в журнал, перезапуск службы ничего не блокирует.
+func TestBypassDoesNotSurviveRestart(t *testing.T) {
 	h := newHarness(t, withChild(childSID, "Миша", 120))
 	h.start()
 	h.childLogsIn()
 	h.poll(activeSample, ipc.GuardEvent{Kind: ipc.GuardEvBypass, Detail: "Окно проверки пароля закрыто насильно"})
-	if st := h.status(); st.Lock != ipc.LockBypass || st.Detail != "Окно проверки пароля закрыто насильно" {
-		t.Fatalf("после обхода: блокировка %q, подробности %q", st.Lock, st.Detail)
+	if st := h.status(); st.Lock != ipc.LockNone {
+		t.Fatalf("обход заблокировал экран: %+v; want без блокировки (D-41)", st)
 	}
 	h.svc.Shutdown(h.real.Now())
 
 	h2 := newHarness(t, withStore(h.store))
 	h2.start()
-	if st := h2.status(); st.Lock != ipc.LockBypass {
-		t.Fatalf("после перезапуска блокировка за обход пропала: %q", st.Lock)
+	if st := h2.status(); st.Lock != ipc.LockNone {
+		t.Fatalf("после перезапуска поднялась блокировка: %q; want без блокировки (D-41)", st.Lock)
 	}
 }
 
-// Ловит: повторное сообщение об обходе стирает первую подробность или плодит события
-// (страж шлёт его каждую секунду, пока экран показан).
-func TestRepeatedBypassKeepsFirstDetailAndOneEvent(t *testing.T) {
+// Ловит: повтор той же подробности обхода плодит события (страж шлёт его каждую секунду);
+// другая подробность пишется отдельным событием (R17, D-41).
+func TestRepeatedBypassDedupBySameDetail(t *testing.T) {
 	h := newHarness(t, withChild(childSID, "Миша", 120))
 	h.start()
 	h.childLogsIn()
 	h.poll(activeSample, ipc.GuardEvent{Kind: ipc.GuardEvBypass, Detail: "первое"})
-	h.poll(activeSample, ipc.GuardEvent{Kind: ipc.GuardEvBypass, Detail: "второе"})
-	if st := h.status(); st.Detail != "первое" {
-		t.Fatalf("подробность %q, ждали первую", st.Detail)
-	}
+	h.poll(activeSample, ipc.GuardEvent{Kind: ipc.GuardEvBypass, Detail: "первое"}) // та же — дедуп
 	if n := len(h.store.eventsOf("bypass")); n != 1 {
-		t.Fatalf("событий bypass %d, ждали 1", n)
+		t.Fatalf("повтор той же подробности: событий %d, want 1", n)
+	}
+	h.poll(activeSample, ipc.GuardEvent{Kind: ipc.GuardEvBypass, Detail: "второе"}) // другая — новое событие
+	if n := len(h.store.eventsOf("bypass")); n != 2 {
+		t.Fatalf("другая подробность: событий %d, want 2", n)
 	}
 }
 

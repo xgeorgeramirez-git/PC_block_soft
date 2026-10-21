@@ -31,6 +31,7 @@ const (
 	textBlockCleared  = "Блокировка снята"
 	textPasswordSet   = "Пароль изменён"
 	textMinutesRange  = "Можно добавить от 1 до 240 минут"
+	textReduceRange   = "Можно убрать от 1 до 240 минут"
 	textIntervalSame  = "Начало и конец совпадают"
 	textIntervalRange = "Время должно быть от 00:00 до 23:59"
 	textBonusRange    = "Можно начислить от 1 до 600 минут"

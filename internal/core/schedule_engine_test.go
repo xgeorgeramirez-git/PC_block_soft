@@ -95,7 +95,7 @@ func TestEngineWarnsOnNearestEventLimit(t *testing.T) {
 	}
 }
 
-// Ловит: приоритет блокировок bypass > интервал > время вышло.
+// Ловит: приоритет блокировок интервал > время вышло; обход не блокирует (D-41).
 func TestEngineLockPriority(t *testing.T) {
 	r := rulesMon(1) // лимит почти исчерпан
 	r.Schedule = []Interval{iv(Monday, 21*60, 7*60)}
@@ -106,10 +106,10 @@ func TestEngineLockPriority(t *testing.T) {
 	if d.Lock != LockForbidden {
 		t.Fatalf("в интервале при исчерпанном лимите Lock = %v, want LockForbidden", d.Lock)
 	}
-	// Поверх ставим обход — он главнее интервала.
+	// Обход больше не блокирует (D-41): он лишь пишет событие в журнал, блокировка интервала остаётся.
 	e.MarkBypass("тест")
-	if d := e.Current(); d.Lock != LockBypass {
-		t.Fatalf("при обходе Lock = %v, want LockBypass", d.Lock)
+	if d := e.Current(); d.Lock != LockForbidden {
+		t.Fatalf("обход не должен менять блокировку: Lock = %v, want LockForbidden (D-41)", d.Lock)
 	}
 }
 

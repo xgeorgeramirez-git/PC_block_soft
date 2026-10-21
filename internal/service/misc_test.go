@@ -53,7 +53,7 @@ func TestEventTextKinds(t *testing.T) {
 		d    map[string]any
 		want string
 	}{
-		{"extra_undone", map[string]any{"minutes": 30}, "Миша: доп. время отменено, -30 мин"},
+		{"extra_undone", map[string]any{"minutes": 30}, "Миша: изменение доп. времени отменено"},
 		{"block_cleared", nil, "Миша: блокировка снята родителем"},
 		{"safe_mode", nil, "Миша: правила не прочитаны, ограничения не действуют"},
 		{"child_admin", nil, "Миша: учётка получила права администратора, ограничения не действуют"},

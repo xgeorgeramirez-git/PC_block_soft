@@ -121,9 +121,9 @@ func TestUserChangeInSameSessionRestartsParts(t *testing.T) {
 
 // --- защита от обхода (FR-27, R17в, Ruling 15, 19) ---------------------------------------------------
 
-// Ловит: убитый страж не возвращается не позже следующего обслуживания (FR-27: ≤ 3 с), не
-// записывается обход и экран «Попытка обойти защиту» не ставится.
-func TestGuardKilledIsRelaunchedAndBlocks(t *testing.T) {
+// Ловит: убитый страж не возвращается не позже следующего обслуживания (FR-27: ≤ 3 с) и
+// попытка обхода не пишется в журнал; экран при этом не блокируется (R17в, D-41).
+func TestGuardKilledIsRelaunchedAndJournaled(t *testing.T) {
 	h := newHarness(t, withChild(childSID, "Миша", 120))
 	h.start()
 	h.childLogsIn()
@@ -134,22 +134,17 @@ func TestGuardKilledIsRelaunchedAndBlocks(t *testing.T) {
 	if len(now) != 1 || now[0] == old {
 		t.Fatalf("страж не перезапущен: %+v", now)
 	}
-	st := h.status()
-	if st.Lock != ipc.LockBypass || st.Detail != detailGuardClosed {
-		t.Fatalf("статус после гибели стража: %+v", st)
+	if st := h.status(); st.Lock != ipc.LockNone {
+		t.Fatalf("гибель стража заблокировала экран: %+v; want без блокировки (D-41)", st)
 	}
 	evs := h.store.eventsOf("bypass")
 	if len(evs) != 1 || evs[0].Details["subtype"] != "guard_closed" || evs[0].ChildID != h.childID(childSID) {
-		t.Fatalf("события обхода: %+v", evs)
-	}
-	cs, _ := h.store.ListChildren()
-	if cs[0].BypassDetail == "" {
-		t.Fatal("обход не записан в базу")
+		t.Fatalf("события обхода: %+v; want одно подробное событие", evs)
 	}
 }
 
-// Ловит: значок, убитый в сеансе ребёнка, не считается обходом.
-func TestTrayKilledInChildSessionIsBypass(t *testing.T) {
+// Ловит: значок, убитый в сеансе ребёнка, не записан как попытка обхода; блокировки нет (D-41).
+func TestTrayKilledInChildSessionIsJournaled(t *testing.T) {
 	h := newHarness(t, withChild(childSID, "Миша", 120))
 	h.start()
 	h.childLogsIn()
@@ -158,8 +153,12 @@ func TestTrayKilledInChildSessionIsBypass(t *testing.T) {
 	if len(h.launcher.aliveOf(ProcTray, childSession)) != 1 {
 		t.Fatal("значок не перезапущен")
 	}
-	if st := h.status(); st.Lock != ipc.LockBypass || st.Detail != detailTrayClosed {
-		t.Fatalf("статус: %+v", st)
+	if st := h.status(); st.Lock != ipc.LockNone {
+		t.Fatalf("гибель значка заблокировала экран: %+v; want без блокировки (D-41)", st)
+	}
+	evs := h.store.eventsOf("bypass")
+	if len(evs) != 1 || evs[0].Details["subtype"] != "tray_closed" {
+		t.Fatalf("события обхода: %+v; want одно подробное событие про значок", evs)
 	}
 }
 
@@ -212,8 +211,12 @@ func TestTrayClosingFromForeignProcessIsIgnored(t *testing.T) {
 	h.ok(childPeer(), "", ipc.CmdTrayClosing, nil, nil) // PID 500, не процесс значка
 	h.launcher.kill(h.launcher.aliveOf(ProcTray, childSession)[0])
 	h.hk(1)
-	if st := h.status(); st.Lock != ipc.LockBypass {
-		t.Fatalf("обман TrayClosing сработал: %+v", st)
+	// Обман не прошёл: гибель значка записана попыткой обхода (без блокировки, D-41).
+	if st := h.status(); st.Lock != ipc.LockNone {
+		t.Fatalf("обман TrayClosing заблокировал экран: %+v", st)
+	}
+	if n := len(h.store.eventsOf("bypass")); n != 1 {
+		t.Fatalf("событий обхода %d; want 1 (обман TrayClosing не должен гасить запись)", n)
 	}
 }
 
@@ -238,6 +241,22 @@ func TestSessionGoneIsNotBypass(t *testing.T) {
 	}
 	if len(h.launcher.aliveOf(ProcGuard, childSession)) != 1 {
 		t.Fatal("при новом входе страж не запущен")
+	}
+}
+
+// Ловит: выход из детской учётки (Logoff) до того, как служба увидела исчезновение сеанса,
+// записывается обходом — ложное срабатывание, которое ловил заказчик (R17, D-41).
+func TestLogoffMarksProcsExpected(t *testing.T) {
+	h := newHarness(t, withChild(childSID, "Миша", 120))
+	h.start()
+	h.childLogsIn()
+	// Процессы сеанса гибнут при выходе, но сеанс ещё числится у службы.
+	h.launcher.kill(h.launcher.aliveOf(ProcGuard, childSession)[0])
+	h.launcher.kill(h.launcher.aliveOf(ProcTray, childSession)[0])
+	h.svc.OnSession(SessionLogoff, childSession, h.real.Now()) // помечает процессы ожидаемыми
+	h.hk(1)                                                    // обслуживание видит гибель уже как ожидаемую
+	if n := len(h.store.eventsOf("bypass")); n != 0 {
+		t.Fatalf("выход из учётки записан обходом: %d (ложное срабатывание, D-41)", n)
 	}
 }
 
@@ -513,9 +532,9 @@ func TestParentWindowDeathEndsItsSession(t *testing.T) {
 	}
 }
 
-// Ловит: окно, закрытое не кнопкой, в сеансе ребёнка не открывается заново и не считается
-// обходом (Ruling 19); закрытое штатно считается обходом.
-func TestWindowKilledInChildSessionReopensAndBlocks(t *testing.T) {
+// Ловит: окно, закрытое не кнопкой, в сеансе ребёнка открывается заново и попытка обхода
+// пишется в журнал без блокировки (Ruling 19, R17, D-41); закрытое штатно — не обход.
+func TestWindowKilledInChildSessionReopensAndJournaled(t *testing.T) {
 	h := newHarness(t, withChild(childSID, "Миша", 120))
 	h.start()
 	h.childLogsIn()
@@ -526,8 +545,12 @@ func TestWindowKilledInChildSessionReopensAndBlocks(t *testing.T) {
 	if len(h.launcher.aliveOf(ProcWindow, childSession)) != 1 {
 		t.Fatal("окно не открыто заново")
 	}
-	if st := h.status(); st.Lock != ipc.LockBypass || st.Detail != detailWindowClosed {
-		t.Fatalf("статус: %+v", st)
+	if st := h.status(); st.Lock != ipc.LockNone {
+		t.Fatalf("гибель окна заблокировала экран: %+v; want без блокировки (D-41)", st)
+	}
+	evs := h.store.eventsOf("bypass")
+	if len(evs) != 1 || evs[0].Details["subtype"] != "window_closed" {
+		t.Fatalf("события обхода: %+v; want одно про окно", evs)
 	}
 
 	h2 := newHarness(t, withChild(childSID, "Миша", 120))

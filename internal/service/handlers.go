@@ -423,7 +423,7 @@ func (s *Service) hAddExtra(c *callCtx) ipc.Reply {
 	}
 	s.afterDecision(cs, d, nil)
 	s.saveDay(cs)
-	rec := &undoRec{id: s.cfg.Rand(), minutes: req.Minutes, day: d.Day, until: c.real.Add(undoLife)}
+	rec := &undoRec{id: s.cfg.Rand(), minutes: req.Minutes, extraDelta: req.Minutes, undoMsg: "Добавленное время отменено", day: d.Day, until: c.real.Add(undoLife)}
 	cs.undo = rec
 	msg := "Добавлено " + minutesText(req.Minutes)
 	if !c.viaBind {
@@ -457,22 +457,103 @@ func (s *Service) hUndoExtra(c *callCtx) ipc.Reply {
 		return ipc.Fail(textUndoGone)
 	}
 	st, bypass := cs.eng.State()
-	if st.Day != rec.day || st.ExtraMin < rec.minutes {
+	if st.Day != rec.day {
 		return ipc.Fail(textUndoGone)
 	}
-	st.ExtraMin -= rec.minutes
-	// У ядра нет «убрать доп. время»: ядро пересоздаётся из состояния без него. Пороги R9
-	// при этом взводятся заново по новому остатку, как при любом сдвиге.
+	// Откат знакового изменения доп. времени (R10, D-43): ядро пересоздаётся из состояния.
+	// Пороги R9 взводятся заново по новому остатку, как при любом сдвиге.
+	st.ExtraMin -= rec.extraDelta
 	cs.eng = core.NewEngine(s.cfg.Clock, s.cfg.Loc, cs.rules, st, bypass)
 	cs.undo = nil
 	s.saveState(cs, st)
 	s.journal.Write(cs.child.ID, "extra_undone", map[string]any{
-		"minutes": rec.minutes, "text": "Доп. время отменено: -" + minutesTextShort(rec.minutes),
+		"minutes": rec.minutes, "text": "Изменение доп. времени отменено",
 	})
-	return ipc.OK(ipc.CardReply{Card: s.cardOf(cs), Message: "Добавленное время отменено"})
+	return ipc.OK(ipc.CardReply{Card: s.cardOf(cs), Message: rec.undoMsg})
 }
 
-func minutesTextShort(n int) string { return itoa(n) + " мин" }
+// hReduceExtra убавляет доп. время ребёнку (R10, D-43, кнопки «−15/−30/−60» и «своё»).
+func (s *Service) hReduceExtra(c *callCtx) ipc.Reply {
+	var req ipc.ReduceExtraRequest
+	if c.msg.Into(&req) != nil {
+		return bad()
+	}
+	cs := s.childArg(c, req.ChildID)
+	if cs == nil {
+		return ipc.Fail(textNoSuchChild)
+	}
+	if req.Minutes < 1 || req.Minutes > core.MaxExtraMin {
+		return ipc.FailField(textReduceRange, ipc.FieldMinutes)
+	}
+	d, removed, err := cs.eng.ReduceExtra(req.Minutes)
+	if err != nil {
+		return ipc.FailField(textReduceRange, ipc.FieldMinutes)
+	}
+	s.afterDecision(cs, d, nil)
+	s.saveDay(cs)
+	reply := ipc.AddExtraReply{Card: s.cardOf(cs), Message: "Убирать нечего"}
+	if removed != 0 {
+		rec := &undoRec{id: s.cfg.Rand(), minutes: removed, extraDelta: -removed, undoMsg: "Убранное время возвращено", day: d.Day, until: c.real.Add(undoLife)}
+		cs.undo = rec
+		reply.Message = "Убрано " + minutesText(removed)
+		reply.ExtraID, reply.UndoUntilMs = rec.id, rec.until.UnixMilli()
+		s.noticeGuards(cs, reply.Message)
+	}
+	return ipc.OK(reply)
+}
+
+// hClearExtra обнуляет сегодняшнее доп. время ребёнку (R10, D-43, «Убрать доп. время»).
+func (s *Service) hClearExtra(c *callCtx) ipc.Reply {
+	var req ipc.ClearExtraRequest
+	if c.msg.Into(&req) != nil {
+		return bad()
+	}
+	cs := s.childArg(c, req.ChildID)
+	if cs == nil {
+		return ipc.Fail(textNoSuchChild)
+	}
+	d, removed := cs.eng.ClearExtra()
+	s.afterDecision(cs, d, nil)
+	s.saveDay(cs)
+	reply := ipc.AddExtraReply{Card: s.cardOf(cs), Message: "Доп. времени нет"}
+	if removed != 0 {
+		mins := removed
+		if mins < 0 {
+			mins = -mins
+		}
+		rec := &undoRec{id: s.cfg.Rand(), minutes: mins, extraDelta: -removed, undoMsg: "Доп. время возвращено", day: d.Day, until: c.real.Add(undoLife)}
+		cs.undo = rec
+		reply.Message = "Доп. время убрано"
+		reply.ExtraID, reply.UndoUntilMs = rec.id, rec.until.UnixMilli()
+		s.noticeGuards(cs, reply.Message)
+	}
+	return ipc.OK(reply)
+}
+
+// hGetDiag возвращает состояние переключателя подробных логов (FR-25, D-42).
+func (s *Service) hGetDiag(c *callCtx) ipc.Reply {
+	return ipc.OK(ipc.DiagReply{Verbose: s.verbose})
+}
+
+// hSetDiag включает или выключает подробные логи для диагностики (FR-25, D-42).
+func (s *Service) hSetDiag(c *callCtx) ipc.Reply {
+	var req ipc.SetDiagRequest
+	if c.msg.Into(&req) != nil {
+		return bad()
+	}
+	s.verbose = req.Verbose
+	val := "0"
+	state := "выключены"
+	if req.Verbose {
+		val, state = "1", "включены"
+	}
+	if err := s.cfg.Store.SetSetting(settingVerboseLogs, val); err != nil {
+		s.logRate("diag", "не сохранена настройка подробных логов: %v", err)
+		return ipc.Fail(textRetry)
+	}
+	s.cfg.Logf("Подробные логи для диагностики %s (FR-25, D-42)", state)
+	return ipc.OK(ipc.DiagReply{Verbose: s.verbose})
+}
 
 func (s *Service) hClearBlock(c *callCtx) ipc.Reply {
 	var req ipc.ChildRequest
@@ -706,20 +787,38 @@ func (s *Service) hSaveHelperState(c *callCtx) ipc.Reply {
 var weekdayShort = [7]string{"пн", "вт", "ср", "чт", "пт", "сб", "вс"}
 
 func (s *Service) hMyToday(c *callCtx) ipc.Reply {
-	cs := s.childBySID(c.peer.SID)
+	return ipc.OK(s.myTodayOf(s.childBySID(c.peer.SID)))
+}
+
+// hParentStats возвращает статистику выбранного ребёнка за сегодня для родительской сессии
+// (FR-23, D-44): та же «Моя статистика», что видит ребёнок, только для просмотра.
+func (s *Service) hParentStats(c *callCtx) ipc.Reply {
+	var req ipc.ParentStatsRequest
+	if c.msg.Into(&req) != nil {
+		return bad()
+	}
+	cs := s.childArg(c, req.ChildID)
 	if cs == nil {
-		return ipc.OK(ipc.MyTodayReply{Status: ipc.ChildStatusNotChild(), Today: []string{}, Rules: []ipc.MyRule{}})
+		return ipc.Fail(textNoSuchChild)
+	}
+	return ipc.OK(s.myTodayOf(cs))
+}
+
+// myTodayOf собирает «Моя статистика» за сегодня (FR-12, FR-23): статус, строки «Сегодня» и
+// «Мои правила» текстом. Один источник для ребёнка (hMyToday) и родителя (hParentStats).
+func (s *Service) myTodayOf(cs *childState) ipc.MyTodayReply {
+	if cs == nil {
+		return ipc.MyTodayReply{Status: ipc.ChildStatusNotChild(), Today: []string{}, Rules: []ipc.MyRule{}}
 	}
 	st := s.statusOf(cs)
 	out := ipc.MyTodayReply{Status: st, Today: []string{st.Summary, "Использовано " + core.FormatDuration(st.UsedS)}, Rules: []ipc.MyRule{}}
-	// Строка «Можно снова…» нужна при любой блокировке, не только «время вышло»: на экране
-	// блокировки за обход и в запретные часы она есть, в «Моей статистике» была только при
-	// лимите (B-6). Показываем, когда блокировка есть и ядро назвало срок.
+	// Строка «Можно снова…» нужна при любой блокировке: показываем, когда блокировка есть и
+	// ядро назвало срок (B-6).
 	if st.Lock != "" && st.Lock != ipc.LockNone && st.Until != "" {
 		out.Today = append(out.Today, st.Until)
 	}
 	if cs.rules.Broken {
-		return ipc.OK(out)
+		return out
 	}
 	for i := 0; i < 7; i++ {
 		l := cs.rules.Week[i]
@@ -733,7 +832,7 @@ func (s *Service) hMyToday(c *callCtx) ipc.Reply {
 		}
 		out.Rules = append(out.Rules, ipc.MyRule{Weekday: i + 1, Day: weekdayShort[i], Text: text})
 	}
-	return ipc.OK(out)
+	return out
 }
 
 func (s *Service) firstRunSeen(cs *childState) bool {
@@ -770,7 +869,7 @@ func (s *Service) hGuardPoll(c *callCtx) ipc.Reply {
 	cs.sample, cs.sampleAt, cs.haveSample = req.Sample, c.real, true
 	for _, ev := range req.Events {
 		if ev.Kind == ipc.GuardEvBypass && !cs.admin {
-			s.markBypass(cs, ev.Detail, "guard")
+			s.markBypass(cs, ev.Detail, "guard", c.real)
 		}
 	}
 	rep := ipc.GuardPollReply{Status: s.statusOf(cs), Warnings: []ipc.GuardWarning{}, Commands: []ipc.GuardCommand{}}
