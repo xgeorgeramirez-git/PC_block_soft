@@ -135,7 +135,6 @@ func (u *lockUI) layout() {
 	addText(v.Lock.Detail, u.fonts.body, colorSecondary, s(12))
 	addText(v.Lock.Until, u.fonts.body, colorSecondary, s(16))
 	addText(v.Lock.Used, u.fonts.body, colorSecondary, s(6))
-	addText(v.Lock.Hint, u.fonts.body, colorSecondary, s(12))
 	addText(v.Lock.Hint, u.fonts.body, colorSecondary, s(16))
 	addText(v.PanelText, u.fonts.body, colorText, s(32))
 	addText(u.notice, u.fonts.small, colorErrorText, s(16))
@@ -161,10 +160,10 @@ func (u *lockUI) layout() {
 			gap = s(28)
 		}
 		es = append(es, entry{kind: entButton, item: FlowItem{W: s(380), H: s(54), Gap: gap}, btn: b})
-	}
-	for _, b := range list {
+		// Пояснение недоступной кнопки — сразу под ней, а не в конце списка (L-17, B-10):
+		// «Из копилки можно взять с 07:00» должно стоять у «Взять из копилки».
 		if !b.Enabled && b.Hint != "" && !strings.Contains(v.PasswordError, b.Hint) {
-			addText(b.Hint, u.fonts.small, colorSecondary, s(12))
+			addText(b.Hint, u.fonts.small, colorSecondary, s(6))
 		}
 	}
 
