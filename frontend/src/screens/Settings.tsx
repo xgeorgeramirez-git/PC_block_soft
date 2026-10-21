@@ -367,7 +367,7 @@ function ChildrenSection({ list, accounts, loadError, onReload, onChanged }: Chi
                   </select>
                 </div>
                 <div className="form-actions">
-                  <button type="button" className="btn" onClick={() => void add()} disabled={busy}>
+                  <button type="button" className="btn btn-primary" onClick={() => void add()} disabled={busy}>
                     Добавить ребёнка
                   </button>
                 </div>
