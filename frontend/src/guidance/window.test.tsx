@@ -73,7 +73,11 @@ describe("окно родителя: сценарий подсказок", () =>
     expect(hints()).toHaveLength(0);
     await user.click(menu("Помощь"));
     expect(await screen.findByText(/Подсказки в окне сейчас выключены/)).toBeTruthy();
-    await user.click(within(screen.getByRole("region", { name: "Обучение" })).getByRole("button", { name: "Начать" }));
+    // Туров теперь несколько: берём «Начать» в строке нужного тура (не первую попавшуюся).
+    const tourRow = within(screen.getByRole("region", { name: "Обучение" }))
+      .getByText("Короткий тур по окну родителя")
+      .closest("li") as HTMLElement;
+    await user.click(within(tourRow).getByRole("button", { name: "Начать" }));
     expect(await screen.findByRole("dialog", { name: "Короткий тур по окну родителя" })).toBeTruthy();
   });
 

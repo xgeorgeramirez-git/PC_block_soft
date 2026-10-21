@@ -38,6 +38,10 @@ function setup(helper: Record<string, unknown> = {}, opts: MockOptions = {}) {
 
 const region = (name: string) => screen.getByRole("region", { name });
 
+/** Строка конкретного тура в «Обучении»: туров теперь несколько, кнопка «Начать» у каждого. */
+const tourRow = (title: string): HTMLElement =>
+  within(region("Обучение")).getByText(title).closest("li") as HTMLElement;
+
 describe("Помощь: состав", () => {
   it("заголовок и три раздела", async () => {
     setup();
@@ -52,22 +56,22 @@ describe("Помощь: состав", () => {
     const box = region("Обучение");
     expect(within(box).getByText(TOURS[0].title)).toBeTruthy();
     expect(within(box).getByText(/6 шагов, около минуты/)).toBeTruthy();
-    expect(within(box).getByRole("button", { name: "Начать" })).toBeTruthy();
+    expect(within(tourRow(TOURS[0].title)).getByRole("button", { name: "Начать" })).toBeTruthy();
   });
 
   // Ловит: тур «Начать» в «Помощи» ничего не делает.
   it("«Начать» запускает тур", async () => {
     const { user } = setup();
-    await user.click(within(region("Обучение")).getByRole("button", { name: "Начать" }));
+    await user.click(within(tourRow(TOURS[0].title)).getByRole("button", { name: "Начать" }));
     expect(await screen.findByRole("dialog", { name: TOURS[0].title })).toBeTruthy();
   });
 
   it("пройденный тур отмечен, а запустить можно снова", async () => {
     setup({ tours: [TOURS[0].id] });
-    const box = region("Обучение");
-    expect(await within(box).findByText("Пройден")).toBeTruthy();
-    expect(within(box).getByRole("button", { name: "Пройти ещё раз" })).toBeTruthy();
-    expect(within(box).queryByRole("button", { name: "Начать" })).toBeNull();
+    const row = tourRow(TOURS[0].title);
+    expect(await within(row).findByText("Пройден")).toBeTruthy();
+    expect(within(row).getByRole("button", { name: "Пройти ещё раз" })).toBeTruthy();
+    expect(within(row).queryByRole("button", { name: "Начать" })).toBeNull();
   });
 
   it("«Что нового»: версия, название и пункты", async () => {
@@ -86,7 +90,7 @@ describe("Помощь: при выключенных подсказках", () 
     expect(await screen.findByText(/Подсказки в окне сейчас выключены/)).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "Открыть «Настройки»" }));
     expect(navigate).toHaveBeenCalledWith("settings");
-    await user.click(within(region("Обучение")).getByRole("button", { name: "Начать" }));
+    await user.click(within(tourRow(TOURS[0].title)).getByRole("button", { name: "Начать" }));
     expect(await screen.findByRole("dialog", { name: TOURS[0].title })).toBeTruthy();
     expect(region("Что нового")).toBeTruthy();
   });
