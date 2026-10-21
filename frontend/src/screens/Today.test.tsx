@@ -163,6 +163,57 @@ describe("Today: карточка ребёнка", () => {
     expect(within(anna).queryByRole("button", { name: "+30" })).toBeNull();
     expect(within(anna).queryByText(/Использовано/)).toBeNull();
   });
+
+  // Ловит: предупреждение «правила не прочитаны» и карточка ребёнка показывают
+  // противоречивые сигналы (B-4). В безопасном режиме служба отдаёт ребёнка со статусом
+  // «safe» без блокировки: карточка не считает время и не предлагает «+время», как и говорит
+  // предупреждение. Один источник — служба; экран их не рассогласовывает.
+  it("правила не прочитаны: предупреждение и карточка согласованы (B-4)", async () => {
+    mock = installBackend({ sessionActive: true });
+    mock.override("GetToday", {
+      ok: true,
+      payload: {
+        children: [
+          {
+            childId: 1,
+            sid: "S-1",
+            name: "Миша",
+            status: {
+              name: "Миша",
+              status: "safe",
+              statusText: "Правила не прочитаны: ограничения не действуют",
+              label: "",
+              tooltip: "",
+              summary: "",
+              day: "2026-10-19",
+              remainingS: 0,
+              limitS: 0,
+              usedS: 0,
+              unlimited: true,
+              lock: "none",
+              reason: "",
+              detail: "",
+              until: "",
+              pauseUntil: "",
+              bonusBalance: 0,
+              forbiddenNote: "",
+              used: "",
+            },
+            extraMin: 0,
+            bonusBalance: 0,
+            canClearBlock: false,
+          },
+        ],
+        notices: ["Служба не смогла прочитать правила"],
+      },
+    });
+    render(<Today />);
+    expect(await screen.findByText(RULES_NOT_READ_TEXT)).toBeTruthy();
+    const misha = screen.getByRole("article", { name: "Миша" });
+    expect(within(misha).getByText("Правила не прочитаны: ограничения не действуют")).toBeTruthy();
+    expect(within(misha).queryByRole("button", { name: "+15" })).toBeNull();
+    expect(within(misha).queryByText(/Использовано/)).toBeNull();
+  });
 });
 
 describe("Today: добавить время", () => {
