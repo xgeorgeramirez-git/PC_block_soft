@@ -48,6 +48,8 @@ const (
 	ButtonConfirmShutdown        // «Выключить» в подтверждении выключения
 	ButtonSwitchUser             // «Смена пользователя» на экране
 	ButtonWarningOK              // «Понятно» на плашке предупреждения
+	ButtonAskMore                // «Попросить ещё» на экране (FR-10): открывает панель пароля
+	ButtonSpendBonus             // «Взять из копилки» на экране (FR-11): без пароля
 )
 
 // Panel — панель поверх экрана блокировки; одновременно открыта одна.
@@ -75,6 +77,7 @@ const (
 	ActLogoff                          // попросить службу выйти из учётной записи (WTSLogoffSession)
 	ActShutdown                        // попросить службу выключить компьютер
 	ActSwitchUser                      // попросить службу отключить сеанс без завершения: экран выбора пользователя Windows
+	ActSpendBonus                      // попросить службу взять Minutes минут из копилки (FR-11, без пароля)
 )
 
 // Action — результат нажатия. Пароль есть только у ActCheckPassword и только в этом
@@ -151,6 +154,7 @@ const (
 	textCancel           = "Отмена"
 	textOpenSettings     = "Открыть настройки"
 	textClearBlock       = "Снять блокировку"
+	textAskMore          = "Попросить ещё"
 	textConfirmLogoff    = "Выйти"
 	textConfirmShutdown  = "Выключить"
 	textWarningOK        = "Понятно"
@@ -161,6 +165,31 @@ const (
 	textWarn5            = "Через 5 минут время закончится. Сохрани игру"
 	textWarn1            = "Осталась 1 минута: "
 )
+
+// spendBonusLabel — «Взять из копилки (45 мин)» (ТЗ 8.2.3 п.3).
+func spendBonusLabel(balance int) string {
+	return "Взять из копилки (" + core.FormatLimit(balance) + ")"
+}
+
+// bonusForbiddenHint — пояснение, почему «Взять из копилки» недоступна в запретный интервал
+// (L-17): «Из копилки можно взять с 07:00». until — строка «Можно снова: завтра в 07:00».
+func bonusForbiddenHint(until string) string {
+	if i := indexClock(until); i >= 0 {
+		return "Из копилки можно взять с " + until[i:]
+	}
+	return "Из копилки можно взять, когда закончатся запретные часы"
+}
+
+// indexClock возвращает позицию первого «ЧЧ:ММ» в строке или -1.
+func indexClock(s string) int {
+	for i := 0; i+5 <= len(s); i++ {
+		if s[i] >= '0' && s[i] <= '9' && s[i+1] >= '0' && s[i+1] <= '9' && s[i+2] == ':' &&
+			s[i+3] >= '0' && s[i+3] <= '9' && s[i+4] >= '0' && s[i+4] <= '9' {
+			return i
+		}
+	}
+	return -1
+}
 
 // warnThresholds — пороги R9, по которым бывают плашки, в минутах.
 var warnThresholds = [3]int{15, 5, 1}
@@ -495,10 +524,19 @@ func (m *Model) Press(now time.Time, b Button, password string) Action {
 
 func (m *Model) pressScreen(b Button) Action {
 	switch b {
-	case ButtonParentPassword:
+	case ButtonParentPassword, ButtonAskMore:
+		// «Попросить ещё» и «Пароль родителя» открывают ввод пароля: после верного пароля
+		// родитель выбирает доп. время (FR-10). «Попросить ещё» на экране блокировки по
+		// ТЗ 8.2.3 п.4 ведёт к той же панели пароля с выбором времени.
 		m.panel = PanelPassword
 		m.pwdErr = ""
 		m.clearSeq++
+	case ButtonSpendBonus:
+		// В запретный интервал кнопка недоступна (view её гасит); трата без пароля (FR-11).
+		if m.dec.Lock == core.LockForbidden || m.dec.BonusBalance <= 0 {
+			return Action{}
+		}
+		return Action{Kind: ActSpendBonus, Minutes: m.dec.BonusBalance}
 	case ButtonLogoff:
 		m.panel = PanelConfirmLogoff
 	case ButtonShutdown:
@@ -616,14 +654,7 @@ func (m *Model) View(now time.Time) View {
 	v.PasswordClearSeq = m.clearSeq
 	switch m.panel {
 	case PanelNone:
-		v.Buttons = []ButtonView{
-			{Button: ButtonParentPassword, Label: textParentPassword, Main: true, Enabled: true},
-			// Выходы не дают доступа ко времени, поэтому доступны всегда, в том числе при
-			// блокировке за обход (ТЗ 8.2.3 п.3).
-			{Button: ButtonShutdown, Label: textShutdown, Enabled: true},
-			{Button: ButtonLogoff, Label: textLogoff, Enabled: true},
-			{Button: ButtonSwitchUser, Label: textSwitchUser, Enabled: true},
-		}
+		v.Buttons = m.lockButtons(d)
 	case PanelPassword:
 		m.passwordView(now, &v)
 	case PanelParentChoices:
@@ -642,6 +673,36 @@ func (m *Model) View(now time.Time) View {
 		}
 	}
 	return v
+}
+
+// lockButtons — кнопки главного экрана блокировки (ТЗ 8.2.3 п.3). При обходе доступны
+// только «Пароль родителя» (главная) и выходы. Иначе главная «Попросить ещё», ниже
+// «Взять из копилки (N мин)» (недоступна в запретный интервал с пояснением, FR-11),
+// «Пароль родителя» и выходы. Выходы доступны всегда (доступа ко времени не дают).
+func (m *Model) lockButtons(d core.Decision) []ButtonView {
+	exits := []ButtonView{
+		{Button: ButtonShutdown, Label: textShutdown, Enabled: true},
+		{Button: ButtonLogoff, Label: textLogoff, Enabled: true},
+		{Button: ButtonSwitchUser, Label: textSwitchUser, Enabled: true},
+	}
+	if d.Lock == core.LockBypass {
+		return append([]ButtonView{
+			{Button: ButtonParentPassword, Label: textParentPassword, Main: true, Enabled: true},
+		}, exits...)
+	}
+	out := []ButtonView{
+		{Button: ButtonAskMore, Label: textAskMore, Main: true, Enabled: true},
+	}
+	if d.BonusBalance > 0 {
+		bonus := ButtonView{Button: ButtonSpendBonus, Label: spendBonusLabel(d.BonusBalance), Enabled: true}
+		if d.Lock == core.LockForbidden {
+			bonus.Enabled = false
+			bonus.Hint = bonusForbiddenHint(d.Until)
+		}
+		out = append(out, bonus)
+	}
+	out = append(out, ButtonView{Button: ButtonParentPassword, Label: textParentPassword, Enabled: true})
+	return append(out, exits...)
 }
 
 func (m *Model) passwordView(now time.Time, v *View) {
