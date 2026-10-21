@@ -138,7 +138,7 @@ function PauseAllSection() {
 
   return (
     <section className="panel" aria-labelledby="settings-pause-all">
-      <h3 id="settings-pause-all" className="panel-title">
+      <h3 id="settings-pause-all" className="section-title">
         Пауза для всех детей
       </h3>
       <p className="panel-text">Снять ограничения сразу у всех детей, например на время общего фильма. Время при этом считается.</p>
