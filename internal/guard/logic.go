@@ -660,16 +660,19 @@ func (m *Model) View(now time.Time) View {
 	case PanelParentChoices:
 		v.Choices = m.choicesView()
 	case PanelConfirmLogoff:
+		// Главная (графитовая, по Enter) — безопасная «Отмена»: необратимый выход не должен
+		// срабатывать случайным Enter (B-15). «Выйти» остаётся обычной кнопкой.
 		v.PanelText = textLogoffQuestion
 		v.Choices = []ButtonView{
-			{Button: ButtonConfirmLogoff, Label: textConfirmLogoff, Main: true, Enabled: true},
-			{Button: ButtonCancel, Label: textCancel, Enabled: true},
+			{Button: ButtonCancel, Label: textCancel, Main: true, Enabled: true},
+			{Button: ButtonConfirmLogoff, Label: textConfirmLogoff, Enabled: true},
 		}
 	case PanelConfirmShutdown:
+		// То же, что и для выхода: Enter отменяет, а не выключает компьютер (B-15).
 		v.PanelText = textShutdownQuestion
 		v.Choices = []ButtonView{
-			{Button: ButtonConfirmShutdown, Label: textConfirmShutdown, Main: true, Enabled: true},
-			{Button: ButtonCancel, Label: textCancel, Enabled: true},
+			{Button: ButtonCancel, Label: textCancel, Main: true, Enabled: true},
+			{Button: ButtonConfirmShutdown, Label: textConfirmShutdown, Enabled: true},
 		}
 	}
 	return v

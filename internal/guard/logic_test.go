@@ -659,8 +659,8 @@ func TestLogoffNeedsConfirmation(t *testing.T) {
 	}
 	v := m.View(t0)
 	want := []ButtonView{
-		{Button: ButtonConfirmLogoff, Label: "Выйти", Main: true, Enabled: true},
-		{Button: ButtonCancel, Label: "Отмена", Enabled: true},
+		{Button: ButtonCancel, Label: "Отмена", Main: true, Enabled: true},
+		{Button: ButtonConfirmLogoff, Label: "Выйти", Enabled: true},
 	}
 	if v.Panel != PanelConfirmLogoff || v.PanelText != "Несохранённые документы закроются. Выйти?" || !reflect.DeepEqual(v.Choices, want) {
 		t.Fatalf("подтверждение: Panel=%v Text=%q Choices=%+v", v.Panel, v.PanelText, v.Choices)
@@ -1457,8 +1457,8 @@ func TestShutdownNeedsConfirmation(t *testing.T) {
 		}
 		v := m.View(t0)
 		want := []ButtonView{
-			{Button: ButtonConfirmShutdown, Label: "Выключить", Main: true, Enabled: true},
-			{Button: ButtonCancel, Label: "Отмена", Enabled: true},
+			{Button: ButtonCancel, Label: "Отмена", Main: true, Enabled: true},
+			{Button: ButtonConfirmShutdown, Label: "Выключить", Enabled: true},
 		}
 		if v.Panel != PanelConfirmShutdown || v.PanelText != "Несохранённые документы закроются. Выключить компьютер?" ||
 			!reflect.DeepEqual(v.Choices, want) || len(v.Buttons) != 0 {
