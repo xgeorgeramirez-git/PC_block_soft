@@ -4,6 +4,7 @@ import (
 	"sync"
 	"time"
 
+	"pcblock/internal/core"
 	"pcblock/internal/ipc"
 )
 
@@ -24,13 +25,11 @@ type Display struct {
 	Tooltip string // подсказка при наведении
 }
 
-// ceilMin переводит секунды в минуты вверх: «осталось 5 с» не должно показывать «0» при
-// открытом экране (так же считает служба).
+// ceilMin переводит остаток в минуты единым правилом ядра (B-5): «осталось 5 с» показывает
+// «1 мин», а не «0». То же правило применяет служба в ipc, поэтому значок и окно родителя
+// не расходятся на минуту.
 func ceilMin(seconds int) int {
-	if seconds <= 0 {
-		return 0
-	}
-	return (seconds + 59) / 60
+	return core.RemainingMinutes(seconds)
 }
 
 // isPaused: ограничения не действуют без блокировки и без лимита (безопасный режим и учётка,

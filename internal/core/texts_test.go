@@ -30,6 +30,32 @@ func TestFormatDuration(t *testing.T) {
 	}
 }
 
+// Ловит: остаток времени считается в минуты не вверх (B-5): «осталось 1 с» показало бы «0»,
+// «61 с» показало бы «1» вместо «2». Прошедшее время (FormatDuration) округляется вниз — это
+// проверяет тест выше; здесь — что остаток и прошедшее считаются по-разному и намеренно.
+func TestRemainingMinutes(t *testing.T) {
+	cases := []struct {
+		s    int
+		want int
+	}{
+		{-5, 0},
+		{0, 0},
+		{1, 1},
+		{59, 1},
+		{60, 1},
+		{61, 2},
+		{119, 2},
+		{120, 2},
+		{3600, 60},
+		{3601, 61},
+	}
+	for _, tc := range cases {
+		if got := RemainingMinutes(tc.s); got != tc.want {
+			t.Errorf("RemainingMinutes(%d) = %d, want %d", tc.s, got, tc.want)
+		}
+	}
+}
+
 // Ловит: лимит пишется «2 ч 00 мин» вместо «2 ч» или «1 ч 30» без «мин» (пакет, п.7).
 func TestFormatLimit(t *testing.T) {
 	cases := []struct {

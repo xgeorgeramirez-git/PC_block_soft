@@ -27,6 +27,18 @@ func UntilForbidden(now, end time.Time) string {
 	return untilPrefix + dayWord(now, end) + " в " + FormatClock(end)
 }
 
+// RemainingMinutes — ЕДИНОЕ правило перевода остатка времени в минуты (B-5, класс D).
+// Остаток округляется ВВЕРХ: «осталось 5 с» показывает «1 мин», а не «0», пока время ещё
+// есть; ноль и отрицательное дают 0. Этим правилом остаток считают и значок у часов, и
+// строки окна родителя (ipc), чтобы они не расходились на минуту. Прошедшее время (сколько
+// использовано) округляется ВНИЗ через FormatDuration — это разные величины.
+func RemainingMinutes(seconds int) int {
+	if seconds <= 0 {
+		return 0
+	}
+	return (seconds + 59) / 60
+}
+
 // FormatDuration — длительность по ТЗ 4: меньше часа «40 мин», иначе «1 ч 05 мин».
 // Неполная минута отбрасывается, отрицательное — «0 мин».
 func FormatDuration(seconds int) string {

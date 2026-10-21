@@ -72,9 +72,8 @@ func ChildStatusFrom(name string, d core.Decision) ChildStatus {
 		Used:       d.Used,
 	}
 	s.StatusText = statusWords[s.Status]
-	// Остаток округляется вверх до минуты: «осталось 5 с» не должно показывать «0» при
-	// открытом экране.
-	remMin := (d.RemainingS + 59) / 60
+	// Остаток в минуты — единым правилом ядра (B-5): то же, что считает значок у часов.
+	remMin := core.RemainingMinutes(d.RemainingS)
 	switch s.Status {
 	case StatusOK, StatusLow:
 		s.Label = fmt.Sprint(remMin)
