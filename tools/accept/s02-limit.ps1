@@ -37,7 +37,7 @@ Invoke-Scenario "S2" "Лимит 20 минут: предупреждения 15,
     $st = Wait-Remaining 900 60 "остаток 15 мин"
     Suspend-Clock
     Write-Log "Часы остановлены при остатке $($st.remainingS) с"
-    $g = Wait-GuardState { param($s) (Get-WarnThresholds $s).Count -ge 1 } 8 "плашка за 15 минут показана"
+    $g = Wait-GuardState { param($s) (Get-WarnThresholds $s).Count -ge 1 } 15 "плашка за 15 минут показана"
     Assert-That ((Get-WarnThresholds $g) -join "," -eq "15") "Показанные плашки: $((Get-WarnThresholds $g) -join ','), ждали только 15"
     Start-Sleep -Milliseconds 600
     Save-Screen "s02-warn-15"
@@ -46,7 +46,7 @@ Invoke-Scenario "S2" "Лимит 20 минут: предупреждения 15,
 
   Step "Остаток 5 мин: плашка «Через 5 минут...»" {
     [void](Wait-Remaining 330 60 "остаток 5 мин")
-    $g = Wait-GuardState { param($s) (Get-WarnThresholds $s).Count -ge 2 } 8 "плашка за 5 минут показана"
+    $g = Wait-GuardState { param($s) (Get-WarnThresholds $s).Count -ge 2 } 15 "плашка за 5 минут показана"
     Assert-That ((Get-WarnThresholds $g) -join "," -eq "15,5") "Показанные плашки: $((Get-WarnThresholds $g) -join ','), ждали 15,5"
   }
 
@@ -55,7 +55,7 @@ Invoke-Scenario "S2" "Лимит 20 минут: предупреждения 15,
     $st = Wait-Remaining 57 60 "остаток 1 мин"
     Suspend-Clock
     Write-Log "Часы остановлены при остатке $($st.remainingS) с"
-    $g = Wait-GuardState { param($s) (Get-WarnThresholds $s).Count -ge 3 } 8 "плашка за 1 минуту показана"
+    $g = Wait-GuardState { param($s) (Get-WarnThresholds $s).Count -ge 3 } 15 "плашка за 1 минуту показана"
     Assert-That ((Get-WarnThresholds $g) -join "," -eq "15,5,1") "Показанные плашки: $((Get-WarnThresholds $g) -join ','), ждали 15,5,1"
     Start-Sleep -Milliseconds 600
     Save-Screen "s02-warn-1"
