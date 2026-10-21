@@ -9,7 +9,7 @@ import { genitiveName } from "../lib/format";
 export type EntryKind = "hint" | "detector" | "tour" | "whatsnew";
 
 /** Экраны окна родителя (совпадают с меню). */
-export type ScreenId = "today" | "children" | "bonus" | "journal" | "settings" | "help";
+export type ScreenId = "today" | "children" | "bonus" | "stats" | "journal" | "settings" | "help";
 
 /** Действия кнопок карточки; что делает каждое, решает Provider. */
 export type ActionId = "ack" | "start-tour" | "open-limits" | "how-to-fix" | "open-schedule";
