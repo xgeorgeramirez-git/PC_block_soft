@@ -784,6 +784,29 @@ func TestMyToday(t *testing.T) {
 	}
 }
 
+// Ловит: в «Моей статистике» при блокировке за обход нет строки «Можно снова…», хотя на
+// экране блокировки она есть (B-6). Строка про возвращение времени нужна при любой блокировке.
+func TestMyTodayShowsUntilOnBypass(t *testing.T) {
+	h := newHarness(t, withChild(childSID, "Миша", 120))
+	h.start()
+	h.childLogsIn()
+	h.poll(activeSample, ipc.GuardEvent{Kind: ipc.GuardEvBypass, Detail: "Окно проверки пароля закрыто насильно"})
+	var my ipc.MyTodayReply
+	h.ok(childPeer(), "", ipc.CmdMyToday, nil, &my)
+	if my.Status.Lock != ipc.LockBypass {
+		t.Fatalf("ждали блокировку за обход, статус: %+v", my.Status)
+	}
+	found := false
+	for _, line := range my.Today {
+		if strings.HasPrefix(line, "Можно снова") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("нет строки «Можно снова…» при обходе: %v", my.Today)
+	}
+}
+
 // Ловит: слова «Нельзя» и «Без лимита» в «Моих правилах» путаются.
 func TestMyRulesWords(t *testing.T) {
 	h := newHarness(t, withChild(childSID, "Миша", 120), configured())
