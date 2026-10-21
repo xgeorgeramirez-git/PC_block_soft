@@ -42,11 +42,15 @@ Invoke-Scenario "S5" "Значок убит: новый значок и блок
     Wait-Until { @(Get-SessionProcs "--tray").Count -eq 1 } 10 "в сеансе ровно один значок"
   }
 
-  Step "Экран блокировки «Попытка обойти защиту» только с двумя кнопками" {
+  Step "Экран блокировки «Попытка обойти защиту»: пароль родителя и выходы, без доступа ко времени" {
     $g = Wait-LockShown 15 "bypass"
     Write-Log "Экран показан через $([math]::Round($script:WaitElapsed, 1)) с: $(Format-GuardState $g)"
+    # При обходе время не возвращают: «Попросить ещё» и «Взять из копилки» не показываются
+    # (ТЗ 8.2.3). Доступны «Пароль родителя» и выходы (выходы добавлены в 0.1.1, D-40).
     $buttons = @(List $g.buttons | Sort-Object) -join ","
-    Assert-That ($buttons -eq "logoff,parentPassword") "На экране кнопки [$buttons], ждали только parentPassword и logoff"
+    Assert-That ($buttons -eq "logoff,parentPassword,shutdown,switchUser") "На экране кнопки [$buttons], ждали parentPassword и выходы"
+    Assert-That (-not (Test-HasButton $g "askMore")) "При обходе показана «Попросить ещё»: $(Format-GuardState $g)"
+    Assert-That (-not (Test-HasButton $g "spendBonus")) "При обходе показана «Взять из копилки»: $(Format-GuardState $g)"
     $st = Get-Status
     Write-Log "Статус: $($st.status), причина «$($st.reason)», подробности «$($st.detail)»"
     Assert-That ($st.lock -eq "bypass") "Блокировка в статусе службы '$($st.lock)', ждали bypass"
