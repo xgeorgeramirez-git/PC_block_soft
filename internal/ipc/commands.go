@@ -37,9 +37,23 @@ const (
 	CmdGetHelperState  = "GetHelperState"
 	CmdSaveHelperState = "SaveHelperState"
 
+	// Расписание, копилка, пауза (M2).
+	CmdGetSchedule  = "GetSchedule"  // запретные интервалы ребёнка (R7)
+	CmdSaveSchedule = "SaveSchedule" // сохранить интервалы, вернуть нормализованные (R7)
+	CmdPause        = "Pause"        // пауза одному ребёнку (R11)
+	CmdPauseAll     = "PauseAll"     // пауза всем детям (FR-25)
+	CmdGrantBonus   = "GrantBonus"   // начислить в копилку (FR-22)
+	CmdUndoBonus    = "UndoBonus"    // отменить начисление на 10 с
+	CmdGetBonus     = "GetBonus"     // баланс и история копилки
+	CmdCopyRules    = "CopyRules"    // скопировать правила с другого ребёнка (FR-33)
+
 	// Ребёнок о себе (только свой сеанс, только чтение).
 	CmdMyToday      = "MyToday"
 	CmdFirstRunSeen = "FirstRunSeen"
+
+	// Ребёнок просит ещё / берёт из копилки (M2).
+	CmdAskMore    = "AskMore"    // «Попросить ещё» ребёнком с паролем родителя (FR-10)
+	CmdSpendBonus = "SpendBonus" // «Взять из копилки» ребёнком без пароля (FR-11)
 
 	// Страж (только процесс системы в том же сеансе).
 	CmdGuardPoll       = "GuardPoll"
@@ -65,7 +79,9 @@ var AllCommands = []string{
 	CmdLogin, CmdExtendSession, CmdLogout, CmdSessionState, CmdGetToday, CmdGetChildRules,
 	CmdSaveLimits, CmdAddExtra, CmdUndoExtra, CmdClearBlock, CmdListEvents, CmdChangePassword,
 	CmdSetChildren, CmdGetHelperState, CmdSaveHelperState,
-	CmdMyToday, CmdFirstRunSeen,
+	CmdGetSchedule, CmdSaveSchedule, CmdPause, CmdPauseAll,
+	CmdGrantBonus, CmdUndoBonus, CmdGetBonus, CmdCopyRules,
+	CmdMyToday, CmdFirstRunSeen, CmdAskMore, CmdSpendBonus,
 	CmdGuardPoll, CmdGuardLogoff, CmdGuardShutdown, CmdGuardSwitchUser,
 	CmdTrayClosing,
 	CmdTestGuard, CmdTestClock, CmdGuardState,
@@ -79,6 +95,9 @@ const (
 	FieldChildren    = "children"
 	FieldMinutes     = "minutes"
 	FieldState       = "state"
+	FieldReason      = "reason" // причина начисления копилки (FR-22)
+	FieldStart       = "start"  // начало запретного интервала (R7)
+	FieldEnd         = "end"    // конец запретного интервала (R7)
 )
 
 // LimitField — имя поля лимита дня недели (1 = пн … 7 = вс) для ошибок SaveLimits и Setup.
@@ -134,8 +153,10 @@ const (
 	StatusOK        = "ok"
 	StatusLow       = "low"
 	StatusTimeUp    = "timeUp"
+	StatusForbidden = "forbidden" // запретные часы (R7)
 	StatusBypass    = "bypass"
 	StatusUnlimited = "unlimited"
+	StatusPaused    = "paused" // пауза: ограничения не действуют, учёт идёт (R11)
 	StatusSafe      = "safe"
 	StatusAdmin     = "admin"
 	StatusNotChild  = "notChild"
@@ -143,31 +164,35 @@ const (
 
 // Значения ChildStatus.Lock: какой экран блокировки показать.
 const (
-	LockNone   = "none"
-	LockTimeUp = "timeUp"
-	LockBypass = "bypass"
+	LockNone      = "none"
+	LockTimeUp    = "timeUp"
+	LockForbidden = "forbidden" // запретные часы (R7)
+	LockBypass    = "bypass"
 )
 
 // ChildStatus — состояние ребёнка. Числа и тексты экрана блокировки берутся из
 // core.Decision без пересчёта (ChildStatusFrom); надпись, подсказка и слово статуса
 // собираются в одном месте, поэтому на всех экранах они одинаковы (Review Focus 5).
 type ChildStatus struct {
-	Name       string `json:"name"`       // имя ребёнка
-	Status     string `json:"status"`     // Status*; цвет определяет только он (ТЗ 8.0 п.3)
-	StatusText string `json:"statusText"` // статус словом для карточки родителя: «Можно», «Время вышло»
-	Label      string `json:"label"`      // надпись на значке: минуты остатка «85», «0», «∞»
-	Tooltip    string `json:"tooltip"`    // подсказка значка: «Осталось 1 ч 25 мин»
-	Summary    string `json:"summary"`    // строка мини-панели: «Сегодня осталось 1 ч 25 мин из 2 ч»
-	Day        string `json:"day"`        // день цифр, YYYY-MM-DD
-	RemainingS int    `json:"remainingS"` // остаток общего времени, с (0 без лимита)
-	LimitS     int    `json:"limitS"`     // лимит дня с доп. временем, с (0 без лимита)
-	UsedS      int    `json:"usedS"`      // общее время за день, с
-	Unlimited  bool   `json:"unlimited"`  // лимита нет или правила не прочитаны
-	Lock       string `json:"lock"`       // Lock*
-	Reason     string `json:"reason"`     // заголовок экрана блокировки
-	Detail     string `json:"detail"`     // что произошло (только при обходе)
-	Until      string `json:"until"`      // «Можно снова: завтра»
-	Used       string `json:"used"`       // «Сегодня: 2 ч 00 мин из 2 ч»
+	Name          string `json:"name"`          // имя ребёнка
+	Status        string `json:"status"`        // Status*; цвет определяет только он (ТЗ 8.0 п.3)
+	StatusText    string `json:"statusText"`    // статус словом для карточки родителя: «Можно», «Время вышло»
+	Label         string `json:"label"`         // надпись на значке: минуты остатка «85», «0», «∞»
+	Tooltip       string `json:"tooltip"`       // подсказка значка: «Осталось 1 ч 25 мин»
+	Summary       string `json:"summary"`       // строка мини-панели: «Сегодня осталось 1 ч 25 мин из 2 ч»
+	Day           string `json:"day"`           // день цифр, YYYY-MM-DD
+	RemainingS    int    `json:"remainingS"`    // остаток общего времени, с (0 без лимита)
+	LimitS        int    `json:"limitS"`        // лимит дня с доп. временем, с (0 без лимита)
+	UsedS         int    `json:"usedS"`         // общее время за день, с
+	Unlimited     bool   `json:"unlimited"`     // лимита нет или правила не прочитаны
+	Lock          string `json:"lock"`          // Lock*
+	Reason        string `json:"reason"`        // заголовок экрана блокировки
+	Detail        string `json:"detail"`        // что произошло (только при обходе)
+	Until         string `json:"until"`         // «Можно снова: завтра»
+	PauseUntil    string `json:"pauseUntil"`    // «18:30» — конец активной паузы (R11); «» — нет паузы
+	Used          string `json:"used"`          // «Сегодня: 2 ч 00 мин из 2 ч»
+	BonusBalance  int    `json:"bonusBalance"`  // баланс копилки, мин (M2, для мини-панели ребёнка)
+	ForbiddenNote string `json:"forbiddenNote"` // «Сегодня нельзя с 21:00 до 07:00»; «» — нет ближайшего интервала
 }
 
 // --- Мастер и администратор --------------------------------------------------
@@ -261,6 +286,7 @@ type TodayCard struct {
 	Name          string      `json:"name"`
 	Status        ChildStatus `json:"status"`
 	ExtraMin      int         `json:"extraMin"`      // доп. время на сегодня, мин
+	BonusBalance  int         `json:"bonusBalance"`  // баланс копилки, мин (M2)
 	CanClearBlock bool        `json:"canClearBlock"` // есть блокировка за обход, кнопка «Снять блокировку»
 }
 

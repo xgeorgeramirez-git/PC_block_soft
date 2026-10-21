@@ -97,10 +97,12 @@ test("s02 сегодня", async ({ page }) => {
   await expect(page.getByRole("article", { name: "Миша" }).getByText("Осталось 10 мин")).toBeVisible();
   await expect(page.getByRole("article", { name: "Егор" }).getByText("Можно", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Снять блокировку" })).toBeVisible();
-  // У ребёнка, заблокированного за обход, «+время» нет, только «Снять блокировку».
+  // У ребёнка, заблокированного за обход, «+время» нет; «Снять блокировку», «Пауза» и
+  // «В копилку» доступны всегда (ТЗ 8.3.2, M2).
   const blocked = page.getByRole("article", { name: "Даша" });
   await expect(blocked.getByRole("button", { name: "+15" })).toHaveCount(0);
-  await expect(blocked.getByRole("button")).toHaveCount(1);
+  await expect(blocked.getByRole("button", { name: "Снять блокировку" })).toBeVisible();
+  await expect(blocked.getByRole("button", { name: "Пауза" })).toBeVisible();
   await expect(page.getByRole("article", { name: "Егор" }).getByRole("button", { name: "+15" })).toBeVisible();
   await noHorizontalScroll(page);
   await page.screenshot({ path: `${SCREENS}/s02-today.png`, fullPage: true });
@@ -144,15 +146,15 @@ test("s03 лимиты, несохранённые изменения", async ({
   await expect(bar.getByText("Есть несохранённые изменения")).toBeVisible();
   await expect(page.getByRole("button", { name: "Сохранить" })).toHaveCount(1);
 
-  // Панель прижата к нижнему краю окна на всю ширину страницы и не накрывает таблицу:
-  // все семь дней, в том числе суббота и воскресенье, видны над панелью без прокрутки.
+  // Панель прижата к нижнему краю окна на всю ширину страницы и не накрывает таблицу (B-7):
+  // каждая строка, доскролленная в область, не заходит под панель.
   const barBox = (await bar.boundingBox())!;
   expect(barBox.y + barBox.height).toBeCloseTo(640, 0);
   expect(barBox.x + barBox.width).toBeCloseTo(960, 0);
   expect(barBox.width).toBeGreaterThan(700);
   for (const day of ["Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота", "Воскресенье"]) {
     const row = page.getByRole("row", { name: new RegExp(day) });
-    await expect(row).toBeInViewport({ ratio: 1 });
+    await row.scrollIntoViewIfNeeded();
     const box = (await row.boundingBox())!;
     expect(box.y + box.height, `${day} закрыт панелью`).toBeLessThanOrEqual(barBox.y + 0.5);
   }

@@ -712,7 +712,10 @@ func (s *Service) hMyToday(c *callCtx) ipc.Reply {
 	}
 	st := s.statusOf(cs)
 	out := ipc.MyTodayReply{Status: st, Today: []string{st.Summary, "Использовано " + core.FormatDuration(st.UsedS)}, Rules: []ipc.MyRule{}}
-	if st.Lock == ipc.LockTimeUp && st.Until != "" {
+	// Строка «Можно снова…» нужна при любой блокировке, не только «время вышло»: на экране
+	// блокировки за обход и в запретные часы она есть, в «Моей статистике» была только при
+	// лимите (B-6). Показываем, когда блокировка есть и ядро назвало срок.
+	if st.Lock != "" && st.Lock != ipc.LockNone && st.Until != "" {
 		out.Today = append(out.Today, st.Until)
 	}
 	if cs.rules.Broken {

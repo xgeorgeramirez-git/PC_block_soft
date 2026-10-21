@@ -34,15 +34,34 @@ import (
 const goldenLayout = "2006-01-02T15:04:05"
 
 type goldenFile struct {
-	Name        string          `json:"name"`
-	Source      string          `json:"source"`
-	TzOffsetMin *int            `json:"tz_offset_min"`
-	LimitsMin   *goldenLimits   `json:"limits_min"`
-	Sessions    []goldenSession `json:"sessions"`
-	Segments    []goldenSegment `json:"segments"`
-	Expect      *goldenExpect   `json:"expect"`
+	Name        string           `json:"name"`
+	Source      string           `json:"source"`
+	TzOffsetMin *int             `json:"tz_offset_min"`
+	LimitsMin   *goldenLimits    `json:"limits_min"`
+	Schedule    []goldenInterval `json:"schedule"`
+	Sessions    []goldenSession  `json:"sessions"`
+	Segments    []goldenSegment  `json:"segments"`
+	Actions     []goldenAction   `json:"actions"`
+	Expect      *goldenExpect    `json:"expect"`
 
 	loc *time.Location
+}
+
+// goldenInterval — запретный интервал расписания (R7): день недели 1=пн..7=вс, минуты.
+type goldenInterval struct {
+	Weekday  int `json:"weekday"`
+	StartMin int `json:"start_min"`
+	EndMin   int `json:"end_min"`
+}
+
+// goldenAction — родительская или детская команда в момент At (местное время): доп. время
+// (add_extra), трата из копилки (spend_bonus) или пауза (pause). Применяется перед тиком
+// момента At. minutes — для add_extra/spend_bonus; until — момент конца паузы (pause).
+type goldenAction struct {
+	At      string `json:"at"`
+	Kind    string `json:"kind"`
+	Minutes int    `json:"minutes"`
+	Until   string `json:"until"`
 }
 
 type goldenLimits struct {
@@ -188,6 +207,23 @@ func parseGolden(data []byte) (*goldenFile, error) {
 			return nil, fmt.Errorf("день %q: нужна дата YYYY-MM-DD и total_s", d.Day)
 		}
 	}
+	for i, a := range g.Actions {
+		if _, err := g.at(a.At); err != nil {
+			return nil, fmt.Errorf("action %d: %w", i, err)
+		}
+		switch a.Kind {
+		case "add_extra", "spend_bonus":
+			if a.Minutes < 1 {
+				return nil, fmt.Errorf("action %d (%s): нужно minutes >= 1", i, a.Kind)
+			}
+		case "pause":
+			if _, err := g.at(a.Until); err != nil {
+				return nil, fmt.Errorf("action %d (pause): until %w", i, err)
+			}
+		default:
+			return nil, fmt.Errorf("action %d: неизвестный kind %q", i, a.Kind)
+		}
+	}
 	return &g, nil
 }
 
@@ -220,6 +256,9 @@ func (g *goldenFile) rules() Rules {
 		if m != nil {
 			r.Week[i] = LimitOf(*m)
 		}
+	}
+	for _, iv := range g.Schedule {
+		r.Schedule = append(r.Schedule, Interval{Weekday: Weekday(iv.Weekday), StartMin: iv.StartMin, EndMin: iv.EndMin})
 	}
 	return r
 }
@@ -297,6 +336,29 @@ func runGolden(g *goldenFile) goldenResult {
 				saved, savedDetail = e.State()
 				savedAt = t
 			}
+			// Команды момента t применяются перед тиком (как в службе: доп. время, трата
+			// из копилки, пауза сдвигают событие до учёта секунды t).
+			for _, a := range g.Actions {
+				am, _ := g.at(a.At)
+				if !am.Equal(t) {
+					continue
+				}
+				switch a.Kind {
+				case "add_extra":
+					if _, err := e.AddExtra(a.Minutes); err != nil {
+						panic(err)
+					}
+				case "spend_bonus":
+					if _, err := e.SpendBonus(a.Minutes); err != nil {
+						panic(err)
+					}
+				case "pause":
+					until, _ := g.at(a.Until)
+					if _, err := e.Pause(until); err != nil {
+						panic(err)
+					}
+				}
+			}
 			d := e.Tick(s)
 			if d.Warning != 0 {
 				res.warnings = append(res.warnings, goldenWarning{At: stamp, Min: d.Warning})
@@ -335,9 +397,9 @@ func TestGolden(t *testing.T) {
 	for _, p := range paths {
 		names = append(names, strings.TrimSuffix(filepath.Base(p), ".json"))
 	}
-	for _, need := range []string{"G1", "G2", "G3", "G9", "G10"} {
+	for _, need := range []string{"G1", "G2", "G3", "G6", "G7", "G8", "G9", "G10", "G11"} {
 		if !slices.Contains(names, need) {
-			t.Errorf("нет эталона testdata/golden/%s.json (M1: G1, G2, G3, G9, G10)", need)
+			t.Errorf("нет эталона testdata/golden/%s.json (M1: G1,G2,G3,G9,G10; M2: G6,G7,G8,G11)", need)
 		}
 	}
 	for i, p := range paths {

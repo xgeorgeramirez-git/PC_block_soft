@@ -143,12 +143,14 @@ func NoticeMinutes(text string) (int, bool) {
 func DecisionFromStatus(s ipc.ChildStatus) core.Decision {
 	d := core.Decision{
 		Day: s.Day, Reason: s.Reason, Detail: s.Detail, Until: s.Until, Used: s.Used,
-		RemainingS: s.RemainingS, LimitS: s.LimitS, UsedS: s.UsedS, Unlimited: s.Unlimited,
-		Events: []core.Event{},
+		PauseUntil: s.PauseUntil, RemainingS: s.RemainingS, LimitS: s.LimitS, UsedS: s.UsedS,
+		BonusBalance: s.BonusBalance, Unlimited: s.Unlimited, Events: []core.Event{},
 	}
 	switch s.Lock {
 	case ipc.LockTimeUp:
 		d.Lock = core.LockTimeUp
+	case ipc.LockForbidden:
+		d.Lock = core.LockForbidden
 	case ipc.LockBypass:
 		d.Lock = core.LockBypass
 	}
@@ -159,10 +161,14 @@ func DecisionFromStatus(s ipc.ChildStatus) core.Decision {
 		d.Status = core.StatusLow
 	case ipc.StatusTimeUp:
 		d.Status = core.StatusTimeUp
+	case ipc.StatusForbidden:
+		d.Status = core.StatusForbidden
 	case ipc.StatusBypass:
 		d.Status = core.StatusBypass
 	case ipc.StatusUnlimited:
 		d.Status = core.StatusUnlimited
+	case ipc.StatusPaused:
+		d.Status = core.StatusPaused
 	default:
 		d.Status = core.StatusSafe
 	}
@@ -381,7 +387,8 @@ func (c *Controller) setNotice(text string) {
 func actsOnService(b Button) bool {
 	switch b {
 	case ButtonSubmitPassword, ButtonAdd15, ButtonAdd30, ButtonAdd60, ButtonClearBlock,
-		ButtonOpenSettings, ButtonConfirmLogoff, ButtonConfirmShutdown, ButtonSwitchUser:
+		ButtonOpenSettings, ButtonConfirmLogoff, ButtonConfirmShutdown, ButtonSwitchUser,
+		ButtonSpendBonus:
 		return true
 	}
 	return false
@@ -440,6 +447,14 @@ func (c *Controller) Run(act Action) {
 		}
 	case ActAddExtra:
 		if err := ipc.Call(c.call, ipc.CmdAddExtra, "", ipc.AddExtraRequest{Minutes: act.Minutes}, nil); err != nil {
+			c.setNotice(failureText(err, textNoticeRetry))
+			return
+		}
+		c.model.OnExtraAdded(c.now(), act.Minutes)
+	case ActSpendBonus:
+		// Трата из копилки без пароля (FR-11); childId 0 — служба берёт ребёнка этого сеанса.
+		var rep ipc.SpendBonusReply
+		if err := ipc.Call(c.call, ipc.CmdSpendBonus, "", ipc.SpendBonusRequest{Minutes: act.Minutes}, &rep); err != nil {
 			c.setNotice(failureText(err, textNoticeRetry))
 			return
 		}

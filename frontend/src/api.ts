@@ -27,6 +27,18 @@ import type {
   UninstallCheckReply,
   WeekdayLimit,
   WindowMode,
+  AskMoreReply,
+  CopyRulesReply,
+  GetBonusReply,
+  GetScheduleReply,
+  GrantBonusReply,
+  Interval,
+  PauseAllReply,
+  PausePreset,
+  PauseReply,
+  SaveScheduleReply,
+  SpendBonusReply,
+  UndoBonusReply,
 } from "./types";
 
 function bridge(): PCBlockApp {
@@ -223,4 +235,64 @@ export async function getHelperState(): Promise<Record<string, unknown>> {
 
 export async function saveHelperState(state: Record<string, unknown>): Promise<void> {
   await call("SaveHelperState", { state });
+}
+
+// --- M2: расписание, пауза, копилка ---------------------------------------
+
+/** Запретные интервалы ребёнка (R7, FR-17). Пустой список приходит как null: приводим к []. */
+export async function getSchedule(childId: number): Promise<GetScheduleReply> {
+  const r = await call<object, Partial<GetScheduleReply>>("GetSchedule", { childId });
+  return { childId: r.childId ?? childId, intervals: r.intervals ?? [] };
+}
+
+/** Сохранить интервалы ребёнка (R7). Служба нормализует и возвращает итог (FR-19). */
+export async function saveSchedule(childId: number, intervals: Interval[]): Promise<SaveScheduleReply> {
+  const r = await call<object, SaveScheduleReply & { intervals?: Interval[] | null }>("SaveSchedule", { childId, intervals });
+  return { ...r, intervals: r.intervals ?? [] };
+}
+
+/** Пауза одному ребёнку (R11). */
+export function pause(childId: number, preset: PausePreset): Promise<PauseReply> {
+  return call("Pause", { childId, preset });
+}
+
+/** Пауза всем детям (FR-25). Пустой список карточек приходит как null: приводим к []. */
+export async function pauseAll(preset: PausePreset): Promise<PauseAllReply> {
+  const r = await call<object, Partial<PauseAllReply>>("PauseAll", { preset });
+  return { children: r.children ?? [], message: r.message ?? "" };
+}
+
+/** Начислить в копилку (FR-22). */
+export function grantBonus(childId: number, minutes: number, reason: string): Promise<GrantBonusReply> {
+  return call("GrantBonus", { childId, minutes, reason });
+}
+
+/** Отменить только что начисленное (10 с, FR-22). */
+export function undoBonus(childId: number, bonusId: string): Promise<UndoBonusReply> {
+  return call("UndoBonus", { childId, bonusId });
+}
+
+/** Баланс и история копилки (FR-22). Пустая история приходит как null: приводим к []. */
+export async function getBonus(childId: number): Promise<GetBonusReply> {
+  const r = await call<object, Partial<GetBonusReply>>("GetBonus", { childId });
+  return { childId: r.childId ?? childId, balance: r.balance ?? 0, entries: r.entries ?? [] };
+}
+
+/** Скопировать правила с другого ребёнка (FR-33): результат кладётся в черновик приёмника. */
+export async function copyRules(fromChildId: number, toChildId: number): Promise<CopyRulesReply> {
+  const r = await call<object, CopyRulesReply & { limits?: WeekdayLimit[] | null; intervals?: Interval[] | null }>("CopyRules", {
+    fromChildId,
+    toChildId,
+  });
+  return { ...r, limits: r.limits ?? [], intervals: r.intervals ?? [] };
+}
+
+/** «Попросить ещё» ребёнком с паролем родителя (FR-10). */
+export function askMore(childId: number, minutes: number, password: string): Promise<AskMoreReply> {
+  return call("AskMore", { childId, minutes, password });
+}
+
+/** «Взять из копилки» ребёнком без пароля (FR-11). */
+export function spendBonus(childId: number, minutes: number): Promise<SpendBonusReply> {
+  return call("SpendBonus", { childId, minutes });
 }

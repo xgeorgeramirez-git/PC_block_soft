@@ -85,14 +85,16 @@ describe("Today: карточка ребёнка", () => {
   });
 
   // Ловит: у ребёнка, заблокированного за обход, лежат «+15/+30/+60» рядом со «Снять блокировку»:
-  // родитель добавляет время, а блокировка остаётся.
-  it("при блокировке за обход «+время» спрятано, остаётся только «Снять блокировку»", async () => {
+  // родитель добавляет время, а блокировка остаётся. Пауза и копилка доступны всегда (ТЗ 8.3.2).
+  it("при блокировке за обход «+время» спрятано, есть «Снять блокировку», «Пауза», «В копилку»", async () => {
     setup({ children: [mockChild({ blocked: true }), mockChild({ childId: 2, sid: "S-2", name: "Даша" })] });
     const misha = await screen.findByRole("article", { name: "Миша" });
     for (const m of ["+15", "+30", "+60"]) {
       expect(within(misha).queryByRole("button", { name: m })).toBeNull();
     }
-    expect(within(misha).getAllByRole("button").map((b) => b.textContent)).toEqual(["Снять блокировку"]);
+    expect(within(misha).getByRole("button", { name: "Снять блокировку" })).toBeTruthy();
+    expect(within(misha).getByRole("button", { name: "Пауза" })).toBeTruthy();
+    expect(within(misha).getByRole("button", { name: "В копилку +30" })).toBeTruthy();
     // У соседа без блокировки кнопки на месте.
     expect(within(card("Даша")).getByRole("button", { name: "+15" })).toBeTruthy();
   });
@@ -142,9 +144,13 @@ describe("Today: карточка ребёнка", () => {
               reason: "",
               detail: "",
               until: "",
+              pauseUntil: "",
+              bonusBalance: 0,
+              forbiddenNote: "",
               used: "",
             },
             extraMin: 0,
+            bonusBalance: 0,
             canClearBlock: false,
           },
         ],
@@ -156,6 +162,57 @@ describe("Today: карточка ребёнка", () => {
     expect(within(anna).getByText("Администратор: ограничения не действуют")).toBeTruthy();
     expect(within(anna).queryByRole("button", { name: "+30" })).toBeNull();
     expect(within(anna).queryByText(/Использовано/)).toBeNull();
+  });
+
+  // Ловит: предупреждение «правила не прочитаны» и карточка ребёнка показывают
+  // противоречивые сигналы (B-4). В безопасном режиме служба отдаёт ребёнка со статусом
+  // «safe» без блокировки: карточка не считает время и не предлагает «+время», как и говорит
+  // предупреждение. Один источник — служба; экран их не рассогласовывает.
+  it("правила не прочитаны: предупреждение и карточка согласованы (B-4)", async () => {
+    mock = installBackend({ sessionActive: true });
+    mock.override("GetToday", {
+      ok: true,
+      payload: {
+        children: [
+          {
+            childId: 1,
+            sid: "S-1",
+            name: "Миша",
+            status: {
+              name: "Миша",
+              status: "safe",
+              statusText: "Правила не прочитаны: ограничения не действуют",
+              label: "",
+              tooltip: "",
+              summary: "",
+              day: "2026-10-19",
+              remainingS: 0,
+              limitS: 0,
+              usedS: 0,
+              unlimited: true,
+              lock: "none",
+              reason: "",
+              detail: "",
+              until: "",
+              pauseUntil: "",
+              bonusBalance: 0,
+              forbiddenNote: "",
+              used: "",
+            },
+            extraMin: 0,
+            bonusBalance: 0,
+            canClearBlock: false,
+          },
+        ],
+        notices: ["Служба не смогла прочитать правила"],
+      },
+    });
+    render(<Today />);
+    expect(await screen.findByText(RULES_NOT_READ_TEXT)).toBeTruthy();
+    const misha = screen.getByRole("article", { name: "Миша" });
+    expect(within(misha).getByText("Правила не прочитаны: ограничения не действуют")).toBeTruthy();
+    expect(within(misha).queryByRole("button", { name: "+15" })).toBeNull();
+    expect(within(misha).queryByText(/Использовано/)).toBeNull();
   });
 });
 

@@ -108,7 +108,7 @@ export default function Children({ onOpenSettings, initialChildId }: Props) {
       ) : null}
       {selected !== null ? (
         <div id="child-panel" role={children.length > 1 ? "tabpanel" : undefined} aria-labelledby={children.length > 1 ? `child-tab-${selected}` : undefined}>
-          <ChildLimits key={selected} childId={selected} />
+          <ChildLimits key={selected} childId={selected} others={children.filter((c) => c.childId !== selected)} onSaved={() => void load()} />
         </div>
       ) : null}
     </div>

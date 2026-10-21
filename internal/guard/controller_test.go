@@ -848,7 +848,7 @@ func TestStateIsPushedOnlyInTestModeAndOnlyOnChange(t *testing.T) {
 	if err := calls[0].Into(&st); err != nil {
 		t.Fatal(err)
 	}
-	if !st.LockShown || st.LockKind != ipc.LockTimeUp || strings.Join(st.Buttons, ",") != strings.Join([]string{TargetParentPassword, TargetShutdown, TargetLogoff, TargetSwitchUser}, ",") {
+	if !st.LockShown || st.LockKind != ipc.LockTimeUp || strings.Join(st.Buttons, ",") != strings.Join([]string{TargetAskMore, TargetParentPassword, TargetShutdown, TargetLogoff, TargetSwitchUser}, ",") {
 		t.Fatalf("вид стража: %+v", st)
 	}
 	r.ctl.Press(ButtonParentPassword, "")

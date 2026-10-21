@@ -170,6 +170,44 @@ func examples() map[string]example {
 		"GetHelperState#empty": ok(nil, HelperState{}),
 		CmdSaveHelperState:     ok(HelperState{State: json.RawMessage(`{"enabled":true,"seen":["H-M1-01","H-M1-02"],"snoozed":{}}`)}, Empty{}),
 
+		// M2: расписание, пауза, копилка.
+		CmdGetSchedule: ok(GetScheduleRequest{ChildID: 1}, GetScheduleReply{ChildID: 1, Intervals: []Interval{
+			{Weekday: 1, StartMin: 1260, EndMin: 420},
+		}}),
+		"GetSchedule#empty": ok(GetScheduleRequest{ChildID: 1}, GetScheduleReply{ChildID: 1, Intervals: []Interval{}}),
+		CmdSaveSchedule: ok(SaveScheduleRequest{ChildID: 1, Intervals: []Interval{{Weekday: 1, StartMin: 1260, EndMin: 420}}}, SaveScheduleReply{
+			Intervals: []Interval{{Weekday: 1, StartMin: 1260, EndMin: 420}}, Card: card(okStatus(), 0, false), Message: "Сохранено. Новые правила уже действуют",
+		}),
+		"SaveSchedule#invalid": fail(SaveScheduleRequest{ChildID: 1, Intervals: []Interval{{Weekday: 1, StartMin: 600, EndMin: 600}}},
+			"Начало и конец совпадают", FieldEnd, nil),
+		CmdPause: ok(PauseRequest{ChildID: 1, Preset: PauseHour1}, PauseReply{Card: card(okStatus(), 0, false), Message: "Пауза до 18:30"}),
+		CmdPauseAll: ok(PauseAllRequest{Preset: PauseHour1}, PauseAllReply{
+			Children: []TodayCard{card(okStatus(), 0, false)}, Message: "Пауза для всех детей на 1 ч",
+		}),
+		"PauseAll#empty": ok(PauseAllRequest{Preset: PauseHour2}, PauseAllReply{}),
+		CmdGrantBonus: ok(GrantBonusRequest{ChildID: 1, Minutes: 30, Reason: "за уборку"}, GrantBonusReply{
+			BalanceAfter: 75, Message: "Начислено 30 минут. Баланс 75 мин", BonusID: "b-21", UndoUntilMs: t0 + 10_000,
+		}),
+		"GrantBonus#invalid": fail(GrantBonusRequest{ChildID: 1, Minutes: 600, Reason: "много"}, "Можно начислить не больше 540 мин", FieldMinutes, nil),
+		CmdUndoBonus:         ok(UndoBonusRequest{ChildID: 1, BonusID: "b-21"}, UndoBonusReply{BalanceAfter: 45, Message: "Начисление отменено"}),
+		CmdGetBonus: ok(GetBonusRequest{ChildID: 1}, GetBonusReply{ChildID: 1, Balance: 45, Entries: []BonusEntry{
+			{AtMs: t0, TzOffset: 180, DeltaMin: 30, Reason: "за уборку", Balance: 45},
+			{AtMs: t0 - 3_600_000, TzOffset: 180, DeltaMin: -15, Reason: "взято из копилки", Balance: 15},
+		}}),
+		"GetBonus#empty": ok(GetBonusRequest{ChildID: 1}, GetBonusReply{ChildID: 1, Entries: []BonusEntry{}}),
+		CmdCopyRules: ok(CopyRulesRequest{FromChildID: 2, ToChildID: 1}, CopyRulesReply{
+			Limits: weekLimits(), Intervals: []Interval{{Weekday: 1, StartMin: 1260, EndMin: 420}}, Message: "Правила скопированы. Проверьте и сохраните",
+		}),
+		CmdAskMore: ok(AskMoreRequest{ChildID: 1, Minutes: 30, Password: "секрет-123"}, AskMoreReply{
+			Card: card(okStatus(), 30, false), Message: "Добавлено 30 минут",
+		}),
+		"AskMore#denied": fail(AskMoreRequest{ChildID: 1, Minutes: 30, Password: "не тот"}, "Неверный пароль. Осталось попыток: 4", FieldPassword,
+			LoginDenied{AttemptsLeft: 4}),
+		CmdSpendBonus: ok(SpendBonusRequest{ChildID: 1, Minutes: 30}, SpendBonusReply{
+			Card: card(okStatus(), 30, false), Message: "Взято из копилки 30 мин", BalanceAfter: 15,
+		}),
+		"SpendBonus#forbidden": fail(SpendBonusRequest{ChildID: 1, Minutes: 30}, "Из копилки можно взять с 07:00", FieldMinutes, nil),
+
 		CmdMyToday: ok(nil, MyTodayReply{
 			Status: okStatus(),
 			Today:  []string{"Сегодня осталось 1 ч 25 мин из 2 ч", "Использовано 35 мин"},
@@ -271,8 +309,8 @@ func TestContractHasEveryCommand(t *testing.T) {
 			t.Errorf("пример для %s есть, а в AllCommands её нет", c)
 		}
 	}
-	if len(AllCommands) != 33 {
-		t.Errorf("команд %d, ждали 33 (31 из плана M1 и две команды выходов с экрана блокировки, D-40)", len(AllCommands))
+	if len(AllCommands) != 43 {
+		t.Errorf("команд %d, ждали 43 (33 из M1 и D-40 плюс 10 команд M2: расписание, пауза, копилка, доп. время)", len(AllCommands))
 	}
 }
 

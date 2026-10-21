@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
-import { changePassword, getToday, listAccounts, setChildren, version } from "../api";
+import { changePassword, getToday, listAccounts, pauseAll, setChildren, version } from "../api";
 import { useHelperSwitch } from "../guidance/useHelperSwitch";
 import Dialog from "../components/Dialog";
 import Notice from "../components/Notice";
+import PausePicker from "../components/PausePicker";
 import ServiceNotices from "../components/ServiceNotices";
 import TextField from "../components/TextField";
 import { CallError, errorText } from "../lib/errors";
@@ -54,9 +55,58 @@ export default function Settings({ onOpenChildren }: { onOpenChildren?: () => vo
           void listAccounts().then((a) => alive.current && setAccounts(a), () => undefined);
         }}
       />
+      <PauseAllSection />
       <HelperSection />
       <AboutSection />
     </div>
+  );
+}
+
+// --- Пауза для всех детей (FR-25) ----------------------------------------------
+
+function PauseAllSection() {
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const alive = useRef(true);
+  useEffect(() => {
+    alive.current = true;
+    return () => {
+      alive.current = false;
+    };
+  }, []);
+
+  const onPick = async (preset: Parameters<typeof pauseAll>[0]) => {
+    setBusy(true);
+    setError("");
+    try {
+      const reply = await pauseAll(preset);
+      if (alive.current) setMessage(reply.message);
+    } catch (e) {
+      if (alive.current) setError(errorText(e));
+    } finally {
+      if (alive.current) setBusy(false);
+    }
+  };
+
+  return (
+    <section className="panel" aria-labelledby="settings-pause-all">
+      <h3 id="settings-pause-all" className="panel-title">
+        Пауза для всех детей
+      </h3>
+      <p className="panel-text">Снять ограничения сразу у всех детей, например на время общего фильма. Время при этом считается.</p>
+      <PausePicker withMin15={false} disabled={busy} onPick={(p) => void onPick(p)} />
+      {message ? (
+        <p className="panel-note" role="status">
+          {message}
+        </p>
+      ) : null}
+      {error ? (
+        <p className="field-error" role="alert">
+          {error}
+        </p>
+      ) : null}
+    </section>
   );
 }
 
@@ -317,7 +367,7 @@ function ChildrenSection({ list, accounts, loadError, onReload, onChanged }: Chi
                   </select>
                 </div>
                 <div className="form-actions">
-                  <button type="button" className="btn" onClick={() => void add()} disabled={busy}>
+                  <button type="button" className="btn btn-primary" onClick={() => void add()} disabled={busy}>
                     Добавить ребёнка
                   </button>
                 </div>

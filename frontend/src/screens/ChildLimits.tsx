@@ -1,27 +1,36 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { getChildRules, saveLimits } from "../api";
+import { copyRules, getChildRules, getSchedule, saveLimits, saveSchedule } from "../api";
 import LimitsTable from "../components/LimitsTable";
 import Notice from "../components/Notice";
 import SaveBar from "../components/SaveBar";
+import ScheduleEditor from "../components/ScheduleEditor";
 import { useRegisterGuard } from "../guard";
 import HintSlot from "../guidance/HintSlot";
 import { CallError, errorText } from "../lib/errors";
 import { copyDay, limitsEqual, normalizeLimits, validateLimits, wireLimits, WORKDAYS } from "../lib/limits";
-import type { WeekdayLimit } from "../types";
+import { schedulesEqual } from "../lib/schedule";
+import type { Interval, TodayCard, WeekdayLimit } from "../types";
 
 interface Props {
   childId: number;
+  /** Остальные дети для «Скопировать правила с…» (FR-33). */
+  others?: TodayCard[];
   /** Сохранено: служба вернула новые правила (экран «Сегодня» перечитает карточку сам). */
   onSaved?: () => void;
 }
 
 const SAVED_TEXT = "Сохранено. Новые правила уже действуют";
 
-/** Лимиты ребёнка (FR-16, FR-19): таблица, одна панель «Сохранить», ошибки у поля. */
-export default function ChildLimits({ childId, onSaved }: Props) {
+type Tab = "limits" | "schedule";
+
+/** Правила ребёнка (FR-16, FR-17, FR-19, FR-33): вкладки «Лимиты» и «Запретные часы», одна панель «Сохранить». */
+export default function ChildLimits({ childId, others = [], onSaved }: Props) {
+  const [tab, setTab] = useState<Tab>("limits");
   const [name, setName] = useState("");
-  const [saved, setSaved] = useState<WeekdayLimit[] | null>(null);
-  const [draft, setDraft] = useState<WeekdayLimit[]>([]);
+  const [savedLimits, setSavedLimits] = useState<WeekdayLimit[] | null>(null);
+  const [draftLimits, setDraftLimits] = useState<WeekdayLimit[]>([]);
+  const [savedSchedule, setSavedSchedule] = useState<Interval[]>([]);
+  const [draftSchedule, setDraftSchedule] = useState<Interval[]>([]);
   const [errors, setErrors] = useState<Record<number, string>>({});
   const [formError, setFormError] = useState("");
   const [message, setMessage] = useState("");
@@ -38,14 +47,16 @@ export default function ChildLimits({ childId, onSaved }: Props) {
 
   const load = useCallback(async () => {
     setLoadError("");
-    setSaved(null);
+    setSavedLimits(null);
     try {
-      const rules = await getChildRules(childId);
+      const [rules, sched] = await Promise.all([getChildRules(childId), getSchedule(childId)]);
       if (!alive.current) return;
       const limits = normalizeLimits(rules.limits);
       setName(rules.name);
-      setSaved(limits);
-      setDraft(limits);
+      setSavedLimits(limits);
+      setDraftLimits(limits);
+      setSavedSchedule(sched.intervals);
+      setDraftSchedule(sched.intervals);
       setErrors({});
       setFormError("");
       setMessage("");
@@ -58,39 +69,55 @@ export default function ChildLimits({ childId, onSaved }: Props) {
     void load();
   }, [load]);
 
-  const dirty = saved !== null && !limitsEqual(draft, saved);
+  const limitsDirty = savedLimits !== null && !limitsEqual(draftLimits, savedLimits);
+  const scheduleDirty = !schedulesEqual(draftSchedule, savedSchedule);
+  const dirty = limitsDirty || scheduleDirty;
 
-  const change = (next: WeekdayLimit[]) => {
-    setDraft(next);
+  const changeLimits = (next: WeekdayLimit[]) => {
+    setDraftLimits(next);
     setErrors({});
+    setFormError("");
+    setMessage("");
+  };
+  const changeSchedule = (next: Interval[]) => {
+    setDraftSchedule(next);
     setFormError("");
     setMessage("");
   };
 
   const discard = () => {
-    if (saved) {
-      setDraft(saved);
-    }
+    if (savedLimits) setDraftLimits(savedLimits);
+    setDraftSchedule(savedSchedule);
     setErrors({});
     setFormError("");
   };
 
   const save = async (): Promise<boolean> => {
-    const problems = validateLimits(draft);
+    const problems = validateLimits(draftLimits);
     if (Object.keys(problems).length > 0) {
       setErrors(problems);
+      setTab("limits");
       return false;
     }
     setSaving(true);
     setFormError("");
     try {
-      const reply = await saveLimits(childId, wireLimits(draft));
+      if (limitsDirty) {
+        const reply = await saveLimits(childId, wireLimits(draftLimits));
+        if (!alive.current) return true;
+        const limits = reply.rules.limits.length > 0 ? normalizeLimits(reply.rules.limits) : draftLimits;
+        setSavedLimits(limits);
+        setDraftLimits(limits);
+      }
+      if (scheduleDirty) {
+        const reply = await saveSchedule(childId, draftSchedule);
+        if (!alive.current) return true;
+        setSavedSchedule(reply.intervals);
+        setDraftSchedule(reply.intervals);
+      }
       if (!alive.current) return true;
-      const limits = reply.rules.limits.length > 0 ? normalizeLimits(reply.rules.limits) : draft;
-      setSaved(limits);
-      setDraft(limits);
       setErrors({});
-      setMessage(reply.message || SAVED_TEXT);
+      setMessage(SAVED_TEXT);
       onSaved?.();
       return true;
     } catch (e) {
@@ -98,6 +125,7 @@ export default function ChildLimits({ childId, onSaved }: Props) {
       const day = e instanceof CallError ? /^limits\.(\d)$/.exec(e.field ?? "") : null;
       if (day) {
         setErrors({ [Number(day[1])]: errorText(e) });
+        setTab("limits");
       } else {
         setFormError(errorText(e));
       }
@@ -108,6 +136,19 @@ export default function ChildLimits({ childId, onSaved }: Props) {
   };
 
   useRegisterGuard({ isDirty: () => dirty, save, discard });
+
+  const applyCopy = async (fromChildId: number) => {
+    setFormError("");
+    try {
+      const r = await copyRules(fromChildId, childId);
+      if (!alive.current) return;
+      setDraftLimits(normalizeLimits(r.limits));
+      setDraftSchedule(r.intervals);
+      setMessage(r.message || "Правила скопированы. Проверьте и сохраните");
+    } catch (e) {
+      if (alive.current) setFormError(errorText(e));
+    }
+  };
 
   if (loadError) {
     return (
@@ -121,34 +162,92 @@ export default function ChildLimits({ childId, onSaved }: Props) {
       </section>
     );
   }
-  if (saved === null) {
+  if (savedLimits === null) {
     return <p className="panel-text">Загружаю правила</p>;
   }
 
   return (
     <section className="limits-page" aria-labelledby="limits-title">
-      <h2 id="limits-title" className="panel-title">
-        Лимиты времени, {name}
-      </h2>
-      <p className="panel-text">Сколько времени в день можно пользоваться компьютером. Школа и учёба тоже считаются.</p>
-      <div className="quick-actions">
-        <button type="button" className="btn btn-small" onClick={() => change(copyDay(draft, 1, WORKDAYS.filter((d) => d !== 1)))}>
-          Как в понедельник: на все будни
+      <div className="page-head">
+        <h2 id="limits-title" className="panel-title">
+          Правила, {name}
+        </h2>
+        {others.length > 0 ? <CopyRulesButton others={others} onPick={applyCopy} /> : null}
+      </div>
+
+      <div className="tabs" role="tablist" aria-label="Правила ребёнка">
+        <button
+          type="button"
+          role="tab"
+          className="tab"
+          aria-selected={tab === "limits"}
+          onClick={() => setTab("limits")}
+        >
+          Лимиты
         </button>
-        <button type="button" className="btn btn-small" onClick={() => change(copyDay(draft, 6, [7]))}>
-          Как в субботу: на воскресенье
+        <button
+          type="button"
+          role="tab"
+          className="tab"
+          aria-selected={tab === "schedule"}
+          onClick={() => setTab("schedule")}
+          data-help-anchor="schedule-tab"
+        >
+          Запретные часы
         </button>
       </div>
-      <HintSlot anchor="limits-table" />
-      <LimitsTable childName={name} limits={draft} onChange={change} errors={errors} />
-      <SaveBar
-        dirty={dirty}
-        saving={saving}
-        savedText={message}
-        error={formError}
-        onSave={() => void save()}
-        onDiscard={discard}
-      />
+
+      {tab === "limits" ? (
+        <div role="tabpanel" aria-label="Лимиты">
+          <p className="panel-text">Сколько времени в день можно пользоваться компьютером. Школа и учёба тоже считаются.</p>
+          <div className="quick-actions">
+            <button type="button" className="btn btn-small" onClick={() => changeLimits(copyDay(draftLimits, 1, WORKDAYS.filter((d) => d !== 1)))}>
+              Как в понедельник: на все будни
+            </button>
+            <button type="button" className="btn btn-small" onClick={() => changeLimits(copyDay(draftLimits, 6, [7]))}>
+              Как в субботу: на воскресенье
+            </button>
+          </div>
+          <HintSlot anchor="limits-table" />
+          <LimitsTable childName={name} limits={draftLimits} onChange={changeLimits} errors={errors} />
+        </div>
+      ) : (
+        <div role="tabpanel" aria-label="Запретные часы">
+          <p className="panel-text">Время, когда компьютером нельзя пользоваться, даже если лимит ещё не исчерпан.</p>
+          <ScheduleEditor childName={name} schedule={draftSchedule} onChange={changeSchedule} />
+        </div>
+      )}
+
+      <SaveBar dirty={dirty} saving={saving} savedText={message} error={formError} onSave={() => void save()} onDiscard={discard} />
     </section>
+  );
+}
+
+function CopyRulesButton({ others, onPick }: { others: TodayCard[]; onPick: (childId: number) => void }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="copy-rules" data-help-anchor="copy-rules">
+      <button type="button" className="btn btn-small" onClick={() => setOpen((v) => !v)} aria-expanded={open}>
+        Скопировать правила с…
+      </button>
+      {open ? (
+        <ul className="copy-rules-menu">
+          {others.map((c) => (
+            <li key={c.childId}>
+              <button
+                type="button"
+                className="btn btn-small"
+                onClick={() => {
+                  setOpen(false);
+                  onPick(c.childId);
+                }}
+              >
+                {c.name}
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
   );
 }

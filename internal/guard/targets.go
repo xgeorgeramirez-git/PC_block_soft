@@ -20,6 +20,8 @@ const (
 	TargetClearBlock      = "clearBlock"             // «Снять блокировку»
 	TargetConfirmLogoff   = "confirmLogoff"          // «Выйти» в подтверждении выхода
 	TargetConfirmShutdown = "confirmShutdown"        // «Выключить» в подтверждении выключения
+	TargetAskMore         = "askMore"                // «Попросить ещё» на экране (FR-10)
+	TargetSpendBonus      = "spendBonus"             // «Взять из копилки» на экране (FR-11)
 )
 
 // FieldPasswordID — идентификатор поля пароля в TestGuard (действие type) и в GuardState.Fields.
@@ -40,6 +42,8 @@ var targetNames = map[Button]string{
 	ButtonConfirmShutdown: TargetConfirmShutdown,
 	ButtonSwitchUser:      TargetSwitchUser,
 	ButtonWarningOK:       TargetAck,
+	ButtonAskMore:         TargetAskMore,
+	ButtonSpendBonus:      TargetSpendBonus,
 }
 
 // TargetName возвращает имя кнопки для канала связи; у ButtonNone и неизвестного значения пусто.

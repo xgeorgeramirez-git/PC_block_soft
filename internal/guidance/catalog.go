@@ -21,10 +21,11 @@ const (
 // Идентификаторы действий кнопок карточки. Что делает каждое, решает окно, но список закрыт:
 // действие, которого нет здесь, не пройдёт проверку.
 const (
-	ActionAck        = "ack"         // «Понятно»: принято, больше не показывать
-	ActionStartTour  = "start-tour"  // запустить тур
-	ActionOpenLimits = "open-limits" // открыть «Дети → Лимиты» этого ребёнка
-	ActionHowToFix   = "how-to-fix"  // показать шаги исправления
+	ActionAck          = "ack"           // «Понятно»: принято, больше не показывать
+	ActionStartTour    = "start-tour"    // запустить тур
+	ActionOpenLimits   = "open-limits"   // открыть «Дети → Лимиты» этого ребёнка
+	ActionHowToFix     = "how-to-fix"    // показать шаги исправления
+	ActionOpenSchedule = "open-schedule" // открыть «Дети → Запретные часы» (M2, I1 ревью)
 )
 
 // Action — кнопка-действие карточки.
@@ -81,13 +82,14 @@ const (
 	ScreenAny      = "any"
 	ScreenToday    = "today"
 	ScreenChildren = "children"
+	ScreenBonus    = "bonus" // экран «Копилка» (M2, I1 ревью)
 	ScreenJournal  = "journal"
 	ScreenSettings = "settings"
 	ScreenHelp     = "help"
 )
 
 // Screens — экраны, на которые может ссылаться шаг тура.
-var Screens = []string{ScreenToday, ScreenChildren, ScreenJournal, ScreenSettings, ScreenHelp}
+var Screens = []string{ScreenToday, ScreenChildren, ScreenBonus, ScreenJournal, ScreenSettings, ScreenHelp}
 
 // Anchors — известные якоря окна родителя. Новая подсказка привязывается только к якорю из
 // этого списка; сам элемент в экране помечается data-help-anchor с тем же номером.
@@ -95,10 +97,15 @@ var Anchors = []Anchor{
 	{ID: "topbar", Screen: ScreenAny},
 	{ID: "menu-today", Screen: ScreenAny},
 	{ID: "menu-children", Screen: ScreenAny},
+	{ID: "menu-bonus", Screen: ScreenAny},
 	{ID: "savebar", Screen: ScreenAny},
 	{ID: "child-card", Screen: ScreenToday},
 	{ID: "extra-buttons", Screen: ScreenToday},
+	{ID: "child-card-pause", Screen: ScreenToday},
+	{ID: "child-card-bonus", Screen: ScreenToday},
 	{ID: "limits-table", Screen: ScreenChildren},
+	{ID: "schedule-tab", Screen: ScreenChildren},
+	{ID: "bonus-grant", Screen: ScreenBonus},
 }
 
 // Подписи окна Помощника, общие для всех записей: кнопки карточки и тура.
@@ -224,6 +231,82 @@ func Catalog() []Entry {
 				"Значок у часов с остатком времени",
 				"Предупреждения за 15, 5 и 1 минуту",
 				"Экран блокировки, когда время вышло, и снятие паролем родителя",
+			},
+		},
+		{
+			ID:     "H-M2-01",
+			Kind:   KindHint,
+			Anchor: "schedule-tab",
+			Title:  "Запретные часы",
+			Body:   "Время, когда компьютером нельзя пользоваться, даже если лимит ещё не исчерпан.",
+		},
+		{
+			ID:     "H-M2-02",
+			Kind:   KindHint,
+			Anchor: "bonus-grant",
+			Title:  "Копилка бонусных минут",
+			Body:   "Начислите минуты за дела по дому или учёбу. Ребёнок берёт их сам, когда время вышло.",
+		},
+		{
+			ID:     "H-M2-03",
+			Kind:   KindHint,
+			Anchor: "child-card-pause",
+			Title:  "Пауза снимает ограничения на время",
+			Body:   "Удобно для общего фильма или гостей. Время при этом всё равно считается.",
+		},
+		{
+			ID:     "D-M2-01",
+			Kind:   KindDetector,
+			Anchor: "schedule-tab",
+			Title:  "Похоже, запретные часы закрывают почти все сутки у {nameGen}",
+			Body:   "Запретные интервалы занимают почти весь день. Проверьте, так ли это задумано.",
+			Actions: []Action{
+				{ID: ActionOpenSchedule, Label: "Открыть запретные часы"},
+			},
+			Repeat: true,
+		},
+		{
+			ID:    "T-M2-01",
+			Kind:  KindTour,
+			Title: "Расписание и копилка",
+			Steps: []Step{
+				{
+					Anchor: "schedule-tab",
+					Screen: ScreenChildren,
+					Title:  "Запретные часы",
+					Body:   "Задайте время, когда компьютером нельзя пользоваться, даже если лимит остался.",
+				},
+				{
+					Anchor: "menu-bonus",
+					Screen: ScreenBonus,
+					Title:  "Копилка",
+					Body:   "Начисляйте бонусные минуты за дела. Ребёнок берёт их сам, когда время вышло.",
+				},
+				{
+					Anchor: "child-card-pause",
+					Screen: ScreenToday,
+					Title:  "Пауза",
+					Body:   "Снимает все ограничения на 15 минут, час, два или до конца дня. Время считается.",
+				},
+				{
+					Anchor: "child-card-bonus",
+					Screen: ScreenToday,
+					Title:  "В копилку",
+					Body:   "Быстро добавить бонусные минуты ребёнку прямо с главной.",
+				},
+			},
+			Covers: []string{"H-M2-01", "H-M2-02", "H-M2-03"},
+		},
+		{
+			ID:      "N-0.2.0",
+			Kind:    KindWhatsNew,
+			Title:   "Расписание, доп. время и копилка",
+			Version: "0.2.0",
+			Items: []string{
+				"Запретные часы по дням недели",
+				"Кнопка «Попросить ещё» и пауза для одного ребёнка и для всех",
+				"Копилка бонусных минут: родитель начисляет, ребёнок берёт сам",
+				"Копирование правил с другого ребёнка",
 			},
 		},
 	}

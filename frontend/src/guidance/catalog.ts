@@ -9,20 +9,25 @@ import { genitiveName } from "../lib/format";
 export type EntryKind = "hint" | "detector" | "tour" | "whatsnew";
 
 /** Экраны окна родителя (совпадают с меню). */
-export type ScreenId = "today" | "children" | "journal" | "settings" | "help";
+export type ScreenId = "today" | "children" | "bonus" | "journal" | "settings" | "help";
 
 /** Действия кнопок карточки; что делает каждое, решает Provider. */
-export type ActionId = "ack" | "start-tour" | "open-limits" | "how-to-fix";
+export type ActionId = "ack" | "start-tour" | "open-limits" | "how-to-fix" | "open-schedule";
 
 /** Известные якоря окна родителя: элемент помечен data-help-anchor с тем же номером. */
 export const ANCHORS = [
   { id: "topbar", screen: "any" },
   { id: "menu-today", screen: "any" },
   { id: "menu-children", screen: "any" },
+  { id: "menu-bonus", screen: "any" },
   { id: "savebar", screen: "any" },
   { id: "child-card", screen: "today" },
   { id: "extra-buttons", screen: "today" },
+  { id: "child-card-pause", screen: "today" },
+  { id: "child-card-bonus", screen: "today" },
   { id: "limits-table", screen: "children" },
+  { id: "schedule-tab", screen: "children" },
+  { id: "bonus-grant", screen: "bonus" },
 ] as const;
 
 export type AnchorId = (typeof ANCHORS)[number]["id"];
@@ -140,6 +145,39 @@ export const HINTS: HintEntry[] = [
       ],
     },
   },
+  {
+    id: "H-M2-01",
+    kind: "hint",
+    anchor: "schedule-tab",
+    title: "Запретные часы",
+    body: "Время, когда компьютером нельзя пользоваться, даже если лимит ещё не исчерпан.",
+    actions: [],
+  },
+  {
+    id: "H-M2-02",
+    kind: "hint",
+    anchor: "bonus-grant",
+    title: "Копилка бонусных минут",
+    body: "Начислите минуты за дела по дому или учёбу. Ребёнок берёт их сам, когда время вышло.",
+    actions: [],
+  },
+  {
+    id: "H-M2-03",
+    kind: "hint",
+    anchor: "child-card-pause",
+    title: "Пауза снимает ограничения на время",
+    body: "Удобно для общего фильма или гостей. Время при этом всё равно считается.",
+    actions: [],
+  },
+  {
+    id: "D-M2-01",
+    kind: "detector",
+    anchor: "schedule-tab",
+    title: "Похоже, запретные часы закрывают почти все сутки у {nameGen}",
+    body: "Запретные интервалы занимают почти весь день. Проверьте, так ли это задумано.",
+    actions: [{ id: "open-schedule", label: "Открыть запретные часы" }],
+    repeat: true,
+  },
 ];
 
 export const TOURS: TourEntry[] = [
@@ -187,6 +225,38 @@ export const TOURS: TourEntry[] = [
     ],
     covers: ["H-M1-02", "H-M1-03"],
   },
+  {
+    id: "T-M2-01",
+    kind: "tour",
+    title: "Расписание и копилка",
+    steps: [
+      {
+        anchor: "schedule-tab",
+        screen: "children",
+        title: "Запретные часы",
+        body: "Задайте время, когда компьютером нельзя пользоваться, даже если лимит остался.",
+      },
+      {
+        anchor: "menu-bonus",
+        screen: "bonus",
+        title: "Копилка",
+        body: "Начисляйте бонусные минуты за дела. Ребёнок берёт их сам, когда время вышло.",
+      },
+      {
+        anchor: "child-card-pause",
+        screen: "today",
+        title: "Пауза",
+        body: "Снимает все ограничения на 15 минут, час, два или до конца дня. Время считается.",
+      },
+      {
+        anchor: "child-card-bonus",
+        screen: "today",
+        title: "В копилку",
+        body: "Быстро добавить бонусные минуты ребёнку прямо с главной.",
+      },
+    ],
+    covers: ["H-M2-01", "H-M2-02", "H-M2-03"],
+  },
 ];
 
 export const WHATS_NEW: WhatsNewEntry[] = [
@@ -200,6 +270,18 @@ export const WHATS_NEW: WhatsNewEntry[] = [
       "Значок у часов с остатком времени",
       "Предупреждения за 15, 5 и 1 минуту",
       "Экран блокировки, когда время вышло, и снятие паролем родителя",
+    ],
+  },
+  {
+    id: "N-0.2.0",
+    kind: "whatsnew",
+    version: "0.2.0",
+    title: "Расписание, доп. время и копилка",
+    items: [
+      "Запретные часы по дням недели",
+      "Кнопка «Попросить ещё» и пауза для одного ребёнка и для всех",
+      "Копилка бонусных минут: родитель начисляет, ребёнок берёт сам",
+      "Копирование правил с другого ребёнка",
     ],
   },
 ];

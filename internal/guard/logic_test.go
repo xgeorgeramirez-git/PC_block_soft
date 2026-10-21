@@ -24,7 +24,11 @@ const (
 	// Автоматическая смена пользователя: 15 минут от появления экрана (ТЗ 8.2.3 п.10).
 	testAutoSwitch = 15 * time.Minute
 	// Кнопок на главном экране блокировки: пароль, выключение, выход, смена пользователя.
-	testScreenButtons = 4
+	// Экран блокировки «время вышло» без копилки (M2): «Попросить ещё», «Пароль родителя»
+	// и три выхода (ТЗ 8.2.3 п.3).
+	testScreenButtons = 5
+	// Экран блокировки за обход: «Пароль родителя» и три выхода (копилка/попросить скрыты).
+	testBypassButtons = 4
 )
 
 // Начало отсчёта всех тестов (реальные часы стража, Ruling 4).
@@ -108,7 +112,8 @@ func TestLockShownByDecision(t *testing.T) {
 		lock LockView
 	}{
 		{"время вышло", timeUpDecision(), false, true, LockView{
-			Reason: "Время на сегодня закончилось", Until: "Можно снова: завтра", Used: "Сегодня: 2 ч 00 мин из 2 ч"}},
+			Reason: "Время на сегодня закончилось", Until: "Можно снова: завтра", Used: "Сегодня: 2 ч 00 мин из 2 ч",
+			Hint: "Попроси родителя, если нужно больше времени"}},
 		{"обход защиты", bypassDecision(), false, true, LockView{
 			Reason: "Попытка обойти защиту", Detail: "Изменено системное время",
 			Until: "Можно снова: когда родитель снимет блокировку", Used: "Сегодня: 40 мин"}},
@@ -146,24 +151,65 @@ func TestReasonFallback(t *testing.T) {
 	}
 }
 
-func TestMainButtonsOfM1(t *testing.T) {
-	// Ловит: кнопки M2 («Попросить ещё», «Взять из копилки») видны на экране M1 (Ruling 24);
-	// главная кнопка не «Пароль родителя»; нет одного из трёх выходов (выключение, выход,
-	// смена пользователя, ТЗ 8.2.3 п.3) или они стоят не в порядке ТЗ; выход недоступен или
-	// пропадает при блокировке за обход (выходы не считаются обходом и доступны всегда).
-	want := []ButtonView{
+func TestLockButtonsM2(t *testing.T) {
+	// ТЗ 8.2.3 п.3: при блокировке «время вышло»/интервал главная «Попросить ещё», ниже
+	// «Пароль родителя» и три выхода (без копилки, если баланс 0). При блокировке за обход
+	// — только «Пароль родителя» (главная) и три выхода; «Попросить ещё» и «Взять из копилки»
+	// скрыты. Выходы доступны всегда (не считаются обходом).
+	wantTimeUp := []ButtonView{
+		{Button: ButtonAskMore, Label: "Попросить ещё", Main: true, Enabled: true},
+		{Button: ButtonParentPassword, Label: "Пароль родителя", Enabled: true},
+		{Button: ButtonShutdown, Label: "Выключить компьютер", Enabled: true},
+		{Button: ButtonLogoff, Label: "Выйти из учётной записи", Enabled: true},
+		{Button: ButtonSwitchUser, Label: "Смена пользователя", Enabled: true},
+	}
+	wantBypass := []ButtonView{
 		{Button: ButtonParentPassword, Label: "Пароль родителя", Main: true, Enabled: true},
 		{Button: ButtonShutdown, Label: "Выключить компьютер", Enabled: true},
 		{Button: ButtonLogoff, Label: "Выйти из учётной записи", Enabled: true},
 		{Button: ButtonSwitchUser, Label: "Смена пользователя", Enabled: true},
 	}
-	for name, d := range map[string]core.Decision{"время": timeUpDecision(), "обход": bypassDecision()} {
-		v := locked(d).View(t0)
-		if !reflect.DeepEqual(v.Buttons, want) {
-			t.Errorf("%s: кнопки %+v, ждали %+v", name, v.Buttons, want)
+	cases := map[string]struct {
+		d    core.Decision
+		want []ButtonView
+	}{"время": {timeUpDecision(), wantTimeUp}, "обход": {bypassDecision(), wantBypass}}
+	for name, c := range cases {
+		v := locked(c.d).View(t0)
+		if !reflect.DeepEqual(v.Buttons, c.want) {
+			t.Errorf("%s: кнопки %+v, ждали %+v", name, v.Buttons, c.want)
 		}
 		if len(v.Choices) != 0 || v.Panel != PanelNone || v.PanelText != "" {
 			t.Errorf("%s: панель не должна быть открыта: %+v", name, v)
+		}
+	}
+}
+
+func TestLockSpendBonusButton(t *testing.T) {
+	// FR-11, ТЗ 8.2.3 п.3: «Взять из копилки (N мин)» при балансе; недоступна в запретный
+	// интервал с пояснением (L-17).
+	d := timeUpDecision()
+	d.BonusBalance = 45
+	v := locked(d).View(t0)
+	var bonus *ButtonView
+	for i := range v.Buttons {
+		if v.Buttons[i].Button == ButtonSpendBonus {
+			bonus = &v.Buttons[i]
+		}
+	}
+	if bonus == nil || !bonus.Enabled {
+		t.Fatalf("при балансе «Взять из копилки» должна быть доступна: %+v", v.Buttons)
+	}
+	// Запретный интервал: кнопка недоступна с пояснением.
+	df := timeUpDecision()
+	df.Lock = core.LockForbidden
+	df.BonusBalance = 45
+	df.Until = "Можно снова: завтра в 07:00"
+	vf := locked(df).View(t0)
+	for i := range vf.Buttons {
+		if vf.Buttons[i].Button == ButtonSpendBonus {
+			if vf.Buttons[i].Enabled || vf.Buttons[i].Hint == "" {
+				t.Fatalf("в интервал «Взять из копилки» недоступна с пояснением: %+v", vf.Buttons[i])
+			}
 		}
 	}
 }
@@ -277,11 +323,11 @@ func TestPauseCountdownInRealTime(t *testing.T) {
 		text    string
 		cd      string
 	}{
-		{0, false, "Слишком много попыток. Повторить можно через 1:00", "1:00"},
-		{time.Second, false, "Слишком много попыток. Повторить можно через 0:59", "0:59"},
-		{30 * time.Second, false, "Слишком много попыток. Повторить можно через 0:30", "0:30"},
-		{59*time.Second + 500*time.Millisecond, false, "Слишком много попыток. Повторить можно через 0:01", "0:01"},
-		{60*time.Second - time.Millisecond, false, "Слишком много попыток. Повторить можно через 0:01", "0:01"},
+		{0, false, "Слишком много попыток. Повторить можно через 1 мин", "1:00"},
+		{time.Second, false, "Слишком много попыток. Повторить можно через 59 сек", "0:59"},
+		{30 * time.Second, false, "Слишком много попыток. Повторить можно через 30 сек", "0:30"},
+		{59*time.Second + 500*time.Millisecond, false, "Слишком много попыток. Повторить можно через 1 сек", "0:01"},
+		{60*time.Second - time.Millisecond, false, "Слишком много попыток. Повторить можно через 1 сек", "0:01"},
 		{60 * time.Second, true, "", ""},
 		{61 * time.Second, true, "", ""},
 	}
@@ -325,7 +371,7 @@ func TestPausedContinueExplainsWhy(t *testing.T) {
 	m := withPasswordPanel(t, timeUpDecision())
 	m.OnPasswordResult(t0, PasswordResult{BlockedUntil: at(60 * time.Second)})
 	v := m.View(at(time.Second))
-	want := ButtonView{Button: ButtonSubmitPassword, Label: "Продолжить", Main: true, Enabled: false, Hint: "Повторить можно через 0:59"}
+	want := ButtonView{Button: ButtonSubmitPassword, Label: "Продолжить", Main: true, Enabled: false, Hint: "Повторить можно через 59 сек"}
 	if len(v.Choices) != 2 || v.Choices[0] != want {
 		t.Fatalf("кнопка в паузе %+v, ждали %+v", v.Choices, want)
 	}
@@ -354,7 +400,7 @@ func TestPauseSurvivesCancelAndReopen(t *testing.T) {
 	keepAlive(m, timeUpDecision(), 6, 10)
 	m.Press(at(10*time.Second), ButtonParentPassword, "")
 	v := m.View(at(10 * time.Second))
-	if v.Panel != PanelPassword || v.PasswordEnabled || v.PasswordError != "Слишком много попыток. Повторить можно через 0:50" {
+	if v.Panel != PanelPassword || v.PasswordEnabled || v.PasswordError != "Слишком много попыток. Повторить можно через 50 сек" {
 		t.Fatalf("пауза потеряна: Panel=%v Enabled=%v Error=%q", v.Panel, v.PasswordEnabled, v.PasswordError)
 	}
 }
@@ -614,8 +660,8 @@ func TestLogoffNeedsConfirmation(t *testing.T) {
 	}
 	v := m.View(t0)
 	want := []ButtonView{
-		{Button: ButtonConfirmLogoff, Label: "Выйти", Main: true, Enabled: true},
-		{Button: ButtonCancel, Label: "Отмена", Enabled: true},
+		{Button: ButtonCancel, Label: "Отмена", Main: true, Enabled: true},
+		{Button: ButtonConfirmLogoff, Label: "Выйти", Enabled: true},
 	}
 	if v.Panel != PanelConfirmLogoff || v.PanelText != "Несохранённые документы закроются. Выйти?" || !reflect.DeepEqual(v.Choices, want) {
 		t.Fatalf("подтверждение: Panel=%v Text=%q Choices=%+v", v.Panel, v.PanelText, v.Choices)
@@ -813,7 +859,7 @@ func TestOfflineResetsAndScreenReturnsByFreshDecision(t *testing.T) {
 
 	m.OnDecision(at(30*time.Second), bypassDecision(), false, nil)
 	v := m.View(at(30 * time.Second))
-	if !v.LockShown || v.Lock.Reason != "Попытка обойти защиту" || v.Panel != PanelNone || v.PasswordError != "" || len(v.Buttons) != testScreenButtons {
+	if !v.LockShown || v.Lock.Reason != "Попытка обойти защиту" || v.Panel != PanelNone || v.PasswordError != "" || len(v.Buttons) != testBypassButtons {
 		t.Fatalf("после обрыва: %+v", v)
 	}
 	m.OnDecision(at(31*time.Second), runningDecision(900), false, nil)
@@ -1218,7 +1264,7 @@ func TestLockKindChangeResetsPanel(t *testing.T) {
 	m := withChoices(t, timeUpDecision())
 	m.OnDecision(at(time.Second), bypassDecision(), false, nil)
 	v := m.View(at(time.Second))
-	if v.Panel != PanelNone || v.Lock.Reason != "Попытка обойти защиту" || len(v.Buttons) != testScreenButtons {
+	if v.Panel != PanelNone || v.Lock.Reason != "Попытка обойти защиту" || len(v.Buttons) != testBypassButtons {
 		t.Fatalf("после смены вида: %+v", v)
 	}
 	// Тот же вид блокировки: обновления решения панель не сбрасывают.
@@ -1412,8 +1458,8 @@ func TestShutdownNeedsConfirmation(t *testing.T) {
 		}
 		v := m.View(t0)
 		want := []ButtonView{
-			{Button: ButtonConfirmShutdown, Label: "Выключить", Main: true, Enabled: true},
-			{Button: ButtonCancel, Label: "Отмена", Enabled: true},
+			{Button: ButtonCancel, Label: "Отмена", Main: true, Enabled: true},
+			{Button: ButtonConfirmShutdown, Label: "Выключить", Enabled: true},
 		}
 		if v.Panel != PanelConfirmShutdown || v.PanelText != "Несохранённые документы закроются. Выключить компьютер?" ||
 			!reflect.DeepEqual(v.Choices, want) || len(v.Buttons) != 0 {
@@ -1454,13 +1500,17 @@ func TestSwitchUserHasNoConfirmation(t *testing.T) {
 	// Ловит: у «Смены пользователя» появилось подтверждение (ТЗ 8.2.3 п.9, D-40: данные
 	// сохраняются, спрашивать нечего); панель открылась; кнопки экрана пропали после нажатия
 	// (сеанс остаётся, ребёнок вернётся к тому же экрану).
-	for name, d := range map[string]core.Decision{"время": timeUpDecision(), "обход": bypassDecision()} {
-		m := locked(d)
+	cases := map[string]struct {
+		d    core.Decision
+		want int
+	}{"время": {timeUpDecision(), testScreenButtons}, "обход": {bypassDecision(), testBypassButtons}}
+	for name, c := range cases {
+		m := locked(c.d)
 		if a := m.Press(t0, ButtonSwitchUser, ""); a != (Action{Kind: ActSwitchUser}) {
 			t.Fatalf("%s: нажатие «Смена пользователя»: %+v", name, a)
 		}
 		v := m.View(t0)
-		if v.Panel != PanelNone || v.PanelText != "" || len(v.Buttons) != testScreenButtons || !v.LockShown {
+		if v.Panel != PanelNone || v.PanelText != "" || len(v.Buttons) != c.want || !v.LockShown {
 			t.Fatalf("%s: после смены пользователя вид изменился: %+v", name, v)
 		}
 	}

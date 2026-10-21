@@ -70,6 +70,7 @@ describe("зеркало каталога на Go", () => {
       ScreenAny: "any",
       ScreenToday: "today",
       ScreenChildren: "children",
+      ScreenBonus: "bonus",
       ScreenJournal: "journal",
       ScreenSettings: "settings",
       ScreenHelp: "help",
@@ -95,12 +96,19 @@ describe("зеркало каталога на Go", () => {
   });
 });
 
-describe("состав каталога M1 (раздел «Покрытие Помощника» плана)", () => {
-  it("три подсказки, два напоминания, один тур, одно «Что нового»", () => {
-    expect(HINTS.filter((h) => h.kind === "hint").map((h) => h.id)).toEqual(["H-M1-01", "H-M1-02", "H-M1-03"]);
-    expect(HINTS.filter((h) => h.kind === "detector").map((h) => h.id)).toEqual(["D-M1-01", "D-M1-02"]);
-    expect(TOURS.map((t) => t.id)).toEqual(["T-M1-01"]);
-    expect(WHATS_NEW.map((n) => n.id)).toEqual(["N-0.1.0"]);
+describe("состав каталога M1+M2 (раздел «Покрытие Помощника» планов)", () => {
+  it("подсказки, напоминания, туры и «Что нового» по вехам", () => {
+    expect(HINTS.filter((h) => h.kind === "hint").map((h) => h.id)).toEqual([
+      "H-M1-01",
+      "H-M1-02",
+      "H-M1-03",
+      "H-M2-01",
+      "H-M2-02",
+      "H-M2-03",
+    ]);
+    expect(HINTS.filter((h) => h.kind === "detector").map((h) => h.id)).toEqual(["D-M1-01", "D-M1-02", "D-M2-01"]);
+    expect(TOURS.map((t) => t.id)).toEqual(["T-M1-01", "T-M2-01"]);
+    expect(WHATS_NEW.map((n) => n.id)).toEqual(["N-0.1.0", "N-0.2.0"]);
   });
 
   it("номера уникальны", () => {

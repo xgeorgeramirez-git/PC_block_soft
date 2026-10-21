@@ -49,7 +49,7 @@ describe("окно родителя: сценарий подсказок", () =>
     expect(card.getAttribute("data-hint-id")).toBe("H-M1-01");
     // Окно работает, пока карточка на экране.
     await user.click(menu("Дети"));
-    expect(await screen.findByRole("heading", { name: /Лимиты времени/ })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: /Правила/ })).toBeTruthy();
   });
 
   // Ловит: S28: «Позже» на приглашении, на «Дети» подсказка про лимиты, на «Сегодня» про кнопки.
@@ -73,7 +73,11 @@ describe("окно родителя: сценарий подсказок", () =>
     expect(hints()).toHaveLength(0);
     await user.click(menu("Помощь"));
     expect(await screen.findByText(/Подсказки в окне сейчас выключены/)).toBeTruthy();
-    await user.click(within(screen.getByRole("region", { name: "Обучение" })).getByRole("button", { name: "Начать" }));
+    // Туров теперь несколько: берём «Начать» в строке нужного тура (не первую попавшуюся).
+    const tourRow = within(screen.getByRole("region", { name: "Обучение" }))
+      .getByText("Короткий тур по окну родителя")
+      .closest("li") as HTMLElement;
+    await user.click(within(tourRow).getByRole("button", { name: "Начать" }));
     expect(await screen.findByRole("dialog", { name: "Короткий тур по окну родителя" })).toBeTruthy();
   });
 
@@ -135,7 +139,7 @@ describe("окно родителя: напоминания о риске", () =
     expect(within(card).getByText("Похоже, у Даши нет ограничений ни в один день")).toBeTruthy();
     expect(card.closest("article")?.getAttribute("aria-labelledby")).toBe("child-2-name");
     await user.click(within(card).getByRole("button", { name: "Задать лимиты" }));
-    expect(await screen.findByRole("heading", { name: "Лимиты времени, Даша" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "Правила, Даша" })).toBeTruthy();
     expect(screen.getByRole("tab", { name: "Даша", selected: true })).toBeTruthy();
   });
 

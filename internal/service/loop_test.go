@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"pcblock/internal/core"
 	"pcblock/internal/ipc"
 )
 
@@ -130,6 +131,34 @@ func TestWarningsDeliveredOncePerThreshold(t *testing.T) {
 	collect(h.run(20*60+5, activeSample))
 	if len(got) != 3 || got[0] != 15 || got[1] != 5 || got[2] != 1 {
 		t.Fatalf("предупреждения %v, ждали [15 5 1] по одному разу", got)
+	}
+}
+
+// Ловит: предупреждения перед запретным интервалом (R9, G6) не доходят до стража тем же
+// путём, что и предупреждения о лимите. Большой лимит, интервал пн 15:16 наступает раньше.
+func TestForbiddenWarningsDeliveredBeforeInterval(t *testing.T) {
+	h := newHarness(t, withChild(childSID, "Миша", 600))
+	id := h.childID(childSID)
+	if err := h.store.SetSchedule(id, []core.Interval{{Weekday: core.Monday, StartMin: 916, EndMin: 420}}); err != nil {
+		t.Fatal(err)
+	}
+	h.start()
+	h.childLogsIn()
+	var got []int
+	locked := false
+	for _, r := range h.run(20*60, activeSample) {
+		for _, w := range r.Warnings {
+			got = append(got, w.Threshold)
+		}
+		if r.Status.Lock == ipc.LockForbidden {
+			locked = true
+		}
+	}
+	if len(got) != 3 || got[0] != 15 || got[1] != 5 || got[2] != 1 {
+		t.Fatalf("предупреждения перед интервалом %v, ждали [15 5 1]", got)
+	}
+	if !locked {
+		t.Fatal("блокировка по запретному интервалу не наступила")
 	}
 }
 

@@ -48,6 +48,8 @@ const (
 	ButtonConfirmShutdown        // «Выключить» в подтверждении выключения
 	ButtonSwitchUser             // «Смена пользователя» на экране
 	ButtonWarningOK              // «Понятно» на плашке предупреждения
+	ButtonAskMore                // «Попросить ещё» на экране (FR-10): открывает панель пароля
+	ButtonSpendBonus             // «Взять из копилки» на экране (FR-11): без пароля
 )
 
 // Panel — панель поверх экрана блокировки; одновременно открыта одна.
@@ -75,6 +77,7 @@ const (
 	ActLogoff                          // попросить службу выйти из учётной записи (WTSLogoffSession)
 	ActShutdown                        // попросить службу выключить компьютер
 	ActSwitchUser                      // попросить службу отключить сеанс без завершения: экран выбора пользователя Windows
+	ActSpendBonus                      // попросить службу взять Minutes минут из копилки (FR-11, без пароля)
 )
 
 // Action — результат нажатия. Пароль есть только у ActCheckPassword и только в этом
@@ -151,6 +154,7 @@ const (
 	textCancel           = "Отмена"
 	textOpenSettings     = "Открыть настройки"
 	textClearBlock       = "Снять блокировку"
+	textAskMore          = "Попросить ещё"
 	textConfirmLogoff    = "Выйти"
 	textConfirmShutdown  = "Выключить"
 	textWarningOK        = "Понятно"
@@ -160,7 +164,39 @@ const (
 	textWarn15           = "Через 15 минут время на сегодня закончится"
 	textWarn5            = "Через 5 минут время закончится. Сохрани игру"
 	textWarn1            = "Осталась 1 минута: "
+	textChildAskParent   = "Попроси родителя, если нужно больше времени"
 )
+
+// isExitButton — кнопка выхода экрана блокировки (не даёт доступа ко времени): выход из
+// учётной записи, выключение, смена пользователя. Отделяется отступом от кнопок доступа (B-10).
+func isExitButton(b Button) bool {
+	return b == ButtonLogoff || b == ButtonShutdown || b == ButtonSwitchUser
+}
+
+// spendBonusLabel — «Взять из копилки (45 мин)» (ТЗ 8.2.3 п.3).
+func spendBonusLabel(balance int) string {
+	return "Взять из копилки (" + core.FormatLimit(balance) + ")"
+}
+
+// bonusForbiddenHint — пояснение, почему «Взять из копилки» недоступна в запретный интервал
+// (L-17): «Из копилки можно взять с 07:00». until — строка «Можно снова: завтра в 07:00».
+func bonusForbiddenHint(until string) string {
+	if i := indexClock(until); i >= 0 {
+		return "Из копилки можно взять с " + until[i:]
+	}
+	return "Из копилки можно взять, когда закончатся запретные часы"
+}
+
+// indexClock возвращает позицию первого «ЧЧ:ММ» в строке или -1.
+func indexClock(s string) int {
+	for i := 0; i+5 <= len(s); i++ {
+		if s[i] >= '0' && s[i] <= '9' && s[i+1] >= '0' && s[i+1] <= '9' && s[i+2] == ':' &&
+			s[i+3] >= '0' && s[i+3] <= '9' && s[i+4] >= '0' && s[i+4] <= '9' {
+			return i
+		}
+	}
+	return -1
+}
 
 // warnThresholds — пороги R9, по которым бывают плашки, в минутах.
 var warnThresholds = [3]int{15, 5, 1}
@@ -495,10 +531,19 @@ func (m *Model) Press(now time.Time, b Button, password string) Action {
 
 func (m *Model) pressScreen(b Button) Action {
 	switch b {
-	case ButtonParentPassword:
+	case ButtonParentPassword, ButtonAskMore:
+		// «Попросить ещё» и «Пароль родителя» открывают ввод пароля: после верного пароля
+		// родитель выбирает доп. время (FR-10). «Попросить ещё» на экране блокировки по
+		// ТЗ 8.2.3 п.4 ведёт к той же панели пароля с выбором времени.
 		m.panel = PanelPassword
 		m.pwdErr = ""
 		m.clearSeq++
+	case ButtonSpendBonus:
+		// В запретный интервал кнопка недоступна (view её гасит); трата без пароля (FR-11).
+		if m.dec.Lock == core.LockForbidden || m.dec.BonusBalance <= 0 {
+			return Action{}
+		}
+		return Action{Kind: ActSpendBonus, Minutes: m.dec.BonusBalance}
 	case ButtonLogoff:
 		m.panel = PanelConfirmLogoff
 	case ButtonShutdown:
@@ -612,46 +657,78 @@ func (m *Model) View(now time.Time) View {
 	}
 	v.LockShown, v.SuppressKeys = true, true
 	v.Lock = LockView{Reason: reason, Detail: d.Detail, Until: d.Until, Used: d.Used}
+	if d.Lock != core.LockBypass {
+		v.Lock.Hint = textChildAskParent
+	}
 	v.Panel = m.panel
 	v.PasswordClearSeq = m.clearSeq
 	switch m.panel {
 	case PanelNone:
-		v.Buttons = []ButtonView{
-			{Button: ButtonParentPassword, Label: textParentPassword, Main: true, Enabled: true},
-			// Выходы не дают доступа ко времени, поэтому доступны всегда, в том числе при
-			// блокировке за обход (ТЗ 8.2.3 п.3).
-			{Button: ButtonShutdown, Label: textShutdown, Enabled: true},
-			{Button: ButtonLogoff, Label: textLogoff, Enabled: true},
-			{Button: ButtonSwitchUser, Label: textSwitchUser, Enabled: true},
-		}
+		v.Buttons = m.lockButtons(d)
 	case PanelPassword:
 		m.passwordView(now, &v)
 	case PanelParentChoices:
 		v.Choices = m.choicesView()
 	case PanelConfirmLogoff:
+		// Главная (графитовая, по Enter) — безопасная «Отмена»: необратимый выход не должен
+		// срабатывать случайным Enter (B-15). «Выйти» остаётся обычной кнопкой.
 		v.PanelText = textLogoffQuestion
 		v.Choices = []ButtonView{
-			{Button: ButtonConfirmLogoff, Label: textConfirmLogoff, Main: true, Enabled: true},
-			{Button: ButtonCancel, Label: textCancel, Enabled: true},
+			{Button: ButtonCancel, Label: textCancel, Main: true, Enabled: true},
+			{Button: ButtonConfirmLogoff, Label: textConfirmLogoff, Enabled: true},
 		}
 	case PanelConfirmShutdown:
+		// То же, что и для выхода: Enter отменяет, а не выключает компьютер (B-15).
 		v.PanelText = textShutdownQuestion
 		v.Choices = []ButtonView{
-			{Button: ButtonConfirmShutdown, Label: textConfirmShutdown, Main: true, Enabled: true},
-			{Button: ButtonCancel, Label: textCancel, Enabled: true},
+			{Button: ButtonCancel, Label: textCancel, Main: true, Enabled: true},
+			{Button: ButtonConfirmShutdown, Label: textConfirmShutdown, Enabled: true},
 		}
 	}
 	return v
 }
 
+// lockButtons — кнопки главного экрана блокировки (ТЗ 8.2.3 п.3). При обходе доступны
+// только «Пароль родителя» (главная) и выходы. Иначе главная «Попросить ещё», ниже
+// «Взять из копилки (N мин)» (недоступна в запретный интервал с пояснением, FR-11),
+// «Пароль родителя» и выходы. Выходы доступны всегда (доступа ко времени не дают).
+func (m *Model) lockButtons(d core.Decision) []ButtonView {
+	exits := []ButtonView{
+		{Button: ButtonShutdown, Label: textShutdown, Enabled: true},
+		{Button: ButtonLogoff, Label: textLogoff, Enabled: true},
+		{Button: ButtonSwitchUser, Label: textSwitchUser, Enabled: true},
+	}
+	if d.Lock == core.LockBypass {
+		return append([]ButtonView{
+			{Button: ButtonParentPassword, Label: textParentPassword, Main: true, Enabled: true},
+		}, exits...)
+	}
+	out := []ButtonView{
+		{Button: ButtonAskMore, Label: textAskMore, Main: true, Enabled: true},
+	}
+	if d.BonusBalance > 0 {
+		bonus := ButtonView{Button: ButtonSpendBonus, Label: spendBonusLabel(d.BonusBalance), Enabled: true}
+		if d.Lock == core.LockForbidden {
+			bonus.Enabled = false
+			bonus.Hint = bonusForbiddenHint(d.Until)
+		}
+		out = append(out, bonus)
+	}
+	out = append(out, ButtonView{Button: ButtonParentPassword, Label: textParentPassword, Enabled: true})
+	return append(out, exits...)
+}
+
 func (m *Model) passwordView(now time.Time, v *View) {
 	submit := ButtonView{Button: ButtonSubmitPassword, Label: textSubmit, Main: true, Enabled: true}
 	if m.paused(now) {
-		left := clock(secondsCeil(m.blockedUntil.Sub(now)))
-		v.PasswordCountdown = left
-		v.PasswordError = "Слишком много попыток. Повторить можно через " + left
+		secs := secondsCeil(m.blockedUntil.Sub(now))
+		// Структурный отсчёт м:сс оставляем как есть; в словах для ребёнка пишем единицы,
+		// чтобы «0:59» не читалось как минуты (B-12, H9).
+		v.PasswordCountdown = clock(secs)
+		msg := "Повторить можно через " + clockWords(secs)
+		v.PasswordError = "Слишком много попыток. " + msg
 		submit.Enabled = false
-		submit.Hint = "Повторить можно через " + left
+		submit.Hint = msg
 	} else {
 		v.PasswordEnabled = true
 		v.PasswordError = m.pwdErr
@@ -700,6 +777,23 @@ func clock(secs int) string {
 		secs = 0
 	}
 	return fmt.Sprintf("%d:%02d", secs/60, secs%60)
+}
+
+// clockWords — тот же отсчёт словами с единицами: «59 сек», «1 мин», «2 мин 05 сек». Нужен там,
+// где м:сс без единиц читается неоднозначно (пауза пароля, B-12). Отрицательное — ноль.
+func clockWords(secs int) string {
+	if secs < 0 {
+		secs = 0
+	}
+	m, s := secs/60, secs%60
+	switch {
+	case m == 0:
+		return fmt.Sprintf("%d сек", s)
+	case s == 0:
+		return fmt.Sprintf("%d мин", m)
+	default:
+		return fmt.Sprintf("%d мин %02d сек", m, s)
+	}
 }
 
 // secondsCeil округляет длительность вверх до целых секунд: пауза в 59,9 с показывает

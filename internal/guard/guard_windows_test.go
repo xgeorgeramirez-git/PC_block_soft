@@ -232,13 +232,24 @@ func TestRunStartsOneGuardAndStopsOnClose(t *testing.T) {
 			t.Fatal("без службы экран блокировки показываться не должен")
 		}
 	}
+	// Закрываем окно стража. Единичный PostMessage изредка приходил раньше, чем окно начинало
+	// качать очередь сообщений, и терялся — тогда Run не завершался и тест падал по таймауту
+	// (B-16). Шлём WM_CLOSE повторно, пока Run не вернётся, с общим запасом времени.
+	deadline := time.After(15 * time.Second)
+	retry := time.NewTicker(250 * time.Millisecond)
+	defer retry.Stop()
 	procPostMessage.Call(host, wmClose, 0, 0)
-	select {
-	case err := <-done:
-		if err != nil {
-			t.Fatalf("Run завершился с ошибкой: %v", err)
+	for {
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Fatalf("Run завершился с ошибкой: %v", err)
+			}
+			return
+		case <-retry.C:
+			procPostMessage.Call(host, wmClose, 0, 0)
+		case <-deadline:
+			t.Fatal("Run не завершился после закрытия окна")
 		}
-	case <-time.After(10 * time.Second):
-		t.Fatal("Run не завершился после закрытия окна")
 	}
 }

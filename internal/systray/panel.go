@@ -6,17 +6,21 @@ import "pcblock/internal/ipc"
 type PanelKind int
 
 const (
-	PanelMyStats PanelKind = iota // открыть «Мою статистику»
-	PanelParent                   // открыть окно родителя («Настройки для родителя»)
-	PanelRefresh                  // повторить запрос к службе (урок L-114)
+	PanelMyStats    PanelKind = iota // открыть «Мою статистику»
+	PanelParent                      // открыть окно родителя («Настройки для родителя»)
+	PanelRefresh                     // повторить запрос к службе (урок L-114)
+	PanelAskMore                     // «Попросить ещё» (FR-10): окно ввода пароля родителя
+	PanelSpendBonus                  // «Взять из копилки» (FR-11): подтверждение и трата
 )
 
 // PanelButton — кнопка мини-панели.
 type PanelButton struct {
-	Kind  PanelKind
-	Label string
-	Main  bool // главная кнопка панели (графитовая)
-	Small bool // мелкая кнопка внизу, без рамки (ТЗ 8.2.1 п.3)
+	Kind         PanelKind
+	Label        string
+	Main         bool   // главная кнопка панели (графитовая)
+	Small        bool   // мелкая кнопка внизу, без рамки (ТЗ 8.2.1 п.3)
+	Disabled     bool   // недоступна (например «Взять из копилки» в запретный интервал)
+	DisabledNote string // почему недоступна и когда станет доступна (урок L-17)
 }
 
 // PanelBar — полоса «остаток из лимита».
@@ -29,6 +33,7 @@ type PanelBar struct {
 type PanelView struct {
 	Title   string
 	Bar     *PanelBar // nil: полосы нет (без лимита, ошибка, учётка не ребёнка)
+	Lines   []string  // доп. строки: копилка, ближайший запретный интервал (ТЗ 8.2.1 п.3)
 	Note    string    // итог последнего нажатия, если не получилось
 	Buttons []PanelButton
 	Error   bool // службе не удалось ответить
@@ -62,19 +67,70 @@ func BuildPanel(s Snapshot, note string) PanelView {
 	if title == "" {
 		title = st.Tooltip
 	}
+	// Строки под полосой: копилка и ближайший запретный интервал (ТЗ 8.2.1 п.3).
+	lines := []string{}
+	if st.ForbiddenNote != "" {
+		lines = append(lines, st.ForbiddenNote)
+	}
+	if st.BonusBalance > 0 {
+		lines = append(lines, "Копилка: "+formatMinutes(st.BonusBalance))
+	}
+	// Кнопки действий ребёнка (FR-8): «Взять из копилки» (если есть баланс и сейчас не
+	// запретный интервал), «Попросить ещё», «Моя статистика»; внизу «Настройки для родителя».
+	buttons := []PanelButton{}
+	inForbidden := st.Status == ipc.StatusForbidden
+	if st.BonusBalance > 0 {
+		b := PanelButton{Kind: PanelSpendBonus, Label: textButtonSpendBonus}
+		if inForbidden {
+			b.Disabled = true
+			b.DisabledNote = textBonusForbidden
+		}
+		buttons = append(buttons, b)
+	}
+	buttons = append(buttons,
+		PanelButton{Kind: PanelAskMore, Label: textButtonAskMore},
+		PanelButton{Kind: PanelMyStats, Label: textButtonMyStats, Main: true},
+		PanelButton{Kind: PanelParent, Label: textButtonParent, Small: true},
+	)
 	v := PanelView{
-		Title: title,
-		Note:  note,
-		Buttons: []PanelButton{
-			{Kind: PanelMyStats, Label: textButtonMyStats, Main: true},
-			{Kind: PanelParent, Label: textButtonParent, Small: true},
-		},
+		Title:   title,
+		Lines:   lines,
+		Note:    note,
+		Buttons: buttons,
 	}
 	if !st.Unlimited && st.LimitS > 0 && !isPaused(st) {
 		d := DisplayFor(st)
 		v.Bar = &PanelBar{Fraction: remainingFraction(st.RemainingS, st.LimitS), Status: d.Status}
 	}
 	return v
+}
+
+// formatMinutes — минуты для панели: «45 мин», «1 ч 05 мин».
+func formatMinutes(min int) string {
+	if min < 60 {
+		return itoa(min) + " мин"
+	}
+	if min%60 == 0 {
+		return itoa(min/60) + " ч"
+	}
+	h, m := min/60, min%60
+	mm := itoa(m)
+	if m < 10 {
+		mm = "0" + mm
+	}
+	return itoa(h) + " ч " + mm + " мин"
+}
+
+func itoa(n int) string {
+	if n == 0 {
+		return "0"
+	}
+	var b []byte
+	for n > 0 {
+		b = append([]byte{byte('0' + n%10)}, b...)
+		n /= 10
+	}
+	return string(b)
 }
 
 // remainingFraction — доля остатка от лимита, ограниченная отрезком 0…1.

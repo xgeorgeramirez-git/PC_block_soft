@@ -157,28 +157,39 @@ func (s *Store) GetDayLimits(childID int64) ([7]core.DayLimit, error) {
 // с этим днём, без ошибки.
 func (s *Store) LoadDayState(childID int64, day string) (core.DayState, error) {
 	st := core.DayState{Day: day}
-	err := s.db.QueryRow(`SELECT total_s, games_s, video_s, study_s, extra_min FROM day_state
-		WHERE child_id = ? AND day = ?`, childID, day).Scan(&st.TotalS, &st.GamesS, &st.VideoS, &st.StudyS, &st.ExtraMin)
+	var pause sql.NullInt64
+	err := s.db.QueryRow(`SELECT total_s, games_s, video_s, study_s, extra_min, pause_until FROM day_state
+		WHERE child_id = ? AND day = ?`, childID, day).Scan(&st.TotalS, &st.GamesS, &st.VideoS, &st.StudyS, &st.ExtraMin, &pause)
 	if errors.Is(err, sql.ErrNoRows) {
 		return core.DayState{Day: day}, nil
 	}
 	if err != nil {
 		return core.DayState{}, fmt.Errorf("storage: прочитать состояние дня: %w", err)
 	}
+	if pause.Valid {
+		v := pause.Int64
+		st.PauseUntilMs = &v
+	}
 	return st, nil
 }
 
 // SaveDayState записывает состояние дня ребёнка (вставка или замена по паре ребёнок и день).
-// Поле pause_until (M2) не трогается. День должен быть датой YYYY-MM-DD (ErrInvalid).
+// Сохраняет и pause_until (R11): nil уходит как NULL. День должен быть датой YYYY-MM-DD
+// (ErrInvalid).
 func (s *Store) SaveDayState(childID int64, st core.DayState) error {
 	if t, err := time.Parse(time.DateOnly, st.Day); err != nil || t.Format(time.DateOnly) != st.Day {
 		return fmt.Errorf("%w: день %q не дата вида ГГГГ-ММ-ДД", ErrInvalid, st.Day)
 	}
-	_, err := s.db.Exec(`INSERT INTO day_state (child_id, day, total_s, games_s, video_s, study_s, extra_min)
-		VALUES (?, ?, ?, ?, ?, ?, ?)
+	var pause any
+	if st.PauseUntilMs != nil {
+		pause = *st.PauseUntilMs
+	}
+	_, err := s.db.Exec(`INSERT INTO day_state (child_id, day, total_s, games_s, video_s, study_s, extra_min, pause_until)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (child_id, day) DO UPDATE SET total_s = excluded.total_s, games_s = excluded.games_s,
-			video_s = excluded.video_s, study_s = excluded.study_s, extra_min = excluded.extra_min`,
-		childID, st.Day, st.TotalS, st.GamesS, st.VideoS, st.StudyS, st.ExtraMin)
+			video_s = excluded.video_s, study_s = excluded.study_s, extra_min = excluded.extra_min,
+			pause_until = excluded.pause_until`,
+		childID, st.Day, st.TotalS, st.GamesS, st.VideoS, st.StudyS, st.ExtraMin, pause)
 	if err != nil {
 		return fmt.Errorf("storage: сохранить состояние дня: %w", err)
 	}

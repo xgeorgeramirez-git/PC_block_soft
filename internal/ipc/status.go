@@ -16,10 +16,14 @@ func StatusName(s core.Status) string {
 		return StatusLow
 	case core.StatusTimeUp:
 		return StatusTimeUp
+	case core.StatusForbidden:
+		return StatusForbidden
 	case core.StatusBypass:
 		return StatusBypass
 	case core.StatusUnlimited:
 		return StatusUnlimited
+	case core.StatusPaused:
+		return StatusPaused
 	default:
 		return StatusSafe
 	}
@@ -30,8 +34,10 @@ var statusWords = map[string]string{
 	StatusOK:        "Можно",
 	StatusLow:       "Осталось мало",
 	StatusTimeUp:    "Время вышло",
+	StatusForbidden: "Запретные часы",
 	StatusBypass:    "Заблокирован за обход защиты",
 	StatusUnlimited: "Без ограничений",
+	StatusPaused:    "Пауза",
 	StatusSafe:      "Ограничения не действуют",
 	StatusAdmin:     "Администратор: ограничения не действуют",
 	StatusNotChild:  "",
@@ -42,6 +48,7 @@ const (
 	textUnlimited = "Сегодня без ограничений по времени"
 	textSafe      = "Ограничения сейчас не действуют"
 	textAdmin     = "Администратор: ограничения не действуют"
+	textPaused    = "Пауза. Ограничения не действуют"
 )
 
 // ChildStatusFrom строит ChildStatus из решения ядра: числа и тексты экрана блокировки
@@ -61,12 +68,12 @@ func ChildStatusFrom(name string, d core.Decision) ChildStatus {
 		Reason:     d.Reason,
 		Detail:     d.Detail,
 		Until:      d.Until,
+		PauseUntil: d.PauseUntil,
 		Used:       d.Used,
 	}
 	s.StatusText = statusWords[s.Status]
-	// Остаток округляется вверх до минуты: «осталось 5 с» не должно показывать «0» при
-	// открытом экране.
-	remMin := (d.RemainingS + 59) / 60
+	// Остаток в минуты — единым правилом ядра (B-5): то же, что считает значок у часов.
+	remMin := core.RemainingMinutes(d.RemainingS)
 	switch s.Status {
 	case StatusOK, StatusLow:
 		s.Label = fmt.Sprint(remMin)
@@ -76,6 +83,10 @@ func ChildStatusFrom(name string, d core.Decision) ChildStatus {
 		s.Label = "0"
 		s.Tooltip = core.ReasonTimeUp
 		s.Summary = core.ReasonTimeUp
+	case StatusForbidden:
+		s.Label = "0"
+		s.Tooltip = core.ReasonForbidden
+		s.Summary = core.ReasonForbidden
 	case StatusBypass:
 		s.Label = "!"
 		s.Tooltip = core.ReasonBypass
@@ -84,6 +95,14 @@ func ChildStatusFrom(name string, d core.Decision) ChildStatus {
 		s.Label = "∞"
 		s.Tooltip = textUnlimited
 		s.Summary = textUnlimited
+	case StatusPaused:
+		// Пауза: значок показывает остаток, мини-панель — конец паузы (ТЗ 8.2.1 п.4).
+		s.Label = fmt.Sprint(remMin)
+		s.Tooltip = textPaused
+		s.Summary = textPaused
+		if d.PauseUntil != "" {
+			s.Summary = "Пауза до " + d.PauseUntil + ". Ограничения не действуют"
+		}
 	default:
 		s.Label = "?"
 		s.Tooltip = textSafe
@@ -110,6 +129,8 @@ func lockName(k core.LockKind) string {
 	switch k {
 	case core.LockTimeUp:
 		return LockTimeUp
+	case core.LockForbidden:
+		return LockForbidden
 	case core.LockBypass:
 		return LockBypass
 	default:
@@ -162,20 +183,57 @@ func (s SensorSample) ToCore() core.SessionSample {
 	}
 }
 
-// NewGuardWarning собирает предупреждение для порога в минутах (ТЗ 8.2.2). За 1 минуту
-// страж играет звук и показывает обратный отсчёт по ChildStatus.RemainingS.
+// NewGuardWarning собирает предупреждение для порога об исчерпании общего времени (ТЗ
+// 8.2.2) — частый случай; для события другого вида — NewGuardWarningFor.
 func NewGuardWarning(threshold int) GuardWarning {
+	return NewGuardWarningFor(threshold, core.WarnLimit)
+}
+
+// NewGuardWarningFor собирает предупреждение для порога в минутах и вида ближайшего
+// события (R9): исчерпание времени, начало запретных часов или конец паузы — текст
+// говорит, что именно кончится (FR-9). За 1 минуту страж играет звук и показывает
+// обратный отсчёт по ChildStatus.RemainingS.
+func NewGuardWarningFor(threshold int, ev core.WarnEvent) GuardWarning {
 	w := GuardWarning{Threshold: threshold}
+	what, whatShort := warnSubject(ev)
 	switch threshold {
 	case 15:
-		w.Text = "Через 15 минут время на сегодня закончится"
+		w.Text = fmt.Sprintf("Через 15 минут %s", what)
 	case 5:
-		w.Text = "Через 5 минут время закончится. Сохрани игру"
+		if ev == core.WarnLimit {
+			w.Text = "Через 5 минут время закончится. Сохрани игру"
+		} else {
+			w.Text = fmt.Sprintf("Через 5 минут %s", what)
+		}
 	case 1:
-		w.Text = "Осталась 1 минута"
+		w.Text = warnOneMinute(ev)
 		w.Sound = true
 	default:
-		w.Text = fmt.Sprintf("Через %d мин время закончится", threshold)
+		w.Text = fmt.Sprintf("Через %d мин %s", threshold, whatShort)
 	}
 	return w
+}
+
+// warnSubject — что кончится, для порогов 15/5 мин и запасного текста.
+func warnSubject(ev core.WarnEvent) (full, short string) {
+	switch ev {
+	case core.WarnForbidden:
+		return "начнутся запретные часы", "начнутся запретные часы"
+	case core.WarnPauseEnd:
+		return "закончится пауза", "закончится пауза"
+	default:
+		return "время на сегодня закончится", "время закончится"
+	}
+}
+
+// warnOneMinute — текст предупреждения за 1 минуту по виду события.
+func warnOneMinute(ev core.WarnEvent) string {
+	switch ev {
+	case core.WarnForbidden:
+		return "Через минуту начнутся запретные часы"
+	case core.WarnPauseEnd:
+		return "Через минуту закончится пауза"
+	default:
+		return "Осталась 1 минута"
+	}
 }

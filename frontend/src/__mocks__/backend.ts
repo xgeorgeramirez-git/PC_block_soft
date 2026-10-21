@@ -10,8 +10,10 @@ import { formatDuration, formatLimit, localOffsetMin, weekdayOfMs, weekdayShort 
 import { normalizeLimits } from "../lib/limits";
 import type {
   Account,
+  BonusEntry,
   ChildInfo,
   ChildStatus,
+  Interval,
   JournalEntry,
   MyRule,
   MyTodayReply,
@@ -36,6 +38,14 @@ export interface MockChild {
   usedS: number;
   /** Доп. время на сегодня, минуты. */
   extraMin: number;
+  /** Баланс копилки, минуты (M2). */
+  bonusBalance?: number;
+  /** Запретные интервалы расписания (M2). */
+  schedule?: Interval[];
+  /** История копилки, новые записи первыми (M2). */
+  bonusLedger?: BonusEntry[];
+  /** Пауза активна до «18:30» (M2). */
+  pauseUntil?: string;
   /** Заблокирован за обход защиты, пока родитель не снимет. */
   blocked: boolean;
   /** Подробность для экрана блокировки при обходе. */
@@ -101,6 +111,7 @@ export interface MockState {
   nextChildId: number;
   nextExtraId: number;
   extras: { id: string; childId: number; minutes: number; undoUntilMs: number }[];
+  bonusUndo: Map<string, { childId: number; minutes: number; undoUntilMs: number }>;
 }
 
 export type Override = Reply | "reject" | "garbage" | ((request: any) => Reply | Promise<Reply>);
@@ -179,6 +190,9 @@ export function statusOf(child: MockChild, nowMs: number): ChildStatus {
     usedS: child.usedS,
     detail: "",
     until: "",
+    pauseUntil: child.pauseUntil ?? "",
+    bonusBalance: child.bonusBalance ?? 0,
+    forbiddenNote: "",
     reason: "",
   };
   if (child.admin) {
@@ -219,6 +233,9 @@ export function statusOf(child: MockChild, nowMs: number): ChildStatus {
       reason: "Попытка обойти защиту",
       detail: child.blockDetail,
       until: "Можно снова: когда родитель снимет блокировку",
+      pauseUntil: "",
+      bonusBalance: 0,
+      forbiddenNote: "",
       used: usedText,
     };
   }
@@ -250,6 +267,9 @@ export function statusOf(child: MockChild, nowMs: number): ChildStatus {
       lock: "timeUp",
       reason: "Время на сегодня закончилось",
       until: "Можно снова: завтра",
+      pauseUntil: "",
+      bonusBalance: 0,
+      forbiddenNote: "",
     };
   }
   const left = formatDuration(remainingS);
@@ -272,6 +292,7 @@ function cardOf(child: MockChild, nowMs: number): TodayCard {
     name: child.name,
     status: statusOf(child, nowMs),
     extraMin: child.extraMin,
+    bonusBalance: child.bonusBalance ?? 0,
     canClearBlock: child.blocked,
   };
 }
@@ -312,6 +333,14 @@ const PARENT_COMMANDS = new Set([
   "SaveHelperState",
   "ExtendSession",
   "Logout",
+  "GetSchedule",
+  "SaveSchedule",
+  "Pause",
+  "PauseAll",
+  "GrantBonus",
+  "UndoBonus",
+  "GetBonus",
+  "CopyRules",
 ]);
 
 function makeState(opts: MockOptions): MockState {
@@ -343,6 +372,7 @@ function makeState(opts: MockOptions): MockState {
     nextChildId: Math.max(0, ...children.map((c) => c.childId)) + 1,
     nextExtraId: 17,
     extras: [],
+    bonusUndo: new Map(),
   };
 }
 
@@ -503,6 +533,77 @@ export function createBackend(opts: MockOptions = {}): MockBackend {
         card: cardOf(child, now),
         message: "Сохранено. Новые правила уже действуют",
       });
+    },
+
+    GetSchedule: (req) => {
+      const child = childById(req.childId);
+      if (!child) return fail("Ребёнок не найден");
+      return okReply({ childId: child.childId, intervals: child.schedule ?? [] });
+    },
+
+    SaveSchedule: (req, now) => {
+      const child = childById(req.childId);
+      if (!child) return fail("Ребёнок не найден");
+      for (const iv of (req.intervals ?? []) as Interval[]) {
+        if (iv.startMin === iv.endMin) return fail("Начало и конец совпадают", "end");
+      }
+      child.schedule = (req.intervals ?? []) as Interval[];
+      addEvent(now, child, "settings", `${child.name}: запретные часы изменены`);
+      return okReply({ intervals: child.schedule, card: cardOf(child, now), message: "Сохранено. Новые правила уже действуют" });
+    },
+
+    CopyRules: (req, now) => {
+      const from = childById(req.fromChildId);
+      const to = childById(req.toChildId);
+      if (!from || !to) return fail("Ребёнок не найден");
+      void now;
+      return okReply({ limits: normalizeLimits(from.limits), intervals: from.schedule ?? [], message: "Правила скопированы. Проверьте и сохраните" });
+    },
+
+    GetBonus: (req) => {
+      const child = childById(req.childId);
+      if (!child) return fail("Ребёнок не найден");
+      return okReply({ childId: child.childId, balance: child.bonusBalance ?? 0, entries: child.bonusLedger ?? [] });
+    },
+
+    GrantBonus: (req, now) => {
+      const child = childById(req.childId);
+      if (!child) return fail("Ребёнок не найден");
+      const m = req.minutes;
+      if (!Number.isInteger(m) || m < 1 || m > 600) return fail("Можно начислить от 1 до 600 минут", "minutes");
+      if (!req.reason) return fail("Укажите, за что начисляете", "reason");
+      const cur = child.bonusBalance ?? 0;
+      if (cur + m > 600) return fail(`Можно начислить не больше ${600 - cur} мин`, "minutes");
+      const after = cur + m;
+      child.bonusBalance = after;
+      child.bonusLedger = [{ atMs: now, tzOffsetMin: localOffsetMin(new Date(now)), deltaMin: m, reason: req.reason, balanceAfter: after }, ...(child.bonusLedger ?? [])];
+      const bonusId = `b-${state.nextExtraId++}`;
+      state.bonusUndo.set(bonusId, { childId: child.childId, minutes: m, undoUntilMs: now + UNDO_WINDOW_MS });
+      addEvent(now, child, "bonus_grant", `${child.name}: начислено +${m} мин: ${req.reason}`);
+      return okReply({ balanceAfter: child.bonusBalance, message: `Начислено ${m} ${minutesWord(m)}. Баланс ${child.bonusBalance} мин`, bonusId, undoUntilMs: now + UNDO_WINDOW_MS });
+    },
+
+    UndoBonus: (req, now) => {
+      const child = childById(req.childId);
+      const rec = state.bonusUndo.get(req.bonusId);
+      if (!child || !rec || rec.childId !== req.childId) return fail("Отменить уже нельзя");
+      if (now > rec.undoUntilMs) return fail("Отменить уже нельзя: прошло больше 10 секунд");
+      state.bonusUndo.delete(req.bonusId);
+      child.bonusBalance = Math.max(0, (child.bonusBalance ?? 0) - rec.minutes);
+      return okReply({ balanceAfter: child.bonusBalance, message: "Начисление отменено" });
+    },
+
+    Pause: (req, now) => {
+      const child = childById(req.childId);
+      if (!child) return fail("Ребёнок не найден");
+      child.pauseUntil = "18:30";
+      addEvent(now, child, "pause", `${child.name}: пауза`);
+      return okReply({ card: cardOf(child, now), message: "Пауза до 18:30" });
+    },
+
+    PauseAll: (_req, now) => {
+      for (const c of state.children) c.pauseUntil = "18:30";
+      return okReply({ children: state.children.map((c) => cardOf(c, now)), message: "Пауза для всех детей на 1 ч" });
     },
 
     AddExtra: (req, now) => {

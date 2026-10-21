@@ -27,7 +27,7 @@ async function openWindow() {
   return user;
 }
 
-const MENU_LABEL: Partial<Record<ScreenId, string>> = { today: "Сегодня", children: "Дети", settings: "Настройки", journal: "Журнал", help: "Помощь" };
+const MENU_LABEL: Partial<Record<ScreenId, string>> = { today: "Сегодня", children: "Дети", bonus: "Копилка", settings: "Настройки", journal: "Журнал", help: "Помощь" };
 
 async function openScreen(user: ReturnType<typeof userEvent.setup>, id: ScreenId) {
   await user.click(screen.getByRole("button", { name: MENU_LABEL[id]! }));

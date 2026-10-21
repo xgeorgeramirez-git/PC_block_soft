@@ -34,6 +34,7 @@ type callCtx struct {
 	parent  *parentSession // действующая родительская сессия вызывающего, если есть
 	viaBind bool           // вызов разрешён привязкой стража (после верного пароля)
 	session *sessState     // сеанс стража
+	self    *childState    // ребёнок-инициатор своего сеанса (childSelf): трата копилки без пароля
 }
 
 // check возвращает "" если вызов разрешён, иначе готовый текст отказа.
@@ -131,6 +132,26 @@ func bound() check {
 	}
 }
 
+// childSelf: ребёнок своего сеанса (значок kindChild по SID или страж kindGuard по
+// сеансу). Устанавливает c.self — его childState; обработчик обязан ограничить действие
+// этим ребёнком (трата копилки без пароля, FR-11; минор m3 ревью: не тронуть чужую копилку).
+func childSelf() check {
+	return func(c *callCtx) string {
+		switch c.kind {
+		case kindChild:
+			c.self = c.s.childBySID(c.peer.SID)
+		case kindGuard:
+			if ss := c.s.sessions[c.peer.SessionID]; ss != nil {
+				c.self = c.s.children[ss.childID]
+			}
+		}
+		if c.self == nil {
+			return textDenyKind
+		}
+		return ""
+	}
+}
+
 func testMode(inner check) check {
 	return func(c *callCtx) string {
 		if !c.s.cfg.Test.Enabled {
@@ -208,8 +229,21 @@ func init() {
 		ipc.CmdGetHelperState:  {or(parentToken(false), users()), (*Service).hGetHelperState},
 		ipc.CmdSaveHelperState: {or(parentToken(true), users()), (*Service).hSaveHelperState},
 
+		ipc.CmdGetSchedule:  {parentToken(false), (*Service).hGetSchedule},
+		ipc.CmdSaveSchedule: {parentToken(true), (*Service).hSaveSchedule},
+		ipc.CmdPause:        {parentToken(true), (*Service).hPause},
+		ipc.CmdPauseAll:     {parentToken(true), (*Service).hPauseAll},
+		ipc.CmdGrantBonus:   {parentToken(true), (*Service).hGrantBonus},
+		ipc.CmdUndoBonus:    {parentToken(true), (*Service).hUndoBonus},
+		ipc.CmdGetBonus:     {or(parentToken(false), childSelf()), (*Service).hGetBonus},
+		ipc.CmdCopyRules:    {parentToken(true), (*Service).hCopyRules},
+
 		ipc.CmdMyToday:      {users(), (*Service).hMyToday},
 		ipc.CmdFirstRunSeen: {users(), (*Service).hFirstRunSeen},
+		// «Попросить ещё» — ребёнок с паролем родителя внутри (как экран блокировки, FR-10).
+		ipc.CmdAskMore: {or(users(), bound()), (*Service).hAskMore},
+		// «Взять из копилки» — ребёнок своего сеанса без пароля (FR-11).
+		ipc.CmdSpendBonus: {childSelf(), (*Service).hSpendBonus},
 
 		ipc.CmdGuardPoll:       {kinds(kindGuard), (*Service).hGuardPoll},
 		ipc.CmdGuardLogoff:     {kinds(kindGuard), (*Service).hGuardLogoff},
