@@ -101,7 +101,7 @@ describe("доп. время", () => {
     expect(added.undoUntilMs).toBe(Date.now() + 10_000);
     const undone = await api.undoExtra(1, added.extraId);
     expect(undone.card.extraMin).toBe(0);
-    expect(undone.message).toBe("Добавленное время отменено");
+    expect(undone.message).toBe("Изменение доп. времени отменено");
 
     const second = await api.addExtra(1, 15);
     vi.advanceTimersByTime(10_001);

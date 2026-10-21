@@ -32,7 +32,7 @@ describe("ParentStats", () => {
   it("показывает статистику первого ребёнка за сегодня, только просмотр", async () => {
     setup();
     expect(await screen.findByText("Только просмотр")).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "Итоги" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "Итоги" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Мои правила" })).toBeTruthy();
     // Нет полей ввода — только чтение.
     expect(screen.queryByRole("textbox")).toBeNull();

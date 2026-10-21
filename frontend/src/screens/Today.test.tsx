@@ -201,7 +201,7 @@ describe("Today: добавить время", () => {
     const misha = await screen.findByRole("article", { name: "Миша" });
     await user.click(within(misha).getByRole("button", { name: "+30" }));
     await user.click(await within(misha).findByRole("button", { name: "Отменить" }));
-    expect(await within(misha).findByText("Добавленное время отменено")).toBeTruthy();
+    expect(await within(misha).findByText("Изменение доп. времени отменено")).toBeTruthy();
     expect(within(misha).getByText("Использовано 35 мин из 2 ч")).toBeTruthy();
     expect(within(misha).queryByRole("button", { name: "Отменить" })).toBeNull();
     expect(mock.calls.find((c) => c.command === "UndoExtra")?.payload).toEqual({ childId: 1, extraId: "e-17" });
