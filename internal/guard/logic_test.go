@@ -112,7 +112,8 @@ func TestLockShownByDecision(t *testing.T) {
 		lock LockView
 	}{
 		{"время вышло", timeUpDecision(), false, true, LockView{
-			Reason: "Время на сегодня закончилось", Until: "Можно снова: завтра", Used: "Сегодня: 2 ч 00 мин из 2 ч"}},
+			Reason: "Время на сегодня закончилось", Until: "Можно снова: завтра", Used: "Сегодня: 2 ч 00 мин из 2 ч",
+			Hint: "Попроси родителя, если нужно больше времени"}},
 		{"обход защиты", bypassDecision(), false, true, LockView{
 			Reason: "Попытка обойти защиту", Detail: "Изменено системное время",
 			Until: "Можно снова: когда родитель снимет блокировку", Used: "Сегодня: 40 мин"}},
@@ -322,11 +323,11 @@ func TestPauseCountdownInRealTime(t *testing.T) {
 		text    string
 		cd      string
 	}{
-		{0, false, "Слишком много попыток. Повторить можно через 1:00", "1:00"},
-		{time.Second, false, "Слишком много попыток. Повторить можно через 0:59", "0:59"},
-		{30 * time.Second, false, "Слишком много попыток. Повторить можно через 0:30", "0:30"},
-		{59*time.Second + 500*time.Millisecond, false, "Слишком много попыток. Повторить можно через 0:01", "0:01"},
-		{60*time.Second - time.Millisecond, false, "Слишком много попыток. Повторить можно через 0:01", "0:01"},
+		{0, false, "Слишком много попыток. Повторить можно через 1 мин", "1:00"},
+		{time.Second, false, "Слишком много попыток. Повторить можно через 59 сек", "0:59"},
+		{30 * time.Second, false, "Слишком много попыток. Повторить можно через 30 сек", "0:30"},
+		{59*time.Second + 500*time.Millisecond, false, "Слишком много попыток. Повторить можно через 1 сек", "0:01"},
+		{60*time.Second - time.Millisecond, false, "Слишком много попыток. Повторить можно через 1 сек", "0:01"},
 		{60 * time.Second, true, "", ""},
 		{61 * time.Second, true, "", ""},
 	}
@@ -370,7 +371,7 @@ func TestPausedContinueExplainsWhy(t *testing.T) {
 	m := withPasswordPanel(t, timeUpDecision())
 	m.OnPasswordResult(t0, PasswordResult{BlockedUntil: at(60 * time.Second)})
 	v := m.View(at(time.Second))
-	want := ButtonView{Button: ButtonSubmitPassword, Label: "Продолжить", Main: true, Enabled: false, Hint: "Повторить можно через 0:59"}
+	want := ButtonView{Button: ButtonSubmitPassword, Label: "Продолжить", Main: true, Enabled: false, Hint: "Повторить можно через 59 сек"}
 	if len(v.Choices) != 2 || v.Choices[0] != want {
 		t.Fatalf("кнопка в паузе %+v, ждали %+v", v.Choices, want)
 	}
@@ -399,7 +400,7 @@ func TestPauseSurvivesCancelAndReopen(t *testing.T) {
 	keepAlive(m, timeUpDecision(), 6, 10)
 	m.Press(at(10*time.Second), ButtonParentPassword, "")
 	v := m.View(at(10 * time.Second))
-	if v.Panel != PanelPassword || v.PasswordEnabled || v.PasswordError != "Слишком много попыток. Повторить можно через 0:50" {
+	if v.Panel != PanelPassword || v.PasswordEnabled || v.PasswordError != "Слишком много попыток. Повторить можно через 50 сек" {
 		t.Fatalf("пауза потеряна: Panel=%v Enabled=%v Error=%q", v.Panel, v.PasswordEnabled, v.PasswordError)
 	}
 }

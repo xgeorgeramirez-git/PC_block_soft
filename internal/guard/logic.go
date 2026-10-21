@@ -164,7 +164,14 @@ const (
 	textWarn15           = "Через 15 минут время на сегодня закончится"
 	textWarn5            = "Через 5 минут время закончится. Сохрани игру"
 	textWarn1            = "Осталась 1 минута: "
+	textChildAskParent   = "Попроси родителя, если нужно больше времени"
 )
+
+// isExitButton — кнопка выхода экрана блокировки (не даёт доступа ко времени): выход из
+// учётной записи, выключение, смена пользователя. Отделяется отступом от кнопок доступа (B-10).
+func isExitButton(b Button) bool {
+	return b == ButtonLogoff || b == ButtonShutdown || b == ButtonSwitchUser
+}
 
 // spendBonusLabel — «Взять из копилки (45 мин)» (ТЗ 8.2.3 п.3).
 func spendBonusLabel(balance int) string {
@@ -650,6 +657,9 @@ func (m *Model) View(now time.Time) View {
 	}
 	v.LockShown, v.SuppressKeys = true, true
 	v.Lock = LockView{Reason: reason, Detail: d.Detail, Until: d.Until, Used: d.Used}
+	if d.Lock != core.LockBypass {
+		v.Lock.Hint = textChildAskParent
+	}
 	v.Panel = m.panel
 	v.PasswordClearSeq = m.clearSeq
 	switch m.panel {
@@ -711,11 +721,14 @@ func (m *Model) lockButtons(d core.Decision) []ButtonView {
 func (m *Model) passwordView(now time.Time, v *View) {
 	submit := ButtonView{Button: ButtonSubmitPassword, Label: textSubmit, Main: true, Enabled: true}
 	if m.paused(now) {
-		left := clock(secondsCeil(m.blockedUntil.Sub(now)))
-		v.PasswordCountdown = left
-		v.PasswordError = "Слишком много попыток. Повторить можно через " + left
+		secs := secondsCeil(m.blockedUntil.Sub(now))
+		// Структурный отсчёт м:сс оставляем как есть; в словах для ребёнка пишем единицы,
+		// чтобы «0:59» не читалось как минуты (B-12, H9).
+		v.PasswordCountdown = clock(secs)
+		msg := "Повторить можно через " + clockWords(secs)
+		v.PasswordError = "Слишком много попыток. " + msg
 		submit.Enabled = false
-		submit.Hint = "Повторить можно через " + left
+		submit.Hint = msg
 	} else {
 		v.PasswordEnabled = true
 		v.PasswordError = m.pwdErr
@@ -764,6 +777,23 @@ func clock(secs int) string {
 		secs = 0
 	}
 	return fmt.Sprintf("%d:%02d", secs/60, secs%60)
+}
+
+// clockWords — тот же отсчёт словами с единицами: «59 сек», «1 мин», «2 мин 05 сек». Нужен там,
+// где м:сс без единиц читается неоднозначно (пауза пароля, B-12). Отрицательное — ноль.
+func clockWords(secs int) string {
+	if secs < 0 {
+		secs = 0
+	}
+	m, s := secs/60, secs%60
+	switch {
+	case m == 0:
+		return fmt.Sprintf("%d сек", s)
+	case s == 0:
+		return fmt.Sprintf("%d мин", m)
+	default:
+		return fmt.Sprintf("%d мин %02d сек", m, s)
+	}
 }
 
 // secondsCeil округляет длительность вверх до целых секунд: пауза в 59,9 с показывает

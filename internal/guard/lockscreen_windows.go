@@ -135,11 +135,15 @@ func (u *lockUI) layout() {
 	addText(v.Lock.Detail, u.fonts.body, colorSecondary, s(12))
 	addText(v.Lock.Until, u.fonts.body, colorSecondary, s(16))
 	addText(v.Lock.Used, u.fonts.body, colorSecondary, s(6))
+	addText(v.Lock.Hint, u.fonts.body, colorSecondary, s(12))
+	addText(v.Lock.Hint, u.fonts.body, colorSecondary, s(16))
 	addText(v.PanelText, u.fonts.body, colorText, s(32))
 	addText(u.notice, u.fonts.small, colorErrorText, s(16))
 
 	if v.Panel == PanelPassword {
-		es = append(es, entry{kind: entEdit, item: FlowItem{W: s(380), H: s(52), Gap: s(32)}})
+		// Подпись над полем: видны только точки, без подписи непонятно, что вводить (B-12, H6).
+		addText(textParentPassword, u.fonts.small, colorSecondary, s(32))
+		es = append(es, entry{kind: entEdit, item: FlowItem{W: s(380), H: s(52), Gap: s(8)}})
 		addText(v.PasswordError, u.fonts.small, colorErrorText, s(10))
 	}
 	list := v.Buttons
@@ -148,8 +152,13 @@ func (u *lockUI) layout() {
 	}
 	for i, b := range list {
 		gap := s(14)
-		if i == 0 {
+		switch {
+		case i == 0:
 			gap = s(32)
+		case isExitButton(b.Button) && !isExitButton(list[i-1].Button):
+			// Кнопки выхода (выход из учётки, выключение, смена пользователя) отделяем от
+			// кнопок доступа к времени, чтобы случайно не нажать выход (B-10).
+			gap = s(28)
 		}
 		es = append(es, entry{kind: entButton, item: FlowItem{W: s(380), H: s(54), Gap: gap}, btn: b})
 	}
