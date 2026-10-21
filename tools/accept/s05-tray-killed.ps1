@@ -1,12 +1,11 @@
-﻿# S5. Значок завершён принудительно: защита от обхода (ТЗ 11, R17в, FR-27).
+﻿# S5. Значок завершён принудительно: только запись в журнал, без блокировки (ТЗ 11, R17в, FR-27, D-41).
 # Дано: ребёнок в сеансе. Когда: процесс значка завершён принудительно (taskkill /F).
-# Тогда: новый значок не позже 3 с; экран блокировки «Попытка обойти защиту» только с кнопками
-# «Пароль родителя» и «Выйти из учётной записи»; запись в журнале родителя.
+# Тогда: новый значок не позже 3 с; экран НЕ блокируется; в журнале родителя подробная запись.
 # Снимок: s05-bypass.png.
 $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "common.ps1")
 
-Invoke-Scenario "S5" "Значок убит: новый значок и блокировка за обход" {
+Invoke-Scenario "S5" "Значок убит: новый значок, запись в журнал без блокировки (D-41)" {
   Initialize-Scenario 1
 
   Step "Настройка: ребёнок «Тест», 2 ч на каждый день; значок и страж запущены" {
@@ -42,20 +41,15 @@ Invoke-Scenario "S5" "Значок убит: новый значок и блок
     Wait-Until { @(Get-SessionProcs "--tray").Count -eq 1 } 10 "в сеансе ровно один значок"
   }
 
-  Step "Экран блокировки «Попытка обойти защиту»: пароль родителя и выходы, без доступа ко времени" {
-    $g = Wait-LockShown 15 "bypass"
-    Write-Log "Экран показан через $([math]::Round($script:WaitElapsed, 1)) с: $(Format-GuardState $g)"
-    # При обходе время не возвращают: «Попросить ещё» и «Взять из копилки» не показываются
-    # (ТЗ 8.2.3). Доступны «Пароль родителя» и выходы (выходы добавлены в 0.1.1, D-40).
-    $buttons = @(List $g.buttons | Sort-Object) -join ","
-    Assert-That ($buttons -eq "logoff,parentPassword,shutdown,switchUser") "На экране кнопки [$buttons], ждали parentPassword и выходы"
-    Assert-That (-not (Test-HasButton $g "askMore")) "При обходе показана «Попросить ещё»: $(Format-GuardState $g)"
-    Assert-That (-not (Test-HasButton $g "spendBonus")) "При обходе показана «Взять из копилки»: $(Format-GuardState $g)"
+  Step "Экран НЕ блокируется (D-41): обход только пишется в журнал" {
+    # Даём службе время заметить гибель значка; экран блокировки не должен появиться.
+    Start-Sleep -Seconds 5
+    $g = Get-GuardState
+    Write-Log "Состояние стража: $(Format-GuardState $g)"
+    Assert-That (-not $g.lockShown) "После закрытия значка показан экран блокировки, а не должен (D-41): $(Format-GuardState $g)"
     $st = Get-Status
-    Write-Log "Статус: $($st.status), причина «$($st.reason)», подробности «$($st.detail)»"
-    Assert-That ($st.lock -eq "bypass") "Блокировка в статусе службы '$($st.lock)', ждали bypass"
-    Assert-That ($st.reason -eq "Попытка обойти защиту") "Причина «$($st.reason)», ждали «Попытка обойти защиту»"
-    Start-Sleep -Seconds 1
+    Write-Log "Статус: $($st.status), блокировка «$($st.lock)»"
+    Assert-That ($st.lock -ne "bypass") "Статус службы остался в блокировке за обход: $($st.lock) (D-41)"
     Save-Screen "s05-bypass"
   }
 
@@ -65,8 +59,8 @@ Invoke-Scenario "S5" "Значок убит: новый значок и блок
     Write-Log "Записи журнала: $((Get-Events | ForEach-Object { $_.text }) -join ' | ')"
     Assert-That ($found.Count -ge 1) "В журнале нет записи о попытке обойти защиту"
     $card = @(List (Get-Today).children)[0]
-    Assert-That ($card.canClearBlock) "У ребёнка нет кнопки «Снять блокировку»"
+    Assert-That (-not $card.canClearBlock) "У ребёнка есть кнопка «Снять блокировку», а блокировки быть не должно (D-41)"
   }
 
-  Write-Log "S5: новый значок за срок, экран «Попытка обойти защиту» с двумя кнопками, запись в журнале"
+  Write-Log "S5: новый значок за срок, экран не блокируется, подробная запись в журнале (D-41)"
 }
