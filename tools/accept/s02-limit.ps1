@@ -34,12 +34,17 @@ Invoke-Scenario "S2" "Лимит 20 минут: предупреждения 15,
   }
 
   Step "Остаток 15 мин: плашка «Через 15 минут...», снимок на паузе часов" {
-    $st = Wait-Remaining 900 60 "остаток 15 мин"
+    # Плашки в GuardState накопительные (сохраняются до экрана блокировки), поэтому ловим
+    # плашку на ИДУЩИХ часах, а замораживаем уже после поимки — для чистого снимка.
+    # Замораживать до того, как сработает тик на пороге, нельзя: на паузе часов тики не идут
+    # (loop.go), и плашка не появится вовсе.
+    [void](Wait-Remaining 900 60 "остаток 15 мин")
+    $g = Wait-GuardState { param($s) (Get-WarnThresholds $s).Count -ge 1 } 20 "плашка за 15 минут показана"
     Suspend-Clock
-    Write-Log "Часы остановлены при остатке $($st.remainingS) с"
-    $g = Wait-GuardState { param($s) (Get-WarnThresholds $s).Count -ge 1 } 15 "плашка за 15 минут показана"
+    $g = Get-GuardState
+    Write-Log "Плашка поймана, часы остановлены: $(Format-GuardState $g)"
     Assert-That ((Get-WarnThresholds $g) -join "," -eq "15") "Показанные плашки: $((Get-WarnThresholds $g) -join ','), ждали только 15"
-    Start-Sleep -Milliseconds 600
+    Start-Sleep -Milliseconds 300
     Save-Screen "s02-warn-15"
     Resume-Clock
   }
