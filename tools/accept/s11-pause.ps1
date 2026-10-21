@@ -2,7 +2,8 @@
 # Часы стартуют в понедельник 15:00. Ставим запретный интервал пн 15:00 -> вт 07:00, поэтому
 # ребёнок сразу заблокирован «forbidden». Родитель ставит паузу 1 ч: экран снят на 1 ч
 # (60 секунд настоящего времени), предупреждения за 15, 5, 1 мин до конца паузы, по окончании
-# экран блокировки возвращается.
+# экран блокировки возвращается. Родительскую сессию закрываем (Logout) до ожидания стража
+# (пока она открыта, страж прячет экран, Ruling 19).
 # Снимки: s11-paused.png (экран снят во время паузы).
 $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "common.ps1")
@@ -21,15 +22,20 @@ Invoke-Scenario "S11" "Пауза в запретные часы: экран с�
     $iv = @(@{ weekday = 1; startMin = 900; endMin = 420 })
     $r = Send-Parent "SaveSchedule" @{ childId = $cid; intervals = $iv }
     Assert-Reply $r "SaveSchedule"
+    $rl = Send-Parent "Logout"
+    Assert-Reply $rl "Logout"
     $g = Wait-LockShown 20 "forbidden"
     Assert-That ($g.lockKind -eq "forbidden") "Вид блокировки '$($g.lockKind)', ждали forbidden"
   }
 
   Step "Родитель ставит паузу 1 ч: экран блокировки снят" {
+    Open-Parent
     $cid = Get-ChildId
     $r = Send-Parent "Pause" @{ childId = $cid; preset = "hour1" }
     Assert-Reply $r "Pause"
     Write-Log "Пауза поставлена: «$($r.payload.message)»"
+    $rl = Send-Parent "Logout"
+    Assert-Reply $rl "Logout"
     $g = Wait-LockHidden 10
     $st = Get-Status
     Assert-That ($st.lock -eq "none") "Во время паузы блокировка '$($st.lock)', ждали none"
@@ -57,6 +63,7 @@ Invoke-Scenario "S11" "Пауза в запретные часы: экран с�
   }
 
   Step "Журнал родителя: «Пауза 1 ч»" {
+    Open-Parent
     $found = Find-Events 'Пауза 1 ч'
     Assert-That ($found.Count -ge 1) "Записей «Пауза 1 ч»: $($found.Count), ждали хотя бы одну"
   }
