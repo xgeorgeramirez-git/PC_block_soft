@@ -159,7 +159,7 @@ type windowSpec struct {
 func specFor(mode launch.Mode) windowSpec {
 	switch mode {
 	case launch.ModeParent:
-		return windowSpec{title: "PC Block: настройки для родителя", width: 1040, height: 700, minWidth: 800, minHeight: 560}
+		return windowSpec{title: "PC Block: настройки для родителя", width: 1200, height: 820, minWidth: 960, minHeight: 620}
 	case launch.ModeMyStats:
 		return windowSpec{title: "Моя статистика", width: 800, height: 640, minWidth: 640, minHeight: 520}
 	case launch.ModeFirstRun:

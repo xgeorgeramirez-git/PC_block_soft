@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
-import { changePassword, getToday, listAccounts, pauseAll, setChildren, version } from "../api";
+import { changePassword, getDiag, getToday, listAccounts, pauseAll, setChildren, setDiag, version } from "../api";
 import { useHelperSwitch } from "../guidance/useHelperSwitch";
 import Dialog from "../components/Dialog";
 import Notice from "../components/Notice";
@@ -57,8 +57,55 @@ export default function Settings({ onOpenChildren }: { onOpenChildren?: () => vo
       />
       <PauseAllSection />
       <HelperSection />
+      <DiagSection />
       <AboutSection />
     </div>
+  );
+}
+
+// --- Подробные логи для диагностики (FR-25, D-42) ------------------------------------
+
+function DiagSection() {
+  const [verbose, setVerbose] = useState<boolean | null>(null);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    let alive = true;
+    getDiag().then(
+      (d) => alive && setVerbose(d.verbose),
+      () => alive && setError("Не удалось узнать состояние"),
+    );
+    return () => {
+      alive = false;
+    };
+  }, []);
+  const toggle = async (on: boolean) => {
+    setError("");
+    try {
+      const d = await setDiag(on);
+      setVerbose(d.verbose);
+    } catch (e) {
+      setError(errorText(e));
+    }
+  };
+  return (
+    <section className="panel" aria-labelledby="settings-diag">
+      <h3 id="settings-diag" className="section-title">
+        Подробные логи для диагностики
+      </h3>
+      <label className="switch">
+        <input
+          type="checkbox"
+          checked={verbose ?? false}
+          disabled={verbose === null}
+          onChange={(e) => void toggle(e.target.checked)}
+        />
+        <span>Писать подробный технический лог</span>
+      </label>
+      <p className="field-hint">
+        Включите, если просят для поиска проблемы: пишет подробные технические строки в файл журнала работы. Обычно выключено.
+      </p>
+      {error ? <p className="field-error">{error}</p> : null}
+    </section>
   );
 }
 

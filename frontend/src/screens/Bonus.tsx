@@ -4,7 +4,7 @@ import GrantBonusForm from "../components/GrantBonusForm";
 import Notice from "../components/Notice";
 import HintSlot from "../guidance/HintSlot";
 import { CallError, errorText } from "../lib/errors";
-import { formatEventTime } from "../lib/format";
+import { formatEventTime, formatLimit } from "../lib/format";
 import type { BonusEntry, TodayCard } from "../types";
 
 interface ChildBonus {
@@ -122,7 +122,7 @@ export default function Bonus() {
           {items.map((it) => (
             <article key={it.card.childId} className="panel bonus-page" aria-label={`Копилка, ${it.card.name}`}>
               <h3 className="child-name">{it.card.name}</h3>
-              <p className="bonus-balance">{`Баланс: ${it.balance} мин`}</p>
+              <p className="bonus-balance">{`Баланс: ${formatLimit(it.balance)}`}</p>
               <HintSlot anchor="bonus-grant" subject={String(it.card.childId)} name={it.card.name} />
               <GrantBonusForm
                 disabled={busy === it.card.childId}
@@ -177,7 +177,7 @@ function BonusHistory({ entries }: { entries: BonusEntry[] }) {
         <li key={i} className="bonus-history-item">
           <span>{formatEventTime(e.atMs, e.tzOffsetMin)}</span>
           <span>{e.deltaMin > 0 ? `+${e.deltaMin} мин: ${e.reason}` : `${e.deltaMin} мин: потрачено`}</span>
-          <span>{`${e.balanceAfter} мин`}</span>
+          <span>{`Баланс: ${formatLimit(e.balanceAfter)}`}</span>
         </li>
       ))}
     </ul>

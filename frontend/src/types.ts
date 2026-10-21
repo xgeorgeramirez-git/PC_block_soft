@@ -181,6 +181,11 @@ export interface UndoExtraRequest {
   extraId: string;
 }
 
+/** Состояние переключателя «Подробные логи для диагностики» (FR-25, D-42). */
+export interface DiagReply {
+  verbose: boolean;
+}
+
 export interface CardReply {
   card: TodayCard;
   message: string;

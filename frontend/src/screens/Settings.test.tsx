@@ -382,6 +382,18 @@ describe("Settings: Помощник в окне родителя", () => {
   });
 });
 
+describe("Settings: подробные логи для диагностики (FB-2, D-42)", () => {
+  it("переключатель читает состояние и сохраняет новое", async () => {
+    const user = await setup();
+    const box = section("Подробные логи для диагностики");
+    const toggle = within(box).getByRole("checkbox", { name: "Писать подробный технический лог" });
+    expect((toggle as HTMLInputElement).checked).toBe(false);
+    await user.click(toggle);
+    await vi.waitFor(() => expect(mock.state.verboseLogs).toBe(true));
+    expect((within(section("Подробные логи для диагностики")).getByRole("checkbox") as HTMLInputElement).checked).toBe(true);
+  });
+});
+
 describe("Settings: о программе", () => {
   it("версия приходит от программы", async () => {
     await setup({ version: "0.4.2" });

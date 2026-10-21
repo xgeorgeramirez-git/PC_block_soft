@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { addExtra, clearBlock, getToday, grantBonus, listEvents, pause, undoExtra } from "../api";
+import { addExtra, clearExtra, getToday, grantBonus, listEvents, pause, reduceExtra, undoExtra } from "../api";
 import Notice from "../components/Notice";
 import PausePicker from "../components/PausePicker";
 import ServiceNotices from "../components/ServiceNotices";
 import HintSlot from "../guidance/HintSlot";
 import { errorText } from "../lib/errors";
-import { formatDateLong, formatUsed, localOffsetMin } from "../lib/format";
+import { formatDateLong, formatLimit, formatUsed, localOffsetMin } from "../lib/format";
 import { isViolation, startOfDayMs } from "../lib/journal";
 import { canAddTime, hasTimeLimits, statusTone } from "../lib/status";
 import type { PausePreset, TodayCard } from "../types";
@@ -16,6 +16,8 @@ interface Props {
   onOpenSettings?: () => void;
   /** Кнопка «Открыть «Дети»» у предупреждения о правилах. */
   onOpenChildren?: () => void;
+  /** Кнопка «Статистика» на карточке ребёнка (FR-23, D-44). */
+  onOpenStats?: (childId: number) => void;
 }
 
 interface Feedback {
@@ -29,7 +31,7 @@ interface Feedback {
 const EXTRA_BUTTONS = [15, 30, 60];
 
 /** Главная «Сегодня» (FR-15, сценарий 8.3.2): карточки детей и быстрые действия. */
-export default function Today({ onOpenJournal, onOpenSettings, onOpenChildren }: Props) {
+export default function Today({ onOpenJournal, onOpenSettings, onOpenChildren, onOpenStats }: Props) {
   const [cards, setCards] = useState<TodayCard[] | null>(null);
   const [notices, setNotices] = useState<string[]>([]);
   const [violations, setViolations] = useState<number | null>(null);
@@ -88,24 +90,36 @@ export default function Today({ onOpenJournal, onOpenSettings, onOpenChildren }:
     }
   };
 
+  // sayExtra показывает сообщение об изменении доп. времени с «Отменить» на 10 с (если есть).
+  const sayExtra = (childId: number, reply: { message: string; extraId: string; undoUntilMs: number }) => {
+    const left = reply.undoUntilMs - Date.now();
+    say(childId, reply.message, false, left > 0 && reply.extraId ? { extraId: reply.extraId, ms: Math.min(left, 10_000) } : undefined);
+  };
+
   const add = (card: TodayCard, minutes: number) =>
     run(card.childId, async () => {
       const reply = await addExtra(card.childId, minutes);
-      const left = reply.undoUntilMs - Date.now();
       replaceCard(reply.card);
-      say(card.childId, reply.message, false, left > 0 ? { extraId: reply.extraId, ms: Math.min(left, 10_000) } : undefined);
+      sayExtra(card.childId, reply);
+    });
+
+  const reduce = (card: TodayCard, minutes: number) =>
+    run(card.childId, async () => {
+      const reply = await reduceExtra(card.childId, minutes);
+      replaceCard(reply.card);
+      sayExtra(card.childId, reply);
+    });
+
+  const clear = (card: TodayCard) =>
+    run(card.childId, async () => {
+      const reply = await clearExtra(card.childId);
+      replaceCard(reply.card);
+      sayExtra(card.childId, reply);
     });
 
   const undo = (card: TodayCard, extraId: string) =>
     run(card.childId, async () => {
       const reply = await undoExtra(card.childId, extraId);
-      replaceCard(reply.card);
-      say(card.childId, reply.message);
-    });
-
-  const unblock = (card: TodayCard) =>
-    run(card.childId, async () => {
-      const reply = await clearBlock(card.childId);
       replaceCard(reply.card);
       say(card.childId, reply.message);
     });
@@ -179,10 +193,12 @@ export default function Today({ onOpenJournal, onOpenSettings, onOpenChildren }:
                   feedback={feedback[card.childId]}
                   busy={busy === card.childId}
                   onAdd={(m) => void add(card, m)}
+                  onReduce={(m) => void reduce(card, m)}
+                  onClear={() => void clear(card)}
                   onUndo={(id) => void undo(card, id)}
-                  onUnblock={() => void unblock(card)}
                   onPause={(p) => void pauseChild(card, p)}
                   onGrant={(m) => void grant(card, m)}
+                  onStats={onOpenStats ? () => onOpenStats(card.childId) : undefined}
                 />
               ))}
             </div>
@@ -200,18 +216,24 @@ interface CardProps {
   feedback: Feedback | undefined;
   busy: boolean;
   onAdd: (minutes: number) => void;
+  onReduce: (minutes: number) => void;
+  onClear: () => void;
   onUndo: (extraId: string) => void;
-  onUnblock: () => void;
   onPause: (preset: PausePreset) => void;
   onGrant: (minutes: number) => void;
+  onStats?: () => void;
 }
 
-function ChildCard({ card, extraHint, feedback, busy, onAdd, onUndo, onUnblock, onPause, onGrant }: CardProps) {
+function ChildCard({ card, extraHint, feedback, busy, onAdd, onReduce, onClear, onUndo, onPause, onGrant, onStats }: CardProps) {
   const s = card.status;
   const tone = statusTone(s.status);
   const limited = hasTimeLimits(s.status);
   const extraAllowed = canAddTime(s.status);
   const titleId = `child-${card.childId}-name`;
+  const [customOpen, setCustomOpen] = useState(false);
+  const [customMin, setCustomMin] = useState("");
+  const customN = Number.parseInt(customMin, 10);
+  const customValid = Number.isInteger(customN) && customN >= 1 && customN <= 240;
   return (
     <article className="child-card" aria-labelledby={titleId} data-help-anchor="child-card">
       <header className="child-head">
@@ -227,28 +249,70 @@ function ChildCard({ card, extraHint, feedback, busy, onAdd, onUndo, onUnblock, 
 
       {limited ? <p className="child-used">{formatUsed(s.usedS, s.limitS, s.unlimited)}</p> : null}
       {card.extraMin > 0 ? <p className="child-meta">{`Добавлено сегодня: ${card.extraMin} мин`}</p> : null}
-      {card.bonusBalance > 0 ? <p className="child-meta">{`Копилка: ${card.bonusBalance} мин`}</p> : null}
+      {card.extraMin < 0 ? <p className="child-meta">{`Убрано сегодня: ${-card.extraMin} мин`}</p> : null}
+      {card.bonusBalance > 0 ? <p className="child-meta">{`Копилка: ${formatLimit(card.bonusBalance)}`}</p> : null}
       {s.status === "paused" && s.pauseUntil ? <p className="child-meta">{`Пауза до ${s.pauseUntil}`}</p> : null}
-      {s.lock === "bypass" && s.detail ? <p className="child-meta">{s.detail}</p> : null}
       {s.lock !== "none" && s.until ? <p className="child-meta">{s.until}</p> : null}
 
-      <div className="child-actions" data-help-anchor={extraAllowed ? "extra-buttons" : undefined}>
-        {extraAllowed
-          ? EXTRA_BUTTONS.map((m) => (
-              <button key={m} type="button" className="btn" disabled={busy} onClick={() => onAdd(m)}>
-                {`+${m}`}
+      <div className="child-actions">
+        {extraAllowed ? (
+          <div className="action-group" data-help-anchor="extra-buttons">
+            <span className="action-group-label">Доп. время</span>
+            <div className="action-row">
+              {EXTRA_BUTTONS.map((m) => (
+                <button key={`add-${m}`} type="button" className="btn" disabled={busy} onClick={() => onAdd(m)}>
+                  {`+${m}`}
+                </button>
+              ))}
+              {EXTRA_BUTTONS.map((m) => (
+                <button key={`sub-${m}`} type="button" className="btn btn-muted" disabled={busy} onClick={() => onReduce(m)}>
+                  {`−${m}`}
+                </button>
+              ))}
+              <button type="button" className="btn" disabled={busy} aria-expanded={customOpen} onClick={() => setCustomOpen((o) => !o)}>
+                Своё время…
               </button>
-            ))
-          : null}
-        <PausePicker disabled={busy} onPick={onPause} />
-        <button type="button" className="btn" disabled={busy} onClick={() => onGrant(30)} data-help-anchor="child-card-bonus">
-          В копилку +30
-        </button>
-        {card.canClearBlock ? (
-          <button type="button" className="btn btn-primary" disabled={busy} onClick={onUnblock}>
-            Снять блокировку
-          </button>
+            </div>
+            {customOpen ? (
+              <div className="child-custom">
+                <label className="child-custom-label">
+                  Минут:
+                  <input
+                    type="number"
+                    min={1}
+                    max={240}
+                    inputMode="numeric"
+                    className="child-custom-input"
+                    value={customMin}
+                    disabled={busy}
+                    onChange={(e) => setCustomMin(e.target.value)}
+                  />
+                </label>
+                <button type="button" className="btn" disabled={busy || !customValid} onClick={() => onAdd(customN)}>
+                  Добавить
+                </button>
+                <button type="button" className="btn btn-muted" disabled={busy || !customValid} onClick={() => onReduce(customN)}>
+                  Убавить
+                </button>
+                <button type="button" className="btn btn-muted" disabled={busy} onClick={onClear}>
+                  Убрать всё
+                </button>
+              </div>
+            ) : null}
+          </div>
         ) : null}
+
+        <div className="action-row action-row-foot">
+          <PausePicker disabled={busy} onPick={onPause} />
+          <button type="button" className="btn" disabled={busy} onClick={() => onGrant(30)} data-help-anchor="child-card-bonus">
+            В копилку +30
+          </button>
+          {onStats ? (
+            <button type="button" className="btn" disabled={busy} onClick={onStats}>
+              Статистика
+            </button>
+          ) : null}
+        </div>
       </div>
 
       {extraHint ? <HintSlot anchor="extra-buttons" /> : null}
