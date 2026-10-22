@@ -210,6 +210,26 @@ func (e *Engine) SpendBonus(min int) (Decision, error) {
 	return e.finish(e.decide(e.acc.State(), false), closed), nil
 }
 
+// SetNoForbiddenToday снимает (on=true) или возвращает (on=false) запретные часы на
+// сегодня (R24, D-51). Общий лимит времени при снятии продолжает действовать. Флаг
+// привязан к дню и сам сбрасывается в местную полночь (новый день — NoForbidden=false).
+// Пороги взводятся заново (R9: при снятии исчезает ближайший запретный интервал).
+func (e *Engine) SetNoForbiddenToday(on bool) Decision {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	closed := e.advance(e.now())
+	if e.acc.State().NoForbidden != on {
+		e.acc.SetNoForbidden(on)
+		e.rearm()
+		text := NoForbiddenOnText
+		if !on {
+			text = NoForbiddenOffText
+		}
+		e.pending = append(e.pending, Event{Kind: EvNoForbidden, Details: map[string]any{"on": on, "text": text}})
+	}
+	return e.finish(e.decide(e.acc.State(), false), closed)
+}
+
 // MarkBypass записывает попытку обхода в журнал (R17в, D-41): подробное событие с
 // описанием, что произошло. Экран НЕ блокируется и время не отключается. Пустое
 // описание заменяется общим.
@@ -352,11 +372,13 @@ func (e *Engine) nextEvent(st DayState, now time.Time) (deltaS int, ev WarnEvent
 	if rem, unl := RemainingTotalS(lim, st.ExtraMin, st.TotalS); !unl {
 		best, bestEv, has = rem, WarnLimit, true
 	}
-	// Начало ближайшего запретного интервала.
-	if start, ok := NextForbiddenStart(e.rules, now); ok {
-		d := int(start.Sub(now).Seconds())
-		if d >= 0 && (!has || d < best) {
-			best, bestEv, has = d, WarnForbidden, true
+	// Начало ближайшего запретного интервала (кроме дня, где запрет снят родителем, R24).
+	if !st.NoForbidden {
+		if start, ok := NextForbiddenStart(e.rules, now); ok {
+			d := int(start.Sub(now).Seconds())
+			if d >= 0 && (!has || d < best) {
+				best, bestEv, has = d, WarnForbidden, true
+			}
 		}
 	}
 	return best, bestEv, has
@@ -396,6 +418,11 @@ func (e *Engine) decide(st DayState, fire bool) Decision {
 		d.PauseUntil = FormatClock(until)
 	}
 	inForbidden, forbiddenEnd := InForbidden(e.rules, now)
+	if st.NoForbidden {
+		// Родитель снял запретные часы на этот день (R24, D-51): интервалы не применяются,
+		// но общий лимит времени (R4) действует как обычно.
+		inForbidden = false
+	}
 
 	switch {
 	case paused:

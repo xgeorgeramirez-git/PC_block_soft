@@ -94,6 +94,9 @@ func (a *Accumulator) SetExtra(min int) { a.state.ExtraMin = min }
 // SetPause ставит момент конца паузы текущего дня (R11); nil снимает паузу.
 func (a *Accumulator) SetPause(untilMs *int64) { a.state.PauseUntilMs = untilMs }
 
+// SetNoForbidden снимает или возвращает запретные часы на текущий день (R24, D-51).
+func (a *Accumulator) SetNoForbidden(on bool) { a.state.NoForbidden = on }
+
 // State возвращает счётчики текущего дня.
 func (a *Accumulator) State() DayState { return a.state }
 

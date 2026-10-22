@@ -150,6 +150,13 @@ func PauseText(now, until time.Time) string {
 // PauseEndText — запись журнала об окончании паузы (R11).
 const PauseEndText = "Пауза закончилась"
 
+// NoForbiddenOnText и NoForbiddenOffText — записи журнала о снятии и возврате запретных
+// часов на сегодня (R24, D-51).
+const (
+	NoForbiddenOnText  = "Запретные часы сняты на сегодня"
+	NoForbiddenOffText = "Запретные часы снова действуют сегодня"
+)
+
 // BonusSpentText — запись журнала о трате из копилки (FR-11): «Взято из копилки 30 мин».
 func BonusSpentText(min int) string {
 	return fmt.Sprintf("Взято из копилки %d мин", min)
