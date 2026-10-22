@@ -88,8 +88,8 @@ func wantAllowed(cmd, kind, tok string, test, configured bool) bool {
 		return kind == "elev" && !configured
 	case ipc.CmdResetPassword, ipc.CmdUninstallCheck:
 		return kind == "elev"
-	case ipc.CmdGetToday, ipc.CmdGetChildRules, ipc.CmdSaveLimits, ipc.CmdAddExtra, ipc.CmdUndoExtra,
-		ipc.CmdClearBlock, ipc.CmdListEvents, ipc.CmdChangePassword, ipc.CmdSetChildren:
+	case ipc.CmdGetToday, ipc.CmdGetChildRules, ipc.CmdSaveLimits, ipc.CmdAddExtra, ipc.CmdReduceExtra, ipc.CmdClearExtra, ipc.CmdUndoExtra,
+		ipc.CmdClearBlock, ipc.CmdListEvents, ipc.CmdChangePassword, ipc.CmdSetChildren, ipc.CmdParentStats, ipc.CmdGetDiag, ipc.CmdSetDiag:
 		return user && own
 	case ipc.CmdGetHelperState, ipc.CmdSaveHelperState:
 		return (user && own) || kind == "child"

@@ -15,6 +15,7 @@ import FirstRun from "./screens/FirstRun";
 import Journal from "./screens/Journal";
 import LoginDialog from "./screens/LoginDialog";
 import MyStats from "./screens/MyStats";
+import ParentStats from "./screens/ParentStats";
 import ResetPassword from "./screens/ResetPassword";
 import Bonus from "./screens/Bonus";
 import Settings from "./screens/Settings";
@@ -179,12 +180,13 @@ function SimpleScreen({ mode }: { mode: "reset-password" | "uninstall-gate" | "m
   }
 }
 
-type Screen = "today" | "children" | "bonus" | "journal" | "settings" | "help";
+type Screen = "today" | "children" | "bonus" | "stats" | "journal" | "settings" | "help";
 
 const MENU: { id: Screen; label: string; anchor?: "menu-today" | "menu-children" | "menu-bonus" }[] = [
   { id: "today", label: "Сегодня", anchor: "menu-today" },
   { id: "children", label: "Дети", anchor: "menu-children" },
   { id: "bonus", label: "Копилка", anchor: "menu-bonus" },
+  { id: "stats", label: "Статистика" },
   { id: "journal", label: "Журнал" },
   { id: "settings", label: "Настройки" },
 ];
@@ -298,12 +300,14 @@ function ParentWindow({ screen, onScreen, bindGo, onLoggedOut }: ParentWindowPro
                   onOpenJournal={(o) => go("journal", o)}
                   onOpenSettings={() => go("settings")}
                   onOpenChildren={() => go("children")}
+                  onOpenStats={(childId) => go("stats", { childId })}
                 />
               ) : null}
               {screen === "children" ? (
                 <Children initialChildId={childToOpen} onOpenSettings={() => go("settings")} />
               ) : null}
               {screen === "bonus" ? <Bonus /> : null}
+              {screen === "stats" ? <ParentStats key={childToOpen} initialChildId={childToOpen} /> : null}
               {screen === "journal" ? <Journal key={String(violationsOnly)} violationsOnly={violationsOnly} /> : null}
               {screen === "settings" ? <Settings onOpenChildren={() => go("children")} /> : null}
               {screen === "help" ? <HelpCenter /> : null}

@@ -110,8 +110,10 @@ export interface MockState {
   linkDown: boolean;
   nextChildId: number;
   nextExtraId: number;
-  extras: { id: string; childId: number; minutes: number; undoUntilMs: number }[];
+  extras: { id: string; childId: number; delta: number; undoUntilMs: number }[];
   bonusUndo: Map<string, { childId: number; minutes: number; undoUntilMs: number }>;
+  /** «Подробные логи для диагностики» включены (FR-25, D-42). */
+  verboseLogs: boolean;
 }
 
 export type Override = Reply | "reject" | "garbage" | ((request: any) => Reply | Promise<Reply>);
@@ -218,27 +220,7 @@ export function statusOf(child: MockChild, nowMs: number): ChildStatus {
     ? `Сегодня: ${formatDuration(child.usedS)}`
     : `Сегодня: ${formatDuration(child.usedS)} из ${formatLimit(limitMin)}`;
 
-  if (child.blocked) {
-    return {
-      ...base,
-      status: "bypass",
-      statusText: "Заблокирован за обход защиты",
-      label: "!",
-      tooltip: "Попытка обойти защиту",
-      summary: "Попытка обойти защиту",
-      remainingS: 0,
-      limitS,
-      unlimited: limit.unlimited,
-      lock: "bypass",
-      reason: "Попытка обойти защиту",
-      detail: child.blockDetail,
-      until: "Можно снова: когда родитель снимет блокировку",
-      pauseUntil: "",
-      bonusBalance: 0,
-      forbiddenNote: "",
-      used: usedText,
-    };
-  }
+  // Обход больше не блокирует экран (D-41): поле blocked на статус не влияет.
   if (limit.unlimited) {
     return {
       ...base,
@@ -293,7 +275,7 @@ function cardOf(child: MockChild, nowMs: number): TodayCard {
     status: statusOf(child, nowMs),
     extraMin: child.extraMin,
     bonusBalance: child.bonusBalance ?? 0,
-    canClearBlock: child.blocked,
+    canClearBlock: false,
   };
 }
 
@@ -341,6 +323,11 @@ const PARENT_COMMANDS = new Set([
   "UndoBonus",
   "GetBonus",
   "CopyRules",
+  "ReduceExtra",
+  "ClearExtra",
+  "ParentStats",
+  "GetDiag",
+  "SetDiag",
 ]);
 
 function makeState(opts: MockOptions): MockState {
@@ -373,6 +360,7 @@ function makeState(opts: MockOptions): MockState {
     nextExtraId: 17,
     extras: [],
     bonusUndo: new Map(),
+    verboseLogs: false,
   };
 }
 
@@ -614,7 +602,7 @@ export function createBackend(opts: MockOptions = {}): MockBackend {
         return fail("Можно добавить от 1 до 240 минут", "minutes");
       }
       child.extraMin += m;
-      const extra = { id: `e-${state.nextExtraId++}`, childId: child.childId, minutes: m, undoUntilMs: now + UNDO_WINDOW_MS };
+      const extra = { id: `e-${state.nextExtraId++}`, childId: child.childId, delta: m, undoUntilMs: now + UNDO_WINDOW_MS };
       state.extras.push(extra);
       addEvent(now, child, "extra_time", `${child.name}: доп. время +${m} мин`);
       return okReply({
@@ -625,22 +613,66 @@ export function createBackend(opts: MockOptions = {}): MockBackend {
       });
     },
 
+    // Убавить доп. время (R10, D-43): суммарный лимит дня не ниже 0.
+    ReduceExtra: (req, now) => {
+      const child = childById(req.childId);
+      if (!child) return fail("Ребёнок не найден");
+      const m = req.minutes;
+      if (!Number.isInteger(m) || m < 1 || m > 240) {
+        return fail("Можно убрать от 1 до 240 минут", "minutes");
+      }
+      const floor = -todayLimit(child, now).totalMin;
+      const newExtra = Math.max(child.extraMin - m, floor);
+      const removed = child.extraMin - newExtra;
+      child.extraMin = newExtra;
+      if (removed === 0) return okReply({ card: cardOf(child, now), message: "Убирать нечего" });
+      const extra = { id: `e-${state.nextExtraId++}`, childId: child.childId, delta: -removed, undoUntilMs: now + UNDO_WINDOW_MS };
+      state.extras.push(extra);
+      addEvent(now, child, "extra_time", `${child.name}: доп. время −${removed} мин`);
+      return okReply({ card: cardOf(child, now), message: `Убрано ${removed} ${minutesWord(removed)}`, extraId: extra.id, undoUntilMs: extra.undoUntilMs });
+    },
+
+    // Обнулить доп. время (R10, D-43, «Убрать доп. время»).
+    ClearExtra: (req, now) => {
+      const child = childById(req.childId);
+      if (!child) return fail("Ребёнок не найден");
+      const removed = child.extraMin;
+      child.extraMin = 0;
+      if (removed === 0) return okReply({ card: cardOf(child, now), message: "Доп. времени нет" });
+      const extra = { id: `e-${state.nextExtraId++}`, childId: child.childId, delta: -removed, undoUntilMs: now + UNDO_WINDOW_MS };
+      state.extras.push(extra);
+      addEvent(now, child, "extra_time", `${child.name}: доп. время убрано`);
+      return okReply({ card: cardOf(child, now), message: "Доп. время убрано", extraId: extra.id, undoUntilMs: extra.undoUntilMs });
+    },
+
     UndoExtra: (req, now) => {
       const child = childById(req.childId);
       const extra = state.extras.find((e) => e.id === req.extraId && e.childId === req.childId);
       if (!child || !extra) return fail("Добавленное время не найдено");
       if (now > extra.undoUntilMs) return fail("Отменить уже нельзя: прошло больше 10 секунд");
-      child.extraMin = Math.max(0, child.extraMin - extra.minutes);
+      child.extraMin -= extra.delta;
       state.extras = state.extras.filter((e) => e !== extra);
-      return okReply({ card: cardOf(child, now), message: "Добавленное время отменено" });
+      return okReply({ card: cardOf(child, now), message: "Изменение доп. времени отменено" });
     },
 
     ClearBlock: (req, now) => {
       const child = childById(req.childId);
       if (!child) return fail("Ребёнок не найден");
       child.blocked = false;
-      addEvent(now, child, "block_cleared", `${child.name}: блокировка снята родителем`);
       return okReply({ card: cardOf(child, now), message: "Блокировка снята" });
+    },
+
+    ParentStats: (req, now) => {
+      const child = childById(req.childId);
+      if (!child) return fail("Ребёнок не найден");
+      return okReply(myToday(child, now));
+    },
+
+    GetDiag: () => okReply({ verbose: state.verboseLogs }),
+
+    SetDiag: (req) => {
+      state.verboseLogs = Boolean(req.verbose);
+      return okReply({ verbose: state.verboseLogs });
     },
 
     ListEvents: (req) => {

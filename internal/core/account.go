@@ -87,6 +87,10 @@ func laterDay(day, cur string) bool { return cur == "" || day > cur }
 // AddExtra добавляет доп. время к текущему дню (R10); границы проверяет Engine.
 func (a *Accumulator) AddExtra(min int) { a.state.ExtraMin += min }
 
+// SetExtra устанавливает доп. время текущего дня (R10, D-43: убавление и обнуление);
+// границы проверяет Engine.
+func (a *Accumulator) SetExtra(min int) { a.state.ExtraMin = min }
+
 // SetPause ставит момент конца паузы текущего дня (R11); nil снимает паузу.
 func (a *Accumulator) SetPause(untilMs *int64) { a.state.PauseUntilMs = untilMs }
 

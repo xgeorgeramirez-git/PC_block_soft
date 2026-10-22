@@ -104,7 +104,7 @@ function LOAD_ERROR_FOR(e: unknown): string {
   return text.startsWith("Программа не отвечает") ? LOAD_ERROR : text;
 }
 
-function Totals({ data }: { data: MyTodayReply }) {
+export function Totals({ data }: { data: MyTodayReply }) {
   const empty = data.status.status === "notChild" || data.today.length === 0;
   return (
     <section className="panel stat-panel" aria-labelledby="my-totals">
@@ -138,7 +138,7 @@ function Totals({ data }: { data: MyTodayReply }) {
   );
 }
 
-function Rules({ data }: { data: MyTodayReply }) {
+export function Rules({ data }: { data: MyTodayReply }) {
   const today = todayRuleWeekday();
   return (
     <section className="panel stat-panel" aria-labelledby="my-rules">

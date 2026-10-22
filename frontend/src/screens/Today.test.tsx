@@ -5,12 +5,13 @@ import Today from "./Today";
 import { installBackend, mockChild, uninstallBackend, type MockBackend } from "../__mocks__/backend";
 import { RULES_NOT_READ_TEXT } from "../lib/notices";
 
-// FR-15, сценарий 8.3.2: карточки детей, статус словом и цветом, +время с «Отменить», снятие блокировки.
+// FR-15, сценарий 8.3.2: карточки детей, статус словом и цветом, доп. время (+/−/своё), статистика.
 
 let mock: MockBackend;
 let openJournal: Mock<(opts: { violations: boolean }) => void>;
 let openSettings: Mock<() => void>;
 let openChildren: Mock<() => void>;
+let openStats: Mock<(childId: number) => void>;
 
 const NOW = new Date(2026, 9, 19, 12, 0, 0); // пн, 19 октября 2026
 
@@ -19,8 +20,11 @@ function setup(opts: Parameters<typeof installBackend>[0] = {}) {
   openJournal = vi.fn<(opts: { violations: boolean }) => void>();
   openSettings = vi.fn<() => void>();
   openChildren = vi.fn<() => void>();
+  openStats = vi.fn<(childId: number) => void>();
   const user = userEvent.setup({ advanceTimers: (ms) => vi.advanceTimersByTime(ms) });
-  render(<Today onOpenJournal={openJournal} onOpenSettings={openSettings} onOpenChildren={openChildren} />);
+  render(
+    <Today onOpenJournal={openJournal} onOpenSettings={openSettings} onOpenChildren={openChildren} onOpenStats={openStats} />,
+  );
   return user;
 }
 
@@ -59,7 +63,6 @@ describe("Today: карточка ребёнка", () => {
     [{ usedS: 2100 }, "Можно", "ok"],
     [{ usedS: 7200 - 600 }, "Осталось 10 мин", "warn"],
     [{ usedS: 7200 }, "Время вышло", "danger"],
-    [{ blocked: true }, "Заблокирован за обход защиты", "danger"],
   ])("статус %j: слово «%s», цвет %s", async (over, word, tone) => {
     setup({ children: [mockChild(over)] });
     const misha = await screen.findByRole("article", { name: "Миша" });
@@ -75,47 +78,12 @@ describe("Today: карточка ребёнка", () => {
     expect(within(misha).getByText("Использовано 35 мин, без лимита")).toBeTruthy();
   });
 
-  it("при блокировке за обход видно, что случилось, и кнопка «Снять блокировку»", async () => {
-    setup({ children: [mockChild({ blocked: true }), mockChild({ childId: 2, sid: "S-2", name: "Даша" })] });
-    const misha = await screen.findByRole("article", { name: "Миша" });
-    expect(within(misha).getByText("Изменено системное время")).toBeTruthy();
-    expect(within(misha).getByText("Можно снова: когда родитель снимет блокировку")).toBeTruthy();
-    expect(within(misha).getByRole("button", { name: "Снять блокировку" })).toBeTruthy();
-    expect(within(card("Даша")).queryByRole("button", { name: "Снять блокировку" })).toBeNull();
-  });
-
-  // Ловит: у ребёнка, заблокированного за обход, лежат «+15/+30/+60» рядом со «Снять блокировку»:
-  // родитель добавляет время, а блокировка остаётся. Пауза и копилка доступны всегда (ТЗ 8.3.2).
-  it("при блокировке за обход «+время» спрятано, есть «Снять блокировку», «Пауза», «В копилку»", async () => {
-    setup({ children: [mockChild({ blocked: true }), mockChild({ childId: 2, sid: "S-2", name: "Даша" })] });
-    const misha = await screen.findByRole("article", { name: "Миша" });
-    for (const m of ["+15", "+30", "+60"]) {
-      expect(within(misha).queryByRole("button", { name: m })).toBeNull();
-    }
-    expect(within(misha).getByRole("button", { name: "Снять блокировку" })).toBeTruthy();
-    expect(within(misha).getByRole("button", { name: "Пауза" })).toBeTruthy();
-    expect(within(misha).getByRole("button", { name: "В копилку +30" })).toBeTruthy();
-    // У соседа без блокировки кнопки на месте.
-    expect(within(card("Даша")).getByRole("button", { name: "+15" })).toBeTruthy();
-  });
-
   it("обычное «время вышло» оставляет «+время»", async () => {
     setup({ children: [mockChild({ usedS: 7200 })] });
     const misha = await screen.findByRole("article", { name: "Миша" });
     expect(within(misha).getByText("Время вышло")).toBeTruthy();
     expect(within(misha).getByRole("button", { name: "+15" })).toBeTruthy();
     expect(within(misha).getByRole("button", { name: "+60" })).toBeTruthy();
-    expect(within(misha).queryByRole("button", { name: "Снять блокировку" })).toBeNull();
-  });
-
-  it("«Снять блокировку» снимает и говорит об этом", async () => {
-    const user = setup({ children: [mockChild({ blocked: true })] });
-    const misha = await screen.findByRole("article", { name: "Миша" });
-    await user.click(within(misha).getByRole("button", { name: "Снять блокировку" }));
-    expect(await within(misha).findByText("Блокировка снята")).toBeTruthy();
-    expect(within(misha).queryByRole("button", { name: "Снять блокировку" })).toBeNull();
-    expect(within(misha).getByText("Можно")).toBeTruthy();
-    expect(mock.calls.find((c) => c.command === "ClearBlock")?.payload).toEqual({ childId: 1 });
   });
 
   it("администратор: ограничения не действуют, кнопок времени нет", async () => {
@@ -233,7 +201,7 @@ describe("Today: добавить время", () => {
     const misha = await screen.findByRole("article", { name: "Миша" });
     await user.click(within(misha).getByRole("button", { name: "+30" }));
     await user.click(await within(misha).findByRole("button", { name: "Отменить" }));
-    expect(await within(misha).findByText("Добавленное время отменено")).toBeTruthy();
+    expect(await within(misha).findByText("Изменение доп. времени отменено")).toBeTruthy();
     expect(within(misha).getByText("Использовано 35 мин из 2 ч")).toBeTruthy();
     expect(within(misha).queryByRole("button", { name: "Отменить" })).toBeNull();
     expect(mock.calls.find((c) => c.command === "UndoExtra")?.payload).toEqual({ childId: 1, extraId: "e-17" });
@@ -282,6 +250,39 @@ describe("Today: добавить время", () => {
     const alert = await within(misha).findByRole("alert");
     expect(alert.textContent).toBe("Программа не отвечает. Попробуйте ещё раз через минуту");
     expect((within(misha).getByRole("button", { name: "+30" }) as HTMLButtonElement).disabled).toBe(false);
+  });
+});
+
+describe("Today: убавить время и своё число (FB-3, D-43)", () => {
+  // Ловит: «−30» не убавляет доп. время или молчит (R10, D-43).
+  it("«−30»: убавляет доп. время, «Убрано 30 минут»", async () => {
+    const user = setup({ children: [mockChild({ usedS: 2100, extraMin: 60 })] });
+    const misha = await screen.findByRole("article", { name: "Миша" });
+    await user.click(within(misha).getByRole("button", { name: "−30" }));
+    expect(await within(misha).findByText("Убрано 30 минут")).toBeTruthy();
+    expect(mock.calls.find((c) => c.command === "ReduceExtra")?.payload).toEqual({ childId: 1, minutes: 30 });
+  });
+
+  // Ловит: поле «своё число минут» добавляет/убавляет не введённое значение или «Убрать» не обнуляет.
+  it("«Своё время…»: поле на ±минут и «Убрать всё»", async () => {
+    const user = setup({ children: [mockChild({ usedS: 2100, extraMin: 45 })] });
+    const misha = await screen.findByRole("article", { name: "Миша" });
+    await user.click(within(misha).getByRole("button", { name: "Своё время…" }));
+    const input = within(misha).getByLabelText("Минут:");
+    await user.clear(input);
+    await user.type(input, "25");
+    await user.click(within(misha).getByRole("button", { name: "Добавить" }));
+    expect(mock.calls.find((c) => c.command === "AddExtra")?.payload).toEqual({ childId: 1, minutes: 25 });
+    await user.click(within(misha).getByRole("button", { name: "Убрать всё" }));
+    expect(mock.calls.find((c) => c.command === "ClearExtra")?.payload).toEqual({ childId: 1 });
+  });
+
+  // Ловит: кнопка «Статистика» не ведёт к статистике этого ребёнка (FR-23, D-44).
+  it("«Статистика» открывает статистику этого ребёнка", async () => {
+    const user = setup({ children: [mockChild(), mockChild({ childId: 2, sid: "S-2", name: "Даша" })] });
+    await screen.findByRole("article", { name: "Миша" });
+    await user.click(within(card("Даша")).getByRole("button", { name: "Статистика" }));
+    expect(openStats).toHaveBeenCalledWith(2);
   });
 });
 

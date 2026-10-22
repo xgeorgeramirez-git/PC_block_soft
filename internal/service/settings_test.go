@@ -468,51 +468,131 @@ func TestUndoExtraRefusedAfterMidnight(t *testing.T) {
 	h.fail(adminPeer(), tok, ipc.CmdUndoExtra, ipc.UndoExtraRequest{ChildID: id, ExtraID: ar.ExtraID})
 }
 
-// Ловит: «Снять блокировку» не снимает блокировку за обход, не стирает её из базы (после
-// перезапуска блокировка вернулась бы) или не пишет событие.
-func TestClearBlock(t *testing.T) {
+// Ловит: родитель не может убавить доп. время, обнулить его, отменить убавление; убавление
+// ниже суммарного лимита 0 не зажато (R10, D-43).
+func TestReduceAndClearExtra(t *testing.T) {
+	h := newHarness(t, withChild(childSID, "Миша", 120), configured())
+	h.start()
+	h.childLogsIn()
+	tok := h.login(adminPeer())
+	id := h.childID(childSID)
+
+	h.ok(adminPeer(), tok, ipc.CmdAddExtra, ipc.AddExtraRequest{ChildID: id, Minutes: 60}, nil)
+	var rr ipc.AddExtraReply
+	h.ok(adminPeer(), tok, ipc.CmdReduceExtra, ipc.ReduceExtraRequest{ChildID: id, Minutes: 30}, &rr)
+	if rr.Message != "Убрано 30 минут" || rr.Card.ExtraMin != 30 || rr.ExtraID == "" {
+		t.Fatalf("после -30: %+v", rr)
+	}
+
+	// Отмена убавления возвращает к 60.
+	var cr ipc.CardReply
+	h.ok(adminPeer(), tok, ipc.CmdUndoExtra, ipc.UndoExtraRequest{ChildID: id, ExtraID: rr.ExtraID}, &cr)
+	if cr.Card.ExtraMin != 60 {
+		t.Fatalf("после отмены убавления доп. %d, want 60", cr.Card.ExtraMin)
+	}
+
+	// Обнулить доп. время.
+	var clr ipc.AddExtraReply
+	h.ok(adminPeer(), tok, ipc.CmdClearExtra, ipc.ClearExtraRequest{ChildID: id}, &clr)
+	if clr.Card.ExtraMin != 0 || clr.Message != "Доп. время убрано" {
+		t.Fatalf("после обнуления: %+v", clr)
+	}
+
+	// Убавление ниже 0 зажато: лимит 120, убрать 240 → доп. −120 (суммарный лимит 0).
+	h.ok(adminPeer(), tok, ipc.CmdReduceExtra, ipc.ReduceExtraRequest{ChildID: id, Minutes: 240}, &rr)
+	if rr.Card.ExtraMin != -120 {
+		t.Fatalf("упор снизу: доп. %d, want -120", rr.Card.ExtraMin)
+	}
+
+	// Границы 1…240.
+	if rep := h.fail(adminPeer(), tok, ipc.CmdReduceExtra, ipc.ReduceExtraRequest{ChildID: id, Minutes: 500}); rep.Field != ipc.FieldMinutes {
+		t.Fatalf("убавление 500: поле %q, ошибка %q", rep.Field, rep.Error)
+	}
+}
+
+// Ловит: переключатель «Подробные логи для диагностики» не пишет подробных строк при
+// включении или продолжает писать после выключения (FR-25, D-42).
+func TestVerboseLogsToggle(t *testing.T) {
+	h := newHarness(t, withChild(childSID, "Миша", 120), configured())
+	h.start()
+	tok := h.login(adminPeer())
+
+	// По умолчанию выключено: команда не оставляет подробной строки.
+	h.ok(adminPeer(), tok, ipc.CmdGetToday, nil, nil)
+	if strings.Contains(h.logText(), "[подробно]") {
+		t.Fatalf("подробные логи при выключенном переключателе:\n%s", h.logText())
+	}
+
+	// Включаем — следующая команда пишет подробную строку.
+	var d ipc.DiagReply
+	h.ok(adminPeer(), tok, ipc.CmdSetDiag, ipc.SetDiagRequest{Verbose: true}, &d)
+	if !d.Verbose {
+		t.Fatalf("переключатель не включился: %+v", d)
+	}
+	h.ok(adminPeer(), tok, ipc.CmdGetToday, nil, nil)
+	if !strings.Contains(h.logText(), "[подробно] команда GetToday") {
+		t.Fatalf("нет подробной строки при включённом переключателе:\n%s", h.logText())
+	}
+
+	// Выключаем — снова тихо; GetDiag читает состояние.
+	h.ok(adminPeer(), tok, ipc.CmdSetDiag, ipc.SetDiagRequest{Verbose: false}, &d)
+	before := h.logText()
+	h.ok(adminPeer(), tok, ipc.CmdGetToday, nil, nil)
+	if h.logText() != before {
+		t.Fatalf("после выключения всё ещё пишутся подробные строки")
+	}
+	h.ok(adminPeer(), tok, ipc.CmdGetDiag, nil, &d)
+	if d.Verbose {
+		t.Fatalf("GetDiag после выключения: %+v", d)
+	}
+}
+
+// Ловит: статистика родителя за сегодня не отдаёт данные выбранного ребёнка, не переключается
+// между детьми или доступна не родителю (FR-23, D-44).
+func TestParentStats(t *testing.T) {
+	h := newHarness(t, withChild(childSID, "Миша", 120), withChild(child2SID, "Коля", 60), configured())
+	h.start()
+	h.childLogsIn()
+	tok := h.login(adminPeer())
+	id, id2 := h.childID(childSID), h.childID(child2SID)
+
+	var ms ipc.MyTodayReply
+	h.ok(adminPeer(), tok, ipc.CmdParentStats, ipc.ParentStatsRequest{ChildID: id}, &ms)
+	if ms.Status.Name != "Миша" || len(ms.Rules) != 7 || len(ms.Today) < 2 {
+		t.Fatalf("статистика Миши: %+v", ms)
+	}
+	h.ok(adminPeer(), tok, ipc.CmdParentStats, ipc.ParentStatsRequest{ChildID: id2}, &ms)
+	if ms.Status.Name != "Коля" {
+		t.Fatalf("переключение на Колю: %+v", ms)
+	}
+	// Ребёнок не зовёт статистику родителя (у него своя «Моя статистика»).
+	if rep := h.do(childPeer(), "", ipc.CmdParentStats, ipc.ParentStatsRequest{ChildID: id}); !isRightsDenial(rep) {
+		t.Fatalf("ребёнок получил статистику родителя: %+v", rep)
+	}
+}
+
+// Ловит: попытка обхода блокирует экран или предлагает «Снять блокировку» (D-41 — не должна):
+// пишется подробное событие, экран не блокируется; повтор той же подробности в пределах
+// минуты не плодит записи в журнале (страж шлёт сообщение каждую секунду).
+func TestBypassJournaledNoLock(t *testing.T) {
 	h := newHarness(t, withChild(childSID, "Миша", 120), configured())
 	h.start()
 	h.childLogsIn()
 	h.poll(activeSample, ipc.GuardEvent{Kind: ipc.GuardEvBypass, Detail: "Экран закрыли насильно"})
-	id := h.childID(childSID)
-	cs, _ := h.store.ListChildren()
-	if cs[0].BypassDetail != "Экран закрыли насильно" {
-		t.Fatalf("блокировка не записана в базу: %+v", cs)
-	}
 	tok := h.login(adminPeer())
 	var today ipc.GetTodayReply
 	h.ok(adminPeer(), tok, ipc.CmdGetToday, nil, &today)
-	if !today.Children[0].CanClearBlock || today.Children[0].Status.Status != ipc.StatusBypass {
-		t.Fatalf("карточка: %+v", today.Children[0])
+	c := today.Children[0]
+	if c.CanClearBlock || c.Status.Status == ipc.StatusBypass || c.Status.Lock == ipc.LockBypass {
+		t.Fatalf("карточка показывает блокировку за обход: %+v (D-41)", c)
 	}
-	var cr ipc.CardReply
-	h.ok(adminPeer(), tok, ipc.CmdClearBlock, ipc.ChildRequest{ChildID: id}, &cr)
-	if cr.Card.Status.Lock != ipc.LockNone || cr.Card.CanClearBlock {
-		t.Fatalf("после снятия: %+v", cr.Card)
+	if n := len(h.store.eventsOf("bypass")); n != 1 {
+		t.Fatalf("событий обхода %d; want 1 подробное событие", n)
 	}
-	cs, _ = h.store.ListChildren()
-	if cs[0].BypassDetail != "" {
-		t.Fatalf("блокировка осталась в базе: %q", cs[0].BypassDetail)
-	}
-	if n := len(h.store.eventsOf("block_cleared")); n != 1 {
-		t.Fatalf("событий block_cleared %d", n)
-	}
-}
-
-// Ловит: доп. время снимает блокировку за обход (R17: её снимает только родитель паролем «Снять блокировку»).
-func TestExtraDoesNotLiftBypass(t *testing.T) {
-	h := newHarness(t, withChild(childSID, "Миша", 120), configured())
-	h.start()
-	h.childLogsIn()
-	h.poll(activeSample, ipc.GuardEvent{Kind: ipc.GuardEvBypass})
-	tok := h.login(adminPeer())
-	h.ok(adminPeer(), tok, ipc.CmdAddExtra, ipc.AddExtraRequest{ChildID: h.childID(childSID), Minutes: 60}, nil)
-	if st := h.status(); st.Lock != ipc.LockBypass {
-		t.Fatalf("блокировка за обход снята доп. временем: %+v", st)
-	}
-	if st := h.status(); st.Detail != "Защита программы была нарушена" {
-		t.Fatalf("подробность по умолчанию: %q", st.Detail)
+	// Повтор той же подробности в пределах окна — без новой записи.
+	h.poll(activeSample, ipc.GuardEvent{Kind: ipc.GuardEvBypass, Detail: "Экран закрыли насильно"})
+	if n := len(h.store.eventsOf("bypass")); n != 1 {
+		t.Fatalf("повтор подробности записан снова: %d; want 1 (дедуп, D-41)", n)
 	}
 }
 
@@ -592,7 +672,7 @@ func TestListEvents(t *testing.T) {
 	h.ok(adminPeer(), tok, ipc.CmdAddExtra, ipc.AddExtraRequest{ChildID: id, Minutes: 30}, nil)
 	h.real.Advance(time.Minute)
 	h.clock.Advance(time.Minute)
-	h.poll(activeSample, ipc.GuardEvent{Kind: ipc.GuardEvBypass, Detail: "Экран заблокирован"})
+	h.poll(activeSample, ipc.GuardEvent{Kind: ipc.GuardEvBypass, Detail: "Закрыт значок программы"})
 	h.clock.Advance(time.Second)
 	h.wrongLogin(adminPeer())
 
@@ -605,7 +685,7 @@ func TestListEvents(t *testing.T) {
 	if strings.Join(kinds, ",") != "password_failed,bypass,extra_time" {
 		t.Fatalf("виды %v, ждали новые сверху", kinds)
 	}
-	if got := all.Events[1].Text; got != "Миша: попытка обойти защиту. Экран заблокирован" {
+	if got := all.Events[1].Text; got != "Миша: попытка обойти защиту. Закрыт значок программы" {
 		t.Fatalf("текст обхода %q", got)
 	}
 	if got := all.Events[2].Text; got != "Миша: доп. время +30 мин" {
@@ -781,29 +861,6 @@ func TestMyToday(t *testing.T) {
 	_ = rep.Into(&other)
 	if other.Status.Status != ipc.StatusNotChild || strings.Contains(string(rep.Payload), "null") || other.Status.Name != "" {
 		t.Fatalf("чужой пользователь: %s", rep.Payload)
-	}
-}
-
-// Ловит: в «Моей статистике» при блокировке за обход нет строки «Можно снова…», хотя на
-// экране блокировки она есть (B-6). Строка про возвращение времени нужна при любой блокировке.
-func TestMyTodayShowsUntilOnBypass(t *testing.T) {
-	h := newHarness(t, withChild(childSID, "Миша", 120))
-	h.start()
-	h.childLogsIn()
-	h.poll(activeSample, ipc.GuardEvent{Kind: ipc.GuardEvBypass, Detail: "Окно проверки пароля закрыто насильно"})
-	var my ipc.MyTodayReply
-	h.ok(childPeer(), "", ipc.CmdMyToday, nil, &my)
-	if my.Status.Lock != ipc.LockBypass {
-		t.Fatalf("ждали блокировку за обход, статус: %+v", my.Status)
-	}
-	found := false
-	for _, line := range my.Today {
-		if strings.HasPrefix(line, "Можно снова") {
-			found = true
-		}
-	}
-	if !found {
-		t.Fatalf("нет строки «Можно снова…» при обходе: %v", my.Today)
 	}
 }
 

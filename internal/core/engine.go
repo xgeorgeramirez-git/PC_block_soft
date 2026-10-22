@@ -63,13 +63,14 @@ type Engine struct {
 
 // NewEngine создаёт ядро ребёнка. loc — местный пояс (сутки и дни недели; nil —
 // time.Local); st — сохранённое состояние дня (может быть прошлым днём: первый тик
-// закроет его); bypassDetail — сохранённая блокировка за обход («» — нет), она
-// переживает перезапуск службы.
+// закроет его). Параметр bypassDetail (сохранённая подробность обхода) больше не
+// восстанавливает блокировку: по D-41 попытка обхода только пишется в журнал.
 func NewEngine(clock Clock, loc *time.Location, rules Rules, st DayState, bypassDetail string) *Engine {
 	if loc == nil {
 		loc = time.Local
 	}
-	e := &Engine{clock: clock, loc: loc, rules: rules, acc: NewAccumulator(st), bypass: bypassDetail, pending: []Event{}}
+	_ = bypassDetail // D-41: обход не блокирует, сохранённая подробность не поднимает блокировку
+	e := &Engine{clock: clock, loc: loc, rules: rules, acc: NewAccumulator(st), pending: []Event{}}
 	if rules.Broken {
 		e.pending = append(e.pending, safeModeEvent())
 	}
@@ -108,7 +109,7 @@ func (e *Engine) Current() Decision {
 
 // AddExtra добавляет родительское доп. время на сегодня (R10): 1…240 мин, иначе
 // ErrExtraRange и состояние не меняется. Снимает блокировку «время вышло», если остаток
-// стал больше нуля; блокировку за обход не снимает. Пороги взводятся заново (R9).
+// стал больше нуля. Пороги взводятся заново (R9).
 func (e *Engine) AddExtra(min int) (Decision, error) {
 	if min < 1 || min > MaxExtraMin {
 		return e.Current(), ErrExtraRange
@@ -120,6 +121,58 @@ func (e *Engine) AddExtra(min int) (Decision, error) {
 	e.rearm()
 	e.pending = append(e.pending, Event{Kind: EvExtraTime, Details: map[string]any{"minutes": min, "text": ExtraText(min)}})
 	return e.finish(e.decide(e.acc.State(), false), closed), nil
+}
+
+// ReduceExtra убавляет родительское доп. время на сегодня (R10, D-43): 1…240 мин, иначе
+// ErrExtraRange. Суммарный дневной лимит (лимит дня + доп. время) не опускается ниже 0,
+// поэтому убирается не больше, чем есть. Возвращает решение и фактически убранные минуты;
+// 0 — убирать было нечего. Пороги взводятся заново (R9).
+func (e *Engine) ReduceExtra(min int) (Decision, int, error) {
+	if min < 1 || min > MaxExtraMin {
+		return e.Current(), 0, ErrExtraRange
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	closed := e.advance(e.now())
+	st := e.acc.State()
+	lim, _ := e.limitFor(st.Day)
+	newExtra := st.ExtraMin - min
+	if floor := extraFloor(lim); newExtra < floor {
+		newExtra = floor
+	}
+	removed := st.ExtraMin - newExtra
+	if removed != 0 {
+		e.acc.SetExtra(newExtra)
+		e.rearm()
+		e.pending = append(e.pending, Event{Kind: EvExtraTime, Details: map[string]any{"minutes": -removed, "text": ExtraRemovedText(removed)}})
+	}
+	return e.finish(e.decide(e.acc.State(), false), closed), removed, nil
+}
+
+// ClearExtra обнуляет сегодняшнее доп. время (R10, D-43, кнопка «Убрать доп. время»):
+// ExtraMin → 0. Возвращает решение и сколько было убрано (отрицательное — доп. время было
+// в минусе, обнуление вернуло время к лимиту дня). Пороги взводятся заново (R9).
+func (e *Engine) ClearExtra() (Decision, int) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	closed := e.advance(e.now())
+	st := e.acc.State()
+	removed := st.ExtraMin
+	if removed != 0 {
+		e.acc.SetExtra(0)
+		e.rearm()
+		e.pending = append(e.pending, Event{Kind: EvExtraTime, Details: map[string]any{"minutes": -removed, "text": ExtraClearedText}})
+	}
+	return e.finish(e.decide(e.acc.State(), false), closed), removed
+}
+
+// extraFloor — наименьшее доп. время дня, при котором суммарный лимит (лимит дня + доп.
+// время) не отрицательный (R10, D-43): −(лимит дня) при лимите, 0 без лимита.
+func extraFloor(lim DayLimit) int {
+	if lim.Unlimited() {
+		return 0
+	}
+	return -*lim.TotalMin
 }
 
 // Pause ставит паузу до момента until (R11): пока активна, блокировки не показываются,
@@ -157,9 +210,9 @@ func (e *Engine) SpendBonus(min int) (Decision, error) {
 	return e.finish(e.decide(e.acc.State(), false), closed), nil
 }
 
-// MarkBypass ставит блокировку «Попытка обойти защиту» (R17в). Её снимает только
-// ClearBlock (родитель паролем): ни доп. время, ни смена суток. Пустое описание
-// заменяется общим.
+// MarkBypass записывает попытку обхода в журнал (R17в, D-41): подробное событие с
+// описанием, что произошло. Экран НЕ блокируется и время не отключается. Пустое
+// описание заменяется общим.
 func (e *Engine) MarkBypass(detail string) Decision {
 	if detail == "" {
 		detail = defaultBypassDetail
@@ -167,7 +220,6 @@ func (e *Engine) MarkBypass(detail string) Decision {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	closed := e.advance(e.now())
-	e.bypass = detail
 	e.pending = append(e.pending, Event{Kind: EvBypass, Details: map[string]any{"detail": detail, "text": ReasonBypass}})
 	return e.finish(e.decide(e.acc.State(), false), closed)
 }
@@ -346,9 +398,6 @@ func (e *Engine) decide(st DayState, fire bool) Decision {
 	inForbidden, forbiddenEnd := InForbidden(e.rules, now)
 
 	switch {
-	case e.bypass != "":
-		d.Lock, d.Status, d.Reason, d.Detail = LockBypass, StatusBypass, ReasonBypass, e.bypass
-		d.Until = UntilBypass
 	case paused:
 		// Пауза снимает все ограничения (R11); учёт идёт (Tick засчитывает секунды).
 		// Предупреждения о конце паузы срабатывают во время паузы (G11).

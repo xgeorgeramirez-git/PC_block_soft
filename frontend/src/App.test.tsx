@@ -196,6 +196,7 @@ describe("меню окна родителя", () => {
       "Сегодня",
       "Дети",
       "Копилка",
+      "Статистика",
       "Журнал",
       "Настройки",
       "Помощь",
@@ -212,6 +213,9 @@ describe("меню окна родителя", () => {
     expect(await screen.findByRole("heading", { name: /Правила, Миша/ })).toBeTruthy();
     expect(within(nav).getByRole("button", { name: "Дети" }).getAttribute("aria-current")).toBe("page");
     expect(within(nav).getByRole("button", { name: "Сегодня" }).getAttribute("aria-current")).toBeNull();
+
+    await user.click(within(nav).getByRole("button", { name: "Статистика" }));
+    expect(await screen.findByRole("heading", { name: "Статистика" })).toBeTruthy();
 
     await user.click(within(nav).getByRole("button", { name: "Журнал" }));
     expect(await screen.findByRole("heading", { name: "Журнал" })).toBeTruthy();

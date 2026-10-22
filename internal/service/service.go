@@ -23,6 +23,7 @@ const (
 	guardBindLife   = 30 * time.Second // окно после верного пароля на экране блокировки
 	undoLife        = 10 * time.Second // «Отменить» после добавления времени
 	warnLife        = 20 * time.Second // непринятое предупреждение стареет
+	bypassLogWindow = 60 * time.Second // одинаковая попытка обхода пишется в журнал не чаще (D-41)
 )
 
 // Ключи настроек в хранилище.
@@ -31,6 +32,7 @@ const (
 	settingFirstRunPrefix    = "firstrun.seen."
 	settingHelperParent      = "helper.parent"
 	settingHelperChildPrefix = "helper.child."
+	settingVerboseLogs       = "diag.verbose" // «Подробные логи для диагностики» (FR-25, D-42)
 )
 
 // SessionEvent — событие сеанса Windows, которое диспетчер служб передаёт службе.
@@ -80,26 +82,30 @@ type pendingWarning struct {
 
 // undoRec — последнее добавленное время, которое ещё можно отменить.
 type undoRec struct {
-	id      string
-	minutes int
-	day     string
-	until   time.Time
+	id         string
+	minutes    int    // минуты в заголовке операции (для копилки и журнала)
+	extraDelta int    // знаковое изменение ExtraMin, которое отменяет UndoExtra (R10, D-43)
+	undoMsg    string // сообщение-подтверждение при отмене
+	day        string
+	until      time.Time
 }
 
 // childState — ребёнок в памяти службы: ядро, правила, снимок датчиков.
 type childState struct {
-	child      Child
-	eng        *core.Engine
-	rules      core.Rules
-	admin      bool // R1: учётка стала администратором
-	adminAt    time.Time
-	rulesAt    time.Time
-	sample     ipc.SensorSample
-	sampleAt   time.Time
-	haveSample bool
-	warns      []pendingWarning
-	undo       *undoRec
-	bonusUndo  *undoRec // отмена последнего начисления копилки на 10 с (FR-22)
+	child        Child
+	eng          *core.Engine
+	rules        core.Rules
+	admin        bool // R1: учётка стала администратором
+	adminAt      time.Time
+	rulesAt      time.Time
+	sample       ipc.SensorSample
+	sampleAt     time.Time
+	haveSample   bool
+	warns        []pendingWarning
+	undo         *undoRec
+	bonusUndo    *undoRec  // отмена последнего начисления копилки на 10 с (FR-22)
+	lastBypass   string    // последняя записанная попытка обхода (дедуп журнала, D-41)
+	lastBypassAt time.Time // когда записана; страж повторяет сообщение каждую секунду
 }
 
 // Service — служба PCBlock без привязки к Windows: логика на портах (doc.go).
@@ -126,6 +132,7 @@ type Service struct {
 	stopping    bool
 	started     bool
 	loaded      bool // список детей прочитан из базы
+	verbose     bool // «Подробные логи для диагностики» включены (FR-25, D-42)
 	errAt       map[string]time.Time
 }
 
@@ -215,6 +222,10 @@ func (s *Service) Start(real time.Time) error {
 		s.startRecovered()
 	}
 	s.loadChildren(real)
+	if v, ok, err := s.cfg.Store.GetSetting(settingVerboseLogs); err == nil && ok && v == "1" {
+		s.verbose = true
+		s.cfg.Logf("Подробные логи для диагностики включены (FR-25, D-42)")
+	}
 	for _, id := range s.childOrder() {
 		cs := s.children[id]
 		s.checkAdmin(cs, real)
@@ -410,6 +421,14 @@ func (s *Service) logRate(key, format string, args ...any) {
 	}
 	s.errAt[key] = s.real
 	s.cfg.Logf(format, args...)
+}
+
+// vlogf пишет подробную диагностическую строку в журнал работы только при включённом
+// переключателе «Подробные логи для диагностики» (FR-25, D-42).
+func (s *Service) vlogf(format string, args ...any) {
+	if s.verbose {
+		s.cfg.Logf("[подробно] "+format, args...)
+	}
 }
 
 // --- статусы и карточки -----------------------------------------------------------------

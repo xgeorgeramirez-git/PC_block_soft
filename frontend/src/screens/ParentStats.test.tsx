@@ -1,0 +1,61 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import ParentStats from "./ParentStats";
+import { installBackend, mockChild, uninstallBackend, type MockBackend } from "../__mocks__/backend";
+
+// FR-23, D-44: базовая статистика родителя за сегодня с выбором ребёнка, только просмотр.
+
+let mock: MockBackend;
+const NOW = new Date(2026, 9, 19, 12, 0, 0);
+
+beforeEach(() => {
+  vi.useFakeTimers({ shouldAdvanceTime: true, now: NOW });
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+  uninstallBackend();
+});
+
+function setup(initialChildId?: number) {
+  mock = installBackend({
+    sessionActive: true,
+    children: [mockChild({ usedS: 2100 }), mockChild({ childId: 2, sid: "S-2", name: "Даша", usedS: 600 })],
+  });
+  const user = userEvent.setup({ advanceTimers: (ms) => vi.advanceTimersByTime(ms) });
+  render(<ParentStats initialChildId={initialChildId} />);
+  return user;
+}
+
+describe("ParentStats", () => {
+  it("показывает статистику первого ребёнка за сегодня, только просмотр", async () => {
+    setup();
+    expect(await screen.findByText("Только просмотр")).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "Итоги" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Мои правила" })).toBeTruthy();
+    // Нет полей ввода — только чтение.
+    expect(screen.queryByRole("textbox")).toBeNull();
+    expect(screen.queryByRole("spinbutton")).toBeNull();
+  });
+
+  it("переключение ребёнка перезапрашивает его статистику", async () => {
+    const user = setup(1);
+    await screen.findByText("Только просмотр");
+    const picker = screen.getByRole("group", { name: "Ребёнок" });
+    await user.click(within(picker).getByRole("button", { name: "Даша" }));
+    await vi.waitFor(() => {
+      const stats = mock.calls.filter((c) => c.command === "ParentStats");
+      expect(stats.at(-1)?.payload).toEqual({ childId: 2 });
+    });
+  });
+
+  it("открывается сразу на выбранном ребёнке (с карточки «Сегодня»)", async () => {
+    setup(2);
+    await screen.findByText("Только просмотр");
+    await vi.waitFor(() => {
+      const stats = mock.calls.filter((c) => c.command === "ParentStats");
+      expect(stats[0]?.payload).toEqual({ childId: 2 });
+    });
+  });
+});

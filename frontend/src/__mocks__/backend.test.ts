@@ -71,7 +71,6 @@ describe("статус ребёнка собирается в одном мес�
     [{ usedS: 2100 }, "ok", "Можно"],
     [{ usedS: 2 * hour - 600 }, "low", "Осталось 10 мин"],
     [{ usedS: 2 * hour }, "timeUp", "Время вышло"],
-    [{ blocked: true }, "bypass", "Заблокирован за обход защиты"],
   ])("%j -> %s", (over, status, text) => {
     const s = statusOf(mockChild(over), now);
     expect(s.status).toBe(status);
@@ -102,7 +101,7 @@ describe("доп. время", () => {
     expect(added.undoUntilMs).toBe(Date.now() + 10_000);
     const undone = await api.undoExtra(1, added.extraId);
     expect(undone.card.extraMin).toBe(0);
-    expect(undone.message).toBe("Добавленное время отменено");
+    expect(undone.message).toBe("Изменение доп. времени отменено");
 
     const second = await api.addExtra(1, 15);
     vi.advanceTimersByTime(10_001);

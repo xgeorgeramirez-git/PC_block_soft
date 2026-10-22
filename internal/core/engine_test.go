@@ -146,8 +146,8 @@ func TestEngineZeroLimit(t *testing.T) {
 	}
 }
 
-// Ловит: при непрочитанных правилах ядро блокирует (в том числе за обход) без выхода,
-// не сообщает об этом в журнал или сообщает на каждом тике (R18, NFR-10).
+// Ловит: при непрочитанных правилах ядро блокирует без выхода, не сообщает об этом в
+// журнал или сообщает на каждом тике (R18, NFR-10). Обход не поднимает блокировку (D-41).
 func TestEngineBrokenRulesSafeMode(t *testing.T) {
 	c := &fakeClock{t: at(18, 0, 0)}
 	e := NewEngine(c, msk, Rules{Broken: true}, DayState{Day: monday, TotalS: 7200}, "Закрыт значок программы")
@@ -168,12 +168,12 @@ func TestEngineBrokenRulesSafeMode(t *testing.T) {
 		t.Fatalf("повторные битые правила дали события %v", kinds(d.Events))
 	}
 	d = e.SetRules(rulesMon(120))
-	if d.Lock != LockBypass || len(d.Events) != 0 {
-		t.Fatalf("правила прочитаны: блокировка %v, события %v; want обход снова действует", d.Lock, kinds(d.Events))
+	if d.Lock != LockTimeUp || len(d.Events) != 0 {
+		t.Fatalf("правила прочитаны: блокировка %v, события %v; want время вышло (обход не блокирует, D-41)", d.Lock, kinds(d.Events))
 	}
 	d = e.ClearBlock()
 	if d.Lock != LockTimeUp {
-		t.Fatalf("после снятия обхода блокировка %v, want время вышло", d.Lock)
+		t.Fatalf("ClearBlock не трогает блокировку «время вышло»: %v", d.Lock)
 	}
 	d = e.SetRules(Rules{Broken: true})
 	if d.Lock != LockNone || d.Status != StatusSafe || !slices.Equal(kinds(d.Events), []string{EvSafeMode}) {
@@ -250,53 +250,105 @@ func TestEngineAddExtraRange(t *testing.T) {
 	}
 }
 
-// Ловит: блокировка за обход снимается доп. временем, сменой суток или перезапуском
-// службы; секунды под ней засчитываются; снятие не пишется в журнал (R17в, пакет п.9).
+// Ловит: убавление доп. времени не зажато снизу (суммарный лимит уходит ниже 0) или
+// обнуление работает неверно; границы 1…240 (R10, D-43).
+func TestEngineReduceAndClearExtra(t *testing.T) {
+	c := &fakeClock{t: at(12, 0, 0)}
+	e := NewEngine(c, msk, rulesMon(120), DayState{Day: monday}, "")
+
+	// Добавили 60, убавили 30 → доп. время 30; в журнале событие об убавлении.
+	if _, err := e.AddExtra(60); err != nil {
+		t.Fatal(err)
+	}
+	d, removed, err := e.ReduceExtra(30)
+	if err != nil || removed != 30 {
+		t.Fatalf("ReduceExtra(30): removed %d, err %v; want 30", removed, err)
+	}
+	if st, _ := e.State(); st.ExtraMin != 30 {
+		t.Fatalf("после -30: доп. %d, want 30", st.ExtraMin)
+	}
+	if len(d.Events) != 1 || d.Events[0].Kind != EvExtraTime || d.Events[0].Details["minutes"] != -30 ||
+		d.Events[0].Details["text"] != "Доп. время −30 мин" {
+		t.Fatalf("событие убавления: %+v", d.Events)
+	}
+
+	// Убавление уводит суммарный лимит в минус, но не ниже 0: floor = −(лимит дня).
+	// Доп. 30, лимит 120 → floor −120. Убрать 240 → доп. −120 (убрано 150).
+	_, removed, err = e.ReduceExtra(240)
+	if err != nil {
+		t.Fatalf("ReduceExtra(240): %v", err)
+	}
+	if st, _ := e.State(); st.ExtraMin != -120 || removed != 150 {
+		t.Fatalf("после упора: доп. %d, убрано %d; want -120 и 150", st.ExtraMin, removed)
+	}
+
+	// Обнуление возвращает к лимиту дня (убрано −120 означает возврат времени).
+	_, cleared := e.ClearExtra()
+	if cleared != -120 {
+		t.Fatalf("ClearExtra вернул %d, want -120", cleared)
+	}
+	if st, _ := e.State(); st.ExtraMin != 0 {
+		t.Fatalf("после обнуления доп. %d, want 0", st.ExtraMin)
+	}
+	// Повторное обнуление — пусто, без событий.
+	if d, cleared := e.ClearExtra(); cleared != 0 || len(d.Events) != 0 {
+		t.Fatalf("повторное ClearExtra: убрано %d, события %v", cleared, kinds(d.Events))
+	}
+
+	// Границы: 0 и 241 — ошибка, состояние не меняется.
+	for _, bad := range []int{0, 241} {
+		if _, _, err := e.ReduceExtra(bad); !errors.Is(err, ErrExtraRange) {
+			t.Fatalf("ReduceExtra(%d): err %v, want ErrExtraRange", bad, err)
+		}
+	}
+	if st, _ := e.State(); st.ExtraMin != 0 {
+		t.Fatalf("после ошибочных значений доп. %d, want 0", st.ExtraMin)
+	}
+}
+
+// Ловит: попытка обхода блокирует экран или отключает время (D-41 — не должна):
+// обход только пишется в журнал подробным событием, экран не блокируется, время идёт,
+// перезапуск и смена суток блокировку не поднимают, ClearBlock ничего не делает.
 func TestEngineBypass(t *testing.T) {
-	c := &fakeClock{t: at(23, 59, 50)}
+	c := &fakeClock{t: at(15, 0, 0)}
 	e := NewEngine(c, msk, rulesMon(120), DayState{Day: monday, TotalS: 600}, "")
 	d := e.MarkBypass("Закрыт значок программы")
-	if d.Lock != LockBypass || d.Status != StatusBypass || d.Reason != "Попытка обойти защиту" ||
-		d.Detail != "Закрыт значок программы" || d.Until != "Можно снова: когда родитель снимет блокировку" {
-		t.Fatalf("MarkBypass: %+v", d)
+	if d.Lock != LockNone || d.Status == StatusBypass {
+		t.Fatalf("MarkBypass заблокировал экран: %+v; want без блокировки (D-41)", d)
 	}
 	if len(d.Events) != 1 || d.Events[0].Kind != EvBypass || d.Events[0].Details["detail"] != "Закрыт значок программы" {
-		t.Fatalf("события обхода: %+v", d.Events)
+		t.Fatalf("события обхода: %+v; want одно подробное событие", d.Events)
 	}
-	log := run(e, c, at(23, 59, 50), at(23, 59, 55), activeSample())
-	if log.lockAt != "23:59:50" {
-		t.Fatalf("блокировка за обход на тике: %q", log.lockAt)
+	// Под попыткой обхода время идёт обычным порядком (блокировки нет): 5 секунд засчитаны.
+	log := run(e, c, at(15, 0, 0), at(15, 0, 5), activeSample())
+	if log.lockAt != "" {
+		t.Fatalf("после обхода появилась блокировка: %q", log.lockAt)
 	}
-	if st, _ := e.State(); st.TotalS != 600 {
-		t.Fatalf("под экраном обхода засчитано: %d с, want 600", st.TotalS)
-	}
-	if d, _ := e.AddExtra(15); d.Lock != LockBypass {
-		t.Fatalf("доп. время сняло блокировку за обход: %+v", d)
+	if st, _ := e.State(); st.TotalS != 605 {
+		t.Fatalf("учёт под обходом: %d с, want 605 (600 + 5)", st.TotalS)
 	}
 
+	// Перезапуск службы с сохранённой подробностью обхода блокировку не поднимает.
 	st, detail := e.State()
 	restarted := NewEngine(c, msk, rulesMon(120), st, detail)
-	if d := restarted.Current(); d.Lock != LockBypass || d.Detail != "Закрыт значок программы" ||
-		d.Until != "Можно снова: когда родитель снимет блокировку" {
-		t.Fatalf("после перезапуска: %+v", d)
+	if d := restarted.Current(); d.Lock != LockNone {
+		t.Fatalf("после перезапуска поднялась блокировка: %+v; want без блокировки (D-41)", d)
 	}
 
+	// Смена суток ничего не блокирует (обход не переносится).
 	c.Set(time.Date(2026, 10, 20, 0, 0, 0, 0, msk))
-	if d := e.Tick(activeSample()); d.Lock != LockBypass || d.Day != tuesday {
-		t.Fatalf("после полуночи: блокировка %v, день %s; want обход во вторник", d.Lock, d.Day)
+	if d := e.Tick(activeSample()); d.Lock != LockNone || d.Day != tuesday {
+		t.Fatalf("после полуночи: блокировка %v, день %s; want без блокировки во вторник", d.Lock, d.Day)
 	}
-	d = e.ClearBlock()
-	if d.Lock != LockNone || !slices.Equal(kinds(d.Events), []string{EvBlockCleared}) {
-		t.Fatalf("ClearBlock: %+v", d)
+
+	// ClearBlock без блокировки — пустая операция, без событий.
+	if d := e.ClearBlock(); d.Lock != LockNone || len(d.Events) != 0 {
+		t.Fatalf("ClearBlock без блокировки: %+v; want пусто", d)
 	}
-	if _, detail := e.State(); detail != "" {
-		t.Fatalf("после снятия detail = %q", detail)
-	}
-	if d := e.ClearBlock(); len(d.Events) != 0 {
-		t.Fatalf("снятие без блокировки дало события %v", kinds(d.Events))
-	}
-	if d := e.MarkBypass(""); d.Lock != LockBypass || d.Detail == "" {
-		t.Fatalf("обход без описания: %+v; want блокировка с описанием по умолчанию", d)
+
+	// Пустое описание заменяется общим; по-прежнему только событие, без блокировки.
+	if d := e.MarkBypass(""); d.Lock != LockNone || len(d.Events) != 1 || d.Events[0].Details["detail"] == "" {
+		t.Fatalf("обход без описания: %+v; want событие с общим описанием, без блокировки", d)
 	}
 }
 

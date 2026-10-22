@@ -12,6 +12,7 @@ import type {
   CardReply,
   ChildInfo,
   ChildRules,
+  DiagReply,
   GetTodayReply,
   HelloReply,
   JournalEntry,
@@ -169,12 +170,38 @@ export function addExtra(childId: number, minutes: number): Promise<AddExtraRepl
   return call("AddExtra", { childId, minutes });
 }
 
+/** Убавить доп. время ребёнку (R10, D-43). */
+export function reduceExtra(childId: number, minutes: number): Promise<AddExtraReply> {
+  return call("ReduceExtra", { childId, minutes });
+}
+
+/** Обнулить доп. время ребёнку (R10, D-43, «Убрать доп. время»). */
+export function clearExtra(childId: number): Promise<AddExtraReply> {
+  return call("ClearExtra", { childId });
+}
+
 export function undoExtra(childId: number, extraId: string): Promise<CardReply> {
   return call("UndoExtra", { childId, extraId });
 }
 
 export function clearBlock(childId: number): Promise<CardReply> {
   return call("ClearBlock", { childId });
+}
+
+/** Статистика выбранного ребёнка за сегодня для родителя (FR-23, D-44). */
+export async function parentStats(childId: number): Promise<MyTodayReply> {
+  const r = await call<object, Partial<MyTodayReply>>("ParentStats", { childId });
+  return { status: r.status as MyTodayReply["status"], today: r.today ?? [], rules: r.rules ?? [] };
+}
+
+/** Прочитать состояние переключателя подробных логов (FR-25, D-42). */
+export function getDiag(): Promise<DiagReply> {
+  return call("GetDiag");
+}
+
+/** Включить или выключить подробные логи для диагностики (FR-25, D-42). */
+export function setDiag(verbose: boolean): Promise<DiagReply> {
+  return call("SetDiag", { verbose });
 }
 
 export async function listEvents(req: Partial<ListEventsRequest> = {}): Promise<JournalEntry[]> {

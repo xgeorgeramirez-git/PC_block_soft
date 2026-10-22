@@ -199,7 +199,16 @@ p {
   min-width: 0;
   min-height: 0;
   overflow-y: auto;
-  padding: var(--space-6);
+  padding: var(--space-8);
+}
+
+/* Рабочая область не растягивается на всю ширину большого окна и не жмётся в ленту:
+   содержимое идёт по центру с комфортной шириной (FB-6). */
+.content > section,
+.content > div {
+  width: 100%;
+  max-width: 1120px;
+  margin-inline: auto;
 }
 
 .content-centered {
@@ -284,8 +293,28 @@ p {
   color: var(--text-muted);
 }
 
+/* Настройки блоками: на широком окне — две колонки, панели равной ширины (FB-6). */
 .settings {
-  max-width: 640px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+  gap: var(--space-4);
+  align-items: start;
+}
+
+.settings > h2,
+.settings > .notice {
+  grid-column: 1 / -1;
+}
+
+.settings > .panel {
+  max-width: none;
+  margin-bottom: 0;
+  height: 100%;
+}
+
+/* Детские учётки — самый крупный блок: занимает всю ширину сетки. */
+.settings > [aria-labelledby="settings-children"] {
+  grid-column: 1 / -1;
 }
 
 /* --- Кнопки ---------------------------------------------------------------------- */
@@ -529,9 +558,68 @@ p {
 
 .child-actions {
   display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--line);
+}
+
+/* Блок действий с подписью: «Доп. время» и т.п. — вместо кучи кнопок в один ряд (FB-5). */
+.action-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.action-group-label {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.action-row {
+  display: flex;
   flex-wrap: wrap;
   gap: var(--space-2);
-  margin-top: var(--space-3);
+}
+
+.action-row-foot {
+  align-items: center;
+}
+
+/* Приглушённая второстепенная кнопка (убавить время): видно, что это не основное действие. */
+.btn-muted {
+  color: var(--text-muted);
+}
+
+.child-custom {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.child-custom-label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: 14px;
+  color: var(--text-muted);
+}
+
+.child-custom-input {
+  width: 72px;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-variant-numeric: tabular-nums;
 }
 
 .child-feedback {
@@ -559,6 +647,13 @@ p {
 
 .periods-note {
   margin: calc(-1 * var(--space-2)) 0 var(--space-4);
+}
+
+.stat-child-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
 }
 
 /* Неактивные вкладки периодов (ещё нет функции): плоская приглушённая подпись, а не
@@ -1407,6 +1502,31 @@ p {
   font-weight: 600;
 }
 
+/* Форма начисления: поля сверху, кнопка «Начислить» отдельной строкой — без наложения (FB-7). */
+.bonus-grant {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.bonus-grant .field {
+  width: 100%;
+  margin-bottom: 0;
+}
+
+.bonus-grant .field-input {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.bonus-grant .btn {
+  align-self: flex-start;
+}
+
 .bonus-history {
   list-style: none;
   margin: 0.5rem 0;
@@ -1425,10 +1545,31 @@ p {
   padding-bottom: 0.3rem;
 }
 
+.pause-picker-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+/* Выбор срока паузы — всплывает над кнопкой, а не раздвигает ряд действий (FB-5). */
 .pause-picker {
+  position: absolute;
+  bottom: calc(100% + var(--space-1));
+  left: 0;
+  z-index: 5;
   display: flex;
-  flex-wrap: wrap;
-  gap: 0.4rem;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--space-1);
+  min-width: 160px;
+  padding: var(--space-2);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.12);
+}
+
+.pause-picker .btn {
+  justify-content: flex-start;
 }
 
 @media (prefers-reduced-motion: reduce) {
