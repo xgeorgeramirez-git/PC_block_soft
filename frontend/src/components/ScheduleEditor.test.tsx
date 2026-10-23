@@ -54,4 +54,36 @@ describe("ScheduleEditor", () => {
     expect(screen.getByText(/не похоже на часы/)).toBeTruthy();
     expect(onChange).not.toHaveBeenCalled();
   });
+
+  // FB-1 (D-45). Ловит: при правке интервала поля пустые и время вводится заново.
+  it("«Изменить» открывает поля с текущими значениями и сохраняет правку", async () => {
+    const { user, onChange } = setup([{ weekday: 1, startMin: 1260, endMin: 420 }]);
+    await user.click(screen.getByRole("button", { name: /Изменить интервал 21:00/ }));
+    const from = screen.getByLabelText(/Новое начало запретного времени/) as HTMLInputElement;
+    const to = screen.getByLabelText(/Новый конец запретного времени/) as HTMLInputElement;
+    expect(from.value).toBe("21:00");
+    expect(to.value).toBe("07:00");
+    await user.clear(from);
+    await user.type(from, "22:30");
+    await user.click(screen.getByRole("button", { name: "Сохранить интервал" }));
+    const next = onChange.mock.calls[0][0];
+    expect(next.filter((iv) => iv.weekday === 1)).toEqual([{ weekday: 1, startMin: 1350, endMin: 420 }]);
+  });
+
+  it("«Отмена» в правке ничего не меняет", async () => {
+    const { user, onChange } = setup([{ weekday: 1, startMin: 1260, endMin: 420 }]);
+    await user.click(screen.getByRole("button", { name: /Изменить интервал 21:00/ }));
+    await user.click(screen.getByRole("button", { name: "Отмена" }));
+    expect(onChange).not.toHaveBeenCalled();
+    expect(screen.getByText("с 21:00 до 07:00")).toBeTruthy();
+  });
+
+  // FB-1 (D-45). Ловит: в поле времени остаются буквы или «25:99».
+  it("поле времени принимает только цифры в пределах часов и минут", async () => {
+    setup();
+    const user = userEvent.setup();
+    const from = screen.getAllByLabelText(/Начало запретного времени/)[0] as HTMLInputElement;
+    await user.type(from, "а2б5в9");
+    expect(from.value).toBe("23:5");
+  });
 });

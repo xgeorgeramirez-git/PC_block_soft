@@ -226,15 +226,15 @@ describe("Wizard: шаг 3, время", () => {
     expect(openSettings).toHaveBeenCalledWith("секрет-123");
   });
 
-  it("лимит больше суток: ошибка у дня, мастер не отправляется", async () => {
+  // D-45. Ловит: в мастере можно набрать лимит больше суток.
+  it("лимит больше суток набрать нельзя: поле часов держит 23", async () => {
     const user = setup();
     await passStep1(user);
     await passStep2(user, "Миша");
     await user.clear(hours("вторник"));
     await user.type(hours("вторник"), "30");
-    await user.click(screen.getByRole("button", { name: "Готово" }));
-    expect((await screen.findByRole("alert")).textContent).toBe("Не больше 24 ч");
-    expect(mock.count("Setup")).toBe(0);
+    expect(hours("вторник").value).toBe("23");
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 
   // Ловит: ошибка службы про пароль остаётся на третьем шаге, где поля пароля нет.

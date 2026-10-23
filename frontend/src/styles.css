@@ -1430,6 +1430,15 @@ p {
   gap: 0.5rem;
 }
 
+.schedule-item-actions {
+  display: flex;
+  gap: 0.375rem;
+}
+
+.schedule-item-edit {
+  display: block;
+}
+
 .schedule-empty {
   color: var(--text-secondary, #59616a);
   font-size: 0.9rem;

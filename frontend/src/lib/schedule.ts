@@ -27,6 +27,39 @@ export function parseClock(text: string): number | null {
   return h * 60 + min;
 }
 
+/**
+ * Маска поля времени (FB-1, D-45): только цифры, двоеточие ставится само, часы не больше 23,
+ * минуты не больше 59. Первая цифра часов больше 2 значит час с нулём впереди: «7» → «07».
+ */
+export function maskClock(raw: string): string {
+  let d = raw.replace(/\D/g, "");
+  if (d === "") {
+    return "";
+  }
+  if (d[0] > "2") {
+    d = "0" + d;
+  }
+  d = d.slice(0, 4);
+  let hh = d.slice(0, 2);
+  if (hh.length === 2 && Number(hh) > 23) {
+    hh = "23";
+  }
+  if (d.length <= 2) {
+    return hh;
+  }
+  let mm = d.slice(2);
+  if (mm[0] > "5") {
+    mm = "5" + mm.slice(1);
+  }
+  return `${hh}:${mm}`;
+}
+
+/** Заменяет интервал дня (по индексу среди интервалов этого дня) новыми границами. */
+export function replaceInterval(all: Interval[], weekday: number, index: number, startMin: number, endMin: number): Interval[] {
+  const day = intervalsOfDay(all, weekday).map((iv, i) => (i === index ? { weekday, startMin, endMin } : iv));
+  return setDayIntervals(all, weekday, day);
+}
+
 /** Интервал пересекает полночь (конец не позже начала): принадлежит дню своего начала. */
 export function crossesMidnight(iv: Interval): boolean {
   return iv.endMin <= iv.startMin;
