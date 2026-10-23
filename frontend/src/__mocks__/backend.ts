@@ -6,7 +6,7 @@
 // Файл собирается и в браузерный сценарий Playwright (e2e/helpers.ts): экспорты доступны
 // там как PCBlockMock.installBackend(...).
 import contract from "../../../internal/ipc/testdata/contract.json";
-import { formatDuration, formatLimit, localOffsetMin, weekdayOfMs, weekdayShort } from "../lib/format";
+import { formatDuration, formatHour, formatLimit, localOffsetMin, weekdayOfMs, weekdayShort } from "../lib/format";
 import { normalizeLimits } from "../lib/limits";
 import type {
   Account,
@@ -151,6 +151,9 @@ export interface MockBackend {
 type Examples = Record<string, { request?: unknown; reply: Reply }>;
 const examples = contract as unknown as Examples;
 
+/** Папка логов, как её называет служба (FR-25, D-48). */
+const MOCK_LOGS_PATH = "C:\\ProgramData\\PCBlock\\logs";
+
 const MISHA_SID = "S-1-5-21-111-222-333-1001";
 
 /** Ребёнок для подменной программы; всё, что не названо, - как в примерах контракта. */
@@ -203,6 +206,14 @@ function todayLimit(child: MockChild, nowMs: number): WeekdayLimit {
   return normalizeLimits(child.limits)[wd - 1];
 }
 
+/** Строка о запретных часах сегодня (ТЗ 8.2.1) — упрощённо, как служба: снято (R24) или первый интервал дня. */
+function forbiddenNoteOf(child: MockChild, nowMs: number): string {
+  if (child.noForbiddenToday) return "Сегодня запретные часы не действуют";
+  const wd = weekdayOfMs(nowMs, localOffsetMin(new Date(nowMs)));
+  const iv = (child.schedule ?? []).filter((x) => x.weekday === wd).sort((a, b) => a.startMin - b.startMin)[0];
+  return iv ? `Сегодня нельзя с ${formatHour(iv.startMin)} до ${formatHour(iv.endMin)}` : "";
+}
+
 /** Статус ребёнка: слова и числа собираются в одном месте, как это делает служба. */
 export function statusOf(child: MockChild, nowMs: number): ChildStatus {
   const base = {
@@ -213,7 +224,7 @@ export function statusOf(child: MockChild, nowMs: number): ChildStatus {
     until: "",
     pauseUntil: child.pauseUntil ?? "",
     bonusBalance: child.bonusBalance ?? 0,
-    forbiddenNote: "",
+    forbiddenNote: forbiddenNoteOf(child, nowMs),
     reason: "",
   };
   if (child.admin) {
@@ -703,11 +714,11 @@ export function createBackend(opts: MockOptions = {}): MockBackend {
       return okReply(myToday(child, now));
     },
 
-    GetDiag: () => okReply({ verbose: state.verboseLogs }),
+    GetDiag: () => okReply({ verbose: state.verboseLogs, logsPath: MOCK_LOGS_PATH }),
 
     SetDiag: (req) => {
       state.verboseLogs = Boolean(req.verbose);
-      return okReply({ verbose: state.verboseLogs });
+      return okReply({ verbose: state.verboseLogs, logsPath: MOCK_LOGS_PATH });
     },
 
     ListEvents: (req) => {
@@ -830,7 +841,7 @@ export function createBackend(opts: MockOptions = {}): MockBackend {
 
     OpenLogs: () => {
       state.openLogsCount += 1;
-      return okReply({ path: "C:\\ProgramData\\PCBlock\\logs", message: "Открываю папку с логами" });
+      return okReply({ path: MOCK_LOGS_PATH, message: "Открываю папку с логами" });
     },
 
     GetBonusRate: () => okReply({ minutes: state.bonusRate }),

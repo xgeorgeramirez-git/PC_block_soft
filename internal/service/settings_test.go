@@ -2,6 +2,7 @@ package service
 
 import (
 	"encoding/json"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -544,6 +545,10 @@ func TestVerboseLogsToggle(t *testing.T) {
 	h.ok(adminPeer(), tok, ipc.CmdGetDiag, nil, &d)
 	if d.Verbose {
 		t.Fatalf("GetDiag после выключения: %+v", d)
+	}
+	// D-48: путь к папке логов виден в настройках сразу, без нажатия «Открыть».
+	if want := filepath.Join(h.dataDir, "logs"); d.LogsPath != want {
+		t.Fatalf("GetDiag.LogsPath = %q, want %q", d.LogsPath, want)
 	}
 }
 

@@ -152,8 +152,8 @@ func examples() map[string]example {
 		CmdClearExtra: ok(ClearExtraRequest{ChildID: 1}, AddExtraReply{
 			Card: card(okStatus(), 0, false), Message: "Доп. время убрано", ExtraID: "e-19", UndoUntilMs: t0 + 10_000,
 		}),
-		CmdGetDiag:  ok(Empty{}, DiagReply{Verbose: false}),
-		CmdSetDiag:  ok(SetDiagRequest{Verbose: true}, DiagReply{Verbose: true}),
+		CmdGetDiag:  ok(Empty{}, DiagReply{Verbose: false, LogsPath: `C:\ProgramData\PCBlock\logs`}),
+		CmdSetDiag:  ok(SetDiagRequest{Verbose: true}, DiagReply{Verbose: true, LogsPath: `C:\ProgramData\PCBlock\logs`}),
 		CmdOpenLogs: ok(Empty{}, OpenLogsReply{Path: `C:\ProgramData\PCBlock\logs`, Message: "Открываю папку с логами"}),
 
 		CmdSetNoForbidden: ok(SetNoForbiddenRequest{ChildID: 1, On: true}, SetNoForbiddenReply{

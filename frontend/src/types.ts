@@ -231,6 +231,8 @@ export interface UndoExtraRequest {
 /** Состояние переключателя «Подробные логи для диагностики» (FR-25, D-42). */
 export interface DiagReply {
   verbose: boolean;
+  /** Папка с логами (D-48): показывается в настройках сразу. */
+  logsPath?: string;
 }
 
 export interface CardReply {

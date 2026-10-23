@@ -26,10 +26,17 @@ func TestSetNoForbidden(t *testing.T) {
 	if rep.Card.Status.Lock == "forbidden" {
 		t.Fatalf("после снятия всё ещё блокировка запрета: %+v", rep.Card.Status)
 	}
+	// Класс A: мини-панель и карточка не должны говорить «Сейчас нельзя», когда запрет снят.
+	if rep.Card.Status.ForbiddenNote != "Сегодня запретные часы не действуют" {
+		t.Fatalf("после снятия ForbiddenNote = %q", rep.Card.Status.ForbiddenNote)
+	}
 	// Вернуть запрет.
 	h.ok(adminPeer(), tok, ipc.CmdSetNoForbidden, ipc.SetNoForbiddenRequest{ChildID: id, On: false}, &rep)
 	if rep.Card.NoForbiddenToday {
 		t.Fatalf("после возврата NoForbiddenToday=true, want false")
+	}
+	if rep.Card.Status.ForbiddenNote != "Сейчас нельзя до 16:00" {
+		t.Fatalf("после возврата ForbiddenNote = %q, want «Сейчас нельзя до 16:00»", rep.Card.Status.ForbiddenNote)
 	}
 }
 

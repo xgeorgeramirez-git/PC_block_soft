@@ -475,7 +475,8 @@
     "reply": {
       "ok": true,
       "payload": {
-        "verbose": false
+        "verbose": false,
+        "logsPath": "C:\\ProgramData\\PCBlock\\logs"
       }
     }
   },
@@ -1768,7 +1769,8 @@
     "reply": {
       "ok": true,
       "payload": {
-        "verbose": true
+        "verbose": true,
+        "logsPath": "C:\\ProgramData\\PCBlock\\logs"
       }
     }
   },

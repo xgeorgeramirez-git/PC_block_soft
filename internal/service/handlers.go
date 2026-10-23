@@ -2,6 +2,7 @@ package service
 
 import (
 	"encoding/json"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -532,7 +533,12 @@ func (s *Service) hClearExtra(c *callCtx) ipc.Reply {
 
 // hGetDiag возвращает состояние переключателя подробных логов (FR-25, D-42).
 func (s *Service) hGetDiag(c *callCtx) ipc.Reply {
-	return ipc.OK(ipc.DiagReply{Verbose: s.verbose})
+	return ipc.OK(ipc.DiagReply{Verbose: s.verbose, LogsPath: s.logsDir()})
+}
+
+// logsDir — папка с логами службы, стража и значка (FR-25, D-48): показывается в настройках.
+func (s *Service) logsDir() string {
+	return filepath.Join(s.cfg.DataDir, "logs")
 }
 
 // hSetDiag включает или выключает подробные логи для диагностики (FR-25, D-42).
@@ -552,7 +558,7 @@ func (s *Service) hSetDiag(c *callCtx) ipc.Reply {
 		return ipc.Fail(textRetry)
 	}
 	s.cfg.Logf("Подробные логи для диагностики %s (FR-25, D-42)", state)
-	return ipc.OK(ipc.DiagReply{Verbose: s.verbose})
+	return ipc.OK(ipc.DiagReply{Verbose: s.verbose, LogsPath: s.logsDir()})
 }
 
 func (s *Service) hClearBlock(c *callCtx) ipc.Reply {

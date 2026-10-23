@@ -379,3 +379,25 @@ describe("Today: общее", () => {
     expect(mock.count("GetToday")).toBe(before + 1);
   });
 });
+
+describe("Today: снять запрет на сегодня (R24, D-51)", () => {
+  // Ловит: кнопка не шлёт команду или карточка не показывает, что запрет снят (класс A).
+  it("«Снять запрет на сегодня» → видно на карточке, есть «Вернуть запретные часы»", async () => {
+    const user = setup({ children: [mockChild({ schedule: [{ weekday: 1, startMin: 21 * 60, endMin: 7 * 60 }] })] });
+    const misha = await screen.findByRole("article", { name: "Миша" });
+    await user.click(within(misha).getByRole("button", { name: "Снять запрет на сегодня" }));
+    expect(mock.calls.find((c) => c.command === "SetNoForbidden")?.payload).toEqual({ childId: 1, on: true });
+    expect(await within(misha).findByRole("button", { name: "Вернуть запретные часы" })).toBeTruthy();
+    expect(within(misha).getAllByText("Сегодня запретные часы не действуют").length).toBeGreaterThan(0);
+    await user.click(within(misha).getByRole("button", { name: "Вернуть запретные часы" }));
+    expect(await within(misha).findByRole("button", { name: "Снять запрет на сегодня" })).toBeTruthy();
+    expect(mock.state.children[0].noForbiddenToday).toBe(false);
+  });
+
+  // Ловит: кнопка висит у ребёнка без запретных часов сегодня — снимать нечего.
+  it("нет запретных часов сегодня — кнопки нет", async () => {
+    setup({ children: [mockChild({ schedule: [] })] });
+    const misha = await screen.findByRole("article", { name: "Миша" });
+    expect(within(misha).queryByRole("button", { name: "Снять запрет на сегодня" })).toBeNull();
+  });
+});

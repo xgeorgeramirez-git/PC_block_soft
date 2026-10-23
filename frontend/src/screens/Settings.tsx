@@ -160,7 +160,12 @@ function DiagSection() {
   useEffect(() => {
     let alive = true;
     getDiag().then(
-      (d) => alive && setVerbose(d.verbose),
+      (d) => {
+        if (!alive) return;
+        setVerbose(d.verbose);
+        // D-48: путь к папке логов виден сразу, без нажатия «Открыть».
+        if (d.logsPath) setLogsPath(d.logsPath);
+      },
       () => alive && setError("Не удалось узнать состояние"),
     );
     return () => {
@@ -180,7 +185,7 @@ function DiagSection() {
     setLogsError("");
     try {
       const r = await openLogs();
-      setLogsPath(r.path);
+      if (r.path) setLogsPath(r.path);
     } catch (e) {
       setLogsError(errorText(e));
     }

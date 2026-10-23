@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { myToday } from "../api";
+import { getBonus, myToday } from "../api";
 import Notice from "../components/Notice";
+import PromoRedeem from "../components/PromoRedeem";
+import { historyText } from "../lib/bonus";
 import { childErrorText } from "../lib/errors";
-import { formatDuration, weekdayName } from "../lib/format";
+import { formatDuration, formatEventTime, formatLimit, weekdayName } from "../lib/format";
 import { summaryLines, todayRuleWeekday } from "../lib/mytoday";
-import type { MyTodayReply } from "../types";
+import type { GetBonusReply, MyTodayReply } from "../types";
 
 const LOAD_ERROR = "Не удалось получить данные. Попробуй через минуту";
 const NO_DATA = "За этот период пока нет данных";
@@ -16,6 +18,7 @@ const END_MODE = "Когда время выйдет, экран закроет�
 /** Окно «Моя статистика» (FR-12, R21, сценарий 8.2.6): только просмотр, свои данные, в M1 - сегодня и правила. */
 export default function MyStats() {
   const [data, setData] = useState<MyTodayReply | null>(null);
+  const [bonus, setBonus] = useState<GetBonusReply | null>(null);
   const [error, setError] = useState("");
   const alive = useRef(true);
 
@@ -27,6 +30,13 @@ export default function MyStats() {
     } catch (e) {
       // Сбой связи говорит «Не удалось получить данные»; слова самой программы оставляем (L-112).
       if (alive.current) setError(LOAD_ERROR_FOR(e));
+    }
+    // Своя копилка (номер 0 — «моя»): раздел «Бонусы» (R25, R26). Не вышло — раздел без истории.
+    try {
+      const b = await getBonus(0);
+      if (alive.current) setBonus(b);
+    } catch {
+      if (alive.current) setBonus(null);
     }
   }, []);
 
@@ -91,6 +101,7 @@ export default function MyStats() {
       ) : (
         <div id="period-panel" role="tabpanel" aria-labelledby="period-Сегодня">
           <Totals data={data} />
+          {data.status.status === "notChild" ? null : <Bonuses bonus={bonus} onChange={() => void load()} />}
           <Rules data={data} />
         </div>
       )}
@@ -134,6 +145,37 @@ export function Totals({ data }: { data: MyTodayReply }) {
           </dl>
         </>
       )}
+    </section>
+  );
+}
+
+/**
+ * «Бонусы» (R25, R26, D-49, D-50): копилка, автобонусы простыми словами и поле промокода —
+ * единственное поле окна «Моя статистика».
+ */
+export function Bonuses({ bonus, onChange }: { bonus: GetBonusReply | null; onChange: () => void }) {
+  const entries = bonus?.entries ?? [];
+  return (
+    <section className="panel stat-panel" aria-labelledby="my-bonuses">
+      <h3 id="my-bonuses" className="section-title">
+        Бонусы
+      </h3>
+      {bonus ? <p className="stat-lead">{`Копилка: ${formatLimit(bonus.balance)}`}</p> : null}
+      <p className="panel-text">
+        В полночь в копилку приходит бонус за неизрасходованное за день время. Если родитель дал тебе промокод,
+        введи его здесь: время сразу добавится к сегодняшнему дню.
+      </p>
+      <PromoRedeem onRedeemed={onChange} />
+      {entries.length > 0 ? (
+        <ul className="bonus-history" aria-label="История копилки">
+          {entries.slice(0, 20).map((e, i) => (
+            <li key={i} className="bonus-history-item">
+              <span>{formatEventTime(e.atMs, e.tzOffsetMin)}</span>
+              <span>{historyText(e)}</span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
     </section>
   );
 }

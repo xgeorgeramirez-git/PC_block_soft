@@ -233,6 +233,11 @@ interface CardProps {
   onStats?: () => void;
 }
 
+/** Есть что снимать (R24): сегодня впереди или сейчас идут запретные часы. */
+function hasForbiddenToday(card: TodayCard): boolean {
+  return card.status.lock === "forbidden" || card.status.forbiddenNote !== "";
+}
+
 function ChildCard({ card, extraHint, feedback, busy, onAdd, onReduce, onClear, onUndo, onPause, onGrant, onNoForbidden, onStats }: CardProps) {
   const s = card.status;
   const tone = statusTone(s.status);
@@ -320,11 +325,11 @@ function ChildCard({ card, extraHint, feedback, busy, onAdd, onReduce, onClear, 
             <button type="button" className="btn btn-muted" disabled={busy} onClick={() => onNoForbidden(false)} data-help-anchor="no-forbidden">
               Вернуть запретные часы
             </button>
-          ) : (
+          ) : hasForbiddenToday(card) ? (
             <button type="button" className="btn" disabled={busy} onClick={() => onNoForbidden(true)} data-help-anchor="no-forbidden">
               Снять запрет на сегодня
             </button>
-          )}
+          ) : null}
           {onStats ? (
             <button type="button" className="btn" disabled={busy} onClick={onStats}>
               Статистика

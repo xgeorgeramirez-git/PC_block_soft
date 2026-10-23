@@ -459,6 +459,10 @@ func (s *Service) statusOf(cs *childState) ipc.ChildStatus {
 // «Сегодня нельзя с 21:00 до 07:00». Пусто, если интервалов сегодня впереди нет.
 func (s *Service) forbiddenNote(cs *childState) string {
 	now := s.cfg.Clock.Now().In(s.cfg.Loc)
+	// Родитель снял запретные часы на сегодня (R24, D-51): не пугать «Сейчас нельзя» (класс A).
+	if state, _ := cs.eng.State(); state.NoForbidden && state.Day == now.Format(time.DateOnly) {
+		return "Сегодня запретные часы не действуют"
+	}
 	if in, end := core.InForbidden(cs.rules, now); in {
 		return "Сейчас нельзя до " + core.FormatClock(end)
 	}

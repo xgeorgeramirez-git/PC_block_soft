@@ -377,7 +377,8 @@ type ParentStatsRequest struct {
 
 // DiagReply — состояние переключателя «Подробные логи для диагностики» (FR-25, D-42).
 type DiagReply struct {
-	Verbose bool `json:"verbose"`
+	Verbose  bool   `json:"verbose"`
+	LogsPath string `json:"logsPath"` // папка с логами, показывается в настройках (D-48)
 }
 
 // SetDiagRequest — включить или выключить подробные логи (FR-25, D-42).

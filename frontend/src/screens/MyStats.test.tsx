@@ -37,11 +37,15 @@ describe("MyStats: окно только для чтения (R21)", () => {
   });
 
   // Ловит: в окне ребёнка появилось поле или список для ввода: он ничего не меняет (R21).
-  it("нет ни одного поля ввода", async () => {
+  // Единственное поле — «Ввести промокод» в разделе «Бонусы» (R26, D-50).
+  it("нет полей ввода, кроме промокода в «Бонусах»", async () => {
     setup();
     await screen.findByRole("region", { name: "Мои правила" });
-    expect(document.querySelectorAll("input, textarea, select, [contenteditable]")).toHaveLength(0);
-    expect(screen.queryByRole("textbox")).toBeNull();
+    const bonuses = await screen.findByRole("region", { name: "Бонусы" });
+    const fields = Array.from(document.querySelectorAll("input, textarea, select, [contenteditable]"));
+    expect(fields).toHaveLength(1);
+    expect(bonuses.contains(fields[0])).toBe(true);
+    expect(screen.getByRole("textbox", { name: "Промокод" })).toBeTruthy();
     expect(screen.queryByRole("checkbox")).toBeNull();
   });
 
@@ -54,14 +58,16 @@ describe("MyStats: окно только для чтения (R21)", () => {
     await screen.findByRole("region", { name: "Мои правила" });
     expect(document.body.textContent).toContain("Даша");
     expect(document.body.textContent).not.toContain("Миша");
-    // Окно спросило только свои данные и ничего из команд родителя.
-    expect(mock.calls.map((c) => c.command)).toEqual(["MyToday"]);
+    // Окно спросило только свои данные и ничего из команд родителя: копилку — номером 0 («моя»).
+    expect(new Set(mock.calls.map((c) => c.command))).toEqual(new Set(["MyToday", "GetBonus"]));
+    expect(mock.calls.filter((c) => c.command === "GetBonus").every((c) => !c.payload.childId)).toBe(true);
   });
 
-  it("не просит у программы ничего, кроме MyToday, и ничего не отправляет", async () => {
+  it("не просит у программы ничего, кроме MyToday и своей копилки, и ничего не отправляет", async () => {
     setup();
     await screen.findByRole("region", { name: "Мои правила" });
-    expect(new Set(mock.calls.map((c) => c.command))).toEqual(new Set(["MyToday"]));
+    await screen.findByRole("region", { name: "Бонусы" });
+    expect(new Set(mock.calls.map((c) => c.command))).toEqual(new Set(["MyToday", "GetBonus"]));
   });
 });
 
@@ -232,5 +238,65 @@ describe("MyStats: тексты для ребёнка", () => {
     const text = document.body.textContent ?? "";
     expect(text).not.toMatch(/[—–]/);
     expect(text).not.toMatch(YOU_FORM);
+  });
+});
+
+describe("MyStats: «Бонусы» (R25, R26, D-49, D-50)", () => {
+  const AUTO = "Бонус за свободное время: 15 мин";
+  const withBonus = () =>
+    setup({
+      children: [
+        mockChild({
+          bonusBalance: 45,
+          bonusLedger: [
+            { atMs: NOW.getTime() - 12 * 3600_000, tzOffsetMin: 180, deltaMin: 15, reason: AUTO, balanceAfter: 45 },
+            { atMs: NOW.getTime() - 36 * 3600_000, tzOffsetMin: 180, deltaMin: 30, reason: "за уборку", balanceAfter: 30 },
+          ],
+        }),
+      ],
+      promos: [{ codeDisplay: "A1234", minutes: 30, createdAtMs: NOW.getTime() - 3600_000 }],
+    });
+
+  // Ловит: ребёнок не видит, за что начислен автобонус (D-49).
+  it("баланс копилки и автобонус простыми словами", async () => {
+    withBonus();
+    const box = await screen.findByRole("region", { name: "Бонусы" });
+    expect(await within(box).findByText("Копилка: 45 мин")).toBeTruthy();
+    expect(within(box).getByText("+15 мин за неизрасходованное время прошлого дня")).toBeTruthy();
+    expect(within(box).getByText("+30 мин: за уборку")).toBeTruthy();
+    expect(box.textContent ?? "").not.toMatch(YOU_FORM);
+  });
+
+  // Ловит: верный код не добавляет время или сообщение не по ТЗ (FR-35: «Добавлено N минут»).
+  it("верный промокод: «Добавлено 30 минут»", async () => {
+    const user = withBonus();
+    const field = await screen.findByRole("textbox", { name: "Промокод" });
+    await user.type(field, " a1234 ");
+    await user.click(screen.getByRole("button", { name: "Ввести промокод" }));
+    expect(await screen.findByText("Добавлено 30 минут")).toBeTruthy();
+    expect(mock.state.children[0].extraMin).toBe(30);
+    expect(mock.calls.find((c) => c.command === "RedeemPromo")?.payload).toEqual({ childId: 0, code: " a1234 " });
+    expect((field as HTMLInputElement).value).toBe("");
+  });
+
+  // Ловит: повторный ввод того же кода снова добавляет время (одноразовость, R26).
+  it("неверный или использованный код: «Код не подходит», время не меняется", async () => {
+    const user = withBonus();
+    const field = await screen.findByRole("textbox", { name: "Промокод" });
+    await user.type(field, "a1234");
+    await user.click(screen.getByRole("button", { name: "Ввести промокод" }));
+    await screen.findByText("Добавлено 30 минут");
+    await user.type(field, "a1234");
+    await user.click(screen.getByRole("button", { name: "Ввести промокод" }));
+    expect(await screen.findByText("Код не подходит")).toBeTruthy();
+    expect(mock.state.children[0].extraMin).toBe(30);
+  });
+
+  it("пустой код: подсказка у поля, в программу не уходит", async () => {
+    const user = withBonus();
+    await screen.findByRole("textbox", { name: "Промокод" });
+    await user.click(screen.getByRole("button", { name: "Ввести промокод" }));
+    expect(screen.getByText("Введи код")).toBeTruthy();
+    expect(mock.count("RedeemPromo")).toBe(0);
   });
 });

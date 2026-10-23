@@ -1586,3 +1586,113 @@ p {
     transition: none;
   }
 }
+
+/* Фидбек-раунд 0.2.2: обнулить и убавить копилку (D-46), автобонусы (R25), промокоды (R26). */
+.bonus-adjust {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+
+.reduce-steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: var(--space-3) 0;
+}
+
+.reduce-step {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  cursor: pointer;
+}
+
+.reduce-step:has(input:checked) {
+  border-color: var(--primary);
+}
+
+.auto-bonus {
+  margin-top: var(--space-3);
+}
+
+.promo-admin {
+  margin-top: var(--space-4);
+}
+
+.promo-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-3);
+}
+
+.promo-form .field {
+  margin-bottom: 0;
+}
+
+.promo-minutes .field-input {
+  width: 5rem;
+}
+
+.promo-lists {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+  gap: var(--space-4);
+  margin-top: var(--space-4);
+}
+
+.promo-list-title {
+  margin: 0 0 var(--space-2);
+  font-size: 1rem;
+}
+
+.promo-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.promo-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+}
+
+.promo-item-used {
+  color: var(--text-muted);
+}
+
+.promo-code {
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.promo-when {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
+.promo-redeem {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-2);
+}
+
+.promo-redeem .field {
+  margin-bottom: 0;
+}

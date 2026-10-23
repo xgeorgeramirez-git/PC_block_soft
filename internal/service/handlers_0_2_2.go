@@ -2,7 +2,6 @@ package service
 
 import (
 	"fmt"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -192,7 +191,7 @@ func promoViewOf(p PromoRecord, usedByName string) ipc.PromoView {
 // --- FB-4: открыть папку логов (FR-25, D-48) ------------------------------------------
 
 func (s *Service) hOpenLogs(c *callCtx) ipc.Reply {
-	path := filepath.Join(s.cfg.DataDir, "logs")
+	path := s.logsDir()
 	if !s.cfg.Test.Enabled {
 		// В тестовом режиме реальный проводник не запускаем (раннер CI без рабочего стола).
 		if err := s.cfg.OpenFolder(path); err != nil {
