@@ -88,6 +88,10 @@ func TestPromoCreateRedeemOnce(t *testing.T) {
 	if rr.AddedMin != 30 || rr.Card.ExtraMin != 30 {
 		t.Fatalf("после промокода AddedMin=%d, ExtraMin=%d, want 30 и 30", rr.AddedMin, rr.Card.ExtraMin)
 	}
+	// FR-35: сообщение ребёнку «Добавлено N минут».
+	if rr.Message != "Добавлено 30 минут" {
+		t.Fatalf("сообщение после промокода %q, want «Добавлено 30 минут»", rr.Message)
+	}
 	// Повторный ввод — «Код не подходит».
 	bad := h.fail(childPeer(), "", ipc.CmdRedeemPromo, ipc.RedeemPromoRequest{ChildID: id, Code: "a1234"})
 	if bad.Field != ipc.FieldCode {
@@ -161,5 +165,25 @@ func TestOpenLogsPath(t *testing.T) {
 	h.ok(adminPeer(), tok, ipc.CmdOpenLogs, ipc.Empty{}, &rep)
 	if rep.Path == "" {
 		t.Fatalf("пустой путь к логам")
+	}
+}
+
+// Ловит: окно ребёнка («Моя статистика» → «Бонусы») не может прочитать свою копилку, потому
+// что не знает свой номер; или ребёнок читает чужую копилку (FB-5, R25, D-49).
+func TestGetBonusChildSelfWithoutID(t *testing.T) {
+	h := newHarness(t, configured(), withChild(childSID, "Миша", 600))
+	h.start()
+	h.svc.Housekeep(h.real.Now())
+	tok := h.login(adminPeer())
+	id := h.childID(childSID)
+	h.ok(adminPeer(), tok, ipc.CmdGrantBonus, ipc.GrantBonusRequest{ChildID: id, Minutes: 20, Reason: "за уборку"}, nil)
+
+	var mine ipc.GetBonusReply
+	h.ok(childPeer(), "", ipc.CmdGetBonus, ipc.GetBonusRequest{}, &mine)
+	if mine.ChildID != id || mine.Balance != 20 || len(mine.Entries) != 1 {
+		t.Fatalf("своя копилка без номера: %+v", mine)
+	}
+	if f := h.fail(childPeer(), "", ipc.CmdGetBonus, ipc.GetBonusRequest{ChildID: id + 100}); f.Error == "" {
+		t.Fatalf("ребёнок прочитал чужую копилку")
 	}
 }

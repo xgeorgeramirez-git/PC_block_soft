@@ -172,7 +172,7 @@ func examples() map[string]example {
 		}),
 		"ListPromos#empty": ok(Empty{}, ListPromosReply{Active: []PromoView{}, Used: []PromoView{}}),
 		CmdRedeemPromo: ok(RedeemPromoRequest{ChildID: 1, Code: "a1234"}, RedeemPromoReply{
-			Card: card(okStatus(), 30, false), AddedMin: 30, Message: "Промокод принят: +30 минут",
+			Card: card(okStatus(), 30, false), AddedMin: 30, Message: "Добавлено 30 минут",
 		}),
 		"RedeemPromo#bad": fail(RedeemPromoRequest{ChildID: 1, Code: "нет"}, "Код не подходит", FieldCode, nil),
 		CmdGetBonusRate:   ok(Empty{}, BonusRateReply{Minutes: 5}),

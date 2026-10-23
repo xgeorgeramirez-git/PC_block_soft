@@ -74,7 +74,7 @@ type RedeemPromoRequest struct {
 type RedeemPromoReply struct {
 	Card     TodayCard `json:"card"`
 	AddedMin int       `json:"addedMin"`
-	Message  string    `json:"message"` // «Промокод принят: +30 мин»
+	Message  string    `json:"message"` // «Добавлено 30 минут» (FR-35)
 }
 
 // OpenLogsReply — путь к папке логов и подтверждение открытия (FR-25, D-48).

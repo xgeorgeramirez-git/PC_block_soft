@@ -192,6 +192,10 @@ func (s *Service) hGetBonus(c *callCtx) ipc.Reply {
 		return bad()
 	}
 	// Ребёнок своего сеанса читает только свою копилку (childSelf); родитель — любую.
+	// Номер 0 от ребёнка значит «моя копилка»: окно «Моя статистика» своего номера не знает (FB-5).
+	if c.self != nil && req.ChildID == 0 {
+		req.ChildID = c.self.child.ID
+	}
 	cs := s.children[req.ChildID]
 	if c.self != nil && (cs == nil || cs.child.ID != c.self.child.ID) {
 		return ipc.Fail(textNoSuchChild)

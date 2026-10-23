@@ -174,11 +174,10 @@ func (s *Service) hRedeemPromo(c *callCtx) ipc.Reply {
 	}
 	s.afterDecision(cs, d, map[string]any{"code": display})
 	s.saveDay(cs)
-	s.noticeGuards(cs, fmt.Sprintf("Промокод принят: +%s", minutesText(minutes)))
-	return ipc.OK(ipc.RedeemPromoReply{
-		Card: s.cardOf(cs), AddedMin: minutes,
-		Message: fmt.Sprintf("Промокод принят: +%s", minutesText(minutes)),
-	})
+	// FR-35: ребёнок видит «Добавлено N минут» (и в окне, и плашкой стража).
+	msg := "Добавлено " + minutesText(minutes)
+	s.noticeGuards(cs, msg)
+	return ipc.OK(ipc.RedeemPromoReply{Card: s.cardOf(cs), AddedMin: minutes, Message: msg})
 }
 
 // promoViewOf приводит запись промокода к виду для окна; usedByName — имя ребёнка в
