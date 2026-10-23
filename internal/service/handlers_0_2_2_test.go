@@ -187,3 +187,23 @@ func TestGetBonusChildSelfWithoutID(t *testing.T) {
 		t.Fatalf("ребёнок прочитал чужую копилку")
 	}
 }
+
+// Ловит: история копилки уходит в окно без часового пояса — время записи показывается по UTC
+// (в Москве на 3 часа раньше), а «Бонусы» за прошедший день попадают не в тот день.
+func TestGetBonusEntriesCarryLocalOffset(t *testing.T) {
+	h := newHarness(t, configured(), withChild(childSID, "Миша", 600))
+	h.start()
+	h.svc.Housekeep(h.real.Now())
+	tok := h.login(adminPeer())
+	id := h.childID(childSID)
+	h.ok(adminPeer(), tok, ipc.CmdGrantBonus, ipc.GrantBonusRequest{ChildID: id, Minutes: 20, Reason: "за уборку"}, nil)
+	var got ipc.GetBonusReply
+	h.ok(adminPeer(), tok, ipc.CmdGetBonus, ipc.GetBonusRequest{ChildID: id}, &got)
+	if len(got.Entries) != 1 {
+		t.Fatalf("записей %d, want 1", len(got.Entries))
+	}
+	_, off := time.UnixMilli(got.Entries[0].AtMs).In(h.svc.cfg.Loc).Zone()
+	if got.Entries[0].TzOffset != off/60 {
+		t.Fatalf("tzOffsetMin = %d, want %d (пояс службы)", got.Entries[0].TzOffset, off/60)
+	}
+}

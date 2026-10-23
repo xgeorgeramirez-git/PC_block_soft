@@ -213,7 +213,9 @@ func (s *Service) hGetBonus(c *callCtx) ipc.Reply {
 	}
 	entries := make([]ipc.BonusEntry, 0, len(recs))
 	for _, r := range recs {
-		entries = append(entries, ipc.BonusEntry{AtMs: r.AtMs, DeltaMin: r.DeltaMin, Reason: r.Reason, Balance: r.Balance})
+		// Пояс службы на момент записи: окно показывает время записи по местным часам.
+		_, off := time.UnixMilli(r.AtMs).In(s.cfg.Loc).Zone()
+		entries = append(entries, ipc.BonusEntry{AtMs: r.AtMs, TzOffset: off / 60, DeltaMin: r.DeltaMin, Reason: r.Reason, Balance: r.Balance})
 	}
 	return ipc.OK(ipc.GetBonusReply{ChildID: cs.child.ID, Balance: bal, Entries: entries})
 }
