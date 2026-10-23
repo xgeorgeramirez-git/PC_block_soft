@@ -23,6 +23,7 @@ function card(over: Partial<ReturnType<typeof mockChild>> = {}): TodayCard {
     extraMin: child.extraMin,
     bonusBalance: 0,
     canClearBlock: false,
+    noForbiddenToday: false,
   };
 }
 

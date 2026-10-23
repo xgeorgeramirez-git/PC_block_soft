@@ -276,6 +276,7 @@ function cardOf(child: MockChild, nowMs: number): TodayCard {
     extraMin: child.extraMin,
     bonusBalance: child.bonusBalance ?? 0,
     canClearBlock: false,
+    noForbiddenToday: false,
   };
 }
 

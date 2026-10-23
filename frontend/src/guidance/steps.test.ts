@@ -20,6 +20,7 @@ function card(over: Parameters<typeof mockChild>[0] = {}): TodayCard {
     extraMin: child.extraMin,
     bonusBalance: 0,
     canClearBlock: false,
+    noForbiddenToday: false,
   };
 }
 
