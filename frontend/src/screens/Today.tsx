@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { addExtra, clearExtra, getToday, grantBonus, listEvents, pause, reduceExtra, undoExtra } from "../api";
+import { addExtra, clearExtra, getToday, grantBonus, listEvents, pause, reduceExtra, setNoForbidden, undoExtra } from "../api";
 import Notice from "../components/Notice";
 import PausePicker from "../components/PausePicker";
 import ServiceNotices from "../components/ServiceNotices";
@@ -138,6 +138,13 @@ export default function Today({ onOpenJournal, onOpenSettings, onOpenChildren, o
       await load();
     });
 
+  const noForbidden = (card: TodayCard, on: boolean) =>
+    run(card.childId, async () => {
+      const reply = await setNoForbidden(card.childId, on);
+      replaceCard(reply.card);
+      say(card.childId, reply.message);
+    });
+
   // Подсказка про кнопки «+15» одна на экран: встаёт у первой карточки, где такие кнопки есть.
   const extraHintChild = cards?.find((c) => canAddTime(c.status.status))?.childId;
 
@@ -198,6 +205,7 @@ export default function Today({ onOpenJournal, onOpenSettings, onOpenChildren, o
                   onUndo={(id) => void undo(card, id)}
                   onPause={(p) => void pauseChild(card, p)}
                   onGrant={(m) => void grant(card, m)}
+                  onNoForbidden={(on) => void noForbidden(card, on)}
                   onStats={onOpenStats ? () => onOpenStats(card.childId) : undefined}
                 />
               ))}
@@ -221,10 +229,11 @@ interface CardProps {
   onUndo: (extraId: string) => void;
   onPause: (preset: PausePreset) => void;
   onGrant: (minutes: number) => void;
+  onNoForbidden: (on: boolean) => void;
   onStats?: () => void;
 }
 
-function ChildCard({ card, extraHint, feedback, busy, onAdd, onReduce, onClear, onUndo, onPause, onGrant, onStats }: CardProps) {
+function ChildCard({ card, extraHint, feedback, busy, onAdd, onReduce, onClear, onUndo, onPause, onGrant, onNoForbidden, onStats }: CardProps) {
   const s = card.status;
   const tone = statusTone(s.status);
   const limited = hasTimeLimits(s.status);
@@ -307,12 +316,24 @@ function ChildCard({ card, extraHint, feedback, busy, onAdd, onReduce, onClear, 
           <button type="button" className="btn" disabled={busy} onClick={() => onGrant(30)} data-help-anchor="child-card-bonus">
             В копилку +30
           </button>
+          {card.noForbiddenToday ? (
+            <button type="button" className="btn btn-muted" disabled={busy} onClick={() => onNoForbidden(false)} data-help-anchor="no-forbidden">
+              Вернуть запретные часы
+            </button>
+          ) : (
+            <button type="button" className="btn" disabled={busy} onClick={() => onNoForbidden(true)} data-help-anchor="no-forbidden">
+              Снять запрет на сегодня
+            </button>
+          )}
           {onStats ? (
             <button type="button" className="btn" disabled={busy} onClick={onStats}>
               Статистика
             </button>
           ) : null}
         </div>
+        {card.noForbiddenToday ? (
+          <p className="child-meta">Сегодня запретные часы не действуют</p>
+        ) : null}
       </div>
 
       {extraHint ? <HintSlot anchor="extra-buttons" /> : null}

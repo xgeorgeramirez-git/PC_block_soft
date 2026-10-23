@@ -56,7 +56,7 @@ describe("Journal", () => {
     expect(await screen.findByText("Пока событий нет")).toBeTruthy();
   });
 
-  it("запрашивает события без ограничений по ребёнку и периоду", async () => {
+  it("запрашивает события без ограничений по ребёнку (период фильтруется на экране)", async () => {
     mock = installBackend({ sessionActive: true });
     render(<Journal />);
     await screen.findByText("Пока событий нет");
@@ -64,8 +64,28 @@ describe("Journal", () => {
       childId: 0,
       fromMs: 0,
       toMs: 0,
-      limit: 200,
+      limit: 1000,
     });
+  });
+
+  // Вкладки периода (FR-24, D-47): переключение сужает список по времени.
+  it("вкладки периода: «Сегодня» прячет старые события, «Всё» показывает", async () => {
+    const now = Date.now();
+    installBackend({
+      sessionActive: true,
+      events: [
+        event({ atMs: now - 1000, kind: "extra_time", text: "Миша: доп. время +30 мин (сегодня)" }),
+        event({ atMs: Date.UTC(2026, 0, 2, 10, 0), kind: "extra_time", text: "Миша: давнее событие" }),
+      ],
+    });
+    const user = userEvent.setup();
+    render(<Journal />);
+    // По умолчанию «Всё» — видны оба.
+    expect(await screen.findByText(/сегодня/)).toBeTruthy();
+    expect(screen.getByText(/давнее событие/)).toBeTruthy();
+    await user.click(screen.getByRole("tab", { name: "Сегодня" }));
+    expect(screen.getByText(/сегодня/)).toBeTruthy();
+    expect(screen.queryByText(/давнее событие/)).toBeNull();
   });
 
   it("нет связи: простыми словами и «Повторить»", async () => {

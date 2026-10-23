@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
-import { changePassword, getDiag, getToday, listAccounts, pauseAll, setChildren, setDiag, version } from "../api";
+import { changePassword, getBonusRate, getDiag, getToday, listAccounts, openLogs, pauseAll, setBonusRate, setChildren, setDiag, version } from "../api";
 import { useHelperSwitch } from "../guidance/useHelperSwitch";
 import Dialog from "../components/Dialog";
 import Notice from "../components/Notice";
@@ -56,10 +56,97 @@ export default function Settings({ onOpenChildren }: { onOpenChildren?: () => vo
         }}
       />
       <PauseAllSection />
+      <BonusRateSection />
       <HelperSection />
       <DiagSection />
       <AboutSection />
     </div>
+  );
+}
+
+// --- Автобонус за неизрасходованное время (FR-25, R25, D-49) --------------------------
+
+function BonusRateSection() {
+  const [minutes, setMinutes] = useState<number | null>(null);
+  const [value, setValue] = useState("");
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    getBonusRate().then(
+      (r) => {
+        if (!alive) return;
+        setMinutes(r.minutes);
+        setValue(String(r.minutes));
+      },
+      () => alive && setError("Не удалось прочитать настройку"),
+    );
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  // Поле принимает только цифры 0..600 (FB-1: ввести неверное нельзя).
+  const onInput = (raw: string) => {
+    const digits = raw.replace(/[^\d]/g, "");
+    let n = digits === "" ? 0 : Number.parseInt(digits, 10);
+    if (n > 600) n = 600;
+    setValue(digits === "" ? "" : String(n));
+    setMessage("");
+  };
+
+  const save = async () => {
+    const n = value === "" ? 0 : Number.parseInt(value, 10);
+    setBusy(true);
+    setError("");
+    try {
+      const r = await setBonusRate(n);
+      setMinutes(r.minutes);
+      setValue(String(r.minutes));
+      setMessage(r.minutes === 0 ? "Автобонус выключен" : `Сохранено: ${r.minutes} мин за каждые 10 минут`);
+    } catch (e) {
+      setError(errorText(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <section className="panel" aria-labelledby="settings-bonus-rate" data-help-anchor="bonus-rate">
+      <h3 id="settings-bonus-rate" className="section-title">
+        Бонус за неизрасходованное время
+      </h3>
+      <p className="panel-text">
+        В конце дня копилка пополняется за время, которое ребёнок не потратил. За каждые полные 10 минут остатка —
+        столько минут бонуса, сколько указано ниже. Ставьте 0, чтобы выключить.
+      </p>
+      <label className="child-custom-label">
+        Минут бонуса за каждые 10 минут:
+        <input
+          type="number"
+          min={0}
+          max={600}
+          inputMode="numeric"
+          className="child-custom-input"
+          value={value}
+          disabled={minutes === null || busy}
+          onChange={(e) => onInput(e.target.value)}
+        />
+      </label>
+      <div className="form-actions">
+        <button type="button" className="btn btn-primary" disabled={minutes === null || busy} onClick={() => void save()}>
+          Сохранить
+        </button>
+      </div>
+      {message ? (
+        <p className="panel-note" role="status">
+          {message}
+        </p>
+      ) : null}
+      {error ? <p className="field-error">{error}</p> : null}
+    </section>
   );
 }
 
@@ -68,6 +155,8 @@ export default function Settings({ onOpenChildren }: { onOpenChildren?: () => vo
 function DiagSection() {
   const [verbose, setVerbose] = useState<boolean | null>(null);
   const [error, setError] = useState("");
+  const [logsPath, setLogsPath] = useState("");
+  const [logsError, setLogsError] = useState("");
   useEffect(() => {
     let alive = true;
     getDiag().then(
@@ -87,8 +176,17 @@ function DiagSection() {
       setError(errorText(e));
     }
   };
+  const open = async () => {
+    setLogsError("");
+    try {
+      const r = await openLogs();
+      setLogsPath(r.path);
+    } catch (e) {
+      setLogsError(errorText(e));
+    }
+  };
   return (
-    <section className="panel" aria-labelledby="settings-diag">
+    <section className="panel" aria-labelledby="settings-diag" data-help-anchor="logs-folder">
       <h3 id="settings-diag" className="section-title">
         Подробные логи для диагностики
       </h3>
@@ -105,6 +203,13 @@ function DiagSection() {
         Включите, если просят для поиска проблемы: пишет подробные технические строки в файл журнала работы. Обычно выключено.
       </p>
       {error ? <p className="field-error">{error}</p> : null}
+      <div className="form-actions">
+        <button type="button" className="btn" onClick={() => void open()}>
+          Открыть папку с логами
+        </button>
+      </div>
+      {logsPath ? <p className="field-hint">{`Папка с логами: ${logsPath}`}</p> : null}
+      {logsError ? <p className="field-error">{logsError}</p> : null}
     </section>
   );
 }
