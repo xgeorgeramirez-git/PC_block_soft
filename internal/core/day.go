@@ -14,6 +14,7 @@ type DayState struct {
 	ExtraMin     int
 	PauseUntilMs *int64 // момент конца паузы, UTC мс; nil — паузы нет (R11)
 	NoForbidden  bool   // запретные часы сняты родителем на этот день (R24, D-51); новый день — false
+	BonusGranted bool   // автобонус за этот день уже начислен (R25, D-49); защита от повторного начисления
 }
 
 // DayOf возвращает дату дня момента t по его поясу в формате YYYY-MM-DD (ТЗ 4).

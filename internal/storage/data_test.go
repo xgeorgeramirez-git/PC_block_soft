@@ -374,6 +374,33 @@ func TestSaveLoadDayStateRoundTrip(t *testing.T) {
 	}
 }
 
+// Ловит: новые флаги дня (bonus_granted — автобонус начислен, no_forbidden — запрет снят
+// на сегодня) не сохраняются или путаются местами; по умолчанию день — без флагов.
+func TestSaveLoadDayStateFlags(t *testing.T) {
+	s := openTemp(t)
+	id := mustChild(t, s, "S-1-5-21-1", "Миша")
+	// Строки нет — оба флага false.
+	if got, _ := s.LoadDayState(id, day1); got.BonusGranted || got.NoForbidden {
+		t.Errorf("пустой день = %+v; want оба флага false", got)
+	}
+	st := core.DayState{Day: day1, TotalS: 1200, BonusGranted: true, NoForbidden: true}
+	if err := s.SaveDayState(id, st); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := s.LoadDayState(id, day1); err != nil || got != st {
+		t.Errorf("LoadDayState = %+v, %v; want %+v", got, err, st)
+	}
+	// Снять оба флага перезаписью (ON CONFLICT обновляет столбцы).
+	st.BonusGranted = false
+	st.NoForbidden = false
+	if err := s.SaveDayState(id, st); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := s.LoadDayState(id, day1); got.BonusGranted || got.NoForbidden {
+		t.Errorf("после снятия = %+v; want оба флага false", got)
+	}
+}
+
 // Ловит: в день попадает мусор (пусто, «19.10.2026», 2026-13-45), по которому ядро потом не
 // найдёт сегодняшнюю строку и начнёт день с нуля.
 func TestSaveDayStateRejectsBadDay(t *testing.T) {
