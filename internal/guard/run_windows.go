@@ -263,8 +263,8 @@ func (a *app) enter() {
 // окон не ждал ответа (иначе перехват клавиш не успевал бы отвечать системе).
 func (a *app) press(b Button) {
 	pw := ""
-	if b == ButtonSubmitPassword && a.ui != nil {
-		pw = a.ui.passwordText()
+	if (b == ButtonSubmitPassword || b == ButtonSubmitPromo) && a.ui != nil {
+		pw = a.ui.passwordText() // пароль или промокод: поле одно, режим задаёт панель
 	}
 	act := a.ctl.Press(b, pw)
 	if act.Kind != ActNone {
@@ -273,7 +273,15 @@ func (a *app) press(b Button) {
 	a.tick()
 }
 
-func (a *app) onEdit(text string) { a.ctl.SetField(FieldPasswordID, text) }
+// onEdit запоминает текст поля для GuardState (только тестовый режим) под именем поля открытой
+// панели: пароль или промокод.
+func (a *app) onEdit(text string) {
+	id := FieldPasswordID
+	if a.ui != nil && a.ui.view.Panel == PanelPromo {
+		id = FieldPromoID
+	}
+	a.ctl.SetField(id, text)
+}
 
 // tick приводит окна к виду из Model.
 func (a *app) tick() {

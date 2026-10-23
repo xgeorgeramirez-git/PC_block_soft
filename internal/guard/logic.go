@@ -2,6 +2,7 @@ package guard
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -50,6 +51,8 @@ const (
 	ButtonWarningOK              // «Понятно» на плашке предупреждения
 	ButtonAskMore                // «Попросить ещё» на экране (FR-10): открывает панель пароля
 	ButtonSpendBonus             // «Взять из копилки» на экране (FR-11): без пароля
+	ButtonPromo                  // «Ввести промокод» на экране (FR-35, R26): открывает поле кода
+	ButtonSubmitPromo            // «Применить» на панели промокода (Enter)
 )
 
 // Panel — панель поверх экрана блокировки; одновременно открыта одна.
@@ -62,6 +65,7 @@ const (
 	PanelParentChoices                // выбор действия после верного пароля
 	PanelConfirmLogoff                // «Несохранённые документы закроются. Выйти?»
 	PanelConfirmShutdown              // «Несохранённые документы закроются. Выключить компьютер?»
+	PanelPromo                        // поле промокода (FR-35, R26): текст виден, без пароля
 )
 
 // ActionKind — что окну стража делать после нажатия: исполняет окно (T10b) через службу.
@@ -78,6 +82,7 @@ const (
 	ActShutdown                        // попросить службу выключить компьютер
 	ActSwitchUser                      // попросить службу отключить сеанс без завершения: экран выбора пользователя Windows
 	ActSpendBonus                      // попросить службу взять Minutes минут из копилки (FR-11, без пароля)
+	ActRedeemPromo                     // отправить службе промокод Code, ответ вернуть в OnPromoResult (R26)
 )
 
 // Action — результат нажатия. Пароль есть только у ActCheckPassword и только в этом
@@ -86,6 +91,15 @@ type Action struct {
 	Kind     ActionKind
 	Password string
 	Minutes  int
+	Code     string // промокод как набран (ActRedeemPromo); нормализует служба (R26)
+}
+
+// PromoResult — ответ службы на промокод (R26): принят с Minutes минутами или отказ с текстом
+// для ребёнка («Код не подходит»).
+type PromoResult struct {
+	OK      bool
+	Minutes int
+	Error   string
 }
 
 // ButtonView — кнопка для рисования.
@@ -123,7 +137,12 @@ type View struct {
 	// «Продолжить» и «Отмена», после пароля выбор действия, в подтверждении «Выйти» или «Выключить» и «Отмена».
 	Choices []ButtonView
 
-	PasswordEnabled   bool   // поле пароля доступно
+	PasswordEnabled bool // поле ввода (пароль или промокод) доступно
+	// FieldPlain: поле показывает набранное как есть (промокод); иначе точками (пароль).
+	FieldPlain bool
+	// FieldLabel — подпись над полем: «Пароль родителя» или «Промокод» (без подписи неясно,
+	// что вводить, B-12).
+	FieldLabel        string
 	PasswordError     string // ошибка у поля («Введите пароль», «Неверный пароль…», пауза)
 	PasswordCountdown string // м:сс до конца паузы, пока поле недоступно
 	// PasswordClearSeq растёт каждый раз, когда поле пароля надо очистить (панель
@@ -165,6 +184,10 @@ const (
 	textWarn5            = "Через 5 минут время закончится. Сохрани игру"
 	textWarn1            = "Осталась 1 минута: "
 	textChildAskParent   = "Попроси родителя, если нужно больше времени"
+	textPromo            = "Ввести промокод"
+	textSubmitPromo      = "Применить"
+	textPromoLabel       = "Промокод"
+	textEnterCode        = "Введи код"
 )
 
 // isExitButton — кнопка выхода экрана блокировки (не даёт доступа ко времени): выход из
@@ -246,6 +269,7 @@ type Model struct {
 
 	panel        Panel
 	pwdErr       string    // ошибка у поля, кроме паузы
+	promoErr     string    // ошибка у поля промокода («Код не подходит», «Введи код»)
 	blockedUntil time.Time // конец паузы пароля; нулевое значение: паузы нет
 	clearSeq     int
 
@@ -286,6 +310,7 @@ func (m *Model) paused(now time.Time) bool {
 func (m *Model) resetPanels() {
 	m.panel = PanelNone
 	m.pwdErr = ""
+	m.promoErr = ""
 }
 
 // resetUI сбрасывает всё, что относится к показанному: панели, паузу, плашку. Вызывается,
@@ -469,6 +494,32 @@ func (m *Model) OnExtraAdded(now time.Time, minutes int) {
 	m.newPlate(now, plateAdded, 0, minutes)
 }
 
+// OnPromoResult принимает ответ службы на промокод (R26). Принят: панель закрывается и, как
+// после доп. времени, готовится плашка «Добавлено N минут» (видна, когда экран снят). Отказ:
+// текст службы у поля, панель остаётся, набранный код не стирается (можно поправить опечатку).
+// Если панель промокода уже закрыта («Отмена»), отказ игнорируется.
+func (m *Model) OnPromoResult(now time.Time, r PromoResult) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.advance(now)
+	if r.OK {
+		if !m.hasDec || m.hidden || m.offlineAt(now) || r.Minutes <= 0 {
+			return
+		}
+		m.resetPanels()
+		m.clearSeq++
+		m.newPlate(now, plateAdded, 0, r.Minutes)
+		return
+	}
+	if m.panel != PanelPromo || !m.screenShown(now) {
+		return
+	}
+	m.promoErr = r.Error
+	if m.promoErr == "" {
+		m.promoErr = "Код не подходит"
+	}
+}
+
 // TakeEvents возвращает накопленные события журнала и очищает очередь; пустой результат
 // это [], не nil.
 func (m *Model) TakeEvents() []Event {
@@ -524,9 +575,30 @@ func (m *Model) Press(now time.Time, b Button, password string) Action {
 		return m.pressConfirmLogoff(b)
 	case PanelConfirmShutdown:
 		return m.pressConfirmShutdown(b)
+	case PanelPromo:
+		return m.pressPromo(b, password)
 	default:
 		return m.pressScreen(b)
 	}
+}
+
+// pressPromo: панель промокода. «Применить» отправляет код службе (без пароля родителя,
+// R26); пустой код — подсказка у поля. code — то, что набрано в поле.
+func (m *Model) pressPromo(b Button, code string) Action {
+	switch b {
+	case ButtonCancel:
+		m.panel = PanelNone
+		m.promoErr = ""
+		m.clearSeq++
+	case ButtonSubmitPromo:
+		if strings.TrimSpace(code) == "" {
+			m.promoErr = textEnterCode
+			return Action{}
+		}
+		m.promoErr = ""
+		return Action{Kind: ActRedeemPromo, Code: code}
+	}
+	return Action{}
 }
 
 func (m *Model) pressScreen(b Button) Action {
@@ -544,6 +616,15 @@ func (m *Model) pressScreen(b Button) Action {
 			return Action{}
 		}
 		return Action{Kind: ActSpendBonus, Minutes: m.dec.BonusBalance}
+	case ButtonPromo:
+		// Промокод доступен и в запретный интервал: время добавится, но экран останется до
+		// конца интервала (ТЗ 8.2.3 п.3, R26). При обходе кнопки нет.
+		if m.dec.Lock == core.LockBypass {
+			return Action{}
+		}
+		m.panel = PanelPromo
+		m.promoErr = ""
+		m.clearSeq++
 	case ButtonLogoff:
 		m.panel = PanelConfirmLogoff
 	case ButtonShutdown:
@@ -667,6 +748,13 @@ func (m *Model) View(now time.Time) View {
 		v.Buttons = m.lockButtons(d)
 	case PanelPassword:
 		m.passwordView(now, &v)
+	case PanelPromo:
+		v.PasswordEnabled, v.FieldPlain, v.FieldLabel = true, true, textPromoLabel
+		v.PasswordError = m.promoErr
+		v.Choices = []ButtonView{
+			{Button: ButtonSubmitPromo, Label: textSubmitPromo, Main: true, Enabled: true},
+			{Button: ButtonCancel, Label: textCancel, Enabled: true},
+		}
 	case PanelParentChoices:
 		v.Choices = m.choicesView()
 	case PanelConfirmLogoff:
@@ -714,11 +802,13 @@ func (m *Model) lockButtons(d core.Decision) []ButtonView {
 		}
 		out = append(out, bonus)
 	}
+	out = append(out, ButtonView{Button: ButtonPromo, Label: textPromo, Enabled: true})
 	out = append(out, ButtonView{Button: ButtonParentPassword, Label: textParentPassword, Enabled: true})
 	return append(out, exits...)
 }
 
 func (m *Model) passwordView(now time.Time, v *View) {
+	v.FieldLabel = textParentPassword
 	submit := ButtonView{Button: ButtonSubmitPassword, Label: textSubmit, Main: true, Enabled: true}
 	if m.paused(now) {
 		secs := secondsCeil(m.blockedUntil.Sub(now))

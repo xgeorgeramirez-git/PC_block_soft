@@ -173,9 +173,12 @@ func (s *Service) hRedeemPromo(c *callCtx) ipc.Reply {
 	}
 	s.afterDecision(cs, d, map[string]any{"code": display})
 	s.saveDay(cs)
-	// FR-35: ребёнок видит «Добавлено N минут» (и в окне, и плашкой стража).
+	// FR-35: ребёнок видит «Добавлено N минут». Код с экрана блокировки — плашку страж
+	// показывает сам (дублей нет); код из окна ребёнка — стражу команда-плашка.
 	msg := "Добавлено " + minutesText(minutes)
-	s.noticeGuards(cs, msg)
+	if c.kind != kindGuard {
+		s.noticeGuards(cs, msg)
+	}
 	return ipc.OK(ipc.RedeemPromoReply{Card: s.cardOf(cs), AddedMin: minutes, Message: msg})
 }
 

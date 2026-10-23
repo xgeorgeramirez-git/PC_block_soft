@@ -214,3 +214,29 @@ func TestGetBonusEntriesCarryLocalOffset(t *testing.T) {
 		t.Fatalf("tzOffsetMin = %d, want %d (пояс службы)", got.Entries[0].TzOffset, off/60)
 	}
 }
+
+// Ловит: промокод, введённый на экране блокировки, даёт стражу вторую плашку «Добавлено…»
+// (страж показывает её сам), а введённый в окне ребёнка — не доходит до стража (FR-35, R26).
+func TestRedeemPromoNoticeOnlyFromWindow(t *testing.T) {
+	h := newHarness(t, withChild(childSID, "Миша", 120), configured())
+	h.start()
+	h.childLogsIn()
+	tok := h.login(adminPeer())
+	h.ok(adminPeer(), tok, ipc.CmdCreatePromo, ipc.CreatePromoRequest{Code: "one", Minutes: 15}, nil)
+	h.ok(adminPeer(), tok, ipc.CmdCreatePromo, ipc.CreatePromoRequest{Code: "two", Minutes: 20}, nil)
+	_ = h.poll(activeSample) // сбросить накопленное
+
+	var rr ipc.RedeemPromoReply
+	h.ok(guardPeer(), "", ipc.CmdRedeemPromo, ipc.RedeemPromoRequest{Code: "one"}, &rr)
+	if rr.AddedMin != 15 {
+		t.Fatalf("со стража: AddedMin=%d, want 15", rr.AddedMin)
+	}
+	if rep := h.poll(activeSample); len(rep.Commands) != 0 {
+		t.Fatalf("промокод со стража дал команды стражу (дубль плашки): %+v", rep.Commands)
+	}
+	h.ok(childPeer(), "", ipc.CmdRedeemPromo, ipc.RedeemPromoRequest{Code: "two"}, &rr)
+	rep := h.poll(activeSample)
+	if len(rep.Commands) != 1 || rep.Commands[0].Kind != ipc.GuardCmdNotice || rep.Commands[0].Text != "Добавлено 20 минут" {
+		t.Fatalf("промокод из окна: команды стражу %+v", rep.Commands)
+	}
+}

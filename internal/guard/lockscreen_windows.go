@@ -44,6 +44,9 @@ type lockUI struct {
 	hasFrame bool
 	frameErr bool
 	edit     uintptr
+	maskChar uintptr // символ точек поля пароля (EM_GETPASSWORDCHAR при создании)
+	masked   bool    // поле сейчас прячет текст точками
+	maskSet  bool    // режим поля уже задан
 	buttons  map[Button]uintptr
 	views    map[Button]ButtonView
 
@@ -139,9 +142,10 @@ func (u *lockUI) layout() {
 	addText(v.PanelText, u.fonts.body, colorText, s(32))
 	addText(u.notice, u.fonts.small, colorErrorText, s(16))
 
-	if v.Panel == PanelPassword {
-		// Подпись над полем: видны только точки, без подписи непонятно, что вводить (B-12, H6).
-		addText(textParentPassword, u.fonts.small, colorSecondary, s(32))
+	if v.Panel == PanelPassword || v.Panel == PanelPromo {
+		// Подпись над полем: без неё непонятно, что вводить (B-12, H6): «Пароль родителя»
+		// (видны только точки) или «Промокод» (текст виден, FR-35).
+		addText(v.FieldLabel, u.fonts.small, colorSecondary, s(32))
 		es = append(es, entry{kind: entEdit, item: FlowItem{W: s(380), H: s(52), Gap: s(8)}})
 		addText(v.PasswordError, u.fonts.small, colorErrorText, s(10))
 	}
@@ -245,7 +249,7 @@ func (u *lockUI) layoutButtons(want map[Button]rect, order []Button) {
 
 // focusFirst отдаёт фокус полю пароля, если оно доступно, иначе главной кнопке.
 func (u *lockUI) focusFirst(order []Button) {
-	if u.view.Panel == PanelPassword && u.view.PasswordEnabled && u.edit != 0 {
+	if (u.view.Panel == PanelPassword || u.view.Panel == PanelPromo) && u.view.PasswordEnabled && u.edit != 0 {
 		procSetFocus.Call(u.edit)
 		return
 	}
@@ -264,15 +268,19 @@ func (u *lockUI) layoutEdit() {
 		u.edit = createChild(u.w.hwnd, u.w.hInst, "EDIT", "", wsTabStop|esPassword|esAutoHScroll, idEdit, rect{0, 0, 10, 10})
 		setFont(u.edit, u.fonts.body)
 		procSendMessage.Call(u.edit, emSetLimitTxt, 256, 0)
+		// Символ точек поля пароля запоминаем: на панели промокода поле показывает текст
+		// (EM_SETPASSWORDCHAR 0), на панели пароля точки возвращаются.
+		u.maskChar, _, _ = procSendMessage.Call(u.edit, emGetPasswordChar, 0, 0)
 		procShowWindow.Call(u.edit, swHide)
 	}
+	u.setMasked(!v.FieldPlain)
 	if v.PasswordClearSeq != u.clearSeq {
 		u.clearSeq = v.PasswordClearSeq
 		setWindowText(u.edit, "")
 		if u.onEdit != nil {
 			u.onEdit("")
 		}
-		if v.Panel == PanelPassword && v.PasswordEnabled {
+		if (v.Panel == PanelPassword || v.Panel == PanelPromo) && v.PasswordEnabled {
 			procSetFocus.Call(u.edit)
 		}
 	}
@@ -290,6 +298,24 @@ func (u *lockUI) layoutEdit() {
 	}
 	procEnableWindow.Call(u.edit, enable)
 	procShowWindow.Call(u.edit, swShow)
+}
+
+// setMasked прячет набранное точками (пароль) или показывает текст (промокод). Меняет поле только
+// при смене режима: EM_SETPASSWORDCHAR перерисовывает поле.
+func (u *lockUI) setMasked(masked bool) {
+	if u.edit == 0 || u.masked == masked && u.maskSet {
+		return
+	}
+	ch := uintptr(0)
+	if masked {
+		ch = u.maskChar
+		if ch == 0 {
+			ch = '●'
+		}
+	}
+	procSendMessage.Call(u.edit, emSetPasswordChar, ch, 0)
+	invalidate(u.edit)
+	u.masked, u.maskSet = masked, true
 }
 
 // paint рисует тексты и рамку поля пароля; фон уже залит окном.

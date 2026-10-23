@@ -24,9 +24,9 @@ const (
 	// Автоматическая смена пользователя: 15 минут от появления экрана (ТЗ 8.2.3 п.10).
 	testAutoSwitch = 15 * time.Minute
 	// Кнопок на главном экране блокировки: пароль, выключение, выход, смена пользователя.
-	// Экран блокировки «время вышло» без копилки (M2): «Попросить ещё», «Пароль родителя»
-	// и три выхода (ТЗ 8.2.3 п.3).
-	testScreenButtons = 5
+	// Экран блокировки «время вышло» без копилки (M2, 0.2.2): «Попросить ещё», «Ввести
+	// промокод», «Пароль родителя» и три выхода (ТЗ 8.2.3 п.3).
+	testScreenButtons = 6
 	// Экран блокировки за обход: «Пароль родителя» и три выхода (копилка/попросить скрыты).
 	testBypassButtons = 4
 )
@@ -158,6 +158,7 @@ func TestLockButtonsM2(t *testing.T) {
 	// скрыты. Выходы доступны всегда (не считаются обходом).
 	wantTimeUp := []ButtonView{
 		{Button: ButtonAskMore, Label: "Попросить ещё", Main: true, Enabled: true},
+		{Button: ButtonPromo, Label: "Ввести промокод", Enabled: true},
 		{Button: ButtonParentPassword, Label: "Пароль родителя", Enabled: true},
 		{Button: ButtonShutdown, Label: "Выключить компьютер", Enabled: true},
 		{Button: ButtonLogoff, Label: "Выйти из учётной записи", Enabled: true},

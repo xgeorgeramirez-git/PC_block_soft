@@ -388,7 +388,7 @@ func actsOnService(b Button) bool {
 	switch b {
 	case ButtonSubmitPassword, ButtonAdd15, ButtonAdd30, ButtonAdd60, ButtonClearBlock,
 		ButtonOpenSettings, ButtonConfirmLogoff, ButtonConfirmShutdown, ButtonSwitchUser,
-		ButtonSpendBonus:
+		ButtonSpendBonus, ButtonSubmitPromo:
 		return true
 	}
 	return false
@@ -396,7 +396,8 @@ func actsOnService(b Button) bool {
 
 // Press передаёт нажатие кнопки модели и записывает событие. Возвращённое действие надо
 // выполнить через Run (в отдельной горутине: ответ службы может прийти не сразу), даже если оно
-// пустое. password нужен только для ButtonSubmitPassword и в события не попадает.
+// пустое. password — текст поля: пароль для ButtonSubmitPassword или промокод для
+// ButtonSubmitPromo; в события не попадает.
 func (c *Controller) Press(b Button, password string) Action {
 	c.mu.Lock()
 	if c.busy && actsOnService(b) {
@@ -459,6 +460,32 @@ func (c *Controller) Run(act Action) {
 			return
 		}
 		c.model.OnExtraAdded(c.now(), act.Minutes)
+	case ActRedeemPromo:
+		// Промокод без пароля (R26); childId 0 — служба берёт ребёнка этого сеанса.
+		var rep ipc.RedeemPromoReply
+		err := ipc.Call(c.call, ipc.CmdRedeemPromo, "", ipc.RedeemPromoRequest{Code: act.Code}, &rep)
+		var re *ipc.ReplyError
+		switch {
+		case err == nil:
+			c.model.OnPromoResult(c.now(), PromoResult{OK: true, Minutes: rep.AddedMin})
+			c.mu.Lock()
+			forbidden := c.lastLock == ipc.LockForbidden
+			c.mu.Unlock()
+			if forbidden {
+				// Из запретного интервала промокод не выводит (ТЗ 8.2.3 п.3): экран остаётся,
+				// и ребёнок должен понять, что код сработал.
+				pron := "Их"
+				if n := rep.AddedMin; n%10 == 1 && n%100 != 11 {
+					pron = "Её" // «Добавлена 1 минута. Её можно…»
+				}
+				c.setNotice(addedText(rep.AddedMin) + ". " + pron + " можно будет потратить, когда закончатся запретные часы")
+			}
+		case errors.As(err, &re) && re.Text != "":
+			// Отказ службы («Код не подходит») — у поля, панель остаётся.
+			c.model.OnPromoResult(c.now(), PromoResult{Error: re.Text})
+		default:
+			c.setNotice(failureText(err, textNoticeRetry))
+		}
 	case ActClearBlock:
 		if err := ipc.Call(c.call, ipc.CmdClearBlock, "", ipc.ChildRequest{}, nil); err != nil {
 			c.setNotice(failureText(err, textNoticeRetry))
@@ -544,8 +571,11 @@ func StateFromView(v View, lockKind string, shown []ipc.ShownWarning, fields map
 	if v.Warning != nil {
 		add(v.Warning.Buttons)
 	}
-	if v.Panel == PanelPassword {
+	switch v.Panel {
+	case PanelPassword:
 		st.Fields = append(st.Fields, ipc.GuardField{ID: FieldPasswordID, Text: fields[FieldPasswordID]})
+	case PanelPromo:
+		st.Fields = append(st.Fields, ipc.GuardField{ID: FieldPromoID, Text: fields[FieldPromoID]})
 	}
 	return st
 }

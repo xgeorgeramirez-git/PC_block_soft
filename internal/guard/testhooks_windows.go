@@ -33,7 +33,12 @@ func (a *app) runTestAction(t ipc.TestGuardAction) {
 			procSendMessage.Call(h, bmClick, 0, 0)
 		}
 	case ipc.TestType:
-		if t.Target == FieldPasswordID && a.ui != nil && a.lock != nil && a.lock.Visible() && a.ui.edit != 0 {
+		// Поле одно: пароль на панели пароля, промокод на панели промокода (FR-35).
+		want := FieldPasswordID
+		if a.ui != nil && a.ui.view.Panel == PanelPromo {
+			want = FieldPromoID
+		}
+		if t.Target == want && a.ui != nil && a.lock != nil && a.lock.Visible() && a.ui.edit != 0 {
 			procSendMessage.Call(a.ui.edit, wmSetText, 0, uintptr(unsafe.Pointer(utf16(t.Text))))
 		}
 	case ipc.TestWMClose:
