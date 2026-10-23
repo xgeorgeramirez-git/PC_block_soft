@@ -16,6 +16,9 @@ const (
 // ErrExtraRange — доп. время вне 1…240 минут.
 var ErrExtraRange = errors.New("доп. время: можно от 1 до 240 минут")
 
+// ErrPromoRange — минуты промокода вне 1…600 (R26, D-50).
+var ErrPromoRange = errors.New("промокод: можно от 1 до 600 минут")
+
 // ErrPausePast — конец паузы не позже текущего момента.
 var ErrPausePast = errors.New("пауза: конец должен быть в будущем")
 
@@ -120,6 +123,25 @@ func (e *Engine) AddExtra(min int) (Decision, error) {
 	e.acc.AddExtra(min)
 	e.rearm()
 	e.pending = append(e.pending, Event{Kind: EvExtraTime, Details: map[string]any{"minutes": min, "text": ExtraText(min)}})
+	return e.finish(e.decide(e.acc.State(), false), closed), nil
+}
+
+// RedeemPromoMinutes добавляет на сегодня время по промокоду (R26, D-50): 1…600 мин. Как и
+// доп. время (R10), расширяет все три лимита и снимает блокировку «время вышло», но не
+// выводит из запретного интервала. Диапазон шире, чем у AddExtra (240): промокод создаёт
+// родитель, а не ребёнок кнопкой «Попросить ещё». Неверный диапазон — ErrPromoRange.
+// Записью/одноразовостью самого кода ведает служба; ядро только применяет минуты и пишет
+// событие с текстом для журнала.
+func (e *Engine) RedeemPromoMinutes(min int) (Decision, error) {
+	if !PromoMinutesValid(min) {
+		return e.Current(), ErrPromoRange
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	closed := e.advance(e.now())
+	e.acc.AddExtra(min)
+	e.rearm()
+	e.pending = append(e.pending, Event{Kind: EvPromoRedeem, Details: map[string]any{"minutes": min, "text": PromoRedeemText(min)}})
 	return e.finish(e.decide(e.acc.State(), false), closed), nil
 }
 

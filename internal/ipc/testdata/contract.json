@@ -34,7 +34,8 @@
           },
           "extraMin": 30,
           "bonusBalance": 0,
-          "canClearBlock": false
+          "canClearBlock": false,
+          "noForbiddenToday": false
         },
         "message": "Добавлено 30 минут",
         "extraId": "e-17",
@@ -89,7 +90,8 @@
           },
           "extraMin": 30,
           "bonusBalance": 0,
-          "canClearBlock": false
+          "canClearBlock": false,
+          "noForbiddenToday": false
         },
         "message": "Добавлено 30 минут"
       }
@@ -155,9 +157,22 @@
           },
           "extraMin": 0,
           "bonusBalance": 0,
-          "canClearBlock": false
+          "canClearBlock": false,
+          "noForbiddenToday": false
         },
         "message": "Блокировка снята"
+      }
+    }
+  },
+  "ClearBonus": {
+    "request": {
+      "childId": 1
+    },
+    "reply": {
+      "ok": true,
+      "payload": {
+        "balanceAfter": 0,
+        "message": "Копилка обнулена"
       }
     }
   },
@@ -195,7 +210,8 @@
           },
           "extraMin": 0,
           "bonusBalance": 0,
-          "canClearBlock": false
+          "canClearBlock": false,
+          "noForbiddenToday": false
         },
         "message": "Доп. время убрано",
         "extraId": "e-19",
@@ -259,6 +275,34 @@
       }
     }
   },
+  "CreatePromo": {
+    "request": {
+      "code": "a1234",
+      "minutes": 30
+    },
+    "reply": {
+      "ok": true,
+      "payload": {
+        "promo": {
+          "codeDisplay": "a1234",
+          "minutes": 30,
+          "createdAtMs": 1760000000000
+        },
+        "message": "Промокод «a1234» на 30 минут готов"
+      }
+    }
+  },
+  "CreatePromo#dup": {
+    "request": {
+      "code": "a1234",
+      "minutes": 15
+    },
+    "reply": {
+      "ok": false,
+      "error": "Такой код уже есть, придумайте другой",
+      "field": "code"
+    }
+  },
   "ExtendSession": {
     "reply": {
       "ok": true,
@@ -313,6 +357,15 @@
         "childId": 1,
         "balance": 0,
         "entries": []
+      }
+    }
+  },
+  "GetBonusRate": {
+    "request": {},
+    "reply": {
+      "ok": true,
+      "payload": {
+        "minutes": 5
       }
     }
   },
@@ -510,7 +563,8 @@
             },
             "extraMin": 0,
             "bonusBalance": 0,
-            "canClearBlock": false
+            "canClearBlock": false,
+            "noForbiddenToday": false
           },
           {
             "childId": 1,
@@ -539,7 +593,8 @@
             },
             "extraMin": 30,
             "bonusBalance": 0,
-            "canClearBlock": true
+            "canClearBlock": true,
+            "noForbiddenToday": false
           }
         ],
         "notices": []
@@ -587,7 +642,8 @@
             },
             "extraMin": 0,
             "bonusBalance": 0,
-            "canClearBlock": false
+            "canClearBlock": false,
+            "noForbiddenToday": false
           }
         ],
         "notices": [
@@ -909,6 +965,41 @@
       }
     }
   },
+  "ListPromos": {
+    "request": {},
+    "reply": {
+      "ok": true,
+      "payload": {
+        "active": [
+          {
+            "codeDisplay": "b5678",
+            "minutes": 60,
+            "createdAtMs": 1760000000000
+          }
+        ],
+        "used": [
+          {
+            "codeDisplay": "a1234",
+            "minutes": 30,
+            "createdAtMs": 1760000000000,
+            "usedAtMs": 1760003600000,
+            "usedByChild": 1,
+            "usedByName": "Миша"
+          }
+        ]
+      }
+    }
+  },
+  "ListPromos#empty": {
+    "request": {},
+    "reply": {
+      "ok": true,
+      "payload": {
+        "active": [],
+        "used": []
+      }
+    }
+  },
   "Login": {
     "request": {
       "password": "секрет-123"
@@ -1055,6 +1146,16 @@
       }
     }
   },
+  "OpenLogs": {
+    "request": {},
+    "reply": {
+      "ok": true,
+      "payload": {
+        "path": "C:\\ProgramData\\PCBlock\\logs",
+        "message": "Открываю папку с логами"
+      }
+    }
+  },
   "OpenWindow": {
     "request": {
       "kind": "parent"
@@ -1173,7 +1274,8 @@
           },
           "extraMin": 0,
           "bonusBalance": 0,
-          "canClearBlock": false
+          "canClearBlock": false,
+          "noForbiddenToday": false
         },
         "message": "Пауза до 18:30"
       }
@@ -1214,7 +1316,8 @@
             },
             "extraMin": 0,
             "bonusBalance": 0,
-            "canClearBlock": false
+            "canClearBlock": false,
+            "noForbiddenToday": false
           }
         ],
         "message": "Пауза для всех детей на 1 ч"
@@ -1230,6 +1333,73 @@
       "payload": {
         "children": [],
         "message": ""
+      }
+    }
+  },
+  "RedeemPromo": {
+    "request": {
+      "childId": 1,
+      "code": "a1234"
+    },
+    "reply": {
+      "ok": true,
+      "payload": {
+        "card": {
+          "childId": 1,
+          "sid": "S-1-5-21-111-222-333-1001",
+          "name": "Миша",
+          "status": {
+            "name": "Миша",
+            "status": "ok",
+            "statusText": "Можно",
+            "label": "85",
+            "tooltip": "Осталось 1 ч 25 мин",
+            "summary": "Сегодня осталось 1 ч 25 мин из 2 ч",
+            "day": "2026-10-19",
+            "remainingS": 5100,
+            "limitS": 7200,
+            "usedS": 2100,
+            "unlimited": false,
+            "lock": "none",
+            "reason": "",
+            "detail": "",
+            "until": "",
+            "pauseUntil": "",
+            "used": "Сегодня: 35 мин из 2 ч",
+            "bonusBalance": 0,
+            "forbiddenNote": ""
+          },
+          "extraMin": 30,
+          "bonusBalance": 0,
+          "canClearBlock": false,
+          "noForbiddenToday": false
+        },
+        "addedMin": 30,
+        "message": "Промокод принят: +30 минут"
+      }
+    }
+  },
+  "RedeemPromo#bad": {
+    "request": {
+      "childId": 1,
+      "code": "нет"
+    },
+    "reply": {
+      "ok": false,
+      "error": "Код не подходит",
+      "field": "code"
+    }
+  },
+  "ReduceBonus": {
+    "request": {
+      "childId": 1,
+      "minutes": 30
+    },
+    "reply": {
+      "ok": true,
+      "payload": {
+        "balanceAfter": 45,
+        "message": "Убавлено 30 минут. Баланс 45 мин"
       }
     }
   },
@@ -1268,7 +1438,8 @@
           },
           "extraMin": 0,
           "bonusBalance": 0,
-          "canClearBlock": false
+          "canClearBlock": false,
+          "noForbiddenToday": false
         },
         "message": "Убрано 30 минут",
         "extraId": "e-18",
@@ -1424,7 +1595,8 @@
           },
           "extraMin": 0,
           "bonusBalance": 0,
-          "canClearBlock": false
+          "canClearBlock": false,
+          "noForbiddenToday": false
         },
         "message": "Сохранено. Новые правила уже действуют"
       }
@@ -1495,7 +1667,8 @@
           },
           "extraMin": 0,
           "bonusBalance": 0,
-          "canClearBlock": false
+          "canClearBlock": false,
+          "noForbiddenToday": false
         },
         "message": "Сохранено. Новые правила уже действуют"
       }
@@ -1525,6 +1698,17 @@
         "active": true,
         "expiresMs": 1760000540000,
         "remainingS": 540
+      }
+    }
+  },
+  "SetBonusRate": {
+    "request": {
+      "minutes": 10
+    },
+    "reply": {
+      "ok": true,
+      "payload": {
+        "minutes": 10
       }
     }
   },
@@ -1585,6 +1769,48 @@
       "ok": true,
       "payload": {
         "verbose": true
+      }
+    }
+  },
+  "SetNoForbidden": {
+    "request": {
+      "childId": 1,
+      "on": true
+    },
+    "reply": {
+      "ok": true,
+      "payload": {
+        "card": {
+          "childId": 1,
+          "sid": "S-1-5-21-111-222-333-1001",
+          "name": "Миша",
+          "status": {
+            "name": "Миша",
+            "status": "ok",
+            "statusText": "Можно",
+            "label": "85",
+            "tooltip": "Осталось 1 ч 25 мин",
+            "summary": "Сегодня осталось 1 ч 25 мин из 2 ч",
+            "day": "2026-10-19",
+            "remainingS": 5100,
+            "limitS": 7200,
+            "usedS": 2100,
+            "unlimited": false,
+            "lock": "none",
+            "reason": "",
+            "detail": "",
+            "until": "",
+            "pauseUntil": "",
+            "used": "Сегодня: 35 мин из 2 ч",
+            "bonusBalance": 0,
+            "forbiddenNote": ""
+          },
+          "extraMin": 0,
+          "bonusBalance": 0,
+          "canClearBlock": false,
+          "noForbiddenToday": false
+        },
+        "message": "Сегодня запретные часы не действуют"
       }
     }
   },
@@ -1686,7 +1912,8 @@
           },
           "extraMin": 30,
           "bonusBalance": 0,
-          "canClearBlock": false
+          "canClearBlock": false,
+          "noForbiddenToday": false
         },
         "message": "Взято из копилки 30 мин",
         "balanceAfter": 15
@@ -1784,7 +2011,8 @@
           },
           "extraMin": 0,
           "bonusBalance": 0,
-          "canClearBlock": false
+          "canClearBlock": false,
+          "noForbiddenToday": false
         },
         "message": "Добавленное время отменено"
       }

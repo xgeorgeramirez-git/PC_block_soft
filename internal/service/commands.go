@@ -233,6 +233,16 @@ func init() {
 		ipc.CmdSaveHelperState: {or(parentToken(true), users()), (*Service).hSaveHelperState},
 		ipc.CmdGetDiag:         {parentToken(false), (*Service).hGetDiag},
 		ipc.CmdSetDiag:         {parentToken(true), (*Service).hSetDiag},
+		ipc.CmdOpenLogs:        {parentToken(false), (*Service).hOpenLogs},
+
+		ipc.CmdSetNoForbidden: {parentToken(true), (*Service).hSetNoForbidden},
+		ipc.CmdClearBonus:     {parentToken(true), (*Service).hClearBonus},
+		ipc.CmdReduceBonus:    {parentToken(true), (*Service).hReduceBonus},
+		ipc.CmdCreatePromo:    {parentToken(true), (*Service).hCreatePromo},
+		ipc.CmdListPromos:     {parentToken(false), (*Service).hListPromos},
+		ipc.CmdRedeemPromo:    {childSelf(), (*Service).hRedeemPromo},
+		ipc.CmdGetBonusRate:   {parentToken(false), (*Service).hGetBonusRate},
+		ipc.CmdSetBonusRate:   {parentToken(true), (*Service).hSetBonusRate},
 
 		ipc.CmdGetSchedule:  {parentToken(false), (*Service).hGetSchedule},
 		ipc.CmdSaveSchedule: {parentToken(true), (*Service).hSaveSchedule},

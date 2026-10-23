@@ -131,6 +131,9 @@ func startOfDayAfter(now time.Time, k int) time.Time {
 // ExtraText — запись журнала о доп. времени, как в эталоне G7: «Доп. время +30 мин».
 func ExtraText(min int) string { return fmt.Sprintf("Доп. время +%d мин", min) }
 
+// PromoRedeemText — строка журнала о применённом промокоде (R26, D-50).
+func PromoRedeemText(min int) string { return fmt.Sprintf("Промокод: +%d мин", min) }
+
 // ExtraRemovedText — запись журнала об убавлении доп. времени (R10, D-43): «Доп. время −30 мин».
 func ExtraRemovedText(min int) string { return fmt.Sprintf("Доп. время −%d мин", min) }
 

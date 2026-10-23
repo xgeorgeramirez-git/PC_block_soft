@@ -41,8 +41,19 @@ const (
 	CmdSaveHelperState = "SaveHelperState"
 
 	// Диагностика: подробные логи (FR-25, D-42).
-	CmdGetDiag = "GetDiag" // прочитать, включены ли подробные логи
-	CmdSetDiag = "SetDiag" // включить/выключить подробные логи
+	CmdGetDiag  = "GetDiag"  // прочитать, включены ли подробные логи
+	CmdSetDiag  = "SetDiag"  // включить/выключить подробные логи
+	CmdOpenLogs = "OpenLogs" // открыть папку с логами в проводнике (FR-25, D-48)
+
+	// Фидбек-раунд 0.2.2.
+	CmdSetNoForbidden = "SetNoForbidden" // снять/вернуть запретные часы на сегодня (R24, D-51)
+	CmdClearBonus     = "ClearBonus"     // обнулить копилку (FR-22, D-46)
+	CmdReduceBonus    = "ReduceBonus"    // убавить копилку на N минут (FR-22, D-46)
+	CmdCreatePromo    = "CreatePromo"    // родитель создаёт промокод на время (R26, D-50)
+	CmdListPromos     = "ListPromos"     // списки действующих и использованных кодов (R26, D-50)
+	CmdRedeemPromo    = "RedeemPromo"    // ребёнок вводит промокод (R26, D-50)
+	CmdGetBonusRate   = "GetBonusRate"   // прочитать настройку автобонуса N (R25, D-49)
+	CmdSetBonusRate   = "SetBonusRate"   // задать настройку автобонуса N (R25, D-49)
 
 	// Расписание, копилка, пауза (M2).
 	CmdGetSchedule  = "GetSchedule"  // запретные интервалы ребёнка (R7)
@@ -85,10 +96,11 @@ var AllCommands = []string{
 	CmdListAccounts, CmdSetup, CmdResetPassword, CmdUninstallCheck,
 	CmdLogin, CmdExtendSession, CmdLogout, CmdSessionState, CmdGetToday, CmdGetChildRules,
 	CmdSaveLimits, CmdAddExtra, CmdReduceExtra, CmdClearExtra, CmdUndoExtra, CmdClearBlock, CmdListEvents, CmdChangePassword,
-	CmdSetChildren, CmdParentStats, CmdGetHelperState, CmdSaveHelperState, CmdGetDiag, CmdSetDiag,
+	CmdSetChildren, CmdParentStats, CmdGetHelperState, CmdSaveHelperState, CmdGetDiag, CmdSetDiag, CmdOpenLogs,
+	CmdSetNoForbidden, CmdClearBonus, CmdReduceBonus, CmdCreatePromo, CmdListPromos, CmdGetBonusRate, CmdSetBonusRate,
 	CmdGetSchedule, CmdSaveSchedule, CmdPause, CmdPauseAll,
 	CmdGrantBonus, CmdUndoBonus, CmdGetBonus, CmdCopyRules,
-	CmdMyToday, CmdFirstRunSeen, CmdAskMore, CmdSpendBonus,
+	CmdMyToday, CmdFirstRunSeen, CmdAskMore, CmdSpendBonus, CmdRedeemPromo,
 	CmdGuardPoll, CmdGuardLogoff, CmdGuardShutdown, CmdGuardSwitchUser,
 	CmdTrayClosing,
 	CmdTestGuard, CmdTestClock, CmdGuardState,
@@ -105,6 +117,7 @@ const (
 	FieldReason      = "reason" // причина начисления копилки (FR-22)
 	FieldStart       = "start"  // начало запретного интервала (R7)
 	FieldEnd         = "end"    // конец запретного интервала (R7)
+	FieldCode        = "code"   // промокод (R26, D-50)
 )
 
 // LimitField — имя поля лимита дня недели (1 = пн … 7 = вс) для ошибок SaveLimits и Setup.
@@ -288,13 +301,14 @@ type SessionStateReply struct {
 
 // TodayCard — карточка ребёнка на «Сегодня» (ТЗ 8.3.2).
 type TodayCard struct {
-	ChildID       int64       `json:"childId"`
-	SID           string      `json:"sid"`
-	Name          string      `json:"name"`
-	Status        ChildStatus `json:"status"`
-	ExtraMin      int         `json:"extraMin"`      // доп. время на сегодня, мин
-	BonusBalance  int         `json:"bonusBalance"`  // баланс копилки, мин (M2)
-	CanClearBlock bool        `json:"canClearBlock"` // есть блокировка за обход, кнопка «Снять блокировку»
+	ChildID          int64       `json:"childId"`
+	SID              string      `json:"sid"`
+	Name             string      `json:"name"`
+	Status           ChildStatus `json:"status"`
+	ExtraMin         int         `json:"extraMin"`         // доп. время на сегодня, мин
+	BonusBalance     int         `json:"bonusBalance"`     // баланс копилки, мин (M2)
+	CanClearBlock    bool        `json:"canClearBlock"`    // есть блокировка за обход, кнопка «Снять блокировку»
+	NoForbiddenToday bool        `json:"noForbiddenToday"` // запретные часы сняты на сегодня (R24, D-51): показать «Вернуть»
 }
 
 // GetTodayReply — ответ GetToday. Notices — важные сообщения при входе, например
