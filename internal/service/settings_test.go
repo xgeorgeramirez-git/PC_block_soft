@@ -721,6 +721,33 @@ func TestListEvents(t *testing.T) {
 	}
 }
 
+// Ловит: экран журнала (вкладки «За месяц» и «Всё», D-47) просит до 1000 событий, а служба
+// молча режет ответ до 500 и старые события пропадают без предупреждения.
+func TestListEventsAllowsThousand(t *testing.T) {
+	h := newHarness(t, withChild(childSID, "Миша", 120), configured())
+	h.start()
+	tok := h.login(adminPeer())
+	id := h.childID(childSID)
+	for i := 0; i < 700; i++ {
+		if err := h.store.AppendEvent(StoredEvent{ChildID: id, AtMs: int64(1000 + i), Kind: "extra_time", Details: map[string]any{"minutes": 5}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var rep ipc.ListEventsReply
+	h.ok(adminPeer(), tok, ipc.CmdListEvents, ipc.ListEventsRequest{Limit: 1000}, &rep)
+	if len(rep.Events) != 700 {
+		t.Fatalf("событий %d, ждали все 700 (лимит 1000)", len(rep.Events))
+	}
+	if b, err := json.Marshal(rep); err != nil || len(b) > ipc.MaxFrame/2 {
+		t.Fatalf("700 записей журнала занимают %d байт: тысяча не поместится в кадр с запасом (%v)", len(b), err)
+	}
+	var over ipc.ListEventsReply
+	h.ok(adminPeer(), tok, ipc.CmdListEvents, ipc.ListEventsRequest{Limit: 5000}, &over)
+	if len(over.Events) != 700 {
+		t.Fatalf("лимит выше потолка: %d событий", len(over.Events))
+	}
+}
+
 // Ловит: итог дня в журнале выводится числами из базы (float64) с ошибкой формата.
 func TestEventTextDayClosedFromStoredNumbers(t *testing.T) {
 	d := map[string]any{}

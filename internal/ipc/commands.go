@@ -399,10 +399,12 @@ type CardReply struct {
 	Message string    `json:"message"`
 }
 
-// Пределы ListEvents: ответ не должен приближаться к кадру в 1 МБ.
+// Пределы ListEvents: ответ не должен приближаться к кадру в 1 МБ (1000 записей журнала
+// занимают около 0,4 МБ). Потолок равен тому, что просит экран журнала для вкладок
+// «За месяц» и «Всё» (FR-24, D-47), иначе старые события пропадали бы молча.
 const (
 	DefaultEventsLimit = 200
-	MaxEventsLimit     = 500
+	MaxEventsLimit     = 1000
 )
 
 // ListEventsRequest — журнал событий. ChildID 0 — все дети; FromMs/ToMs 0 — без границы;
