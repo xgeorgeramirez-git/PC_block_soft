@@ -158,6 +158,8 @@ export default function Bonus() {
         </button>
       </div>
 
+      <HintSlot anchor="bonus-tab" />
+
       {loadError ? (
         <div className="panel">
           <Notice tone="warn" urgent>
@@ -175,7 +177,7 @@ export default function Bonus() {
             <p className="panel-text">Пока нет ни одного ребёнка.</p>
           ) : (
             <div className="cards">
-              {items.map((it) => (
+              {items.map((it, idx) => (
                 <article key={it.card.childId} className="panel bonus-page" aria-label={`Копилка, ${it.card.name}`}>
                   <h3 className="child-name">{it.card.name}</h3>
                   <p className="bonus-balance">{`Баланс: ${formatLimit(it.balance)}`}</p>
@@ -185,6 +187,7 @@ export default function Bonus() {
                     minutesError={fieldError[it.card.childId]}
                     onGrant={(m, r) => void grant(it.card.childId, m, r)}
                   />
+                  {idx === 0 ? <HintSlot anchor="bonus-adjust" /> : null}
                   <div className="bonus-adjust" data-help-anchor="bonus-adjust">
                     <button
                       type="button"

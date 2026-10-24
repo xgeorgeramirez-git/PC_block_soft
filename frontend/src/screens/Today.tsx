@@ -147,6 +147,8 @@ export default function Today({ onOpenJournal, onOpenSettings, onOpenChildren, o
 
   // Подсказка про кнопки «+15» одна на экран: встаёт у первой карточки, где такие кнопки есть.
   const extraHintChild = cards?.find((c) => canAddTime(c.status.status))?.childId;
+  // Подсказка про «Снять запрет на сегодня» одна на окно: на первой карточке, где есть что снимать (R24).
+  const noForbiddenHintChild = cards?.find((c) => !c.noForbiddenToday && hasForbiddenToday(c))?.childId;
 
   return (
     <section aria-labelledby="today-title">
@@ -197,6 +199,7 @@ export default function Today({ onOpenJournal, onOpenSettings, onOpenChildren, o
                   key={card.childId}
                   card={card}
                   extraHint={card.childId === extraHintChild}
+                  noForbiddenHint={card.childId === noForbiddenHintChild}
                   feedback={feedback[card.childId]}
                   busy={busy === card.childId}
                   onAdd={(m) => void add(card, m)}
@@ -221,6 +224,7 @@ interface CardProps {
   card: TodayCard;
   /** Здесь встаёт подсказка про кнопки добавления времени. */
   extraHint: boolean;
+  noForbiddenHint: boolean;
   feedback: Feedback | undefined;
   busy: boolean;
   onAdd: (minutes: number) => void;
@@ -238,7 +242,7 @@ function hasForbiddenToday(card: TodayCard): boolean {
   return card.status.lock === "forbidden" || card.status.forbiddenNote !== "";
 }
 
-function ChildCard({ card, extraHint, feedback, busy, onAdd, onReduce, onClear, onUndo, onPause, onGrant, onNoForbidden, onStats }: CardProps) {
+function ChildCard({ card, extraHint, noForbiddenHint, feedback, busy, onAdd, onReduce, onClear, onUndo, onPause, onGrant, onNoForbidden, onStats }: CardProps) {
   const s = card.status;
   const tone = statusTone(s.status);
   const limited = hasTimeLimits(s.status);
@@ -342,6 +346,7 @@ function ChildCard({ card, extraHint, feedback, busy, onAdd, onReduce, onClear, 
       </div>
 
       {extraHint ? <HintSlot anchor="extra-buttons" /> : null}
+      {noForbiddenHint ? <HintSlot anchor="no-forbidden" /> : null}
 
       {feedback ? <FeedbackLine key={feedback.seq} feedback={feedback} onUndo={onUndo} /> : null}
     </article>

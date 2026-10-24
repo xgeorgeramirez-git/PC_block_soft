@@ -19,7 +19,9 @@ afterEach(() => {
 
 async function openWindow() {
   // Подсказки выключены: проверяем только разметку, карточки не мешают.
-  installBackend({ helper: { enabled: false }, children: [mockChild()] });
+  // Запретные часы каждый день: на карточке есть кнопка «Снять запрет на сегодня» (якорь no-forbidden).
+  const schedule = [1, 2, 3, 4, 5, 6, 7].map((weekday) => ({ weekday, startMin: 21 * 60, endMin: 7 * 60 }));
+  installBackend({ helper: { enabled: false }, children: [mockChild({ schedule })] });
   const user = userEvent.setup({ advanceTimers: (ms) => vi.advanceTimersByTime(ms) });
   render(<App />);
   await user.type(await screen.findByLabelText("Пароль родителя"), `${DEFAULT_PASSWORD}{Enter}`);
@@ -29,8 +31,14 @@ async function openWindow() {
 
 const MENU_LABEL: Partial<Record<ScreenId, string>> = { today: "Сегодня", children: "Дети", bonus: "Копилка", settings: "Настройки", journal: "Журнал", help: "Помощь" };
 
-async function openScreen(user: ReturnType<typeof userEvent.setup>, id: ScreenId) {
+async function openScreen(user: ReturnType<typeof userEvent.setup>, id: ScreenId, anchor = "") {
   await user.click(screen.getByRole("button", { name: MENU_LABEL[id]! }));
+  if (id === "bonus") {
+    // Экран «Копилка» разбит на вкладки: якорь формы промокода лежит во вкладке «Бонусы», остальные в «Копилке».
+    const tab = anchor === "promo-create" ? "Бонусы" : "Копилка";
+    await user.click(screen.getByRole("tab", { name: tab }));
+    await screen.findByRole("tabpanel", { name: tab });
+  }
 }
 
 const has = (anchor: string) => document.querySelector(`[data-help-anchor="${anchor}"]`) !== null;
@@ -41,7 +49,7 @@ describe("якоря каталога есть в окне", () => {
     const user = await openWindow();
     for (const a of ANCHORS) {
       const screenId: ScreenId = a.screen === "any" ? "today" : a.screen;
-      await openScreen(user, screenId);
+      await openScreen(user, screenId, a.id);
       if (a.id === "limits-table") await screen.findByRole("table");
       if (a.id === "child-card") await screen.findByRole("article", { name: "Миша" });
       expect(has(a.id), `якоря ${a.id} нет на экране «${screenId}»`).toBe(true);
@@ -70,7 +78,7 @@ describe("якоря каталога есть в окне", () => {
     const user = await openWindow();
     for (const t of TOURS) {
       for (const s of t.steps) {
-        await openScreen(user, s.screen);
+        await openScreen(user, s.screen, s.anchor);
         if (s.anchor === "limits-table") await screen.findByRole("table");
         if (s.anchor === "child-card") await screen.findByRole("article", { name: "Миша" });
         expect(has(s.anchor), `${t.id}: якоря ${s.anchor} нет на экране «${s.screen}»`).toBe(true);

@@ -3,6 +3,7 @@ import { createPromo, listPromos } from "../api";
 import { clampDigits } from "../lib/numinput";
 import { CallError, errorText } from "../lib/errors";
 import { formatEventTime, localOffsetMin } from "../lib/format";
+import HintSlot from "../guidance/HintSlot";
 import type { PromoView } from "../types";
 import Notice from "./Notice";
 
@@ -80,6 +81,7 @@ export default function PromoAdmin() {
         Придумайте код из букв и цифр и назначьте минуты. Ребёнок введёт код на экране блокировки или в разделе
         «Бонусы», и время сразу добавится к сегодняшнему дню. Каждый код действует один раз.
       </p>
+      <HintSlot anchor="promo-create" />
       <div className="promo-form">
         <label className="field">
           <span className="field-label">Код</span>
