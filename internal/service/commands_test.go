@@ -89,8 +89,14 @@ func wantAllowed(cmd, kind, tok string, test, configured bool) bool {
 	case ipc.CmdResetPassword, ipc.CmdUninstallCheck:
 		return kind == "elev"
 	case ipc.CmdGetToday, ipc.CmdGetChildRules, ipc.CmdSaveLimits, ipc.CmdAddExtra, ipc.CmdReduceExtra, ipc.CmdClearExtra, ipc.CmdUndoExtra,
-		ipc.CmdClearBlock, ipc.CmdListEvents, ipc.CmdChangePassword, ipc.CmdSetChildren, ipc.CmdParentStats, ipc.CmdGetDiag, ipc.CmdSetDiag:
+		ipc.CmdClearBlock, ipc.CmdListEvents, ipc.CmdChangePassword, ipc.CmdSetChildren, ipc.CmdParentStats, ipc.CmdGetDiag, ipc.CmdSetDiag,
+		ipc.CmdOpenLogs, ipc.CmdSetNoForbidden, ipc.CmdClearBonus, ipc.CmdReduceBonus, ipc.CmdCreatePromo, ipc.CmdListPromos,
+		ipc.CmdGetBonusRate, ipc.CmdSetBonusRate:
+		// Родительские (parentToken): нужен свой токен (R19).
 		return user && own
+	case ipc.CmdRedeemPromo:
+		// Ребёнок своего сеанса вводит промокод (childSelf): экран блокировки и «Бонусы» (R26, D-50).
+		return kind == "child" || kind == "guard"
 	case ipc.CmdGetHelperState, ipc.CmdSaveHelperState:
 		return (user && own) || kind == "child"
 	case ipc.CmdGuardPoll, ipc.CmdGuardLogoff, ipc.CmdGuardShutdown, ipc.CmdGuardSwitchUser:

@@ -394,6 +394,58 @@ describe("Settings: подробные логи для диагностики (F
   });
 });
 
+describe("Settings: папка с логами (FB-4, D-48)", () => {
+  // Ловит: путь к логам виден только после нажатия, а родитель не знает, где их искать.
+  it("путь виден сразу, кнопка просит программу открыть папку", async () => {
+    const user = await setup();
+    const box = section("Подробные логи для диагностики");
+    expect(await within(box).findByText("Папка с логами: C:\\ProgramData\\PCBlock\\logs")).toBeTruthy();
+    await user.click(within(box).getByRole("button", { name: "Открыть папку с логами" }));
+    await vi.waitFor(() => expect(mock.state.openLogsCount).toBe(1));
+  });
+
+  // Ловит: папка закрыта для обычных прав, Windows просит подтвердить доступ, а родитель не понимает, что нажать.
+  it("рядом с кнопкой сказано, что делать, если Windows попросит разрешение", async () => {
+    await setup();
+    const box = section("Подробные логи для диагностики");
+    expect(await within(box).findByText(/Если Windows попросит разрешение, нажмите «Продолжить»/)).toBeTruthy();
+  });
+
+  it("папку открыть не удалось — понятная ошибка", async () => {
+    const user = await setup();
+    mock.override("OpenLogs", { ok: false, error: "Не получилось. Попробуйте ещё раз" });
+    await user.click(within(section("Подробные логи для диагностики")).getByRole("button", { name: "Открыть папку с логами" }));
+    expect(await screen.findByText("Не получилось. Попробуйте ещё раз")).toBeTruthy();
+  });
+});
+
+describe("Settings: автобонус (FB-5, R25, D-49)", () => {
+  // Ловит: настройка N не читается или не сохраняется; в поле можно ввести буквы и больше 600.
+  it("читает 5 по умолчанию и сохраняет новое значение", async () => {
+    const user = await setup();
+    const box = section("Бонус за неизрасходованное время");
+    const field = within(box).getByLabelText("Минут бонуса за каждые 10 минут:") as HTMLInputElement;
+    await vi.waitFor(() => expect(field.value).toBe("5"));
+    await user.clear(field);
+    await user.type(field, "1а0");
+    expect(field.value).toBe("10");
+    await user.click(within(box).getByRole("button", { name: "Сохранить" }));
+    expect(await within(box).findByText("Сохранено: 10 мин за каждые 10 минут")).toBeTruthy();
+    expect(mock.state.bonusRate).toBe(10);
+  });
+
+  it("0 выключает автобонус", async () => {
+    const user = await setup();
+    const box = section("Бонус за неизрасходованное время");
+    const field = within(box).getByLabelText("Минут бонуса за каждые 10 минут:") as HTMLInputElement;
+    await vi.waitFor(() => expect(field.value).toBe("5"));
+    await user.clear(field);
+    await user.type(field, "0");
+    await user.click(within(box).getByRole("button", { name: "Сохранить" }));
+    expect(await within(box).findByText("Автобонус выключен")).toBeTruthy();
+  });
+});
+
 describe("Settings: о программе", () => {
   it("версия приходит от программы", async () => {
     await setup({ version: "0.4.2" });

@@ -92,6 +92,43 @@ func (a storeAdapter) ListBonus(childID int64) ([]service.BonusRecord, error) {
 	return out, nil
 }
 
+func (a storeAdapter) CreatePromo(codeDisplay string, minutes int) (service.PromoRecord, error) {
+	p, err := a.s.CreatePromo(codeDisplay, minutes)
+	if err != nil {
+		return service.PromoRecord{}, err
+	}
+	return promoRecordOf(p), nil
+}
+
+func (a storeAdapter) RedeemPromo(childID int64, code string, atMs int64) (int, string, bool, error) {
+	return a.s.RedeemPromo(childID, code, atMs)
+}
+
+func (a storeAdapter) ListPromos() ([]service.PromoRecord, error) {
+	list, err := a.s.ListPromos()
+	if err != nil {
+		return nil, err
+	}
+	out := make([]service.PromoRecord, 0, len(list))
+	for _, p := range list {
+		out = append(out, promoRecordOf(p))
+	}
+	return out, nil
+}
+
+// promoRecordOf приводит storage.Promo к service.PromoRecord: указатели used_at/used_by
+// становятся 0 для «ещё не использован».
+func promoRecordOf(p storage.Promo) service.PromoRecord {
+	r := service.PromoRecord{CodeDisplay: p.CodeDisplay, Minutes: p.Minutes, CreatedAtMs: p.CreatedAtMs}
+	if p.UsedAtMs != nil {
+		r.UsedAtMs = *p.UsedAtMs
+	}
+	if p.UsedByChild != nil {
+		r.UsedByChild = *p.UsedByChild
+	}
+	return r
+}
+
 func (a storeAdapter) LoadDayState(childID int64, day string) (core.DayState, error) {
 	return a.s.LoadDayState(childID, day)
 }

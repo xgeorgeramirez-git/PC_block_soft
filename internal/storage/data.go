@@ -93,6 +93,14 @@ func affectedOne(res sql.Result, err error, what string) error {
 	return nil
 }
 
+// boolToInt превращает флаг в 0/1 для хранения в INTEGER-столбце SQLite.
+func boolToInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
+}
+
 // maxLimitMin — наибольший лимит дня в минутах (CHECK в схеме).
 const maxLimitMin = 1440
 
@@ -158,8 +166,9 @@ func (s *Store) GetDayLimits(childID int64) ([7]core.DayLimit, error) {
 func (s *Store) LoadDayState(childID int64, day string) (core.DayState, error) {
 	st := core.DayState{Day: day}
 	var pause sql.NullInt64
-	err := s.db.QueryRow(`SELECT total_s, games_s, video_s, study_s, extra_min, pause_until FROM day_state
-		WHERE child_id = ? AND day = ?`, childID, day).Scan(&st.TotalS, &st.GamesS, &st.VideoS, &st.StudyS, &st.ExtraMin, &pause)
+	var bonusGranted, noForbidden int
+	err := s.db.QueryRow(`SELECT total_s, games_s, video_s, study_s, extra_min, pause_until, bonus_granted, no_forbidden FROM day_state
+		WHERE child_id = ? AND day = ?`, childID, day).Scan(&st.TotalS, &st.GamesS, &st.VideoS, &st.StudyS, &st.ExtraMin, &pause, &bonusGranted, &noForbidden)
 	if errors.Is(err, sql.ErrNoRows) {
 		return core.DayState{Day: day}, nil
 	}
@@ -170,6 +179,8 @@ func (s *Store) LoadDayState(childID int64, day string) (core.DayState, error) {
 		v := pause.Int64
 		st.PauseUntilMs = &v
 	}
+	st.BonusGranted = bonusGranted != 0
+	st.NoForbidden = noForbidden != 0
 	return st, nil
 }
 
@@ -184,12 +195,12 @@ func (s *Store) SaveDayState(childID int64, st core.DayState) error {
 	if st.PauseUntilMs != nil {
 		pause = *st.PauseUntilMs
 	}
-	_, err := s.db.Exec(`INSERT INTO day_state (child_id, day, total_s, games_s, video_s, study_s, extra_min, pause_until)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+	_, err := s.db.Exec(`INSERT INTO day_state (child_id, day, total_s, games_s, video_s, study_s, extra_min, pause_until, bonus_granted, no_forbidden)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (child_id, day) DO UPDATE SET total_s = excluded.total_s, games_s = excluded.games_s,
 			video_s = excluded.video_s, study_s = excluded.study_s, extra_min = excluded.extra_min,
-			pause_until = excluded.pause_until`,
-		childID, st.Day, st.TotalS, st.GamesS, st.VideoS, st.StudyS, st.ExtraMin, pause)
+			pause_until = excluded.pause_until, bonus_granted = excluded.bonus_granted, no_forbidden = excluded.no_forbidden`,
+		childID, st.Day, st.TotalS, st.GamesS, st.VideoS, st.StudyS, st.ExtraMin, pause, boolToInt(st.BonusGranted), boolToInt(st.NoForbidden))
 	if err != nil {
 		return fmt.Errorf("storage: сохранить состояние дня: %w", err)
 	}

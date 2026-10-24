@@ -32,7 +32,8 @@ const (
 	settingFirstRunPrefix    = "firstrun.seen."
 	settingHelperParent      = "helper.parent"
 	settingHelperChildPrefix = "helper.child."
-	settingVerboseLogs       = "diag.verbose" // «Подробные логи для диагностики» (FR-25, D-42)
+	settingVerboseLogs       = "diag.verbose"      // «Подробные логи для диагностики» (FR-25, D-42)
+	settingBonusRate         = "bonus.rate_per_10" // автобонус N: минут за каждые 10 мин остатка (R25, D-49)
 )
 
 // SessionEvent — событие сеанса Windows, которое диспетчер служб передаёт службе.
@@ -72,6 +73,10 @@ type Config struct {
 	// nil: time.Now.
 	RealNow func() time.Time
 	Logf    func(format string, args ...any)
+	// OpenFolder открывает папку в проводнике в сеансе sessionID, то есть там, где сидит родитель
+	// (служба работает в служебном сеансе и свой проводник никому бы не показала): FR-25, D-48,
+	// «Открыть папку с логами». nil: ничего не делает (тесты; в тестовом режиме не вызывается).
+	OpenFolder func(sessionID uint32, path string) error
 }
 
 // pendingWarning — предупреждение, ещё не доставленное стражу.
@@ -168,6 +173,9 @@ func New(cfg Config) (*Service, error) {
 	}
 	if cfg.RealNow == nil {
 		cfg.RealNow = time.Now
+	}
+	if cfg.OpenFolder == nil {
+		cfg.OpenFolder = func(uint32, string) error { return nil }
 	}
 	s := &Service{
 		cfg: cfg, journal: cfg.Journal,
@@ -390,6 +398,7 @@ func (s *Service) saveState(cs *childState, st core.DayState) {
 // afterDecision разбирает решение ядра: закрытый день, события, предупреждение.
 func (s *Service) afterDecision(cs *childState, d core.Decision, extra map[string]any) {
 	if d.ClosedDay != nil {
+		s.grantDailyBonus(cs, d.ClosedDay)
 		s.saveState(cs, *d.ClosedDay)
 	}
 	s.writeEvents(cs.child.ID, d.Events, extra)
@@ -451,6 +460,10 @@ func (s *Service) statusOf(cs *childState) ipc.ChildStatus {
 // «Сегодня нельзя с 21:00 до 07:00». Пусто, если интервалов сегодня впереди нет.
 func (s *Service) forbiddenNote(cs *childState) string {
 	now := s.cfg.Clock.Now().In(s.cfg.Loc)
+	// Родитель снял запретные часы на сегодня (R24, D-51): не пугать «Сейчас нельзя» (класс A).
+	if state, _ := cs.eng.State(); state.NoForbidden && state.Day == now.Format(time.DateOnly) {
+		return "Сегодня запретные часы не действуют"
+	}
 	if in, end := core.InForbidden(cs.rules, now); in {
 		return "Сейчас нельзя до " + core.FormatClock(end)
 	}
@@ -475,9 +488,11 @@ func (s *Service) cardOf(cs *childState) ipc.TodayCard {
 		s.logRate(fmt.Sprint("bonus", cs.child.ID), "не удалось прочитать копилку ребёнка %d: %v", cs.child.ID, err)
 		bonus = 0
 	}
+	noForbidden := state.NoForbidden && state.Day == st.Day
 	return ipc.TodayCard{
 		ChildID: cs.child.ID, SID: cs.child.SID, Name: cs.child.Name, Status: st,
 		ExtraMin: extra, BonusBalance: bonus, CanClearBlock: bypass != "",
+		NoForbiddenToday: noForbidden,
 	}
 }
 

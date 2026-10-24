@@ -22,10 +22,15 @@ const (
 	TargetConfirmShutdown = "confirmShutdown"        // «Выключить» в подтверждении выключения
 	TargetAskMore         = "askMore"                // «Попросить ещё» на экране (FR-10)
 	TargetSpendBonus      = "spendBonus"             // «Взять из копилки» на экране (FR-11)
+	TargetPromo           = "promo"                  // «Ввести промокод» на экране (FR-35)
+	TargetSubmitPromo     = "submitPromo"            // «Применить» на панели промокода
 )
 
 // FieldPasswordID — идентификатор поля пароля в TestGuard (действие type) и в GuardState.Fields.
 const FieldPasswordID = "password"
+
+// FieldPromoID — идентификатор поля промокода в TestGuard (действие type) и в GuardState.Fields.
+const FieldPromoID = "promo"
 
 var targetNames = map[Button]string{
 	ButtonParentPassword:  TargetParentPassword,
@@ -44,6 +49,8 @@ var targetNames = map[Button]string{
 	ButtonWarningOK:       TargetAck,
 	ButtonAskMore:         TargetAskMore,
 	ButtonSpendBonus:      TargetSpendBonus,
+	ButtonPromo:           TargetPromo,
+	ButtonSubmitPromo:     TargetSubmitPromo,
 }
 
 // TargetName возвращает имя кнопки для канала связи; у ButtonNone и неизвестного значения пусто.

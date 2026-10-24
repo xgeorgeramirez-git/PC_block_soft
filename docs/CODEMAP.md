@@ -10,14 +10,14 @@
 | `.` | 1 (0) | main: точка входа, запуск окна |
 | `internal/auth` | 2 (1) | auth — пароль родителя: проверка длины и паузы после неверных вводов (R19); только стандартная библиотека. |
 | `internal/auth/pwhash` | 1 (1) | pwhash — хеш пароля родителя Argon2id (NFR-9): память 64 МБ, 3 прохода, строка формата PHC. |
-| `internal/core` | 10 (10) | core — ядро правил и учёта времени: активные секунды, лимиты, предупреждения, блокировка; только стандартная библиотека, всё внешнее через порты. |
-| `internal/guard` | 15 (6) | guard — страж сеанса: нативный экран блокировки Windows, который |
+| `internal/core` | 12 (14) | core — ядро правил и учёта времени: активные секунды, лимиты, предупреждения, блокировка; только стандартная библиотека, всё внешнее через порты. |
+| `internal/guard` | 15 (7) | guard — страж сеанса: нативный экран блокировки Windows, который |
 | `internal/guidance` | 2 (1) | guidance хранит каталог Помощника (FR-34, ТЗ 8.4 и 10.9) и проверяет его. |
-| `internal/ipc` | 11 (6) | ipc — канал связи службы программы с её окнами, стражем сеанса и значком на том |
+| `internal/ipc` | 12 (6) | ipc — канал связи службы программы с её окнами, стражем сеанса и значком на том |
 | `internal/launch` | 1 (1) | launch разбирает ключи запуска программы: в каком режиме работает PCBlock.exe. |
-| `internal/service` | 16 (14) | service — служба PCBlock: фоновая часть, которая считает время за компьютером, |
-| `internal/service/winhost` | 18 (1) | winhost — Windows-обвязка службы PCBlock: всё, что внутри internal/service |
-| `internal/storage` | 4 (4) | storage — хранилище программы: SQLite в режиме WAL (ТЗ 3.1, 3.4, 4), драйвер на чистом Go. |
+| `internal/service` | 17 (15) | service — служба PCBlock: фоновая часть, которая считает время за компьютером, |
+| `internal/service/winhost` | 19 (1) | winhost — Windows-обвязка службы PCBlock: всё, что внутри internal/service |
+| `internal/storage` | 5 (5) | storage — хранилище программы: SQLite в режиме WAL (ТЗ 3.1, 3.4, 4), драйвер на чистом Go. |
 | `internal/systray` | 12 (6) | systray — значок у часов и мини-панель: надпись остатка, подсказка, цвет статуса, |
 | `internal/ui` | 3 (1) | ui — окно программы на Wails: запуск окна и методы, доступные интерфейсу. |
 | `internal/version` | 1 (1) | version хранит номер версии программы. |
@@ -26,6 +26,7 @@
 ## Миграции базы
 
 - `001_init.sql` — Назначение: начальная схема базы по ТЗ 4 целиком (таблицы M1 и поля M2+ сразу, чтобы не мигрировать повторно).
+- `002_feedback_0_2_2.sql` — Назначение: фидбек-раунд 0.2.2 — автобонусы (R25), снятие запрета на день (R24), промокоды (R26).
 
 ## Интерфейс (frontend/src)
 
@@ -38,6 +39,8 @@
 - `src/components/LimitsTable.tsx`
 - `src/components/Notice.tsx`
 - `src/components/PausePicker.tsx`
+- `src/components/PromoAdmin.tsx`
+- `src/components/PromoRedeem.tsx`
 - `src/components/SaveBar.tsx`
 - `src/components/ScheduleEditor.tsx`
 - `src/components/ServiceNotices.tsx`
@@ -61,12 +64,14 @@
 - `src/guidance/state.ts`
 - `src/guidance/steps.ts`
 - `src/guidance/useHelperSwitch.ts`
+- `src/lib/bonus.ts`
 - `src/lib/errors.ts`
 - `src/lib/format.ts`
 - `src/lib/journal.ts`
 - `src/lib/limits.ts`
 - `src/lib/mytoday.ts`
 - `src/lib/notices.ts`
+- `src/lib/numinput.ts`
 - `src/lib/password.ts`
 - `src/lib/schedule.ts`
 - `src/lib/status.ts`

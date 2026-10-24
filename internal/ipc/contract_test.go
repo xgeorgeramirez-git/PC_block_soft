@@ -152,8 +152,31 @@ func examples() map[string]example {
 		CmdClearExtra: ok(ClearExtraRequest{ChildID: 1}, AddExtraReply{
 			Card: card(okStatus(), 0, false), Message: "Доп. время убрано", ExtraID: "e-19", UndoUntilMs: t0 + 10_000,
 		}),
-		CmdGetDiag: ok(Empty{}, DiagReply{Verbose: false}),
-		CmdSetDiag: ok(SetDiagRequest{Verbose: true}, DiagReply{Verbose: true}),
+		CmdGetDiag:  ok(Empty{}, DiagReply{Verbose: false, LogsPath: `C:\ProgramData\PCBlock\logs`}),
+		CmdSetDiag:  ok(SetDiagRequest{Verbose: true}, DiagReply{Verbose: true, LogsPath: `C:\ProgramData\PCBlock\logs`}),
+		CmdOpenLogs: ok(Empty{}, OpenLogsReply{Path: `C:\ProgramData\PCBlock\logs`, Message: "Открываю папку с логами"}),
+
+		CmdSetNoForbidden: ok(SetNoForbiddenRequest{ChildID: 1, On: true}, SetNoForbiddenReply{
+			Card: card(okStatus(), 0, false), Message: "Сегодня запретные часы не действуют",
+		}),
+		CmdClearBonus:  ok(ClearBonusRequest{ChildID: 1}, BonusChangeReply{BalanceAfter: 0, Message: "Копилка обнулена"}),
+		CmdReduceBonus: ok(ReduceBonusRequest{ChildID: 1, Minutes: 30}, BonusChangeReply{BalanceAfter: 45, Message: "Убавлено 30 минут. Баланс 45 мин"}),
+		CmdCreatePromo: ok(CreatePromoRequest{Code: "a1234", Minutes: 30}, CreatePromoReply{
+			Promo:   PromoView{CodeDisplay: "a1234", Minutes: 30, CreatedAtMs: t0},
+			Message: "Промокод «a1234» на 30 минут готов",
+		}),
+		"CreatePromo#dup": fail(CreatePromoRequest{Code: "a1234", Minutes: 15}, "Такой код уже есть, придумайте другой", FieldCode, nil),
+		CmdListPromos: ok(Empty{}, ListPromosReply{
+			Active: []PromoView{{CodeDisplay: "b5678", Minutes: 60, CreatedAtMs: t0}},
+			Used:   []PromoView{{CodeDisplay: "a1234", Minutes: 30, CreatedAtMs: t0, UsedAtMs: t0 + 3_600_000, UsedByChild: 1, UsedByName: "Миша"}},
+		}),
+		"ListPromos#empty": ok(Empty{}, ListPromosReply{Active: []PromoView{}, Used: []PromoView{}}),
+		CmdRedeemPromo: ok(RedeemPromoRequest{ChildID: 1, Code: "a1234"}, RedeemPromoReply{
+			Card: card(okStatus(), 30, false), AddedMin: 30, Message: "Добавлено 30 минут",
+		}),
+		"RedeemPromo#bad": fail(RedeemPromoRequest{ChildID: 1, Code: "нет"}, "Код не подходит", FieldCode, nil),
+		CmdGetBonusRate:   ok(Empty{}, BonusRateReply{Minutes: 5}),
+		CmdSetBonusRate:   ok(SetBonusRateRequest{Minutes: 10}, BonusRateReply{Minutes: 10}),
 		CmdUndoExtra: ok(UndoExtraRequest{ChildID: 1, ExtraID: "e-17"}, CardReply{
 			Card: card(okStatus(), 0, false), Message: "Добавленное время отменено",
 		}),
@@ -327,8 +350,8 @@ func TestContractHasEveryCommand(t *testing.T) {
 			t.Errorf("пример для %s есть, а в AllCommands её нет", c)
 		}
 	}
-	if len(AllCommands) != 48 {
-		t.Errorf("команд %d, ждали 48 (43 из M1/M2 плюс 5 из фидбек-раунда 0.2.1: ReduceExtra, ClearExtra, ParentStats, GetDiag, SetDiag)", len(AllCommands))
+	if len(AllCommands) != 57 {
+		t.Errorf("команд %d, ждали 57 (48 из M1/M2/0.2.1 плюс 9 из фидбек-раунда 0.2.2: OpenLogs, SetNoForbidden, ClearBonus, ReduceBonus, CreatePromo, ListPromos, RedeemPromo, GetBonusRate, SetBonusRate)", len(AllCommands))
 	}
 }
 

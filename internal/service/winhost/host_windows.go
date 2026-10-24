@@ -68,6 +68,7 @@ func openHost() (*host, error) {
 		Store:      res.Store,
 		Hasher:     hasher{},
 		Launcher:   launcher{exe: exe},
+		OpenFolder: openFolder,
 		Admins:     admins,
 		Accounts:   accountDir{admins: admins},
 		Policy:     &policy{},

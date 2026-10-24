@@ -40,6 +40,13 @@ import type {
   SaveScheduleReply,
   SpendBonusReply,
   UndoBonusReply,
+  SetNoForbiddenReply,
+  BonusChangeReply,
+  CreatePromoReply,
+  ListPromosReply,
+  RedeemPromoReply,
+  OpenLogsReply,
+  BonusRateReply,
 } from "./types";
 
 function bridge(): PCBlockApp {
@@ -322,4 +329,51 @@ export function askMore(childId: number, minutes: number, password: string): Pro
 /** «Взять из копилки» ребёнком без пароля (FR-11). */
 export function spendBonus(childId: number, minutes: number): Promise<SpendBonusReply> {
   return call("SpendBonus", { childId, minutes });
+}
+
+// Фидбек-раунд 0.2.2.
+
+/** Снять или вернуть запретные часы на сегодня (R24, D-51). */
+export function setNoForbidden(childId: number, on: boolean): Promise<SetNoForbiddenReply> {
+  return call("SetNoForbidden", { childId, on });
+}
+
+/** Обнулить копилку ребёнка (FR-22, D-46). */
+export function clearBonus(childId: number): Promise<BonusChangeReply> {
+  return call("ClearBonus", { childId });
+}
+
+/** Убавить копилку на minutes минут, не ниже нуля (FR-22, D-46). */
+export function reduceBonus(childId: number, minutes: number): Promise<BonusChangeReply> {
+  return call("ReduceBonus", { childId, minutes });
+}
+
+/** Родитель создаёт промокод на время (R26, D-50). */
+export function createPromo(code: string, minutes: number): Promise<CreatePromoReply> {
+  return call("CreatePromo", { code, minutes });
+}
+
+/** Списки действующих и использованных промокодов (R26, D-50). */
+export function listPromos(): Promise<ListPromosReply> {
+  return call("ListPromos", {});
+}
+
+/** Ребёнок вводит промокод — экран блокировки и раздел «Бонусы» (R26, D-50). */
+export function redeemPromo(childId: number, code: string): Promise<RedeemPromoReply> {
+  return call("RedeemPromo", { childId, code });
+}
+
+/** Открыть папку с логами в проводнике (FR-25, D-48). */
+export function openLogs(): Promise<OpenLogsReply> {
+  return call("OpenLogs", {});
+}
+
+/** Прочитать настройку автобонуса N (R25, D-49). */
+export function getBonusRate(): Promise<BonusRateReply> {
+  return call("GetBonusRate", {});
+}
+
+/** Задать настройку автобонуса N (R25, D-49). */
+export function setBonusRate(minutes: number): Promise<BonusRateReply> {
+  return call("SetBonusRate", { minutes });
 }

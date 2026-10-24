@@ -6,7 +6,7 @@
 // Файл собирается и в браузерный сценарий Playwright (e2e/helpers.ts): экспорты доступны
 // там как PCBlockMock.installBackend(...).
 import contract from "../../../internal/ipc/testdata/contract.json";
-import { formatDuration, formatLimit, localOffsetMin, weekdayOfMs, weekdayShort } from "../lib/format";
+import { formatDuration, formatHour, formatLimit, localOffsetMin, weekdayOfMs, weekdayShort } from "../lib/format";
 import { normalizeLimits } from "../lib/limits";
 import type {
   Account,
@@ -52,6 +52,17 @@ export interface MockChild {
   blockDetail: string;
   /** Учётка стала администратором (R1): ограничения не действуют. */
   admin?: boolean;
+  /** Сегодня запретные часы сняты родителем (R24, D-51). */
+  noForbiddenToday?: boolean;
+}
+
+/** Промокод в подменной программе (R26, D-50). */
+export interface MockPromo {
+  codeDisplay: string;
+  minutes: number;
+  createdAtMs: number;
+  usedAtMs?: number;
+  usedByChild?: number;
 }
 
 export interface MockOptions {
@@ -82,6 +93,8 @@ export interface MockOptions {
   myChildId?: number | null;
   /** Связи с программой нет: любой вызов Call отклоняется как сбой моста. */
   linkDown?: boolean;
+  /** Промокоды на старте (R26). */
+  promos?: MockPromo[];
 }
 
 export interface MockState {
@@ -114,6 +127,12 @@ export interface MockState {
   bonusUndo: Map<string, { childId: number; minutes: number; undoUntilMs: number }>;
   /** «Подробные логи для диагностики» включены (FR-25, D-42). */
   verboseLogs: boolean;
+  /** Промокоды (R26, D-50). */
+  promos: MockPromo[];
+  /** Настройка автобонуса N (R25, D-49). */
+  bonusRate: number;
+  /** Сколько раз просили открыть папку логов (FR-25, D-48). */
+  openLogsCount: number;
 }
 
 export type Override = Reply | "reject" | "garbage" | ((request: any) => Reply | Promise<Reply>);
@@ -131,6 +150,9 @@ export interface MockBackend {
 
 type Examples = Record<string, { request?: unknown; reply: Reply }>;
 const examples = contract as unknown as Examples;
+
+/** Папка логов, как её называет служба (FR-25, D-48). */
+const MOCK_LOGS_PATH = "C:\\ProgramData\\PCBlock\\logs";
 
 const MISHA_SID = "S-1-5-21-111-222-333-1001";
 
@@ -184,6 +206,14 @@ function todayLimit(child: MockChild, nowMs: number): WeekdayLimit {
   return normalizeLimits(child.limits)[wd - 1];
 }
 
+/** Строка о запретных часах сегодня (ТЗ 8.2.1) — упрощённо, как служба: снято (R24) или первый интервал дня. */
+function forbiddenNoteOf(child: MockChild, nowMs: number): string {
+  if (child.noForbiddenToday) return "Сегодня запретные часы не действуют";
+  const wd = weekdayOfMs(nowMs, localOffsetMin(new Date(nowMs)));
+  const iv = (child.schedule ?? []).filter((x) => x.weekday === wd).sort((a, b) => a.startMin - b.startMin)[0];
+  return iv ? `Сегодня нельзя с ${formatHour(iv.startMin)} до ${formatHour(iv.endMin)}` : "";
+}
+
 /** Статус ребёнка: слова и числа собираются в одном месте, как это делает служба. */
 export function statusOf(child: MockChild, nowMs: number): ChildStatus {
   const base = {
@@ -194,7 +224,7 @@ export function statusOf(child: MockChild, nowMs: number): ChildStatus {
     until: "",
     pauseUntil: child.pauseUntil ?? "",
     bonusBalance: child.bonusBalance ?? 0,
-    forbiddenNote: "",
+    forbiddenNote: forbiddenNoteOf(child, nowMs),
     reason: "",
   };
   if (child.admin) {
@@ -276,6 +306,7 @@ function cardOf(child: MockChild, nowMs: number): TodayCard {
     extraMin: child.extraMin,
     bonusBalance: child.bonusBalance ?? 0,
     canClearBlock: false,
+    noForbiddenToday: Boolean(child.noForbiddenToday),
   };
 }
 
@@ -328,7 +359,18 @@ const PARENT_COMMANDS = new Set([
   "ParentStats",
   "GetDiag",
   "SetDiag",
+  "SetNoForbidden",
+  "ClearBonus",
+  "ReduceBonus",
+  "CreatePromo",
+  "ListPromos",
+  "GetBonusRate",
+  "SetBonusRate",
+  "OpenLogs",
 ]);
+
+/** Нормализация промокода как в ядре (R26): без пробелов по краям и без учёта регистра. */
+const promoNorm = (code: string) => code.trim().toLowerCase();
 
 function makeState(opts: MockOptions): MockState {
   const configured = opts.configured ?? true;
@@ -361,6 +403,9 @@ function makeState(opts: MockOptions): MockState {
     extras: [],
     bonusUndo: new Map(),
     verboseLogs: false,
+    promos: opts.promos ?? [],
+    bonusRate: 5,
+    openLogsCount: 0,
   };
 }
 
@@ -549,7 +594,8 @@ export function createBackend(opts: MockOptions = {}): MockBackend {
     },
 
     GetBonus: (req) => {
-      const child = childById(req.childId);
+      // Окно ребёнка («Моя статистика» → «Бонусы») просит свою копилку номером 0 (FB-5).
+      const child = childById(req.childId ? req.childId : (state.myChildId ?? -1));
       if (!child) return fail("Ребёнок не найден");
       return okReply({ childId: child.childId, balance: child.bonusBalance ?? 0, entries: child.bonusLedger ?? [] });
     },
@@ -668,11 +714,11 @@ export function createBackend(opts: MockOptions = {}): MockBackend {
       return okReply(myToday(child, now));
     },
 
-    GetDiag: () => okReply({ verbose: state.verboseLogs }),
+    GetDiag: () => okReply({ verbose: state.verboseLogs, logsPath: MOCK_LOGS_PATH }),
 
     SetDiag: (req) => {
       state.verboseLogs = Boolean(req.verbose);
-      return okReply({ verbose: state.verboseLogs });
+      return okReply({ verbose: state.verboseLogs, logsPath: MOCK_LOGS_PATH });
     },
 
     ListEvents: (req) => {
@@ -721,6 +767,91 @@ export function createBackend(opts: MockOptions = {}): MockBackend {
       return okReply();
     },
 
+    // --- Фидбек-раунд 0.2.2 ---------------------------------------------------------
+
+    SetNoForbidden: (req, now) => {
+      const child = childById(req.childId);
+      if (!child) return fail("Ребёнок не найден");
+      child.noForbiddenToday = Boolean(req.on);
+      addEvent(now, child, "no_forbidden", `${child.name}: запретные часы сегодня ${req.on ? "сняты" : "снова действуют"}`);
+      return okReply({
+        card: cardOf(child, now),
+        message: req.on ? "Сегодня запретные часы не действуют" : "Запретные часы снова действуют сегодня",
+      });
+    },
+
+    ClearBonus: (req, now) => {
+      const child = childById(req.childId);
+      if (!child) return fail("Ребёнок не найден");
+      const was = child.bonusBalance ?? 0;
+      if (was <= 0) return okReply({ balanceAfter: 0, message: "Копилка уже пуста" });
+      child.bonusBalance = 0;
+      child.bonusLedger = [{ atMs: now, tzOffsetMin: localOffsetMin(new Date(now)), deltaMin: -was, reason: "Обнулено родителем", balanceAfter: 0 }, ...(child.bonusLedger ?? [])];
+      addEvent(now, child, "bonus_clear", `Копилка обнулена родителем (было ${was} мин)`);
+      return okReply({ balanceAfter: 0, message: "Копилка обнулена" });
+    },
+
+    ReduceBonus: (req, now) => {
+      const child = childById(req.childId);
+      if (!child) return fail("Ребёнок не найден");
+      if (!Number.isInteger(req.minutes) || req.minutes < 1) return fail("Укажите, на сколько убавить", "minutes");
+      const cur = child.bonusBalance ?? 0;
+      const take = Math.min(req.minutes, cur);
+      if (take <= 0) return okReply({ balanceAfter: 0, message: "Копилка уже пуста" });
+      const after = cur - take;
+      child.bonusBalance = after;
+      child.bonusLedger = [{ atMs: now, tzOffsetMin: localOffsetMin(new Date(now)), deltaMin: -take, reason: "Убавлено родителем", balanceAfter: after }, ...(child.bonusLedger ?? [])];
+      addEvent(now, child, "bonus_reduce", `Копилка убавлена родителем на ${take} мин`);
+      return okReply({ balanceAfter: after, message: `Убавлено ${take} ${minutesWord(take)}. Баланс ${after} мин` });
+    },
+
+    CreatePromo: (req, now) => {
+      const code = String(req.code ?? "").trim();
+      if (!code) return fail("Введите код", "code");
+      if (!Number.isInteger(req.minutes) || req.minutes < 1 || req.minutes > 600) return fail("Можно от 1 до 600 минут", "minutes");
+      if (state.promos.some((p) => promoNorm(p.codeDisplay) === promoNorm(code))) {
+        return fail("Такой код уже есть, придумайте другой", "code");
+      }
+      const promo: MockPromo = { codeDisplay: code, minutes: req.minutes, createdAtMs: now };
+      state.promos.push(promo);
+      addEvent(now, undefined, "promo_create", `Создан промокод «${code}» на ${req.minutes} мин`);
+      return okReply({ promo, message: `Промокод «${code}» на ${req.minutes} ${minutesWord(req.minutes)} готов` });
+    },
+
+    ListPromos: () => {
+      const name = (id?: number) => (id ? (childById(id)?.name ?? "") : "");
+      return okReply({
+        active: state.promos.filter((p) => !p.usedAtMs),
+        used: state.promos.filter((p) => p.usedAtMs).map((p) => ({ ...p, usedByName: name(p.usedByChild) })),
+      });
+    },
+
+    RedeemPromo: (req, now) => {
+      const child = childById(req.childId ? req.childId : (state.myChildId ?? -1));
+      if (!child) return fail("Ребёнок не найден");
+      if (!String(req.code ?? "").trim()) return fail("Введите код", "code");
+      const promo = state.promos.find((p) => !p.usedAtMs && promoNorm(p.codeDisplay) === promoNorm(req.code));
+      if (!promo) return fail("Код не подходит", "code");
+      promo.usedAtMs = now;
+      promo.usedByChild = child.childId;
+      child.extraMin += promo.minutes;
+      addEvent(now, child, "promo_redeem", `${child.name}: промокод «${promo.codeDisplay}» +${promo.minutes} мин`);
+      return okReply({ card: cardOf(child, now), addedMin: promo.minutes, message: `Добавлено ${promo.minutes} ${minutesWord(promo.minutes)}` });
+    },
+
+    OpenLogs: () => {
+      state.openLogsCount += 1;
+      return okReply({ path: MOCK_LOGS_PATH, message: "Открываю папку с логами" });
+    },
+
+    GetBonusRate: () => okReply({ minutes: state.bonusRate }),
+
+    SetBonusRate: (req) => {
+      if (!Number.isInteger(req.minutes) || req.minutes < 0 || req.minutes > 600) return fail("Можно от 0 до 600 минут", "minutes");
+      state.bonusRate = req.minutes;
+      return okReply({ minutes: state.bonusRate });
+    },
+
     GetHelperState: () => okReply({ state: state.helper }),
 
     SaveHelperState: (req) => {
@@ -752,7 +883,9 @@ export function createBackend(opts: MockOptions = {}): MockBackend {
     }
 
     const now = Date.now();
-    if (PARENT_COMMANDS.has(command)) {
+    // Окно ребёнка читает свою копилку номером 0 — без родительской сессии (FB-5).
+    const childOwnBonus = command === "GetBonus" && !(payload as { childId?: number }).childId;
+    if (PARENT_COMMANDS.has(command) && !childOwnBonus) {
       if (!sessionOpen(now)) {
         return JSON.stringify(fail("Сессия закончилась. Введите пароль"));
       }

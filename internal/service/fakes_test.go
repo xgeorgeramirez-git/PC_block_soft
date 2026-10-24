@@ -30,6 +30,7 @@ type fakeStore struct {
 
 	schedule map[int64][]core.Interval // интервалы по ребёнку (M2)
 	bonus    map[int64][]BonusRecord   // история копилки по ребёнку (M2)
+	promos   []*fakePromo              // промокоды (R26, D-50)
 
 	failLimits   bool // GetDayLimits возвращает ошибку
 	failSave     bool // SaveDayState возвращает ошибку
@@ -170,6 +171,56 @@ func (f *fakeStore) GetBonusBalance(id int64) (int, error) {
 		return h[len(h)-1].Balance, nil
 	}
 	return 0, nil
+}
+
+// fakePromo — промокод в памяти фейка.
+type fakePromo struct {
+	norm string
+	rec  PromoRecord
+}
+
+func (f *fakeStore) CreatePromo(codeDisplay string, minutes int) (PromoRecord, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	norm := core.NormalizePromoCode(codeDisplay)
+	if norm == "" || !core.PromoMinutesValid(minutes) {
+		return PromoRecord{}, errFake
+	}
+	for _, p := range f.promos {
+		if p.norm == norm {
+			return PromoRecord{}, errFake // уже есть такой код (UNIQUE)
+		}
+	}
+	rec := PromoRecord{CodeDisplay: codeDisplay, Minutes: minutes, CreatedAtMs: timeNowService()}
+	f.promos = append(f.promos, &fakePromo{norm: norm, rec: rec})
+	return rec, nil
+}
+
+func (f *fakeStore) RedeemPromo(childID int64, code string, atMs int64) (int, string, bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	norm := core.NormalizePromoCode(code)
+	if norm == "" {
+		return 0, "", false, nil
+	}
+	for _, p := range f.promos {
+		if p.norm == norm && p.rec.UsedAtMs == 0 {
+			p.rec.UsedAtMs = atMs
+			p.rec.UsedByChild = childID
+			return p.rec.Minutes, p.rec.CodeDisplay, true, nil
+		}
+	}
+	return 0, "", false, nil
+}
+
+func (f *fakeStore) ListPromos() ([]PromoRecord, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make([]PromoRecord, 0, len(f.promos))
+	for i := len(f.promos) - 1; i >= 0; i-- {
+		out = append(out, f.promos[i].rec)
+	}
+	return out, nil
 }
 
 func (f *fakeStore) ListBonus(id int64) ([]BonusRecord, error) {

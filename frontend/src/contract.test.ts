@@ -82,6 +82,16 @@ const CASES: [string, string, (req: any) => Promise<unknown>][] = [
   ["CopyRules", "CopyRules", (r) => api.copyRules(r.fromChildId, r.toChildId)],
   ["AskMore", "AskMore", (r) => api.askMore(r.childId, r.minutes, r.password)],
   ["SpendBonus", "SpendBonus", (r) => api.spendBonus(r.childId, r.minutes)],
+  ["OpenLogs", "OpenLogs", () => api.openLogs()],
+  ["SetNoForbidden", "SetNoForbidden", (r) => api.setNoForbidden(r.childId, r.on)],
+  ["ClearBonus", "ClearBonus", (r) => api.clearBonus(r.childId)],
+  ["ReduceBonus", "ReduceBonus", (r) => api.reduceBonus(r.childId, r.minutes)],
+  ["CreatePromo", "CreatePromo", (r) => api.createPromo(r.code, r.minutes)],
+  ["ListPromos", "ListPromos", () => api.listPromos()],
+  ["ListPromos", "ListPromos#empty", () => api.listPromos()],
+  ["RedeemPromo", "RedeemPromo", (r) => api.redeemPromo(r.childId, r.code)],
+  ["GetBonusRate", "GetBonusRate", () => api.getBonusRate()],
+  ["SetBonusRate", "SetBonusRate", (r) => api.setBonusRate(r.minutes)],
 ];
 
 describe("успешные ответы контракта", () => {
@@ -138,6 +148,8 @@ describe("отказы контракта", () => {
     ["GrantBonus", "GrantBonus#invalid", (r) => api.grantBonus(r.childId, r.minutes, r.reason)],
     ["AskMore", "AskMore#denied", (r) => api.askMore(r.childId, r.minutes, r.password)],
     ["SpendBonus", "SpendBonus#forbidden", (r) => api.spendBonus(r.childId, r.minutes)],
+    ["CreatePromo", "CreatePromo#dup", (r) => api.createPromo(r.code, r.minutes)],
+    ["RedeemPromo", "RedeemPromo#bad", (r) => api.redeemPromo(r.childId, r.code)],
   ];
 
   it.each([...denied, ...extra])("%s: пример %s - отказ с текстом и полем", async (_command, key, run) => {
@@ -184,6 +196,15 @@ describe("полнота", () => {
       "SaveHelperState",
       "MyToday",
       "FirstRunSeen",
+      "OpenLogs",
+      "SetNoForbidden",
+      "ClearBonus",
+      "ReduceBonus",
+      "CreatePromo",
+      "ListPromos",
+      "RedeemPromo",
+      "GetBonusRate",
+      "SetBonusRate",
     ]) {
       expect(examples[command], `нет примера ${command}`).toBeDefined();
       expect(wrapped.has(command), `нет обёртки ${command}`).toBe(true);

@@ -48,6 +48,15 @@ type BonusRecord struct {
 	Balance  int
 }
 
+// PromoRecord — промокод в списке родителя (storage.Promo) для службы (R26, D-50).
+type PromoRecord struct {
+	CodeDisplay string
+	Minutes     int
+	CreatedAtMs int64
+	UsedAtMs    int64 // 0 — действующий; иначе момент использования (UTC мс)
+	UsedByChild int64 // 0 — не использован
+}
+
 // Auth — пароль родителя и состояние неверных вводов (storage.Auth).
 type Auth struct {
 	Hash        string
@@ -69,6 +78,9 @@ type Store interface {
 	AppendBonus(childID int64, deltaMin int, reason string) (balanceAfter int, err error)
 	GetBonusBalance(childID int64) (int, error)
 	ListBonus(childID int64) ([]BonusRecord, error)
+	CreatePromo(codeDisplay string, minutes int) (PromoRecord, error)
+	RedeemPromo(childID int64, code string, atMs int64) (minutes int, display string, ok bool, err error)
+	ListPromos() ([]PromoRecord, error)
 	LoadDayState(childID int64, day string) (core.DayState, error)
 	SaveDayState(childID int64, st core.DayState) error
 	AppendEvent(e StoredEvent) error

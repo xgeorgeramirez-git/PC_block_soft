@@ -257,8 +257,10 @@ test("s06 моя статистика ребёнка", async ({ page }) => {
   await expect(page.getByText("Только просмотр", { exact: true })).toBeVisible();
   await expect(page.getByRole("region", { name: "Итоги" })).toBeVisible();
   await expect(page.getByRole("region", { name: "Мои правила" })).toBeVisible();
-  // Ребёнок видит только своё: ни полей ввода, ни слов родительского окна, ни других детей.
-  await expect(page.getByRole("textbox")).toHaveCount(0);
+  // Ребёнок видит только своё: единственное поле — промокод в «Бонусах» (R26), ни слов
+  // родительского окна, ни других детей.
+  await expect(page.getByRole("textbox")).toHaveCount(1);
+  await expect(page.getByRole("region", { name: "Бонусы" }).getByRole("textbox", { name: "Промокод" })).toBeVisible();
   await expect(page.getByText("Родительский контроль")).toHaveCount(0);
   await expect(page.getByText("Даша")).toHaveCount(0);
   await noHorizontalScroll(page);
@@ -328,4 +330,105 @@ test("s08 напоминание на карточке ребёнка", async ({
   await expect(card.getByRole("button", { name: "Больше не напоминать" })).toBeVisible();
   await noHorizontalScroll(page);
   await page.screenshot({ path: `${SCREENS}/s08-helper-reminder.png`, fullPage: true });
+});
+
+// --- Фидбек-раунд 0.2.2 ---------------------------------------------------------------
+
+const AUTO_BONUS = "Бонус за свободное время: 15 мин";
+const ledger = (now: number) => [
+  { atMs: now - 10 * 3600_000, tzOffsetMin: 180, deltaMin: 15, reason: AUTO_BONUS, balanceAfter: 45 },
+  { atMs: now - 30 * 3600_000, tzOffsetMin: 180, deltaMin: 30, reason: "за уборку", balanceAfter: 30 },
+];
+
+// s09 — копилка: обнулить и убавить с подтверждением (D-46); вкладка «Бонусы» — автобонусы и промокоды (R25, R26).
+test("s09 копилка: убавить с подтверждением", async ({ page }) => {
+  await tallWindow(page, 900);
+  const now = Date.now();
+  await mockProgram(page, { mode: "parent", sessionActive: true, children: [child({ bonusBalance: 45, bonusLedger: ledger(now) })] });
+  await page.goto("/");
+  await page.getByRole("button", { name: "Копилка", exact: true }).click();
+  const card = page.getByRole("article", { name: "Копилка, Миша" });
+  await expect(card.locator(".bonus-balance")).toHaveText("Баланс: 45 мин");
+  await expect(card.getByRole("button", { name: "Обнулить копилку" })).toBeVisible();
+  await noHorizontalScroll(page);
+  await page.screenshot({ path: `${SCREENS}/s09-bonus.png`, fullPage: true });
+  await card.getByRole("button", { name: "Убавить" }).click();
+  const dialog = page.getByRole("dialog", { name: "Убавить копилку?" });
+  await dialog.getByText("−30").click();
+  await page.screenshot({ path: `${SCREENS}/s09-bonus-reduce-dialog.png` });
+  await dialog.getByRole("button", { name: "Убавить на 30 мин" }).click();
+  await expect(card.getByText("Убавлено 30 минут. Баланс 15 мин")).toBeVisible();
+  await expect(card.getByText(/-30 мин: Убавлено родителем/)).toBeVisible();
+});
+
+test("s09 бонусы и промокоды", async ({ page }) => {
+  await tallWindow(page, 1000);
+  const now = Date.now();
+  await mockProgram(page, {
+    mode: "parent",
+    sessionActive: true,
+    children: [child({ bonusBalance: 45, bonusLedger: ledger(now) }), child({ childId: 2, sid: "S-1-5-21-111-222-333-1002", name: "Даша", bonusBalance: 0, bonusLedger: [] })],
+    promos: [
+      { codeDisplay: "pizza", minutes: 20, createdAtMs: now - 86400_000, usedAtMs: now - 3600_000, usedByChild: 2 },
+    ],
+  });
+  await page.goto("/");
+  await page.getByRole("button", { name: "Копилка", exact: true }).click();
+  await page.getByRole("tab", { name: "Бонусы" }).click();
+  await expect(page.getByText("+15 мин за неизрасходованное время прошлого дня")).toBeVisible();
+  await page.getByLabel("Код", { exact: true }).fill("a1234");
+  await page.getByLabel("Минут", { exact: true }).fill("30");
+  await page.getByRole("button", { name: "Создать промокод" }).click();
+  await expect(page.getByRole("list", { name: "Действующие промокоды" }).getByText("a1234")).toBeVisible();
+  await expect(page.getByRole("list", { name: "Использованные промокоды" }).getByText(/Даша/)).toBeVisible();
+  await noHorizontalScroll(page);
+  await page.screenshot({ path: `${SCREENS}/s09-bonuses-promos.png`, fullPage: true });
+});
+
+// s10 — запретные часы: правка интервала с заполненными полями (D-45); снять запрет на сегодня (R24).
+test("s10 правка запретного интервала", async ({ page }) => {
+  const schedule = [1, 2, 3, 4, 5, 6, 7].map((weekday) => ({ weekday, startMin: 21 * 60, endMin: 7 * 60 }));
+  await mockProgram(page, { mode: "parent", sessionActive: true, children: [child({ schedule })] });
+  await page.goto("/");
+  await page.getByRole("button", { name: "Дети" }).click();
+  await page.getByRole("tab", { name: "Запретные часы" }).click();
+  await page.getByRole("button", { name: /Изменить интервал 21:00 до 07:00 в Понедельник/i }).click();
+  await expect(page.getByLabel(/Новое начало запретного времени/)).toHaveValue("21:00");
+  await expect(page.getByLabel(/Новый конец запретного времени/)).toHaveValue("07:00");
+  await noHorizontalScroll(page);
+  await page.screenshot({ path: `${SCREENS}/s10-interval-edit.png`, fullPage: true });
+});
+
+test("s10 снять запрет на сегодня", async ({ page }) => {
+  await tallWindow(page, 900);
+  const schedule = [1, 2, 3, 4, 5, 6, 7].map((weekday) => ({ weekday, startMin: 21 * 60, endMin: 7 * 60 }));
+  await mockProgram(page, { mode: "parent", sessionActive: true, children: [child({ usedS: 1800, schedule })] });
+  await page.goto("/");
+  const misha = page.getByRole("article", { name: "Миша" });
+  await misha.getByRole("button", { name: "Снять запрет на сегодня" }).click();
+  await expect(misha.getByRole("button", { name: "Вернуть запретные часы" })).toBeVisible();
+  await expect(misha.getByText("Сегодня запретные часы не действуют").first()).toBeVisible();
+  await noHorizontalScroll(page);
+  await page.screenshot({ path: `${SCREENS}/s10-no-forbidden.png`, fullPage: true });
+});
+
+// s06 — «Бонусы» у ребёнка: копилка, автобонус простыми словами, промокод (R25, R26).
+test("s06 бонусы ребёнка и промокод", async ({ page }) => {
+  await tallWindow(page, 1000);
+  const now = Date.now();
+  await mockProgram(page, {
+    mode: "mystats",
+    children: [child({ bonusBalance: 45, bonusLedger: ledger(now) })],
+    myChildId: 1,
+    promos: [{ codeDisplay: "A1234", minutes: 30, createdAtMs: now - 3600_000 }],
+  });
+  await page.goto("/");
+  const box = page.getByRole("region", { name: "Бонусы" });
+  await expect(box.getByText("Копилка: 45 мин")).toBeVisible();
+  await expect(box.getByText("+15 мин за неизрасходованное время прошлого дня")).toBeVisible();
+  await box.getByRole("textbox", { name: "Промокод" }).fill("a1234");
+  await box.getByRole("button", { name: "Ввести промокод" }).click();
+  await expect(box.getByText("Добавлено 30 минут")).toBeVisible();
+  await noHorizontalScroll(page);
+  await page.screenshot({ path: `${SCREENS}/s06-my-bonuses.png`, fullPage: true });
 });

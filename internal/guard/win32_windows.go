@@ -57,9 +57,12 @@ const (
 
 	bmClick       = 0x00F5
 	emSetLimitTxt = 0x00C5
-	enChange      = 0x0300
-	bnClicked     = 0
-	maNoActivate  = 3
+	// EM_SETPASSWORDCHAR / EM_GETPASSWORDCHAR: точки в поле пароля; 0 — текст виден (промокод).
+	emSetPasswordChar = 0x00CC
+	emGetPasswordChar = 0x00D2
+	enChange          = 0x0300
+	bnClicked         = 0
+	maNoActivate      = 3
 
 	vkReturn = 0x0D
 

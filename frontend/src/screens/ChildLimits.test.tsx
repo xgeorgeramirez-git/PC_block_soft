@@ -95,13 +95,26 @@ describe("ChildLimits: таблица", () => {
     expect(within(row(/Воскресенье/)).queryByText(/0 мин: в этот день/)).toBeNull();
   });
 
-  it("лишние минуты переходят в часы", async () => {
+  // FB-1 (D-45). Ловит: в поле минут остаётся «75» или «99», а в поле часов «25».
+  it("минуты не больше 59, часы не больше 23", async () => {
     const user = setup();
     await ready();
     await user.clear(minutes("вторник"));
     await user.type(minutes("вторник"), "75");
-    expect(hours("вторник").value).toBe("3");
-    expect(minutes("вторник").value).toBe("15");
+    expect(minutes("вторник").value).toBe("59");
+    expect(hours("вторник").value).toBe("2");
+    await user.clear(hours("вторник"));
+    await user.type(hours("вторник"), "25");
+    expect(hours("вторник").value).toBe("23");
+  });
+
+  // FB-1 (D-45). Ловит: буквы попадают в поле.
+  it("буквы в поля часов и минут не вводятся", async () => {
+    const user = setup();
+    await ready();
+    await user.clear(minutes("вторник"));
+    await user.type(minutes("вторник"), "а3б0");
+    expect(minutes("вторник").value).toBe("30");
   });
 });
 
@@ -220,19 +233,14 @@ describe("ChildLimits: одна панель сохранения (L-44)", () =>
 });
 
 describe("ChildLimits: ошибки у поля (L-121)", () => {
-  // Ловит: лимит больше суток уходит в программу или ошибка видна не у дня.
-  it("больше 24 часов: ошибка у дня, в программу не отправляется", async () => {
+  // Ловит: лимит больше суток уходит в программу (D-45: поле само держит 23 ч).
+  it("больше 24 часов набрать нельзя: поле держит 23", async () => {
     const user = setup();
     await ready();
     await user.clear(hours("среда"));
     await user.type(hours("среда"), "25");
-    await user.click(screen.getByRole("button", { name: "Сохранить" }));
-    const alert = within(row(/Среда/)).getByRole("alert");
-    expect(alert.textContent).toBe("Не больше 24 ч");
-    expect(hours("среда").getAttribute("aria-invalid")).toBe("true");
-    expect(mock.count("SaveLimits")).toBe(0);
-    // Правки на месте, панель на месте.
-    expect(screen.getByRole("button", { name: "Сохранить" })).toBeTruthy();
+    expect(hours("среда").value).toBe("23");
+    expect(within(row(/Среда/)).queryByRole("alert")).toBeNull();
   });
 
   it("ошибка службы с полем limits.N показана у этого дня", async () => {

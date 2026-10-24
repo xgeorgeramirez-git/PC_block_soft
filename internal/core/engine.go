@@ -16,6 +16,9 @@ const (
 // ErrExtraRange — доп. время вне 1…240 минут.
 var ErrExtraRange = errors.New("доп. время: можно от 1 до 240 минут")
 
+// ErrPromoRange — минуты промокода вне 1…600 (R26, D-50).
+var ErrPromoRange = errors.New("промокод: можно от 1 до 600 минут")
+
 // ErrPausePast — конец паузы не позже текущего момента.
 var ErrPausePast = errors.New("пауза: конец должен быть в будущем")
 
@@ -123,6 +126,25 @@ func (e *Engine) AddExtra(min int) (Decision, error) {
 	return e.finish(e.decide(e.acc.State(), false), closed), nil
 }
 
+// RedeemPromoMinutes добавляет на сегодня время по промокоду (R26, D-50): 1…600 мин. Как и
+// доп. время (R10), расширяет все три лимита и снимает блокировку «время вышло», но не
+// выводит из запретного интервала. Диапазон шире, чем у AddExtra (240): промокод создаёт
+// родитель, а не ребёнок кнопкой «Попросить ещё». Неверный диапазон — ErrPromoRange.
+// Записью/одноразовостью самого кода ведает служба; ядро только применяет минуты и пишет
+// событие с текстом для журнала.
+func (e *Engine) RedeemPromoMinutes(min int) (Decision, error) {
+	if !PromoMinutesValid(min) {
+		return e.Current(), ErrPromoRange
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	closed := e.advance(e.now())
+	e.acc.AddExtra(min)
+	e.rearm()
+	e.pending = append(e.pending, Event{Kind: EvPromoRedeem, Details: map[string]any{"minutes": min, "text": PromoRedeemText(min)}})
+	return e.finish(e.decide(e.acc.State(), false), closed), nil
+}
+
 // ReduceExtra убавляет родительское доп. время на сегодня (R10, D-43): 1…240 мин, иначе
 // ErrExtraRange. Суммарный дневной лимит (лимит дня + доп. время) не опускается ниже 0,
 // поэтому убирается не больше, чем есть. Возвращает решение и фактически убранные минуты;
@@ -208,6 +230,26 @@ func (e *Engine) SpendBonus(min int) (Decision, error) {
 	e.rearm()
 	e.pending = append(e.pending, Event{Kind: EvBonusSpent, Details: map[string]any{"minutes": min, "text": BonusSpentText(min)}})
 	return e.finish(e.decide(e.acc.State(), false), closed), nil
+}
+
+// SetNoForbiddenToday снимает (on=true) или возвращает (on=false) запретные часы на
+// сегодня (R24, D-51). Общий лимит времени при снятии продолжает действовать. Флаг
+// привязан к дню и сам сбрасывается в местную полночь (новый день — NoForbidden=false).
+// Пороги взводятся заново (R9: при снятии исчезает ближайший запретный интервал).
+func (e *Engine) SetNoForbiddenToday(on bool) Decision {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	closed := e.advance(e.now())
+	if e.acc.State().NoForbidden != on {
+		e.acc.SetNoForbidden(on)
+		e.rearm()
+		text := NoForbiddenOnText
+		if !on {
+			text = NoForbiddenOffText
+		}
+		e.pending = append(e.pending, Event{Kind: EvNoForbidden, Details: map[string]any{"on": on, "text": text}})
+	}
+	return e.finish(e.decide(e.acc.State(), false), closed)
 }
 
 // MarkBypass записывает попытку обхода в журнал (R17в, D-41): подробное событие с
@@ -352,11 +394,13 @@ func (e *Engine) nextEvent(st DayState, now time.Time) (deltaS int, ev WarnEvent
 	if rem, unl := RemainingTotalS(lim, st.ExtraMin, st.TotalS); !unl {
 		best, bestEv, has = rem, WarnLimit, true
 	}
-	// Начало ближайшего запретного интервала.
-	if start, ok := NextForbiddenStart(e.rules, now); ok {
-		d := int(start.Sub(now).Seconds())
-		if d >= 0 && (!has || d < best) {
-			best, bestEv, has = d, WarnForbidden, true
+	// Начало ближайшего запретного интервала (кроме дня, где запрет снят родителем, R24).
+	if !st.NoForbidden {
+		if start, ok := NextForbiddenStart(e.rules, now); ok {
+			d := int(start.Sub(now).Seconds())
+			if d >= 0 && (!has || d < best) {
+				best, bestEv, has = d, WarnForbidden, true
+			}
 		}
 	}
 	return best, bestEv, has
@@ -396,6 +440,11 @@ func (e *Engine) decide(st DayState, fire bool) Decision {
 		d.PauseUntil = FormatClock(until)
 	}
 	inForbidden, forbiddenEnd := InForbidden(e.rules, now)
+	if st.NoForbidden {
+		// Родитель снял запретные часы на этот день (R24, D-51): интервалы не применяются,
+		// но общий лимит времени (R4) действует как обычно.
+		inForbidden = false
+	}
 
 	switch {
 	case paused:

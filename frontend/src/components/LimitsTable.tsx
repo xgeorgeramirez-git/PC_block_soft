@@ -1,5 +1,6 @@
 import { dayLabel, joinMinutes, setDay, splitMinutes, toggleUnlimited } from "../lib/limits";
 import { weekdayName } from "../lib/format";
+import { clampDigits } from "../lib/numinput";
 import type { WeekdayLimit } from "../types";
 
 interface Props {
@@ -11,6 +12,10 @@ interface Props {
   /** Ошибки по дням недели (L-121): рамка поля и текст под ним. */
   errors?: Record<number, string>;
 }
+
+/** Пределы полей (D-45): часы 0–23, минуты 0–59; целые сутки — переключатель «Без лимита». */
+const MAX_HOURS = 23;
+const MAX_MINUTES = 59;
 
 const ZERO_HINT = "0 мин: в этот день компьютером пользоваться нельзя";
 
@@ -41,30 +46,30 @@ export default function LimitsTable({ childName, limits, onChange, errors = {} }
                 <div className="limits-inputs">
                   <input
                     className="field-input limits-num"
-                    type="number"
+                    type="text"
                     inputMode="numeric"
-                    min={0}
-                    max={24}
+                    pattern="[0-9]*"
+                    maxLength={2}
                     aria-label={`Часы, ${day}`}
                     aria-invalid={error ? "true" : undefined}
                     value={h}
                     disabled={l.unlimited}
-                    onChange={(e) => edit(e.target.valueAsNumber, m)}
+                    onChange={(e) => edit(clampDigits(e.target.value, MAX_HOURS), m)}
                   />
                   <span className="limits-unit" aria-hidden="true">
                     ч
                   </span>
                   <input
                     className="field-input limits-num"
-                    type="number"
+                    type="text"
                     inputMode="numeric"
-                    min={0}
-                    max={59}
+                    pattern="[0-9]*"
+                    maxLength={2}
                     aria-label={`Минуты, ${day}`}
                     aria-invalid={error ? "true" : undefined}
                     value={m}
                     disabled={l.unlimited}
-                    onChange={(e) => edit(h, e.target.valueAsNumber)}
+                    onChange={(e) => edit(h, clampDigits(e.target.value, MAX_MINUTES))}
                   />
                   <span className="limits-unit" aria-hidden="true">
                     мин

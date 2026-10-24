@@ -192,6 +192,10 @@ func (s *Service) hGetBonus(c *callCtx) ipc.Reply {
 		return bad()
 	}
 	// Ребёнок своего сеанса читает только свою копилку (childSelf); родитель — любую.
+	// Номер 0 от ребёнка значит «моя копилка»: окно «Моя статистика» своего номера не знает (FB-5).
+	if c.self != nil && req.ChildID == 0 {
+		req.ChildID = c.self.child.ID
+	}
 	cs := s.children[req.ChildID]
 	if c.self != nil && (cs == nil || cs.child.ID != c.self.child.ID) {
 		return ipc.Fail(textNoSuchChild)
@@ -209,7 +213,9 @@ func (s *Service) hGetBonus(c *callCtx) ipc.Reply {
 	}
 	entries := make([]ipc.BonusEntry, 0, len(recs))
 	for _, r := range recs {
-		entries = append(entries, ipc.BonusEntry{AtMs: r.AtMs, DeltaMin: r.DeltaMin, Reason: r.Reason, Balance: r.Balance})
+		// Пояс службы на момент записи: окно показывает время записи по местным часам.
+		_, off := time.UnixMilli(r.AtMs).In(s.cfg.Loc).Zone()
+		entries = append(entries, ipc.BonusEntry{AtMs: r.AtMs, TzOffset: off / 60, DeltaMin: r.DeltaMin, Reason: r.Reason, Balance: r.Balance})
 	}
 	return ipc.OK(ipc.GetBonusReply{ChildID: cs.child.ID, Balance: bal, Entries: entries})
 }

@@ -136,6 +136,53 @@ export interface TodayCard {
   extraMin: number;
   bonusBalance: number;
   canClearBlock: boolean;
+  noForbiddenToday: boolean;
+}
+
+// Фидбек-раунд 0.2.2.
+
+export interface SetNoForbiddenReply {
+  card: TodayCard;
+  message: string;
+}
+
+export interface BonusChangeReply {
+  balanceAfter: number;
+  message: string;
+}
+
+export interface PromoView {
+  codeDisplay: string;
+  minutes: number;
+  createdAtMs: number;
+  usedAtMs?: number;
+  usedByChild?: number;
+  usedByName?: string;
+}
+
+export interface CreatePromoReply {
+  promo: PromoView;
+  message: string;
+}
+
+export interface ListPromosReply {
+  active: PromoView[];
+  used: PromoView[];
+}
+
+export interface RedeemPromoReply {
+  card: TodayCard;
+  addedMin: number;
+  message: string;
+}
+
+export interface OpenLogsReply {
+  path: string;
+  message: string;
+}
+
+export interface BonusRateReply {
+  minutes: number;
 }
 
 export interface GetTodayReply {
@@ -184,6 +231,8 @@ export interface UndoExtraRequest {
 /** Состояние переключателя «Подробные логи для диагностики» (FR-25, D-42). */
 export interface DiagReply {
   verbose: boolean;
+  /** Папка с логами (D-48): показывается в настройках сразу. */
+  logsPath?: string;
 }
 
 export interface CardReply {

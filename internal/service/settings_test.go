@@ -2,6 +2,7 @@ package service
 
 import (
 	"encoding/json"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -545,6 +546,10 @@ func TestVerboseLogsToggle(t *testing.T) {
 	if d.Verbose {
 		t.Fatalf("GetDiag после выключения: %+v", d)
 	}
+	// D-48: путь к папке логов виден в настройках сразу, без нажатия «Открыть».
+	if want := filepath.Join(h.dataDir, "logs"); d.LogsPath != want {
+		t.Fatalf("GetDiag.LogsPath = %q, want %q", d.LogsPath, want)
+	}
 }
 
 // Ловит: статистика родителя за сегодня не отдаёт данные выбранного ребёнка, не переключается
@@ -713,6 +718,33 @@ func TestListEvents(t *testing.T) {
 	h.ok(adminPeer(), tok, ipc.CmdListEvents, ipc.ListEventsRequest{FromMs: from, ToMs: from + 1}, &window)
 	if len(window.Events) != 1 || window.Events[0].Kind != "bypass" {
 		t.Fatalf("окно времени: %+v", window.Events)
+	}
+}
+
+// Ловит: экран журнала (вкладки «За месяц» и «Всё», D-47) просит до 1000 событий, а служба
+// молча режет ответ до 500 и старые события пропадают без предупреждения.
+func TestListEventsAllowsThousand(t *testing.T) {
+	h := newHarness(t, withChild(childSID, "Миша", 120), configured())
+	h.start()
+	tok := h.login(adminPeer())
+	id := h.childID(childSID)
+	for i := 0; i < 700; i++ {
+		if err := h.store.AppendEvent(StoredEvent{ChildID: id, AtMs: int64(1000 + i), Kind: "extra_time", Details: map[string]any{"minutes": 5}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var rep ipc.ListEventsReply
+	h.ok(adminPeer(), tok, ipc.CmdListEvents, ipc.ListEventsRequest{Limit: 1000}, &rep)
+	if len(rep.Events) != 700 {
+		t.Fatalf("событий %d, ждали все 700 (лимит 1000)", len(rep.Events))
+	}
+	if b, err := json.Marshal(rep); err != nil || len(b) > ipc.MaxFrame/2 {
+		t.Fatalf("700 записей журнала занимают %d байт: тысяча не поместится в кадр с запасом (%v)", len(b), err)
+	}
+	var over ipc.ListEventsReply
+	h.ok(adminPeer(), tok, ipc.CmdListEvents, ipc.ListEventsRequest{Limit: 5000}, &over)
+	if len(over.Events) != 700 {
+		t.Fatalf("лимит выше потолка: %d событий", len(over.Events))
 	}
 }
 

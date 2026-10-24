@@ -105,10 +105,14 @@ describe("состав каталога M1+M2 (раздел «Покрытие �
       "H-M2-01",
       "H-M2-02",
       "H-M2-03",
+      "H-M2-04",
+      "H-M2-05",
+      "H-M2-06",
+      "H-M2-07",
     ]);
     expect(HINTS.filter((h) => h.kind === "detector").map((h) => h.id)).toEqual(["D-M1-01", "D-M1-02", "D-M2-01"]);
     expect(TOURS.map((t) => t.id)).toEqual(["T-M1-01", "T-M2-01"]);
-    expect(WHATS_NEW.map((n) => n.id)).toEqual(["N-0.1.0", "N-0.2.0"]);
+    expect(WHATS_NEW.map((n) => n.id)).toEqual(["N-0.1.0", "N-0.2.0", "N-0.2.2"]);
   });
 
   it("номера уникальны", () => {
