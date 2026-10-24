@@ -73,9 +73,10 @@ type Config struct {
 	// nil: time.Now.
 	RealNow func() time.Time
 	Logf    func(format string, args ...any)
-	// OpenFolder открывает папку в проводнике (FR-25, D-48, «Открыть папку с логами»).
-	// nil: ничего не делает (тесты и тестовый режим реальный проводник не запускают).
-	OpenFolder func(path string) error
+	// OpenFolder открывает папку в проводнике в сеансе sessionID, то есть там, где сидит родитель
+	// (служба работает в служебном сеансе и свой проводник никому бы не показала): FR-25, D-48,
+	// «Открыть папку с логами». nil: ничего не делает (тесты; в тестовом режиме не вызывается).
+	OpenFolder func(sessionID uint32, path string) error
 }
 
 // pendingWarning — предупреждение, ещё не доставленное стражу.
@@ -174,7 +175,7 @@ func New(cfg Config) (*Service, error) {
 		cfg.RealNow = time.Now
 	}
 	if cfg.OpenFolder == nil {
-		cfg.OpenFolder = func(string) error { return nil }
+		cfg.OpenFolder = func(uint32, string) error { return nil }
 	}
 	s := &Service{
 		cfg: cfg, journal: cfg.Journal,

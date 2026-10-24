@@ -175,6 +175,65 @@ func TestOpenLogsPath(t *testing.T) {
 	}
 }
 
+// openCall — вызов подставной «открыть папку».
+type openCall struct {
+	session uint32
+	path    string
+}
+
+// withOpenFolder подставляет открытие папки: записывает вызовы, при err отвечает отказом.
+func withOpenFolder(calls *[]openCall, err error) hopt {
+	return func(h *harness) {
+		h.cfg.OpenFolder = func(session uint32, path string) error {
+			*calls = append(*calls, openCall{session, path})
+			return err
+		}
+	}
+}
+
+// Ловит: кнопка «Открыть папку с логами» отвечает «Открываю…», но проводник не запускается
+// (служба работает в служебном сеансе, проводник нужен в сеансе родителя): путь и номер сеанса
+// вызывающего окна должны дойти до открытия папки (FR-25, D-48).
+func TestOpenLogsOpensFolderInCallerSession(t *testing.T) {
+	var calls []openCall
+	h := newHarness(t, configured(), withChild(childSID, "Миша", 600), withOpenFolder(&calls, nil))
+	h.start()
+	tok := h.login(adminPeer())
+	var rep ipc.OpenLogsReply
+	h.ok(adminPeer(), tok, ipc.CmdOpenLogs, ipc.Empty{}, &rep)
+	if len(calls) != 1 {
+		t.Fatalf("открытий папки %d, ждали 1", len(calls))
+	}
+	if calls[0].session != adminPeer().SessionID || calls[0].path != rep.Path || rep.Path == "" {
+		t.Fatalf("открытие %+v, ждали сеанс %d и путь %q", calls[0], adminPeer().SessionID, rep.Path)
+	}
+}
+
+// Ловит: сбой запуска проводника выглядит как успех «Открываю папку» (родитель ждёт окно, а его нет).
+func TestOpenLogsFailureIsReported(t *testing.T) {
+	var calls []openCall
+	h := newHarness(t, configured(), withChild(childSID, "Миша", 600), withOpenFolder(&calls, errFake))
+	h.start()
+	tok := h.login(adminPeer())
+	rep := h.do(adminPeer(), tok, ipc.CmdOpenLogs, ipc.Empty{})
+	if rep.OK {
+		t.Fatalf("сбой запуска проводника принят за успех: %+v", rep)
+	}
+}
+
+// Ловит: в тестовом режиме (раннер CI без рабочего стола) запускается настоящий проводник.
+func TestOpenLogsSuppressedInTestMode(t *testing.T) {
+	var calls []openCall
+	h := newHarness(t, configured(), withChild(childSID, "Миша", 600), withTestMode(TestMode{}), withOpenFolder(&calls, nil))
+	h.start()
+	tok := h.login(adminPeer())
+	var rep ipc.OpenLogsReply
+	h.ok(adminPeer(), tok, ipc.CmdOpenLogs, ipc.Empty{}, &rep)
+	if len(calls) != 0 {
+		t.Fatalf("в тестовом режиме проводник запущен: %+v", calls)
+	}
+}
+
 // Ловит: окно ребёнка («Моя статистика» → «Бонусы») не может прочитать свою копилку, потому
 // что не знает свой номер; или ребёнок читает чужую копилку (FB-5, R25, D-49).
 func TestGetBonusChildSelfWithoutID(t *testing.T) {

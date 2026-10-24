@@ -197,7 +197,7 @@ func (s *Service) hOpenLogs(c *callCtx) ipc.Reply {
 	path := s.logsDir()
 	if !s.cfg.Test.Enabled {
 		// В тестовом режиме реальный проводник не запускаем (раннер CI без рабочего стола).
-		if err := s.cfg.OpenFolder(path); err != nil {
+		if err := s.cfg.OpenFolder(c.peer.SessionID, path); err != nil {
 			s.logRate("openlogs", "не удалось открыть папку логов: %v", err)
 			return ipc.Fail(textRetry)
 		}
