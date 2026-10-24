@@ -213,6 +213,7 @@ function DiagSection() {
           Открыть папку с логами
         </button>
       </div>
+      <p className="field-hint">Если Windows попросит разрешение, нажмите «Продолжить».</p>
       {logsPath ? <p className="field-hint">{`Папка с логами: ${logsPath}`}</p> : null}
       {logsError ? <p className="field-error">{logsError}</p> : null}
     </section>

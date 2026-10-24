@@ -404,6 +404,13 @@ describe("Settings: папка с логами (FB-4, D-48)", () => {
     await vi.waitFor(() => expect(mock.state.openLogsCount).toBe(1));
   });
 
+  // Ловит: папка закрыта для обычных прав, Windows просит подтвердить доступ, а родитель не понимает, что нажать.
+  it("рядом с кнопкой сказано, что делать, если Windows попросит разрешение", async () => {
+    await setup();
+    const box = section("Подробные логи для диагностики");
+    expect(await within(box).findByText(/Если Windows попросит разрешение, нажмите «Продолжить»/)).toBeTruthy();
+  });
+
   it("папку открыть не удалось — понятная ошибка", async () => {
     const user = await setup();
     mock.override("OpenLogs", { ok: false, error: "Не получилось. Попробуйте ещё раз" });
