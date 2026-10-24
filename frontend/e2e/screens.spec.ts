@@ -348,7 +348,7 @@ test("s09 копилка: убавить с подтверждением", async
   await page.goto("/");
   await page.getByRole("button", { name: "Копилка", exact: true }).click();
   const card = page.getByRole("article", { name: "Копилка, Миша" });
-  await expect(card.getByText("Баланс: 45 мин")).toBeVisible();
+  await expect(card.locator(".bonus-balance")).toHaveText("Баланс: 45 мин");
   await expect(card.getByRole("button", { name: "Обнулить копилку" })).toBeVisible();
   await noHorizontalScroll(page);
   await page.screenshot({ path: `${SCREENS}/s09-bonus.png`, fullPage: true });
@@ -376,7 +376,7 @@ test("s09 бонусы и промокоды", async ({ page }) => {
   await page.getByRole("button", { name: "Копилка", exact: true }).click();
   await page.getByRole("tab", { name: "Бонусы" }).click();
   await expect(page.getByText("+15 мин за неизрасходованное время прошлого дня")).toBeVisible();
-  await page.getByLabel("Код").fill("a1234");
+  await page.getByLabel("Код", { exact: true }).fill("a1234");
   await page.getByLabel("Минут", { exact: true }).fill("30");
   await page.getByRole("button", { name: "Создать промокод" }).click();
   await expect(page.getByRole("list", { name: "Действующие промокоды" }).getByText("a1234")).toBeVisible();
