@@ -12,6 +12,14 @@ import (
 // служба с периодом PollEvery.
 const CardPollEvery = time.Second
 
+// PollInterval — период опроса службы: раз в секунду, пока карточка открыта, иначе PollEvery.
+func PollInterval(cardOpen bool) time.Duration {
+	if cardOpen {
+		return CardPollEvery
+	}
+	return PollEvery
+}
+
 // Тексты табло (D-53, ТЗ 8.2.1 п.3-6). Ребёнку на «ты», длинных тире нет (NFR-11).
 const (
 	textCountdownTitle     = "ОСТАЛОСЬ ВРЕМЕНИ:"

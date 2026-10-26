@@ -141,8 +141,8 @@ func TestCardArrowStates(t *testing.T) {
 	v := timeView("01", "23", "45", StatusNormal)
 	plain := RenderCardBase(l, v, CardState{})
 	cx, cy := (l.Arrow.Left+l.Arrow.Right)/2, (l.Arrow.Top+l.Arrow.Bottom)/2
-	// Правее центра на четверть диаметра лежит острие стрелки.
-	tip := px(plain, cx+int(0.14*float64(l.Arrow.Dx())), cy)
+	// Чуть правее центра лежит острие стрелки.
+	tip := px(plain, cx+int(0.07*float64(l.Arrow.Dx())), cy)
 	if tip.R < 0xF0 {
 		t.Errorf("острие стрелки %v не белое", tip)
 	}

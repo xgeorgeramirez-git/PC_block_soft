@@ -193,12 +193,12 @@ func TestUsesCountdown(t *testing.T) {
 }
 
 // Ловит: пока карточка открыта, служба опрашивается реже раза в секунду (секунды на плитках
-// «залипают»), а закрытая карточка гоняет службу каждую секунду.
-func TestPollIntervals(t *testing.T) {
-	if CardPollEvery != time.Second {
-		t.Errorf("открытая карточка: %v, ждали 1s", CardPollEvery)
+// «залипают»), а закрытая карточка гоняет службу каждую секунду (ТЗ 8.2.1 п.3).
+func TestPollInterval(t *testing.T) {
+	if got := PollInterval(true); got != time.Second {
+		t.Errorf("открытая карточка: %v, ждали 1s", got)
 	}
-	if PollEvery != 5*time.Second {
-		t.Errorf("закрытая: %v, ждали 5s", PollEvery)
+	if got := PollInterval(false); got != 5*time.Second {
+		t.Errorf("закрытая: %v, ждали 5s", got)
 	}
 }
