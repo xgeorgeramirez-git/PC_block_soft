@@ -5,7 +5,7 @@
 # закрывает карточку; стрелка (Enter на кнопке со стрелкой) открывает окно "Моя статистика" на "Сегодня".
 # Часы ядра идут в настоящем времени (ускорение 1): секунды на плитках должны идти вживую.
 # Снимки: s34-tray-countdown-1.png и s34-tray-countdown-2.png (два кадра с разницей около 3 с),
-# s34-mystats-today.png (окно "Моя статистика").
+# s34-mystats-today.png и s34-mystats-bottom.png (окно "Моя статистика", верх и низ страницы).
 $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "common.ps1")
 
@@ -92,13 +92,22 @@ Invoke-Scenario "S34" "Табло остатка у значка: секунды
     $w = $f[2] - $f[0]
     $hgt = $f[3] - $f[1]
     Assert-That ($w -gt 100 -and $hgt -gt 100) "Окно Моя статистика имеет размер ${w}x${hgt}"
-    $bmp = New-Object System.Drawing.Bitmap $w, $hgt
-    try {
-      $g = [System.Drawing.Graphics]::FromImage($bmp)
-      try { $g.CopyFromScreen($f[0], $f[1], 0, 0, (New-Object System.Drawing.Size $w, $hgt)) } finally { $g.Dispose() }
-      $bmp.Save((Join-Path $script:ShotDir "s34-mystats-today.png"), [System.Drawing.Imaging.ImageFormat]::Png)
-    } finally { $bmp.Dispose() }
-    Write-Log "Снимок окна: s34-mystats-today.png, заголовок «$($proc.MainWindowTitle)», ${w}x${hgt}"
+    $shoot = {
+      param([string]$Name)
+      $bmp = New-Object System.Drawing.Bitmap $w, $hgt
+      try {
+        $g = [System.Drawing.Graphics]::FromImage($bmp)
+        try { $g.CopyFromScreen($f[0], $f[1], 0, 0, (New-Object System.Drawing.Size $w, $hgt)) } finally { $g.Dispose() }
+        $bmp.Save((Join-Path $script:ShotDir "$Name.png"), [System.Drawing.Imaging.ImageFormat]::Png)
+      } finally { $bmp.Dispose() }
+      Write-Log "Снимок окна: $Name.png, заголовок «$($proc.MainWindowTitle)», ${w}x${hgt}"
+    }
+    & $shoot "s34-mystats-today"
+    # Окно 800x640 не вмещает все разделы: вторым кадром низ страницы, где должна быть видна
+    # ссылка "Настройки для родителя" (ТЗ 8.2.6 п.1).
+    [System.Windows.Forms.SendKeys]::SendWait("{END}")
+    Start-Sleep -Milliseconds 800
+    & $shoot "s34-mystats-bottom"
   }
 
   Write-Log "S34: табло открылось у значка, остаток уменьшался вживую, Esc закрыл, стрелка открыла Мою статистику"
