@@ -509,6 +509,30 @@ func (c *Controller) Run(act Action) {
 	}
 }
 
+// NotifyClosing сообщает службе, что страж закрывается вместе с сеансом Windows (выход из учётной
+// записи, выключение, перезагрузка, смена пользователя): GuardClosing. Это не обход защиты
+// (R17, FR-27): без сообщения служба записала бы в журнал «Защита программы была остановлена».
+// Сеанс не должен ждать службу: вызов идёт в отдельной горутине, и ждёт его NotifyClosing не
+// дольше wait; ошибка канала, отказ службы, паника и опоздавший ответ не важны. Возвращает true,
+// если служба приняла сообщение вовремя.
+func (c *Controller) NotifyClosing(wait time.Duration) bool {
+	done := make(chan bool, 1)
+	go func() {
+		defer func() {
+			if recover() != nil {
+				done <- false
+			}
+		}()
+		done <- ipc.Call(c.call, ipc.CmdGuardClosing, "", nil, nil) == nil
+	}()
+	select {
+	case ok := <-done:
+		return ok
+	case <-time.After(wait):
+		return false
+	}
+}
+
 // AutoSwitch проверяет срок автоматической смены пользователя (ТЗ 8.2.3 п.10) и возвращает
 // действие, которое надо выполнить через Run, как после Press. Зовёт горутина опроса после
 // каждого PollOnce. Пока идёт другая команда стража (проверка пароля родителя), срок не

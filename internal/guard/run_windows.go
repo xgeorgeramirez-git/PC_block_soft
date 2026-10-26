@@ -24,6 +24,8 @@ const (
 	tickEveryMs = 250 // как часто окна сверяются с Model (автозакрытие плашек, отсчёт паузы, обрыв связи)
 
 	dialTimeout = 2 * time.Second // сколько ждать канал службы за один заход
+
+	closingTimeout = 2 * time.Second // сколько ждать службу при конце сеанса: сеанс не должен ждать дольше (FB-1)
 )
 
 var (
@@ -364,6 +366,22 @@ func (a *app) shutdown() {
 	}
 }
 
+// notifyClosing сообщает службе, что страж закрывается штатно: это не обход (FB-1, R17, FR-27).
+// Ошибки и опоздание службы не важны, конец сеанса от них не задерживается.
+func (a *app) notifyClosing() {
+	if a == nil || a.ctl == nil {
+		return
+	}
+	safely(func() { a.ctl.NotifyClosing(closingTimeout) })
+}
+
+// endSession: сеанс заканчивается (WM_ENDSESSION с wParam != 0) или это изображает тестовая
+// команда endSession: сообщить службе о штатном закрытии и завершиться. Вызывается в потоке окон.
+func (a *app) endSession() {
+	a.notifyClosing()
+	procPostQuitMessage.Call(0)
+}
+
 // hostProc — оконная процедура скрытого окна: таймер, сигнал опроса, конец сеанса.
 func hostProc(hwnd, msg, wParam, lParam uintptr) uintptr {
 	a := theApp
@@ -374,10 +392,18 @@ func hostProc(hwnd, msg, wParam, lParam uintptr) uintptr {
 		}
 		return 0
 	case wmQueryEndSession:
+		// Сеанс спрашивает, можно ли заканчиваться: возражать нельзя (NFR-10), но службе
+		// сообщаем сразу, потом процесс может не успеть. Если конец сеанса отменят, метка
+		// службы сама погаснет через полминуты.
+		a.notifyClosing()
 		return 1
 	case wmEndSession:
 		if wParam != 0 {
-			procPostQuitMessage.Call(0)
+			if a != nil {
+				a.endSession()
+			} else {
+				procPostQuitMessage.Call(0)
+			}
 		}
 		return 0
 	case wmDestroy:

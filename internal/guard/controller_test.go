@@ -970,3 +970,99 @@ func TestControllerIsSafeForConcurrentUse(t *testing.T) {
 	close(stop)
 	wg.Wait()
 }
+
+// --- штатное закрытие стража при конце сеанса (FB-1) ---------------------------------------------
+
+// closingCaller — клиент канала для проверки NotifyClosing: запоминает команды, отвечает сразу
+// или только после release, может вернуть ошибку или отказ службы.
+type closingCaller struct {
+	mu      sync.Mutex
+	calls   []ipc.Msg
+	release chan struct{} // не nil: ответ только после закрытия канала
+	err     error
+	refuse  bool
+}
+
+func (c *closingCaller) Do(m ipc.Msg) (ipc.Reply, error) {
+	c.mu.Lock()
+	c.calls = append(c.calls, m)
+	rel, err, refuse := c.release, c.err, c.refuse
+	c.mu.Unlock()
+	if rel != nil {
+		<-rel
+	}
+	if err != nil {
+		return ipc.Reply{}, err
+	}
+	if refuse {
+		return ipc.Fail("Нельзя"), nil
+	}
+	return ipc.OK(ipc.Empty{}), nil
+}
+
+func (c *closingCaller) sent() []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	out := []string{}
+	for _, m := range c.calls {
+		out = append(out, m.Cmd)
+	}
+	return out
+}
+
+func newClosingController(c ipc.Caller) *Controller {
+	return NewController(NewModel(), c, (&ctClock{t: t0}).Now, func(time.Time) ipc.SensorSample { return ipc.SensorSample{} }, nil)
+}
+
+// Ловит: страж при конце сеанса не сообщает службе GuardClosing (она запишет «Защита программы
+// была остановлена»), либо шлёт другую команду, либо несколько.
+func TestNotifyClosingSendsGuardClosing(t *testing.T) {
+	cc := &closingCaller{}
+	if !newClosingController(cc).NotifyClosing(time.Second) {
+		t.Fatal("NotifyClosing вернул false, хотя служба приняла сообщение")
+	}
+	if got := cc.sent(); len(got) != 1 || got[0] != "GuardClosing" {
+		t.Fatalf("команды службе: %v; want одна GuardClosing", got)
+	}
+}
+
+// Ловит: ошибка канала или отказ службы при конце сеанса роняют стража или всплывают наружу:
+// сеанс заканчивается, служба может быть уже остановлена.
+func TestNotifyClosingIgnoresChannelErrorAndRefusal(t *testing.T) {
+	for name, cc := range map[string]*closingCaller{
+		"обрыв связи":  {err: errors.New("обрыв")},
+		"отказ службы": {refuse: true},
+	} {
+		if newClosingController(cc).NotifyClosing(time.Second) {
+			t.Errorf("%s: NotifyClosing вернул true", name)
+		}
+		if got := cc.sent(); len(got) != 1 {
+			t.Errorf("%s: команд %d; want 1 (повторов нет)", name, len(got))
+		}
+	}
+}
+
+// Ловит: страж ждёт зависшую службу и задерживает конец сеанса (выключение компьютера): вызов
+// обязан вернуться через заданный срок, не дожидаясь ответа.
+func TestNotifyClosingDoesNotWaitLongerThanLimit(t *testing.T) {
+	cc := &closingCaller{release: make(chan struct{})}
+	defer close(cc.release)
+	start := time.Now()
+	if newClosingController(cc).NotifyClosing(30 * time.Millisecond) {
+		t.Fatal("NotifyClosing вернул true, хотя служба не ответила")
+	}
+	if d := time.Since(start); d > 3*time.Second {
+		t.Fatalf("NotifyClosing ждал %v; want около 30 мс (не ждать зависшую службу)", d)
+	}
+}
+
+// Ловит: паника в канале связи при конце сеанса убивает процесс стража до выхода из сеанса.
+func TestNotifyClosingSurvivesPanic(t *testing.T) {
+	if newClosingController(panicCaller{}).NotifyClosing(time.Second) {
+		t.Fatal("NotifyClosing вернул true после паники")
+	}
+}
+
+type panicCaller struct{}
+
+func (panicCaller) Do(ipc.Msg) (ipc.Reply, error) { panic("сломалось") }
