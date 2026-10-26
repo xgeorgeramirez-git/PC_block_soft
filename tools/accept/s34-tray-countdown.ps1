@@ -25,7 +25,16 @@ function Get-CardWindows {
 # Открывает табло и ждёт, пока оно появится и получит фокус (Esc и Enter идут окну переднего плана).
 function Open-CardAndFocus {
   Wait-Until { try { Send-OpenTrayCard; $true } catch { $false } } 40 "событие тестового режима значка (Local\PCBlockTrayCard)"
-  Wait-Until { (Get-CardWindows).Count -ge 1 } 10 "табло у значка открылось"
+  # Значок узнаёт о настроенном ребёнке при очередном опросе (до 5 с); до этого он считает учётку
+  # не детской и открывает мини-панель. Событие шлём повторно, пока не откроется именно табло.
+  Start-Sleep -Seconds 6
+  $tries = 0
+  Wait-Until {
+    if ((Get-CardWindows).Count -ge 1) { return $true }
+    if (($tries % 30) -eq 0) { try { Send-OpenTrayCard } catch {} }
+    $tries++
+    $false
+  } 45 "табло у значка открылось"
   Wait-Until { [PcbNative]::Foreground() -match '\|PCBlockTrayCard\|' } 10 "табло получило фокус (передний план: $([PcbNative]::Foreground()))"
 }
 
