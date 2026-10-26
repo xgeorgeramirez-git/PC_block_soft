@@ -53,6 +53,10 @@ func TestEventTextKinds(t *testing.T) {
 		d    map[string]any
 		want string
 	}{
+		// Ловит: убавленное время пишется как «+-60» (FB-2): знак минус перед числом, не плюс.
+		{"extra_time", map[string]any{"minutes": -60}, "Миша: доп. время −60 мин"},
+		{"extra_time", map[string]any{"minutes": float64(-15)}, "Миша: доп. время −15 мин"}, // из базы число приходит float64
+		{"extra_time", map[string]any{"minutes": 15}, "Миша: доп. время +15 мин"},
 		{"extra_undone", map[string]any{"minutes": 30}, "Миша: изменение доп. времени отменено"},
 		{"block_cleared", nil, "Миша: блокировка снята родителем"},
 		{"safe_mode", nil, "Миша: правила не прочитаны, ограничения не действуют"},

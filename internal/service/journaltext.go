@@ -43,7 +43,12 @@ func eventText(kind, name string, d map[string]any) string {
 	var body string
 	switch kind {
 	case core.EvExtraTime:
-		body = fmt.Sprintf("доп. время +%d мин", detInt(d, "minutes"))
+		// Убавленное время хранится отрицательным числом: «−60», а не «+-60» (знак U+2212, как в окне родителя).
+		if m := detInt(d, "minutes"); m < 0 {
+			body = fmt.Sprintf("доп. время −%d мин", -m)
+		} else {
+			body = fmt.Sprintf("доп. время +%d мин", m)
+		}
 	case "extra_undone":
 		body = "изменение доп. времени отменено"
 	case core.EvBypass:
