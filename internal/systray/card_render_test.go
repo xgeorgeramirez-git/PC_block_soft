@@ -3,6 +3,7 @@ package systray
 import (
 	"image"
 	"image/color"
+	"math"
 	"testing"
 )
 
@@ -270,5 +271,69 @@ func TestCardTextsMessageAndError(t *testing.T) {
 	}
 	if !btn || !text {
 		t.Errorf("на ошибке нет текста или подписи кнопки: %+v", er)
+	}
+}
+
+func luminance(c color.RGBA) float64 {
+	f := func(v uint8) float64 {
+		x := float64(v) / 255
+		if x <= 0.03928 {
+			return x / 12.92
+		}
+		return math.Pow((x+0.055)/1.055, 2.4)
+	}
+	return 0.2126*f(c.R) + 0.7152*f(c.G) + 0.0722*f(c.B)
+}
+
+func contrast(a, b color.RGBA) float64 {
+	la, lb := luminance(a), luminance(b)
+	if la < lb {
+		la, lb = lb, la
+	}
+	return (la + 0.05) / (lb + 0.05)
+}
+
+// Ловит: на плитке виден горизонтальный шов, как у флип-табло (макет: плитка цельная, сверху
+// чуть светлее плавным переходом): соседние строки колонки плитки не должны отличаться
+// больше чем на 2 уровня по сумме каналов, а полный перепад сверху вниз не больше 40.
+func TestCardTileHasNoSeam(t *testing.T) {
+	for _, sc := range []float64{1, 1.5} {
+		l := NewCardLayout(sc)
+		img := RenderCardBase(l, timeView("01", "23", "45", StatusNormal), CardState{})
+		sum := func(c color.RGBA) int { return int(c.R) + int(c.G) + int(c.B) }
+		for i, tl := range l.Tiles {
+			x := tl.Left + tl.Dx()/2
+			from, to := tl.Top+int(8*sc), tl.Bottom-int(8*sc)
+			prev := sum(px(img, x, from))
+			first := prev
+			for y := from + 1; y <= to; y++ {
+				cur := sum(px(img, x, y))
+				if d := prev - cur; d > 2 || d < -2 {
+					t.Fatalf("масштаб %.1f, плитка %d: шов на строке %d (перепад %d за один пиксель)", sc, i, y-tl.Top, d)
+				}
+				prev = cur
+			}
+			if drop := first - prev; drop < 0 || drop > 40 {
+				t.Errorf("масштаб %.1f, плитка %d: перепад сверху вниз %d, ждали от 0 до 40", sc, i, drop)
+			}
+		}
+	}
+}
+
+// Ловит: подписи под парами бледные: цвет #D6DFEA на фоне карточки в месте подписи должен
+// давать контраст не ниже 3:1 (полужирный текст от 18,7 px считается крупным по WCAG 2.1 AA);
+// на светлом правом нижнем углу градиента было ниже.
+func TestCardLabelContrast(t *testing.T) {
+	for _, sc := range []float64{1, 1.5, 2} {
+		l := NewCardLayout(sc)
+		img := RenderCardBase(l, timeView("01", "23", "45", StatusNormal), CardState{})
+		for g, lb := range l.Labels {
+			for _, x := range []int{lb.Left, (lb.Left + lb.Right) / 2, lb.Right} {
+				bg := px(img, x, (lb.Top+lb.Bottom)/2)
+				if c := contrast(colorLabel, bg); c < 3.0 {
+					t.Errorf("масштаб %.1f, подпись %d, x=%d: контраст %.2f ниже 3:1 (фон %v)", sc, g, x, c, bg)
+				}
+			}
+		}
 	}
 }

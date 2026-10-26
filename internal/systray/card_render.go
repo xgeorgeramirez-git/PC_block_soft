@@ -16,8 +16,8 @@ import (
 var (
 	cardDark     = color.RGBA{0x3F, 0x56, 0x75, 0xFF} // слева
 	cardLight    = color.RGBA{0x7E, 0x98, 0xB4, 0xFF} // справа вверху
-	cardTileTop  = color.RGBA{0xF6, 0xF9, 0xFC, 0xFF}
-	cardTileBot  = color.RGBA{0xD8, 0xE3, 0xEF, 0xFF}
+	cardTileTop  = color.RGBA{0xF7, 0xFA, 0xFD, 0xFF}
+	cardTileBot  = color.RGBA{0xEA, 0xF0, 0xF7, 0xFF} // перепад мал: плитка цельная, без шва
 	cardShadowC  = color.RGBA{0x0B, 0x16, 0x26, 0xFF}
 	colorNavy    = color.RGBA{0x1E, 0x2B, 0x40, 0xFF} // цифры на плитках
 	colorLabel   = color.RGBA{0xD6, 0xDF, 0xEA, 0xFF} // подписи под парами
@@ -28,7 +28,7 @@ var (
 )
 
 const (
-	cardColonDot  = 22.0 // расстояние от центра плитки до точки двоеточия, px при 100 %
+	cardColonDot  = 20.0 // расстояние от центра плитки до точки двоеточия, px при 100 %
 	cardFocusGap  = 4.0  // зазор между кнопкой и кольцом фокуса
 	cardDotRadius = 4.6
 )
@@ -198,13 +198,13 @@ func RenderCardBase(l CardLayout, v CountdownView, st CardState) *image.RGBA {
 	fillRound(img, l.Card, radius, func(x, y float64) (color.RGBA, float64) {
 		// Переход от тёмного слева к светлому справа вверху (макет): основной вклад даёт
 		// горизонталь, вертикаль добавляет свет к верхнему краю.
-		t := 0.65*(x-float64(l.Card.Left))/cw + 0.35*(1-(y-float64(l.Card.Top))/ch)
+		t := 0.5*(x-float64(l.Card.Left))/cw + 0.5*(1-(y-float64(l.Card.Top))/ch)
 		return cardGradient(clamp01(t)), 1
 	})
 
 	switch v.Kind {
 	case CountdownTime:
-		tileR := 12 * s
+		tileR := 18 * s
 		for _, t := range l.Tiles {
 			shadowRound(img, t, tileR, 4*s, 9*s, 0.34)
 		}
@@ -328,10 +328,10 @@ func CardTexts(l CardLayout, v CountdownView) []TextRun {
 			if i >= len(l.Tiles) {
 				break
 			}
-			runs = append(runs, TextRun{Role: RoleDigit, Text: string(d), Rect: l.Tiles[i], Px: px(80), Bold: true, Color: digitColor(v.Status), Align: AlignCenter})
+			runs = append(runs, TextRun{Role: RoleDigit, Text: string(d), Rect: l.Tiles[i], Px: px(68), Bold: true, Color: digitColor(v.Status), Align: AlignCenter})
 		}
 		for i, name := range []string{textLabelHours, textLabelMinutes, textLabelSeconds} {
-			runs = append(runs, TextRun{Role: RoleLabel, Text: name, Rect: l.Labels[i], Px: px(16), Color: colorLabel, Align: AlignCenter})
+			runs = append(runs, TextRun{Role: RoleLabel, Text: name, Rect: l.Labels[i], Px: px(22), Bold: true, Color: colorLabel, Align: AlignCenter})
 		}
 	case CountdownMessage:
 		runs = append(runs, TextRun{Role: RoleMessage, Text: v.Big, Rect: l.Text, Px: px(28), Bold: true, Color: colorWhite, Align: AlignCenter, Wrap: true})

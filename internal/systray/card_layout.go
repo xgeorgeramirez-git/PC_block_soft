@@ -7,20 +7,20 @@ import "math"
 
 // Размеры карточки при 100 % (пропорции макета 1,6 : 1), px.
 const (
-	cardBaseW      = 416
-	cardBaseH      = 260
-	cardBaseMargin = 22 // поля вокруг карточки под мягкую тень
-	cardBasePad    = 24
-	cardBaseRadius = 30
-	cardBaseArrow  = 44 // диаметр круглой кнопки
-	cardBaseTileW  = 50
-	cardBaseTileH  = 104
-	cardBasePair   = 6  // зазор между плитками одной пары
-	cardBaseColon  = 25 // ширина между парами: тут двоеточие
-	cardBaseTop    = 86 // верх плиток
-	cardBaseLabelH = 22
-	cardBaseBtnW   = 168
-	cardBaseBtnH   = 42
+	cardBaseW      = 480
+	cardBaseH      = 290
+	cardBaseMargin = 14 // поля вокруг карточки под мягкую тень; окно целиком выходит около 1,6 : 1
+	cardBasePad    = 26
+	cardBaseRadius = 44
+	cardBaseArrow  = 50 // диаметр круглой кнопки
+	cardBaseTileW  = 54
+	cardBaseTileH  = 88  // ближе к квадрату, чем 50x104 в первой версии
+	cardBasePair   = 8   // зазор между плитками одной пары
+	cardBaseColon  = 40  // ширина между парами: тут двоеточие, с воздухом до плиток
+	cardBaseTop    = 112 // верх плиток
+	cardBaseLabelH = 30
+	cardBaseBtnW   = 176
+	cardBaseBtnH   = 44
 )
 
 // CardTarget — что на карточке нажимается мышью и клавишами.
@@ -82,7 +82,7 @@ func NewCardLayout(scale float64) CardLayout {
 	pad := px(cardBasePad)
 	arrow := px(cardBaseArrow)
 	l.Arrow = Rect{l.Card.Right - pad - arrow, l.Card.Top + px(22), l.Card.Right - pad, l.Card.Top + px(22) + arrow}
-	l.Title = Rect{l.Card.Left + pad, l.Card.Top + px(22), l.Arrow.Left - px(12), l.Card.Top + px(22) + arrow}
+	l.Title = Rect{l.Card.Left + pad, l.Card.Top + px(24), l.Arrow.Left - px(12), l.Card.Top + px(24) + arrow}
 
 	tw, th := px(cardBaseTileW), px(cardBaseTileH)
 	pair, colon := px(cardBasePair), px(cardBaseColon)
@@ -97,7 +97,7 @@ func NewCardLayout(scale float64) CardLayout {
 			}
 		}
 		pairRect := Rect{l.Tiles[g*2].Left, top, l.Tiles[g*2+1].Right, top + th}
-		l.Labels[g] = Rect{pairRect.Left, top + th + px(8), pairRect.Right, top + th + px(8) + px(cardBaseLabelH)}
+		l.Labels[g] = Rect{pairRect.Left, top + th + px(14), pairRect.Right, top + th + px(14) + px(cardBaseLabelH)}
 		if g < 2 {
 			l.Colons[g] = Rect{x, top, x + colon, top + th}
 			x += colon

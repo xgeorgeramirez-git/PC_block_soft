@@ -2,13 +2,20 @@ package systray
 
 import "testing"
 
-// Ловит: карточка не по макету заказчика (пропорции примерно 1,6 : 1) или вылезает из окна.
+// Ловит: карточка не по макету заказчика: окно целиком (с полями под тень, как оно видно на
+// кадре) вышло около 1,5 : 1 вместо 1,6 : 1, либо карточка вылезает из окна.
 func TestCardLayoutProportions(t *testing.T) {
 	for _, dpi := range []int{96, 120, 144, 192} {
 		l := NewCardLayout(CardScale(dpi))
-		ratio := float64(l.Card.Dx()) / float64(l.Card.Dy())
-		if ratio < 1.58 || ratio > 1.62 {
-			t.Errorf("dpi %d: пропорции %.3f, ждали около 1,6", dpi, ratio)
+		win := float64(l.W) / float64(l.H)
+		if win < 1.58 || win > 1.63 {
+			t.Errorf("dpi %d: пропорции окна %.3f, ждали около 1,6", dpi, win)
+		}
+		if ratio := float64(l.Card.Dx()) / float64(l.Card.Dy()); ratio < 1.6 || ratio > 1.7 {
+			t.Errorf("dpi %d: пропорции самой карточки %.3f, ждали 1,6 до 1,7", dpi, ratio)
+		}
+		if l.Radius < int(40*l.Scale) {
+			t.Errorf("dpi %d: радиус углов %d, у макета заметно круглее (не меньше %d)", dpi, l.Radius, int(40*l.Scale))
 		}
 		if l.Card.Left != l.Margin || l.Card.Top != l.Margin || l.W != l.Card.Dx()+2*l.Margin || l.H != l.Card.Dy()+2*l.Margin {
 			t.Errorf("dpi %d: окно %dx%d не вмещает карточку %+v с полями %d", dpi, l.W, l.H, l.Card, l.Margin)
@@ -20,11 +27,11 @@ func TestCardLayoutProportions(t *testing.T) {
 // плиток вылезают за карточку или заходят друг на друга, подписи не под парами.
 func TestCardLayoutTiles(t *testing.T) {
 	l100, l150 := NewCardLayout(CardScale(96)), NewCardLayout(CardScale(144))
-	if l100.Tiles[0].Dx() != 50 || l100.Tiles[0].Dy() != 104 {
-		t.Errorf("плитка при 100 %%: %dx%d, ждали 50x104", l100.Tiles[0].Dx(), l100.Tiles[0].Dy())
+	if l100.Tiles[0].Dx() != 54 || l100.Tiles[0].Dy() != 88 {
+		t.Errorf("плитка при 100 %%: %dx%d, ждали 54x88 (ближе к квадрату, чем 50x104)", l100.Tiles[0].Dx(), l100.Tiles[0].Dy())
 	}
-	if l150.Tiles[0].Dx() != 75 || l150.Tiles[0].Dy() != 156 {
-		t.Errorf("плитка при 150 %%: %dx%d, ждали 75x156", l150.Tiles[0].Dx(), l150.Tiles[0].Dy())
+	if l150.Tiles[0].Dx() != 81 || l150.Tiles[0].Dy() != 132 {
+		t.Errorf("плитка при 150 %%: %dx%d, ждали 81x132", l150.Tiles[0].Dx(), l150.Tiles[0].Dy())
 	}
 	for _, l := range []CardLayout{l100, l150} {
 		for i, tl := range l.Tiles {
@@ -108,5 +115,42 @@ func TestCardFocusOrder(t *testing.T) {
 	}
 	if got := NextFocus(nil, TargetNone, false); got != TargetNone {
 		t.Errorf("пустой список: %v", got)
+	}
+}
+
+// Ловит: двоеточия зажаты между плитками и почти касаются их (на кадре воздуха нет): от точки
+// до соседней плитки должно быть не меньше 12 px при 100 %.
+func TestCardColonAir(t *testing.T) {
+	for _, sc := range []float64{1, 1.5, 2} {
+		l := NewCardLayout(sc)
+		for g, c := range l.Colons {
+			air := float64(c.Dx())/2 - cardDotRadius*sc
+			if air < 12*sc-1 {
+				t.Errorf("масштаб %.1f, двоеточие %d: воздуха до плитки %.1f px, ждали не меньше %.0f", sc, g, air, 12*sc)
+			}
+		}
+	}
+}
+
+// Ловит: подписи «часы / минуты / секунды» мелкие (было 16 px при цифрах 80 px): подпись
+// должна быть около трети высоты цифры (от 0,25 до 0,36 размера цифр).
+func TestCardLabelSize(t *testing.T) {
+	for _, sc := range []float64{1, 1.5, 2} {
+		l := NewCardLayout(sc)
+		var digit, label int
+		for _, r := range CardTexts(l, timeView("01", "23", "45", StatusNormal)) {
+			switch r.Role {
+			case RoleDigit:
+				digit = r.Px
+			case RoleLabel:
+				label = r.Px
+				if !r.Bold {
+					t.Errorf("подпись %q не полужирная: на тёмном фоне тонкий шрифт бледнеет", r.Text)
+				}
+			}
+		}
+		if f := float64(label) / float64(digit); f < 0.25 || f > 0.36 {
+			t.Errorf("масштаб %.1f: подпись %d px при цифрах %d px (доля %.2f), ждали 0,25 до 0,36", sc, label, digit, f)
+		}
 	}
 }
