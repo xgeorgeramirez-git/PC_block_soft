@@ -32,7 +32,7 @@ describe("FirstRun: пересказ правил на сегодня", () => {
     setup();
     expect(await screen.findByRole("heading", { name: "Теперь время за компьютером считается" })).toBeTruthy();
     expect(screen.getByText("Сегодня можно 2 ч.")).toBeTruthy();
-    expect(screen.getByText("Сколько осталось, видно в значке у часов.")).toBeTruthy();
+    expect(screen.getByText("Нажми на значок у часов: увидишь, сколько осталось.")).toBeTruthy();
   });
 
   // Ловит: запретные часы в M1 упомянуты, хотя их ещё нельзя задать.

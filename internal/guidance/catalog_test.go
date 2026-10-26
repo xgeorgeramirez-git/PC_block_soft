@@ -43,6 +43,8 @@ func TestCatalogM1Contents(t *testing.T) {
 		// Фидбек-раунд 0.2.2: снять запрет на день, убавить копилку, вкладка «Бонусы», промокоды.
 		"H-M2-04": KindHint, "H-M2-05": KindHint, "H-M2-06": KindHint, "H-M2-07": KindHint,
 		"N-0.2.2": KindWhatsNew,
+		// 0.2.4: табло остатка у значка и окно ребёнка с кнопками (D-53).
+		"N-0.2.4": KindWhatsNew,
 	}
 	got := map[string]Kind{}
 	for _, e := range Catalog() {

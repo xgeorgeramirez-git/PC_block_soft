@@ -695,6 +695,36 @@ p {
   color: var(--text-muted);
 }
 
+.stat-row-lead dt,
+.stat-row-lead dd {
+  font-weight: 600;
+}
+
+/* «Настройки для родителя» внизу окна ребёнка: мелкая ссылка, а не кнопка (ТЗ 8.2.6 п.1). */
+.my-foot {
+  margin: var(--space-4) 0 0;
+}
+
+.my-foot .link {
+  color: var(--text-muted);
+  text-decoration: underline;
+}
+
+.ask-presets {
+  margin-bottom: var(--space-3);
+}
+
+.ask-custom {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-2);
+}
+
+.ask-custom .field {
+  margin-bottom: 0;
+}
+
 .my-rules {
   width: 100%;
   margin-bottom: var(--space-3);

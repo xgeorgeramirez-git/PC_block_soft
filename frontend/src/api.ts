@@ -46,6 +46,8 @@ import type {
   ListPromosReply,
   RedeemPromoReply,
   OpenLogsReply,
+  OpenWindowReply,
+  WindowKind,
   BonusRateReply,
 } from "./types";
 
@@ -361,6 +363,11 @@ export function listPromos(): Promise<ListPromosReply> {
 /** Ребёнок вводит промокод — экран блокировки и раздел «Бонусы» (R26, D-50). */
 export function redeemPromo(childId: number, code: string): Promise<RedeemPromoReply> {
   return call("RedeemPromo", { childId, code });
+}
+
+/** Просит службу открыть окно (Ruling 19): из окна ребёнка - «Настройки для родителя» (D-53). */
+export function openWindow(kind: WindowKind): Promise<OpenWindowReply> {
+  return call("OpenWindow", { kind });
 }
 
 /** Открыть папку с логами в проводнике (FR-25, D-48). */

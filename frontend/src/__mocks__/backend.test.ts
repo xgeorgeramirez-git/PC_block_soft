@@ -381,6 +381,6 @@ describe("команды окна ребёнка", () => {
     const mock = installBackend();
     await expect(api.openWindow("parent")).resolves.toEqual({ opened: true });
     expect(mock.state.openedWindows).toEqual(["parent"]);
-    await expect(api.openWindow("нет такого")).rejects.toBeTruthy();
+    await expect(api.openWindow("нет такого" as never)).rejects.toBeTruthy();
   });
 });

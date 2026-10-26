@@ -198,6 +198,7 @@ describe("полнота", () => {
       "MyToday",
       "FirstRunSeen",
       "OpenLogs",
+      "OpenWindow",
       "SetNoForbidden",
       "ClearBonus",
       "ReduceBonus",
