@@ -22,10 +22,10 @@ Invoke-Scenario "S33" "Смена пользователя: время ребё�
 
   Step "Ребёнок готов, окно на весь экран без ввода: секунды идут" {
     Test-InputSim
+    Start-Child 120 $false
     # Подробные логи службы (FR-25): без них красный прогон не объясняет, откуда служба взяла «на экране или нет».
     Open-Parent
     Assert-Reply (Send-Parent "SetDiag" @{ verbose = $true }) "Подробные логи службы"
-    Start-Child 120 $false
     Show-Fullscreen
     Resume-Clock
     $u0 = [int](Get-Status).usedS
@@ -48,6 +48,7 @@ Invoke-Scenario "S33" "Смена пользователя: время ребё�
     Assert-That (($script:Mid - $script:Before) -le 240) "После отключения набежало $($script:Mid - $script:Before) с, ждали не больше 240 (2 с настоящего времени с запасом)"
     Start-Sleep -Seconds 8
     $after = [int](Get-Status).usedS
+    Write-ServiceSessionLog "S33"
     Write-Log "Через 11 с после отключения учтено $after с"
     Assert-That ($after -eq $script:Mid) "В отключённом сеансе секунды растут: $($script:Mid) -> $after за 8 с (ждали ни секунды)"
   }
