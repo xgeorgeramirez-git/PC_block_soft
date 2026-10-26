@@ -175,6 +175,8 @@ func Run(opts launch.Options) error {
 	if c, err := newCard(a.onCardPress); err == nil {
 		c.onHide = func() { a.cardOpen.Store(false) }
 		a.card = c
+	} else {
+		testTrace("табло не создано: " + err.Error())
 	}
 
 	stop := make(chan struct{})
@@ -543,7 +545,12 @@ func hostProc(hwnd, msg, wParam, lParam uintptr) uintptr {
 		return 0
 	case wmTestOpenCard:
 		if a != nil && a.card != nil && !a.card.visible {
+			s := a.tracker.Snapshot(time.Now())
+			testTrace(fmt.Sprintf("событие открытия табло: has=%v fresh=%v failed=%v status=%q", s.Has, s.Fresh, s.Failed, s.Status.Status))
 			safely(a.togglePanel)
+			testTrace(fmt.Sprintf("после открытия: visible=%v", a.card.visible))
+		} else {
+			testTrace("событие открытия табло пропущено: нет табло или оно уже открыто")
 		}
 		return 0
 	case wmQueryEndSession:

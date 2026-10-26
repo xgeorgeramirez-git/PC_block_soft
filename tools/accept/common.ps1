@@ -534,6 +534,9 @@ function Write-Diagnostics {
       }
     }
   }
+  foreach ($tl in @(Get-ChildItem -Path (Join-Path $env:SystemDrive "Users\*\AppData\Local\Temp\pcb-tray-test.log") -ErrorAction SilentlyContinue)) {
+    Get-Content -LiteralPath $tl.FullName -Tail 20 -Encoding UTF8 | ForEach-Object { Write-Log "ERROR: [диагностика] журнал значка: $_" }
+  }
   try {
     Get-WinEvent -FilterHashtable @{ LogName = 'System'; ProviderName = 'Service Control Manager'; StartTime = (Get-Date).AddMinutes(-15) } -MaxEvents 40 -ErrorAction SilentlyContinue |
       Where-Object { $_.Message -match 'PCBlock|PC Block' } | Select-Object -First 8 |

@@ -3,6 +3,8 @@
 package systray
 
 import (
+	"os"
+	"path/filepath"
 	"time"
 
 	"golang.org/x/sys/windows"
@@ -71,4 +73,18 @@ func (a *app) startTestHook(stop <-chan struct{}) func() {
 			_ = windows.CloseHandle(h)
 		}
 	}
+}
+
+// testTrace дописывает строку в журнал значка в тестовом режиме (приёмка печатает его при
+// падении). Вне тестового режима ничего не пишет.
+func testTrace(msg string) {
+	if !testModeOn() {
+		return
+	}
+	f, err := os.OpenFile(filepath.Join(os.TempDir(), "pcb-tray-test.log"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	_, _ = f.WriteString(time.Now().Format("15:04:05 ") + msg + "\r\n")
 }
