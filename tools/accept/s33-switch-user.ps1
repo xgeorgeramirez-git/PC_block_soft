@@ -81,7 +81,14 @@ Invoke-Scenario "S33" "Смена пользователя: время ребё�
   Step "Пока сеанс отключён по журналу, секунды не растут (если интервал не короче 2 с)" {
     $sid = [int]$script:MySession
     $disc = @(Get-ServiceLines "событие сеанса ${sid}: отключение") | Select-Object -First 1
-    $conn = @(Get-ServiceLines "событие сеанса ${sid}: подключение") | Where-Object { $_.At -ge $disc.At } | Select-Object -First 1
+    # Строка «подключение» может появиться на долю секунды позже строки «отключение»: ждём её до 6 с.
+    $conn = $null
+    $sw = [Diagnostics.Stopwatch]::StartNew()
+    while ($sw.Elapsed.TotalSeconds -lt 6) {
+      $conn = @(Get-ServiceLines "событие сеанса ${sid}: подключение") | Where-Object { $_.At -ge $disc.At } | Select-Object -First 1
+      if ($conn) { break }
+      Start-Sleep -Milliseconds 300
+    }
     $state = Get-SessionStateName $sid
     if ($conn) {
       $gap = ($conn.At - $disc.At).TotalSeconds
@@ -97,11 +104,11 @@ Invoke-Scenario "S33" "Смена пользователя: время ребё�
       Write-Log "Учтено за $([int]$total) с после tsdiscon: $grew с, допустимо не больше $limit"
       Assert-That ($grew -le $limit) "За время после tsdiscon счётчик вырос на $grew с, допустимо не больше $limit (отключение $([int]$gap) с не должно считаться)"
     } else {
-      Write-Log "Строки «подключение» нет: сеанс остался отключённым ($state); рост счётчика проверяется только как отсутствие роста"
+      Write-Log "Строки «подключение» нет: сеанс остался отключённым ($state); счётчик не должен расти совсем"
+      $mid = [int](Get-Status).usedS
       Start-Sleep -Seconds 8
       $after = [int](Get-Status).usedS
-      $grew = $after - $script:Before
-      Assert-That ($grew -le 240) "В отключённом сеансе секунды растут: за время отключения +$grew с (допустимо не больше 240)"
+      Assert-That ($after -eq $mid) "В отключённом сеансе секунды растут: $mid -> $after за 8 с (ждали ни секунды)"
     }
   }
 
