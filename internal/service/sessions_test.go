@@ -122,7 +122,7 @@ func TestUserChangeInSameSessionRestartsParts(t *testing.T) {
 // --- защита от обхода (FR-27, R17в, Ruling 15, 19) ---------------------------------------------------
 
 // Ловит: убитый страж не возвращается не позже следующего обслуживания (FR-27: ≤ 3 с) и
-// попытка обхода не пишется в журнал; экран при этом не блокируется (R17в, D-41).
+// попытка обхода не пишется в журнал через 5 с; экран при этом не блокируется (R17в, D-41, FB-1).
 func TestGuardKilledIsRelaunchedAndJournaled(t *testing.T) {
 	h := newHarness(t, withChild(childSID, "Миша", 120))
 	h.start()
@@ -137,6 +137,7 @@ func TestGuardKilledIsRelaunchedAndJournaled(t *testing.T) {
 	if st := h.status(); st.Lock != ipc.LockNone {
 		t.Fatalf("гибель стража заблокировала экран: %+v; want без блокировки (D-41)", st)
 	}
+	h.hk(5) // запись об обходе ждёт 5 с: за это время мог прийти конец сеанса (FB-1)
 	evs := h.store.eventsOf("bypass")
 	if len(evs) != 1 || evs[0].Details["subtype"] != "guard_closed" || evs[0].ChildID != h.childID(childSID) {
 		t.Fatalf("события обхода: %+v; want одно подробное событие", evs)
@@ -156,6 +157,7 @@ func TestTrayKilledInChildSessionIsJournaled(t *testing.T) {
 	if st := h.status(); st.Lock != ipc.LockNone {
 		t.Fatalf("гибель значка заблокировала экран: %+v; want без блокировки (D-41)", st)
 	}
+	h.hk(5) // запись об обходе ждёт 5 с (FB-1)
 	evs := h.store.eventsOf("bypass")
 	if len(evs) != 1 || evs[0].Details["subtype"] != "tray_closed" {
 		t.Fatalf("события обхода: %+v; want одно подробное событие про значок", evs)
@@ -211,10 +213,11 @@ func TestTrayClosingFromForeignProcessIsIgnored(t *testing.T) {
 	h.ok(childPeer(), "", ipc.CmdTrayClosing, nil, nil) // PID 500, не процесс значка
 	h.launcher.kill(h.launcher.aliveOf(ProcTray, childSession)[0])
 	h.hk(1)
-	// Обман не прошёл: гибель значка записана попыткой обхода (без блокировки, D-41).
+	// Обман не прошёл: гибель значка записана попыткой обхода (без блокировки, D-41) через 5 с.
 	if st := h.status(); st.Lock != ipc.LockNone {
 		t.Fatalf("обман TrayClosing заблокировал экран: %+v", st)
 	}
+	h.hk(5)
 	if n := len(h.store.eventsOf("bypass")); n != 1 {
 		t.Fatalf("событий обхода %d; want 1 (обман TrayClosing не должен гасить запись)", n)
 	}
@@ -548,6 +551,7 @@ func TestWindowKilledInChildSessionReopensAndJournaled(t *testing.T) {
 	if st := h.status(); st.Lock != ipc.LockNone {
 		t.Fatalf("гибель окна заблокировала экран: %+v; want без блокировки (D-41)", st)
 	}
+	h.hk(5) // запись об обходе ждёт 5 с (FB-1)
 	evs := h.store.eventsOf("bypass")
 	if len(evs) != 1 || evs[0].Details["subtype"] != "window_closed" {
 		t.Fatalf("события обхода: %+v; want одно про окно", evs)
@@ -653,6 +657,19 @@ func TestTestGuardQueuesActionForTheGuard(t *testing.T) {
 	}
 	h.fail(adminPeer(), "", ipc.CmdTestGuard, ipc.TestGuardRequest{Action: ipc.TestGuardAction{Action: "взорвать"}})
 	h.fail(adminPeer(), "", ipc.CmdTestGuard, ipc.TestGuardRequest{SessionID: 77, Action: ipc.TestGuardAction{Action: ipc.TestEsc}})
+}
+
+// Ловит: тестовое действие «конец сеанса» (FB-1) не доходит до стража: служба отвергает его как
+// незнакомое или теряет при выдаче; приёмка не сможет проверить штатное закрытие стража.
+func TestTestGuardAcceptsEndSession(t *testing.T) {
+	h := newHarness(t, withChild(childSID, "Миша", 120), withTestMode(TestMode{ClockSpeed: 1}))
+	h.start()
+	h.childLogsIn()
+	h.ok(adminPeer(), "", ipc.CmdTestGuard, ipc.TestGuardRequest{Action: ipc.TestGuardAction{Action: ipc.TestEndSession}}, nil)
+	rep := h.poll(activeSample)
+	if len(rep.Commands) != 1 || rep.Commands[0].Test == nil || rep.Commands[0].Test.Action != "endSession" {
+		t.Fatalf("команды стражу: %+v; want одно действие endSession", rep.Commands)
+	}
 }
 
 // Ловит: при нескольких стражах команда без сеанса уходит наугад; без стража принимается молча.

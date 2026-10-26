@@ -24,6 +24,8 @@ const (
 	undoLife        = 10 * time.Second // «Отменить» после добавления времени
 	warnLife        = 20 * time.Second // непринятое предупреждение стареет
 	bypassLogWindow = 60 * time.Second // одинаковая попытка обхода пишется в журнал не чаще (D-41)
+	bypassGrace     = 5 * time.Second  // гибель стража, значка или окна записывается обходом не раньше (FB-1)
+	closingLife     = 30 * time.Second // сообщение стража «закрываюсь» действует столько, если страж жив
 )
 
 // Ключи настроек в хранилище.
@@ -139,6 +141,8 @@ type Service struct {
 	loaded      bool // список детей прочитан из базы
 	verbose     bool // «Подробные логи для диагностики» включены (FR-25, D-42)
 	errAt       map[string]time.Time
+
+	bypassWait []pendingBypass // гибель стража, значка или окна, о которой ещё не решено, обход ли это (FB-1)
 }
 
 // New собирает службу. Ничего не запускает: Start читает базу и поднимает сеансные части.
@@ -266,6 +270,9 @@ func (s *Service) Shutdown(real time.Time) {
 		return
 	}
 	s.stopping = true
+	// Остановка службы это выключение или перезагрузка компьютера: то, что успело погибнуть
+	// перед ней, не обход (FB-1).
+	s.cancelAllBypass("остановка службы")
 	for _, id := range s.childOrder() {
 		s.saveDay(s.children[id])
 	}

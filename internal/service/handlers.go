@@ -116,6 +116,11 @@ func (s *Service) hTrayClosing(c *callCtx) ipc.Reply {
 	return ipc.OK(ipc.Empty{})
 }
 
+func (s *Service) hGuardClosing(c *callCtx) ipc.Reply {
+	s.guardClosing(c.peer)
+	return ipc.OK(ipc.Empty{})
+}
+
 // --- мастер и администратор ---------------------------------------------------------------
 
 // canBeChild: детской может быть только обычная учётка (A2); в тестовом режиме запрет снят
@@ -934,6 +939,7 @@ func (s *Service) hGuardSwitchUser(c *callCtx) ipc.Reply {
 
 var testActions = map[string]bool{
 	ipc.TestClick: true, ipc.TestType: true, ipc.TestWMClose: true, ipc.TestAltF4: true, ipc.TestEsc: true,
+	ipc.TestEndSession: true,
 }
 
 func (s *Service) hTestGuard(c *callCtx) ipc.Reply {

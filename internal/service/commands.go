@@ -264,6 +264,7 @@ func init() {
 		ipc.CmdGuardLogoff:     {kinds(kindGuard), (*Service).hGuardLogoff},
 		ipc.CmdGuardShutdown:   {kinds(kindGuard), (*Service).hGuardShutdown},
 		ipc.CmdGuardSwitchUser: {kinds(kindGuard), (*Service).hGuardSwitchUser},
+		ipc.CmdGuardClosing:    {kinds(kindGuard), (*Service).hGuardClosing},
 
 		ipc.CmdTrayClosing: {users(), (*Service).hTrayClosing},
 
