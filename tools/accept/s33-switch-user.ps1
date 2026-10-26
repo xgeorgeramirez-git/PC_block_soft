@@ -61,8 +61,9 @@ Invoke-Scenario "S33" "Смена пользователя: время ребё�
     }
     & schtasks.exe /Delete /TN $task /F 2>&1 | ForEach-Object { Write-Log "schtasks: $_" }
     if (-not $back) {
-      Write-Log "Сеанс вернуть не удалось ($((Get-SessionStateName $script:MySession))): проверка возврата пропущена, остановка времени доказана"
-      return
+      $state = Get-SessionStateName $script:MySession
+      Write-Log "Сеанс вернуть не удалось (состояние «$state»)"
+      throw "Сеанс $($script:MySession) не вернулся на экран за 30 с после tscon (состояние «$state»): проверка возврата времени не выполнена, шаг не засчитан"
     }
     Write-Log ("Сеанс снова Active через {0:N1} с" -f $sw.Elapsed.TotalSeconds)
     $u1 = [int](Get-Status).usedS
