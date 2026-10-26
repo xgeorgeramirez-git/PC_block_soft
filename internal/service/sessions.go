@@ -57,6 +57,7 @@ type sessState struct {
 	sid     string
 	childID int64       // 0: в сеансе работает не ребёнок
 	screen  ScreenState // на экране ли сеанс: по списку Windows и событиям подключения (FB-3)
+	offHold time.Time   // до этого момента список Windows не возвращает «на экране» поверх события отключения
 	locked  bool        // сеанс заблокирован: по событиям блокировки и разблокировки; сбрасывается снимком стража (FB-3)
 	guard   *supProc
 	tray    *supProc
@@ -124,11 +125,15 @@ func (s *Service) noteSessionState(ev SessionEvent, id uint32) {
 	case SessionConnect:
 		// Подключение сбрасывает признак блокировки: пропущенная разблокировка не должна
 		// навсегда остановить время, а экран входа после подключения видит сам страж.
-		ss.screen, ss.locked = ScreenOn, false
+		ss.screen, ss.locked, ss.offHold = ScreenOn, false, time.Time{}
 	case SessionDisconnect:
-		ss.screen = ScreenOff
+		// Список Windows может отстать от события: пока держится offHold, он не отменяет отключение.
+		ss.screen, ss.offHold = ScreenOff, s.real.Add(offHoldFor)
 	}
 }
+
+// offHoldFor — сколько событие отключения сеанса сильнее списка сеансов Windows (FB-3, S33).
+const offHoldFor = 5 * time.Second
 
 // lockResetInputMs — ввод не старше этого значит: за сеансом сидят. Снимок стража с таким вводом
 // и SessionActive=true противоречит блокировке (в заблокированном сеансе страж видит рабочий
@@ -185,7 +190,7 @@ func (s *Service) syncSessions(real time.Time) {
 			ss = &sessState{id: si.ID, user: si.User, sid: si.SID, windows: map[string]*supProc{}}
 			s.sessions[si.ID] = ss
 		}
-		if si.Screen != ScreenUnknown {
+		if si.Screen != ScreenUnknown && !(si.Screen == ScreenOn && real.Before(ss.offHold)) {
 			ss.screen = si.Screen
 		}
 		prev := ss.childID

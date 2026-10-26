@@ -324,3 +324,24 @@ func TestUnknownSessionEventsUseFullSync(t *testing.T) {
 		}
 	})
 }
+
+// Ловит: список сеансов Windows отстаёт от события отключения (в нём ещё «активен»), и обычная
+// сверка раз в секунду возвращает признак «на экране» поверх события: время идёт ещё несколько
+// секунд после tsdiscon (S33: 247 с при пределе 240). Событие держит «не на экране» 5 с; если
+// событие подключения потеряно, дальше снова решает список.
+func TestStaleListDoesNotOverrideDisconnectEvent(t *testing.T) {
+	h := newHarness(t, withChild(childSID, "Миша", 120))
+	h.start()
+	h.childSessionIs(ScreenOn)
+	h.svc.OnSession(SessionLogon, childSession, h.real.Now())
+	h.run(3, fullscreenSample)
+	h.svc.OnSession(SessionDisconnect, childSession, h.real.Now()) // список всё ещё говорит «активен»
+	h.run(4, fullscreenSample)
+	if got := h.usedS(); got != 3 {
+		t.Fatalf("за 4 с после отключения учтено %d с; want 3 (устаревший список не отменяет событие)", got)
+	}
+	h.run(4, fullscreenSample) // прошло 8 с, событие подключения потеряно, список говорит «активен»
+	if got := h.usedS(); got <= 3 {
+		t.Fatalf("учтено %d с; want больше 3 (через 5 с решает список)", got)
+	}
+}
