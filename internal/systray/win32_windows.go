@@ -56,6 +56,12 @@ var (
 	procGetMonitorInfo           = user32.NewProc("GetMonitorInfoW")
 	procSendMessage              = user32.NewProc("SendMessageW")
 	procDrawFocusRect            = user32.NewProc("DrawFocusRect")
+	procUpdateLayeredWindow      = user32.NewProc("UpdateLayeredWindow")
+	procGetKeyState              = user32.NewProc("GetKeyState")
+	procTrackMouseEvent          = user32.NewProc("TrackMouseEvent")
+	procSetCapture               = user32.NewProc("SetCapture")
+	procReleaseCapture           = user32.NewProc("ReleaseCapture")
+	procSetCursor                = user32.NewProc("SetCursor")
 
 	procCreateSolidBrush = gdi32.NewProc("CreateSolidBrush")
 	procCreateFont       = gdi32.NewProc("CreateFontW")
@@ -66,6 +72,11 @@ var (
 	procRoundRect        = gdi32.NewProc("RoundRect")
 	procCreatePen        = gdi32.NewProc("CreatePen")
 	procCreateBitmap     = gdi32.NewProc("CreateBitmap")
+
+	procCreateCompatibleDC = gdi32.NewProc("CreateCompatibleDC")
+	procCreateDIBSection   = gdi32.NewProc("CreateDIBSection")
+	procDeleteDC           = gdi32.NewProc("DeleteDC")
+	procGetTextFace        = gdi32.NewProc("GetTextFaceW")
 
 	procShellNotifyIcon        = shell32.NewProc("Shell_NotifyIconW")
 	procShellNotifyIconGetRect = shell32.NewProc("Shell_NotifyIconGetRect")
@@ -83,16 +94,27 @@ const (
 	wmDrawItem        = 0x002B
 	wmSetFont         = 0x0030
 	wmContextMenu     = 0x007B
+	wmSetCursor       = 0x0020
 	wmKeyDown         = 0x0100
 	wmCommand         = 0x0111
 	wmTimer           = 0x0113
+	wmMouseMove       = 0x0200
+	wmLButtonDown     = 0x0201
 	wmLButtonUp       = 0x0202
+	wmMouseLeave      = 0x02A3
 	wmRButtonUp       = 0x0205
 	wmApp             = 0x8000
 
 	waInactive = 0
 	vkEscape   = 0x1B
 	vkReturn   = 0x0D
+	vkTab      = 0x09
+	vkSpace    = 0x20
+	vkShift    = 0x10
+	vkLeft     = 0x25
+	vkUp       = 0x26
+	vkRight    = 0x27
+	vkDown     = 0x28
 
 	wsPopup        = 0x80000000
 	wsVisible      = 0x10000000
@@ -101,6 +123,7 @@ const (
 	wsTabStop      = 0x00010000
 	wsExTopmost    = 0x00000008
 	wsExToolWin    = 0x00000080
+	wsExLayered    = 0x00080000
 	bsOwnerDraw    = 0x0000000B
 	bnClicked      = 0
 
