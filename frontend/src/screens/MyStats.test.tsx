@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import MyStats from "./MyStats";
-import { installBackend, mockChild, uninstallBackend, type MockBackend } from "../__mocks__/backend";
+import { DEFAULT_PASSWORD, installBackend, mockChild, uninstallBackend, type MockBackend } from "../__mocks__/backend";
 
 // FR-12, R21, сценарий 8.2.6: окно «Моя статистика» только для чтения, в M1 - «Сегодня» и «Мои правила».
 
@@ -160,11 +160,11 @@ describe("MyStats: Мои правила", () => {
     expect(within(box).getByText("Когда время выйдет, экран закроется блокировкой. Открытые окна останутся под ней.")).toBeTruthy();
   });
 
-  // Ловит: запретные часы в M1 (их ещё нет) обещаны ребёнку.
-  it("запретных часов в M1 нет и они не упоминаются", async () => {
+  // Ловит: «Мои правила» обещают запретные часы, которых у ребёнка нет (они живут в «Сегодня», D-53).
+  it("в таблице правил нет запретных часов", async () => {
     setup();
-    await screen.findByRole("region", { name: "Мои правила" });
-    expect(document.body.textContent).not.toMatch(/запретн|с \d\d:\d\d до \d\d:\d\d/i);
+    const box = await screen.findByRole("region", { name: "Мои правила" });
+    expect(box.textContent).not.toMatch(/запретн|с \d\d:\d\d до \d\d:\d\d/i);
   });
 
   it("ноль минут - «Нельзя»", async () => {
@@ -298,5 +298,248 @@ describe("MyStats: «Бонусы» (R25, R26, D-49, D-50)", () => {
     await user.click(screen.getByRole("button", { name: "Ввести промокод" }));
     expect(screen.getByText("Введи код")).toBeTruthy();
     expect(mock.count("RedeemPromo")).toBe(0);
+  });
+});
+
+// D-53, ТЗ 8.2.6 п.1: «Сегодня» с остатками, лимитами, запретными часами, копилкой, кнопками и ссылкой внизу.
+describe("MyStats: «Сегодня» (D-53)", () => {
+  const MONDAY_NIGHT = [{ weekday: 1, startMin: 21 * 60, endMin: 7 * 60 }];
+
+  // Ловит: на «Сегодня» нет остатка общего времени, игр, «Видео и соцсетей», лимита, запретных часов или копилки.
+  it("остатки, лимит дня, запретные часы и копилка", async () => {
+    setup({ children: [mockChild({ bonusBalance: 45, schedule: MONDAY_NIGHT })] });
+    const box = await screen.findByRole("region", { name: "Сколько осталось" });
+    const rows = Object.fromEntries(
+      Array.from(box.querySelectorAll("dt")).map((dt) => [dt.textContent, dt.nextElementSibling?.textContent]),
+    );
+    expect(rows).toEqual({
+      "Осталось всего": "1 ч 25 мин",
+      "Игры": "Пока не считается",
+      "Видео и соцсети": "Пока не считается",
+      "Лимит дня": "2 ч",
+      "Запретные часы": "Сегодня нельзя с 21:00 до 07:00",
+      "Копилка": "45 мин",
+    });
+  });
+
+  // Ловит: раздел остатка идёт после итогов и правил, и ребёнок ищет главное внизу.
+  it("раздел остатка стоит первым, перед итогами", async () => {
+    setup();
+    const left = await screen.findByRole("region", { name: "Сколько осталось" });
+    const totals = screen.getByRole("region", { name: "Итоги" });
+    expect(left.compareDocumentPosition(totals) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("кнопки «Попросить ещё» и «Взять из копилки», а «Настройки для родителя» внизу мелко", async () => {
+    setup({ children: [mockChild({ bonusBalance: 45 })] });
+    const ask = await screen.findByRole("button", { name: "Попросить ещё" });
+    const spend = screen.getByRole("button", { name: "Взять из копилки" });
+    const parent = screen.getByRole("button", { name: "Настройки для родителя" });
+    const rules = screen.getByRole("region", { name: "Мои правила" });
+    expect(ask.compareDocumentPosition(spend) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(rules.compareDocumentPosition(parent) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(parent.className).toContain("link");
+  });
+
+  it("сеанс не ребёнка: кнопок времени нет", async () => {
+    setup({ myChildId: null });
+    await screen.findByRole("region", { name: "Мои правила" });
+    expect(screen.queryByRole("button", { name: "Попросить ещё" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Взять из копилки" })).toBeNull();
+  });
+
+  // Ловит: ссылка внизу ничего не открывает или открывает не окно родителя.
+  it("«Настройки для родителя» просит у службы окно родителя", async () => {
+    const user = setup();
+    await user.click(await screen.findByRole("button", { name: "Настройки для родителя" }));
+    expect(mock.calls.find((c) => c.command === "OpenWindow")?.payload).toEqual({ kind: "parent" });
+    expect(mock.state.openedWindows).toEqual(["parent"]);
+  });
+
+  // Ловит: окно не открылось, а ребёнок не получил ни слова (L-114).
+  it("не открылось: простыми словами", async () => {
+    const user = setup();
+    const link = await screen.findByRole("button", { name: "Настройки для родителя" });
+    mock.override("OpenWindow", "reject", 1);
+    await user.click(link);
+    expect(await screen.findByText("Не получилось открыть окно. Попробуй ещё раз")).toBeTruthy();
+  });
+});
+
+describe("MyStats: «Попросить ещё» (FR-10)", () => {
+  async function openAsk() {
+    const user = setup();
+    await user.click(await screen.findByRole("button", { name: "Попросить ещё" }));
+    const dialog = await screen.findByRole("dialog", { name: "Позови родителя" });
+    return { user, dialog };
+  }
+
+  // Ловит: панель без пароля родителя (ребёнок сам себе добавил бы время) или без быстрых кнопок.
+  it("панель «Позови родителя»: пароль, +15 / +30 / +60 и своё число", async () => {
+    const { dialog } = await openAsk();
+    expect(within(dialog).getByLabelText("Пароль родителя")).toBeTruthy();
+    expect((within(dialog).getByLabelText("Пароль родителя") as HTMLInputElement).type).toBe("password");
+    for (const name of ["+15", "+30", "+60"]) expect(within(dialog).getByRole("button", { name })).toBeTruthy();
+    expect(within(dialog).getByLabelText("Своё число минут")).toBeTruthy();
+    expect(within(dialog).getByRole("button", { name: "Отмена" })).toBeTruthy();
+  });
+
+  // Ловит: служба не получает номер ребёнка (без него AskMore отвечает «Ребёнок не найден»), пароль или минуты.
+  it("верный пароль и +30: время добавлено, «Добавлено 30 минут»", async () => {
+    const { user, dialog } = await openAsk();
+    await user.type(within(dialog).getByLabelText("Пароль родителя"), DEFAULT_PASSWORD);
+    await user.click(within(dialog).getByRole("button", { name: "+30" }));
+    expect(await screen.findByText("Добавлено 30 минут")).toBeTruthy();
+    expect(mock.calls.find((c) => c.command === "AskMore")?.payload).toEqual({
+      childId: 1,
+      minutes: 30,
+      password: DEFAULT_PASSWORD,
+    });
+    expect(mock.state.children[0].extraMin).toBe(30);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    // Цифры окна перечитаны: лимит дня теперь 2 ч 30 мин.
+    expect(await screen.findByText("2 ч 30 мин")).toBeTruthy();
+  });
+
+  // Ловит: неверный пароль закрывает панель или показывает ошибку не у поля (L-121).
+  it("неверный пароль: ошибка у поля, панель открыта, время не добавлено", async () => {
+    const { user, dialog } = await openAsk();
+    await user.type(within(dialog).getByLabelText("Пароль родителя"), "не тот");
+    await user.click(within(dialog).getByRole("button", { name: "+15" }));
+    expect(await within(dialog).findByText("Неверный пароль. Осталось попыток: 4")).toBeTruthy();
+    expect(screen.getByRole("dialog", { name: "Позови родителя" })).toBeTruthy();
+    expect(mock.state.children[0].extraMin).toBe(0);
+  });
+
+  it("пустой пароль: подсказка у поля, в программу не уходит", async () => {
+    const { user, dialog } = await openAsk();
+    await user.click(within(dialog).getByRole("button", { name: "+60" }));
+    expect(within(dialog).getByText("Введи пароль родителя")).toBeTruthy();
+    expect(mock.count("AskMore")).toBe(0);
+  });
+
+  // Ловит: своё число принимает 0 или больше 240 (граница службы).
+  it("своё число: 45 минут проходит, 300 отклонено до отправки", async () => {
+    const { user, dialog } = await openAsk();
+    await user.type(within(dialog).getByLabelText("Пароль родителя"), DEFAULT_PASSWORD);
+    await user.type(within(dialog).getByLabelText("Своё число минут"), "300");
+    await user.click(within(dialog).getByRole("button", { name: "Добавить" }));
+    expect(within(dialog).getByText("Можно от 1 до 240 минут")).toBeTruthy();
+    expect(mock.count("AskMore")).toBe(0);
+    await user.clear(within(dialog).getByLabelText("Своё число минут"));
+    await user.type(within(dialog).getByLabelText("Своё число минут"), "45");
+    await user.click(within(dialog).getByRole("button", { name: "Добавить" }));
+    expect(await screen.findByText("Добавлено 45 минут")).toBeTruthy();
+    expect(mock.calls.find((c) => c.command === "AskMore")?.payload).toMatchObject({ minutes: 45 });
+  });
+
+  it("«Отмена» и Esc закрывают панель, ничего не отправляя", async () => {
+    const { user, dialog } = await openAsk();
+    await user.click(within(dialog).getByRole("button", { name: "Отмена" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Попросить ещё" }));
+    await screen.findByRole("dialog", { name: "Позови родителя" });
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(mock.count("AskMore")).toBe(0);
+  });
+
+  // Ловит: не узнали номер ребёнка (копилка не прочиталась) и отправили пустой запрос.
+  it("не знаем, чей сеанс: говорит об этом, а не шлёт пароль впустую", async () => {
+    const { user, dialog } = await openAsk();
+    mock.override("GetBonus", "reject");
+    await user.click(within(dialog).getByRole("button", { name: "Отмена" }));
+    await user.click(screen.getByRole("button", { name: "Обновить" }));
+    await user.click(await screen.findByRole("button", { name: "Попросить ещё" }));
+    const again = await screen.findByRole("dialog", { name: "Позови родителя" });
+    await user.type(within(again).getByLabelText("Пароль родителя"), DEFAULT_PASSWORD);
+    await user.click(within(again).getByRole("button", { name: "+30" }));
+    expect(await within(again).findByText("Не удалось получить данные. Попробуй через минуту")).toBeTruthy();
+    expect(mock.count("AskMore")).toBe(0);
+  });
+
+  it("тексты панели ребёнку на «ты», без длинных тире", async () => {
+    const { dialog } = await openAsk();
+    expect(dialog.textContent).not.toMatch(/[—–]/);
+    expect(dialog.textContent).not.toMatch(YOU_FORM);
+  });
+});
+
+describe("MyStats: «Взять из копилки» (FR-11)", () => {
+  async function openSpend(over: Parameters<typeof mockChild>[0] = {}) {
+    const user = setup({ children: [mockChild({ bonusBalance: 45, ...over })] });
+    await user.click(await screen.findByRole("button", { name: "Взять из копилки" }));
+    const dialog = await screen.findByRole("dialog", { name: "Взять из копилки" });
+    return { user, dialog };
+  }
+
+  it("варианты 15, 30 и весь баланс", async () => {
+    const { dialog } = await openSpend();
+    expect(within(dialog).getAllByRole("button").map((b) => b.textContent)).toEqual(["15 мин", "30 мин", "Всё: 45 мин", "Отмена"]);
+  });
+
+  // Ловит: списание без подтверждения или с неверным остатком копилки в тексте.
+  it("30 минут: подтверждение с остатком, «Взять» списывает без пароля", async () => {
+    const { user, dialog } = await openSpend();
+    await user.click(within(dialog).getByRole("button", { name: "30 мин" }));
+    expect(await screen.findByText("Взять из копилки 30 мин? Останется 15 мин")).toBeTruthy();
+    expect(mock.count("SpendBonus")).toBe(0);
+    await user.click(screen.getByRole("button", { name: "Взять" }));
+    expect(await screen.findByText("Взято из копилки 30 мин")).toBeTruthy();
+    expect(mock.calls.find((c) => c.command === "SpendBonus")?.payload).toEqual({ childId: 0, minutes: 30 });
+    expect(mock.state.children[0].bonusBalance).toBe(15);
+    expect(mock.state.children[0].extraMin).toBe(30);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    // Копилка в окне перечитана.
+    const left = await screen.findByRole("region", { name: "Сколько осталось" });
+    expect(within(left).getByText("Копилка").nextElementSibling?.textContent).toBe("15 мин");
+  });
+
+  it("«Отмена» на подтверждении: ничего не списано", async () => {
+    const { user, dialog } = await openSpend();
+    await user.click(within(dialog).getByRole("button", { name: "Всё: 45 мин" }));
+    await screen.findByText("Взять из копилки 45 мин? Останется 0 мин");
+    await user.click(screen.getByRole("button", { name: "Отмена" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(mock.count("SpendBonus")).toBe(0);
+    expect(mock.state.children[0].bonusBalance).toBe(45);
+  });
+
+  // Ловит: отказ службы теряется или показан техническим текстом.
+  it("отказ службы показан в панели", async () => {
+    const { user, dialog } = await openSpend();
+    await user.click(within(dialog).getByRole("button", { name: "15 мин" }));
+    mock.state.children[0].bonusBalance = 5; // копилку уже потратили в другом месте
+    await user.click(await screen.findByRole("button", { name: "Взять" }));
+    expect(await screen.findByText("В копилке 5 мин, столько взять нельзя")).toBeTruthy();
+    expect(screen.getByRole("dialog")).toBeTruthy();
+  });
+
+  // Ловит: в запретный интервал кнопка рабочая или недоступна молча (урок L-17).
+  it("запретные часы: кнопка недоступна, причина и час названы", async () => {
+    setup({ children: [mockChild({ bonusBalance: 45, forbiddenUntil: "Можно снова: сегодня в 07:00" })] });
+    const user = userEvent.setup();
+    const btn = await screen.findByRole("button", { name: "Взять из копилки" });
+    expect(btn.getAttribute("aria-disabled")).toBe("true");
+    expect(screen.getByText("Из копилки можно взять с 07:00")).toBeTruthy();
+    expect(btn.getAttribute("aria-describedby")).toBeTruthy();
+    await user.click(btn);
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("копилка пуста: кнопка недоступна, причина названа", async () => {
+    setup();
+    const btn = await screen.findByRole("button", { name: "Взять из копилки" });
+    expect(btn.getAttribute("aria-disabled")).toBe("true");
+    expect(screen.getByText("В копилке пока пусто")).toBeTruthy();
+  });
+
+  it("тексты панели ребёнку на «ты», без длинных тире", async () => {
+    const { user, dialog } = await openSpend();
+    await user.click(within(dialog).getByRole("button", { name: "30 мин" }));
+    await screen.findByText("Взять из копилки 30 мин? Останется 15 мин");
+    const text = screen.getByRole("dialog").textContent ?? "";
+    expect(text).not.toMatch(/[—–]/);
+    expect(text).not.toMatch(YOU_FORM);
   });
 });

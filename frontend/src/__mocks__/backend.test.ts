@@ -341,3 +341,46 @@ describe("учётка ребёнка стала администратором 
     expect(today.children[0].status.status).toBe("admin");
   });
 });
+
+// Окно ребёнка: «Попросить ещё», «Взять из копилки», «Настройки для родителя» (FR-10, FR-11, D-53).
+describe("команды окна ребёнка", () => {
+  it("AskMore: ребёнок без номера - отказ, как у службы", async () => {
+    installBackend();
+    await expect(api.askMore(0, 30, DEFAULT_PASSWORD)).rejects.toMatchObject({ message: "Ребёнок не найден" });
+  });
+
+  it("AskMore: неверный пароль - ошибка у поля, верный - доп. время и сообщение", async () => {
+    const mock = installBackend();
+    await expect(api.askMore(1, 30, "x")).rejects.toMatchObject({ field: "password" });
+    expect(mock.state.children[0].extraMin).toBe(0);
+    const r = await api.askMore(1, 30, DEFAULT_PASSWORD);
+    expect(r.message).toBe("Добавлено 30 минут");
+    expect(mock.state.children[0].extraMin).toBe(30);
+    await expect(api.askMore(1, 241, DEFAULT_PASSWORD)).rejects.toMatchObject({ field: "minutes" });
+  });
+
+  it("SpendBonus: списание из копилки и прибавка к лимиту; сверх баланса отказ", async () => {
+    const mock = installBackend({ children: [mockChild({ bonusBalance: 45 })] });
+    const r = await api.spendBonus(0, 30);
+    expect(r).toMatchObject({ message: "Взято из копилки 30 мин", balanceAfter: 15 });
+    expect(mock.state.children[0].extraMin).toBe(30);
+    await expect(api.spendBonus(0, 30)).rejects.toMatchObject({ message: "В копилке 15 мин, столько взять нельзя", field: "minutes" });
+  });
+
+  it("SpendBonus в запретный интервал: отказ с часом", async () => {
+    installBackend({ children: [mockChild({ bonusBalance: 45, forbiddenUntil: "Можно снова: сегодня в 07:00" })] });
+    await expect(api.spendBonus(0, 15)).rejects.toMatchObject({ message: "Из копилки можно взять с 07:00" });
+  });
+
+  it("запретные часы сейчас: статус forbidden с блокировкой и временем конца", () => {
+    const st = statusOf(mockChild({ forbiddenUntil: "Можно снова: сегодня в 07:00" }), Date.now());
+    expect(st).toMatchObject({ status: "forbidden", lock: "forbidden", until: "Можно снова: сегодня в 07:00" });
+  });
+
+  it("OpenWindow: запоминает вид окна; незнакомый вид отклоняется", async () => {
+    const mock = installBackend();
+    await expect(api.openWindow("parent")).resolves.toEqual({ opened: true });
+    expect(mock.state.openedWindows).toEqual(["parent"]);
+    await expect(api.openWindow("нет такого")).rejects.toBeTruthy();
+  });
+});

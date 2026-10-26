@@ -83,6 +83,7 @@ const CASES: [string, string, (req: any) => Promise<unknown>][] = [
   ["AskMore", "AskMore", (r) => api.askMore(r.childId, r.minutes, r.password)],
   ["SpendBonus", "SpendBonus", (r) => api.spendBonus(r.childId, r.minutes)],
   ["OpenLogs", "OpenLogs", () => api.openLogs()],
+  ["OpenWindow", "OpenWindow", (r) => api.openWindow(r.kind)],
   ["SetNoForbidden", "SetNoForbidden", (r) => api.setNoForbidden(r.childId, r.on)],
   ["ClearBonus", "ClearBonus", (r) => api.clearBonus(r.childId)],
   ["ReduceBonus", "ReduceBonus", (r) => api.reduceBonus(r.childId, r.minutes)],
