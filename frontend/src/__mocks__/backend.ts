@@ -215,7 +215,10 @@ function forbiddenNoteOf(child: MockChild, nowMs: number): string {
   if (child.noForbiddenToday) return "Сегодня запретные часы не действуют";
   const wd = weekdayOfMs(nowMs, localOffsetMin(new Date(nowMs)));
   const iv = (child.schedule ?? []).filter((x) => x.weekday === wd).sort((a, b) => a.startMin - b.startMin)[0];
-  return iv ? `Сегодня нельзя с ${formatHour(iv.startMin)} до ${formatHour(iv.endMin)}` : "";
+  if (iv) return `Сегодня нельзя с ${formatHour(iv.startMin)} до ${formatHour(iv.endMin)}`;
+  // Запретный интервал идёт сейчас, а расписания в данных нет: строка не должна говорить «часов нет».
+  const until = /(\d{1,2}:\d{2})/.exec(child.forbiddenUntil ?? "")?.[1];
+  return until ? `Сегодня нельзя до ${until}` : "";
 }
 
 /** Статус ребёнка: слова и числа собираются в одном месте, как это делает служба. */

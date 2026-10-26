@@ -95,14 +95,18 @@ describe("MyStats: периоды", () => {
 });
 
 describe("MyStats: Итоги", () => {
-  it("строки «Сегодня» и «Всего» из ответа программы", async () => {
+  // Ловит: рядом стояли «Осталось всего 10 мин», «Сегодня осталось 10 мин из 2 ч» и «Всего 1 ч 50 мин»
+  // без пояснения. Остаток называется один раз (сверху), в «Итогах» только «Использовано сегодня».
+  it("в «Итогах» только «Использовано сегодня», остаток не повторяется", async () => {
     setup();
     const box = await screen.findByRole("region", { name: "Итоги" });
-    expect(within(box).getByText("Сегодня осталось 1 ч 25 мин из 2 ч")).toBeTruthy();
-    const total = within(box).getByText("Всего").closest("div");
+    const total = within(box).getByText("Использовано сегодня").closest("div");
     expect(total?.textContent).toContain("35 мин");
-    // «Использовано 35 мин» один раз, в «Всего».
+    expect(within(box).queryByText("Всего")).toBeNull();
+    expect(within(box).queryByText(/осталось/i)).toBeNull();
     expect(within(box).queryByText("Использовано 35 мин")).toBeNull();
+    const left = within(screen.getByRole("region", { name: "Сколько осталось" })).getByText("Осталось всего").closest("div");
+    expect(left?.textContent).toContain("1 ч 25 мин");
   });
 
   // Ловит: категории показаны нулями, как будто они считаются; в M1 учёт только общий.
@@ -124,7 +128,8 @@ describe("MyStats: Итоги", () => {
   // Ловит: статус на экране ребёнка расходится с остатком в значке и у родителя (Review Focus 5).
   it("остаток тот же, что у программы для значка и родителя", async () => {
     setup({ children: [mockChild({ usedS: 3600 })] });
-    expect(await screen.findByText("Сегодня осталось 1 ч 00 мин из 2 ч")).toBeTruthy();
+    const left = (await screen.findByText("Осталось всего")).closest("div");
+    expect(left?.textContent).toContain("1 ч 00 мин");
   });
 
   // Ловит: пустой период показывает пустоту или ноль вместо объяснения (8.2.6 п.9).
@@ -132,7 +137,7 @@ describe("MyStats: Итоги", () => {
     setup({ myChildId: null });
     const box = await screen.findByRole("region", { name: "Итоги" });
     expect(within(box).getByText("За этот период пока нет данных")).toBeTruthy();
-    expect(within(box).queryByText("Всего")).toBeNull();
+    expect(within(box).queryByText("Использовано сегодня")).toBeNull();
   });
 });
 
@@ -379,7 +384,7 @@ describe("MyStats: «Попросить ещё» (FR-10)", () => {
     const { dialog } = await openAsk();
     expect(within(dialog).getByLabelText("Пароль родителя")).toBeTruthy();
     expect((within(dialog).getByLabelText("Пароль родителя") as HTMLInputElement).type).toBe("password");
-    for (const name of ["+15", "+30", "+60"]) expect(within(dialog).getByRole("button", { name })).toBeTruthy();
+    for (const name of ["+15 мин", "+30 мин", "+60 мин"]) expect(within(dialog).getByRole("button", { name })).toBeTruthy();
     expect(within(dialog).getByLabelText("Своё число минут")).toBeTruthy();
     expect(within(dialog).getByRole("button", { name: "Отмена" })).toBeTruthy();
   });
@@ -388,7 +393,7 @@ describe("MyStats: «Попросить ещё» (FR-10)", () => {
   it("верный пароль и +30: время добавлено, «Добавлено 30 минут»", async () => {
     const { user, dialog } = await openAsk();
     await user.type(within(dialog).getByLabelText("Пароль родителя"), DEFAULT_PASSWORD);
-    await user.click(within(dialog).getByRole("button", { name: "+30" }));
+    await user.click(within(dialog).getByRole("button", { name: "+30 мин" }));
     expect(await screen.findByText("Добавлено 30 минут")).toBeTruthy();
     expect(mock.calls.find((c) => c.command === "AskMore")?.payload).toEqual({
       childId: 1,
@@ -405,7 +410,7 @@ describe("MyStats: «Попросить ещё» (FR-10)", () => {
   it("неверный пароль: ошибка у поля, панель открыта, время не добавлено", async () => {
     const { user, dialog } = await openAsk();
     await user.type(within(dialog).getByLabelText("Пароль родителя"), "не тот");
-    await user.click(within(dialog).getByRole("button", { name: "+15" }));
+    await user.click(within(dialog).getByRole("button", { name: "+15 мин" }));
     expect(await within(dialog).findByText("Неверный пароль. Осталось попыток: 4")).toBeTruthy();
     expect(screen.getByRole("dialog", { name: "Позови родителя" })).toBeTruthy();
     expect(mock.state.children[0].extraMin).toBe(0);
@@ -413,7 +418,7 @@ describe("MyStats: «Попросить ещё» (FR-10)", () => {
 
   it("пустой пароль: подсказка у поля, в программу не уходит", async () => {
     const { user, dialog } = await openAsk();
-    await user.click(within(dialog).getByRole("button", { name: "+60" }));
+    await user.click(within(dialog).getByRole("button", { name: "+60 мин" }));
     expect(within(dialog).getByText("Введи пароль родителя")).toBeTruthy();
     expect(mock.count("AskMore")).toBe(0);
   });
@@ -453,7 +458,7 @@ describe("MyStats: «Попросить ещё» (FR-10)", () => {
     await user.click(await screen.findByRole("button", { name: "Попросить ещё" }));
     const again = await screen.findByRole("dialog", { name: "Позови родителя" });
     await user.type(within(again).getByLabelText("Пароль родителя"), DEFAULT_PASSWORD);
-    await user.click(within(again).getByRole("button", { name: "+30" }));
+    await user.click(within(again).getByRole("button", { name: "+30 мин" }));
     expect(await within(again).findByText("Не удалось получить данные. Попробуй через минуту")).toBeTruthy();
     expect(mock.count("AskMore")).toBe(0);
   });
@@ -525,6 +530,19 @@ describe("MyStats: «Взять из копилки» (FR-11)", () => {
     expect(btn.getAttribute("aria-describedby")).toBeTruthy();
     await user.click(btn);
     expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  // Ловит: причина недоступности дана мелкой серой строкой (field-hint), а строка «Запретные часы»
+  // в тот же момент говорит «запретных часов нет» (кадр s06-spend-forbidden).
+  it("запретные часы: причина заметна рядом с кнопкой, строка «Запретные часы» не спорит с ней", async () => {
+    setup({ children: [mockChild({ bonusBalance: 45, forbiddenUntil: "Можно снова: сегодня в 07:00" })] });
+    const note = await screen.findByText("Из копилки можно взять с 07:00");
+    expect(note.className).toContain("spend-note");
+    expect(note.className).not.toContain("field-hint");
+    expect(note.getAttribute("role")).toBe("note");
+    const row = within(screen.getByRole("region", { name: "Сколько осталось" })).getByText("Запретные часы").closest("div");
+    expect(row?.textContent).not.toContain("запретных часов нет");
+    expect(row?.textContent).toContain("07:00");
   });
 
   it("копилка пуста: кнопка недоступна, причина названа", async () => {

@@ -99,7 +99,7 @@ export default function AskMoreDialog({ childId, onDone, onClose }: Props) {
       <div className="action-row ask-presets" role="group" aria-label="Сколько добавить">
         {ASK_PRESETS.map((m) => (
           <button key={m} type="button" className="btn" disabled={busy} onClick={() => void submit(m)}>
-            {`+${m}`}
+            {`+${m} мин`}
           </button>
         ))}
       </div>

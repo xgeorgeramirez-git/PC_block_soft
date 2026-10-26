@@ -20,10 +20,14 @@ export function firstRunLines(reply: MyTodayReply): string[] {
   return [`Сегодня можно ${formatLimit(Math.round(s.limitS / 60))}.`, "Нажми на значок у часов: увидишь, сколько осталось."];
 }
 
-/** Строки «Сегодня» для «Итогов»: «Использовано …» уже есть в строке «Всего», второй раз не нужна. */
+/**
+ * Строки «Сегодня» для «Итогов». «Использовано …» уже есть в строке «Использовано сегодня», а «Сегодня
+ * осталось …» (пока время есть) повторяет «Осталось всего» из верхней панели: одно число - одно место.
+ */
 export function summaryLines(reply: MyTodayReply): string[] {
   const used = `Использовано ${formatDuration(reply.status.usedS)}`;
-  return reply.today.filter((line) => line !== used);
+  const repeatsLeft = reply.status.lock === "none" ? reply.status.summary : used;
+  return reply.today.filter((line) => line !== used && line !== repeatsLeft);
 }
 
 /** Номер сегодняшнего дня недели для подсветки строки «Моих правил»: 1 = пн … 7 = вс. */

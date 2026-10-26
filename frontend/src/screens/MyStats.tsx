@@ -197,7 +197,7 @@ export function Remaining({ data, onAsk, onSpend }: { data: MyTodayReply; onAsk:
           </button>
         </div>
         {note ? (
-          <p id="spend-note" className="field-hint">
+          <p id="spend-note" className="spend-note" role="note">
             {note}
           </p>
         ) : null}
@@ -224,7 +224,7 @@ export function Totals({ data }: { data: MyTodayReply }) {
           ))}
           <dl className="stat-list">
             <div className="stat-row">
-              <dt>Всего</dt>
+              <dt>Использовано сегодня</dt>
               <dd>{formatDuration(data.status.usedS)}</dd>
             </div>
             {["Игры", "Видео и соцсети", "Учёба"].map((label) => (

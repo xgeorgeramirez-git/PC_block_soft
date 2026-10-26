@@ -702,12 +702,39 @@ p {
 
 /* «Настройки для родителя» внизу окна ребёнка: мелкая ссылка, а не кнопка (ТЗ 8.2.6 п.1). */
 .my-foot {
+  /* Всегда у нижнего края окна: окно 800 x 640 не вмещает все разделы, а ссылку нельзя прятать
+     под прокруткой (ТЗ 8.2.6 п.1). */
+  position: sticky;
+  bottom: 0;
   margin: var(--space-4) 0 0;
+  padding: var(--space-2) 0;
+  background: var(--bg);
+  border-top: 1px solid var(--line);
 }
 
 .my-foot .link {
   color: var(--text-muted);
   text-decoration: underline;
+}
+
+/* Причина, по которой кнопка недоступна: заметная строка рядом с кнопкой, а не серая подсказка. */
+.spend-note {
+  margin: var(--space-3) 0 0;
+  padding: var(--space-2) var(--space-3);
+  border-left: 4px solid var(--status-warn);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 16px;
+  font-weight: 600;
+}
+
+/* Недоступная кнопка: приглушена и без отклика на наведение, но остаётся в Tab-порядке, чтобы
+   пояснение зачитывалось по фокусу (aria-describedby). */
+.btn[aria-disabled="true"] {
+  border-style: dashed;
+  color: var(--text-muted);
+  background: transparent;
+  cursor: not-allowed;
 }
 
 .ask-presets {
