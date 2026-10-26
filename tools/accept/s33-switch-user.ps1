@@ -22,6 +22,9 @@ Invoke-Scenario "S33" "Смена пользователя: время ребё�
 
   Step "Ребёнок готов, окно на весь экран без ввода: секунды идут" {
     Test-InputSim
+    # Подробные логи службы (FR-25): без них красный прогон не объясняет, откуда служба взяла «на экране или нет».
+    Open-Parent
+    Assert-Reply (Send-Parent "SetDiag" @{ verbose = $true }) "Подробные логи службы"
     Start-Child 120 $false
     Show-Fullscreen
     Resume-Clock
@@ -33,6 +36,7 @@ Invoke-Scenario "S33" "Смена пользователя: время ребё�
 
   Step "Отключение сеанса (tsdiscon): секунды перестают расти не позже 2 с" {
     $script:Before = [int](Get-Status).usedS
+    Write-Log "qwinsta до отключения: $((@(& qwinsta.exe 2>&1)) -join ' / ')"
     & tsdiscon.exe $script:MySession 2>&1 | ForEach-Object { Write-Log "tsdiscon: $_" }
     $sw = [Diagnostics.Stopwatch]::StartNew()
     Wait-Until { (Get-SessionStateName $script:MySession) -match "^Disc" } 15 "сеанс отключён (qwinsta)"

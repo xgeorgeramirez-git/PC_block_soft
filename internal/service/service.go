@@ -52,6 +52,14 @@ const (
 	SessionUnlock
 )
 
+func (e SessionEvent) String() string {
+	names := [...]string{"вход", "выход", "подключение", "отключение", "блокировка", "разблокировка"}
+	if e >= 0 && int(e) < len(names) {
+		return names[e]
+	}
+	return fmt.Sprint("событие ", int(e))
+}
+
 // SessionUnknown — номер сеанса в событии, когда служба не смогла прочитать его из уведомления
 // диспетчера служб. Такое событие не относится ни к какому сеансу: служба сверяет весь список.
 const SessionUnknown uint32 = 0xFFFFFFFF
@@ -103,21 +111,22 @@ type undoRec struct {
 
 // childState — ребёнок в памяти службы: ядро, правила, снимок датчиков.
 type childState struct {
-	child        Child
-	eng          *core.Engine
-	rules        core.Rules
-	admin        bool // R1: учётка стала администратором
-	adminAt      time.Time
-	rulesAt      time.Time
-	sample       ipc.SensorSample
-	sampleAt     time.Time
-	sampleSess   uint32 // сеанс, из которого пришёл снимок: время идёт, только пока он на экране (FB-3)
-	haveSample   bool
-	warns        []pendingWarning
-	undo         *undoRec
-	bonusUndo    *undoRec  // отмена последнего начисления копилки на 10 с (FR-22)
-	lastBypass   string    // последняя записанная попытка обхода (дедуп журнала, D-41)
-	lastBypassAt time.Time // когда записана; страж повторяет сообщение каждую секунду
+	child         Child
+	eng           *core.Engine
+	rules         core.Rules
+	admin         bool // R1: учётка стала администратором
+	adminAt       time.Time
+	rulesAt       time.Time
+	sample        ipc.SensorSample
+	sampleAt      time.Time
+	sampleVerdict string // последнее решение для журнала: снимок стража учитывается или нет
+	sampleSess    uint32 // сеанс, из которого пришёл снимок: время идёт, только пока он на экране (FB-3)
+	haveSample    bool
+	warns         []pendingWarning
+	undo          *undoRec
+	bonusUndo     *undoRec  // отмена последнего начисления копилки на 10 с (FR-22)
+	lastBypass    string    // последняя записанная попытка обхода (дедуп журнала, D-41)
+	lastBypassAt  time.Time // когда записана; страж повторяет сообщение каждую секунду
 }
 
 // Service — служба PCBlock без привязки к Windows: логика на портах (doc.go).

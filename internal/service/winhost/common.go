@@ -93,7 +93,7 @@ func sessionInfos(list []winsession.Session) []service.SessionInfo {
 		if s.Active {
 			screen = service.ScreenOn
 		}
-		out = append(out, service.SessionInfo{ID: s.ID, User: s.User, SID: s.SID, Screen: screen})
+		out = append(out, service.SessionInfo{ID: s.ID, User: s.User, SID: s.SID, Screen: screen, WTSState: s.State})
 	}
 	return out
 }

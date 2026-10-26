@@ -103,10 +103,27 @@ func (s *Service) sampleFor(cs *childState) core.SessionSample {
 	if !cs.haveSample || s.real.Sub(cs.sampleAt) > sampleMaxAge {
 		return core.SessionSample{}
 	}
-	if ss := s.sessions[cs.sampleSess]; ss == nil || ss.childID != cs.child.ID || ss.offScreen() {
+	ss := s.sessions[cs.sampleSess]
+	if ss == nil || ss.childID != cs.child.ID || ss.offScreen() {
+		s.noteSampleVerdict(cs, "не учитывается", ss)
 		return core.SessionSample{}
 	}
+	s.noteSampleVerdict(cs, "учитывается", ss)
 	return cs.sample.ToCore()
+}
+
+// noteSampleVerdict пишет в подробный журнал, когда меняется решение «снимок стража учитывается»:
+// без этого красный прогон S33 не показывает, почему секунды идут или стоят.
+func (s *Service) noteSampleVerdict(cs *childState, verdict string, ss *sessState) {
+	if cs.sampleVerdict == verdict {
+		return
+	}
+	cs.sampleVerdict = verdict
+	if ss == nil {
+		s.vlogf("снимок стража сеанса %d %s: сеанса нет в списке или в нём другой пользователь", cs.sampleSess, verdict)
+		return
+	}
+	s.vlogf("снимок стража сеанса %d %s (экран: %v, блокировка: %v)", ss.id, verdict, ss.screen, ss.locked)
 }
 
 // Housekeep — обслуживание раз в настоящую секунду: сеансы и процессы, проверка R1 раз в

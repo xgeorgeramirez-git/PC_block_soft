@@ -1,6 +1,7 @@
 package service
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -343,5 +344,34 @@ func TestStaleListDoesNotOverrideDisconnectEvent(t *testing.T) {
 	h.run(4, fullscreenSample) // прошло 8 с, событие подключения потеряно, список говорит «активен»
 	if got := h.usedS(); got <= 3 {
 		t.Fatalf("учтено %d с; want больше 3 (через 5 с решает список)", got)
+	}
+}
+
+// Ловит: красный прогон S33 не объясняет себя, потому что служба молчит о том, откуда взято
+// решение «сеанс на экране или нет». В подробном режиме должны быть: событие по имени, состояние
+// WTS из списка, удержание события поверх списка, итог для учёта (принят или отброшен снимок).
+func TestScreenDecisionsAreExplainedInVerboseLog(t *testing.T) {
+	h := newHarness(t, withChild(childSID, "Миша", 120))
+	h.store.settings[settingVerboseLogs] = "1"
+	h.start()
+	h.launcher.setSessions(SessionInfo{ID: childSession, User: `PC\Миша`, SID: childSID, Screen: ScreenOn, WTSState: 0})
+	h.svc.OnSession(SessionLogon, childSession, h.real.Now())
+	h.run(2, fullscreenSample)
+	h.svc.OnSession(SessionDisconnect, childSession, h.real.Now())
+	h.run(2, fullscreenSample) // список ещё «активен»: удержание
+	h.launcher.setSessions(SessionInfo{ID: childSession, User: `PC\Миша`, SID: childSID, Screen: ScreenOff, WTSState: 4})
+	h.run(1, fullscreenSample)
+	log := h.logText()
+	for _, want := range []string{
+		"событие сеанса 2: отключение",
+		"состояние WTS 0 (экран: на экране)",
+		"состояние WTS 4 (экран: не на экране)",
+		"удержание отключения",
+		"снимок стража сеанса 2 не учитывается",
+		"снимок стража сеанса 2 учитывается",
+	} {
+		if !strings.Contains(log, want) {
+			t.Errorf("в подробном журнале нет %q:\n%s", want, log)
+		}
 	}
 }

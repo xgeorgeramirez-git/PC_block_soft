@@ -526,6 +526,14 @@ function Write-Diagnostics {
     Write-Log ("ERROR: [диагностика] GuardState: " + ($gs | ConvertTo-Json -Depth 6 -Compress))
   } catch { Write-Log "ERROR: [диагностика] канал связи не отвечает: $($_.Exception.Message)" }
   try { Write-Log ("ERROR: [диагностика] передний план: " + [PcbNative]::Foreground() + "; простой ввода, мс: " + [PcbNative]::IdleMs()) } catch {}
+  try { (@(& qwinsta.exe 2>&1)) | ForEach-Object { Write-Log "ERROR: [диагностика] qwinsta: $_" } } catch {}
+  foreach ($dir in @($script:Data, $script:DefaultData)) {
+    $sl = Join-Path (Join-Path $dir "logs") "service.log"
+    if (Test-Path -LiteralPath $sl) {
+      Get-Content -LiteralPath $sl -Tail 400 -Encoding UTF8 | Where-Object { $_ -match 'событие сеанса|сеанс \d+:|снимок стража|удержание' } |
+        Select-Object -Last 40 | ForEach-Object { Write-Log "ERROR: [диагностика] service.log (сеансы): $_" }
+    }
+  }
   foreach ($dir in @($script:Data, $script:DefaultData)) {
     foreach ($name in @("service.log", "boot.log")) {
       $f = Join-Path (Join-Path $dir "logs") $name

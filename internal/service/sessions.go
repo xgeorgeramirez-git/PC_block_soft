@@ -52,16 +52,18 @@ func (p pendingBypass) wait() time.Duration {
 
 // sessState — интерактивный сеанс Windows и запущенные в нём части программы.
 type sessState struct {
-	id      uint32
-	user    string
-	sid     string
-	childID int64       // 0: в сеансе работает не ребёнок
-	screen  ScreenState // на экране ли сеанс: по списку Windows и событиям подключения (FB-3)
-	offHold time.Time   // до этого момента список Windows не возвращает «на экране» поверх события отключения
-	locked  bool        // сеанс заблокирован: по событиям блокировки и разблокировки; сбрасывается снимком стража (FB-3)
-	guard   *supProc
-	tray    *supProc
-	windows map[string]*supProc
+	id       uint32
+	user     string
+	sid      string
+	childID  int64       // 0: в сеансе работает не ребёнок
+	screen   ScreenState // на экране ли сеанс: по списку Windows и событиям подключения (FB-3)
+	listWTS  uint32      // последнее состояние WTS из списка (для журнала)
+	listSeen ScreenState // и вывод из него
+	offHold  time.Time   // до этого момента список Windows не возвращает «на экране» поверх события отключения
+	locked   bool        // сеанс заблокирован: по событиям блокировки и разблокировки; сбрасывается снимком стража (FB-3)
+	guard    *supProc
+	tray     *supProc
+	windows  map[string]*supProc
 }
 
 // OnSession принимает событие сеанса от диспетчера служб: служба сверяет сеансы и запускает
@@ -126,9 +128,11 @@ func (s *Service) noteSessionState(ev SessionEvent, id uint32) {
 		// Подключение сбрасывает признак блокировки: пропущенная разблокировка не должна
 		// навсегда остановить время, а экран входа после подключения видит сам страж.
 		ss.screen, ss.locked, ss.offHold = ScreenOn, false, time.Time{}
+		s.vlogf("сеанс %d: подключение, на экране", id)
 	case SessionDisconnect:
 		// Список Windows может отстать от события: пока держится offHold, он не отменяет отключение.
 		ss.screen, ss.offHold = ScreenOff, s.real.Add(offHoldFor)
+		s.vlogf("сеанс %d: отключение, удержание отключения до %s", id, ss.offHold.Format("15:04:05"))
 	}
 }
 
@@ -190,8 +194,16 @@ func (s *Service) syncSessions(real time.Time) {
 			ss = &sessState{id: si.ID, user: si.User, sid: si.SID, windows: map[string]*supProc{}}
 			s.sessions[si.ID] = ss
 		}
-		if si.Screen != ScreenUnknown && !(si.Screen == ScreenOn && real.Before(ss.offHold)) {
-			ss.screen = si.Screen
+		if si.Screen != ScreenUnknown {
+			if si.Screen == ScreenOn && real.Before(ss.offHold) {
+				s.vlogf("сеанс %d: список Windows говорит «на экране» (WTS %d), удержание отключения до %s сильнее", ss.id, si.WTSState, ss.offHold.Format("15:04:05"))
+			} else {
+				ss.screen = si.Screen
+			}
+		}
+		if ss.listWTS != si.WTSState || ss.listSeen != si.Screen {
+			ss.listWTS, ss.listSeen = si.WTSState, si.Screen
+			s.vlogf("сеанс %d: состояние WTS %d (экран: %v), в службе: %v", ss.id, si.WTSState, si.Screen, ss.screen)
 		}
 		prev := ss.childID
 		ss.childID = 0

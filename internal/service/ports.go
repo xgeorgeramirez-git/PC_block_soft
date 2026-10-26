@@ -139,12 +139,23 @@ const (
 	ScreenOff                        // сеанс отключён (смена пользователя, экран выбора пользователя)
 )
 
+func (v ScreenState) String() string {
+	switch v {
+	case ScreenOn:
+		return "на экране"
+	case ScreenOff:
+		return "не на экране"
+	}
+	return "неизвестно"
+}
+
 // SessionInfo — интерактивный сеанс Windows с пользователем.
 type SessionInfo struct {
-	ID     uint32
-	User   string // «ДОМЕН\учётка»
-	SID    string
-	Screen ScreenState // нулевое значение: неизвестно
+	ID       uint32
+	User     string // «ДОМЕН\учётка»
+	SID      string
+	Screen   ScreenState // нулевое значение: неизвестно
+	WTSState uint32      // состояние сеанса по WTS (0 активен, 4 отключён); только для журнала
 }
 
 // Proc — запущенный службой процесс (ручка процесса на Windows).
