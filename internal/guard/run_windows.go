@@ -393,8 +393,8 @@ func hostProc(hwnd, msg, wParam, lParam uintptr) uintptr {
 		return 0
 	case wmQueryEndSession:
 		// Сеанс спрашивает, можно ли заканчиваться: возражать нельзя (NFR-10), но службе
-		// сообщаем сразу, потом процесс может не успеть. Если конец сеанса отменят, метка
-		// службы сама погаснет через полминуты.
+		// сообщаем сразу, потом процесс может не успеть. Если конец сеанса отменят, служба
+		// не пишет обход ещё полминуты, а страж возвращается сразу.
 		a.notifyClosing()
 		return 1
 	case wmEndSession:
@@ -404,6 +404,8 @@ func hostProc(hwnd, msg, wParam, lParam uintptr) uintptr {
 			} else {
 				procPostQuitMessage.Call(0)
 			}
+		} else if a != nil && a.ctl != nil {
+			a.ctl.ResetClosing() // конец сеанса отменён: при следующем уведомить службу снова
 		}
 		return 0
 	case wmDestroy:

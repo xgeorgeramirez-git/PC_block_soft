@@ -58,6 +58,10 @@ type Controller struct {
 	tests     []ipc.TestGuardAction
 	fields    map[string]string
 	sentState []byte
+
+	closingMu   sync.Mutex
+	closingDone bool // GuardClosing в этом конце сеанса уже отправлен (или попытка не удалась)
+	closingOK   bool // исход первой попытки
 }
 
 // NewController собирает контроллер. now — настоящие часы (Ruling 4), read — чтение датчиков,
@@ -516,6 +520,27 @@ func (c *Controller) Run(act Action) {
 // дольше wait; ошибка канала, отказ службы, паника и опоздавший ответ не важны. Возвращает true,
 // если служба приняла сообщение вовремя.
 func (c *Controller) NotifyClosing(wait time.Duration) bool {
+	// Конец сеанса сообщает о себе дважды (WM_QUERYENDSESSION и WM_ENDSESSION), а ждать службу
+	// до wait в потоке окон каждый раз не нужно: исход первой попытки, удачный или нет, остаётся
+	// на весь этот конец сеанса. Блокировка держится на всё ожидание: второй вызов ждёт первый.
+	c.closingMu.Lock()
+	defer c.closingMu.Unlock()
+	if c.closingDone {
+		return c.closingOK
+	}
+	c.closingDone = true
+	c.closingOK = c.sendClosing(wait)
+	return c.closingOK
+}
+
+// ResetClosing разрешает уведомить службу снова: конец сеанса отменён (WM_ENDSESSION с wParam=0).
+func (c *Controller) ResetClosing() {
+	c.closingMu.Lock()
+	c.closingDone = false
+	c.closingMu.Unlock()
+}
+
+func (c *Controller) sendClosing(wait time.Duration) bool {
 	done := make(chan bool, 1)
 	go func() {
 		defer func() {

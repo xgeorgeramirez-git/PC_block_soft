@@ -1066,3 +1066,48 @@ func TestNotifyClosingSurvivesPanic(t *testing.T) {
 type panicCaller struct{}
 
 func (panicCaller) Do(ipc.Msg) (ipc.Reply, error) { panic("сломалось") }
+
+// Ловит: уведомление GuardClosing уходит и в WM_QUERYENDSESSION, и в WM_ENDSESSION, и каждый раз
+// поток окон ждёт до 2 с (при зависшей службе конец сеанса тормозится вдвое дольше). Исход
+// первого вызова, удачный или нет, запоминается на весь этот конец сеанса; отмена конца сеанса
+// (ResetClosing) разрешает уведомить снова при следующем.
+func TestNotifyClosingIsNotRepeatedInSameSessionEnd(t *testing.T) {
+	t.Run("успех", func(t *testing.T) {
+		cc := &closingCaller{}
+		c := newClosingController(cc)
+		if !c.NotifyClosing(time.Second) || !c.NotifyClosing(time.Second) {
+			t.Fatal("оба вызова должны вернуть исход первого: true")
+		}
+		if got := cc.sent(); len(got) != 1 {
+			t.Fatalf("команд службе %d; want 1", len(got))
+		}
+	})
+	t.Run("неудача не повторяется и не ждёт снова", func(t *testing.T) {
+		cc := &closingCaller{release: make(chan struct{})}
+		defer close(cc.release)
+		c := newClosingController(cc)
+		if c.NotifyClosing(30 * time.Millisecond) {
+			t.Fatal("первый вызов: служба не ответила, want false")
+		}
+		start := time.Now()
+		if c.NotifyClosing(time.Second) {
+			t.Fatal("второй вызов должен вернуть исход первого: false")
+		}
+		if d := time.Since(start); d > 500*time.Millisecond {
+			t.Fatalf("второй вызов ждал %v; want без ожидания", d)
+		}
+		if got := cc.sent(); len(got) != 1 {
+			t.Fatalf("команд службе %d; want 1", len(got))
+		}
+	})
+	t.Run("после отмены конца сеанса уведомляет снова", func(t *testing.T) {
+		cc := &closingCaller{}
+		c := newClosingController(cc)
+		c.NotifyClosing(time.Second)
+		c.ResetClosing()
+		c.NotifyClosing(time.Second)
+		if got := cc.sent(); len(got) != 2 {
+			t.Fatalf("команд службе %d; want 2", len(got))
+		}
+	})
+}
