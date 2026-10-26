@@ -234,3 +234,93 @@ func TestDisconnectDoesNotMarkProcessesExpected(t *testing.T) {
 		})
 	}
 }
+
+// recentInputActive — страж видит рабочий стол ввода и ввод был секунду назад: так выглядит
+// ребёнок за незаблокированным сеансом.
+var recentInputActive = ipc.SensorSample{SessionActive: true, LastInputAgoMs: 1000, Foreground: ipc.CatNameOther}
+
+// Ловит: потерянное событие разблокировки (перезапуск службы, гонка) навсегда останавливает
+// время в подключённом сеансе. Свежий снимок стража «активен, ввод 1 с назад» сбрасывает
+// признак блокировки; ожидания в секундах литералами.
+func TestLostUnlockIsRecoveredByGuardSample(t *testing.T) {
+	h := newHarness(t, withChild(childSID, "Миша", 120))
+	h.start()
+	h.childSessionIs(ScreenOn)
+	h.svc.OnSession(SessionLogon, childSession, h.real.Now())
+	h.svc.OnSession(SessionLock, childSession, h.real.Now())
+	h.run(5, recentInputActive)
+	if got := h.usedS(); got != 5 {
+		t.Fatalf("учтено %d с; want 5 (стражу виден рабочий стол с вводом: блокировки нет)", got)
+	}
+}
+
+// Ловит: признак блокировки сбрасывается снимком, который блокировке не противоречит:
+// страж блокировку видит (SessionActive=false), либо ввода давно не было, либо сеанс не на экране.
+func TestLockStaysWhileGuardSampleAgreesWithIt(t *testing.T) {
+	cases := []struct {
+		name   string
+		screen ScreenState
+		sample ipc.SensorSample
+	}{
+		{"страж видит блокировку", ScreenOn, ipc.SensorSample{SessionActive: false, LastInputAgoMs: 0, Fullscreen: true}},
+		{"ввода давно не было", ScreenOn, fullscreenSample},
+		{"сеанс не на экране", ScreenOff, recentInputActive},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			h := newHarness(t, withChild(childSID, "Миша", 120))
+			h.start()
+			h.childSessionIs(c.screen)
+			h.svc.OnSession(SessionLogon, childSession, h.real.Now())
+			h.svc.OnSession(SessionLock, childSession, h.real.Now())
+			h.run(5, c.sample)
+			if got := h.usedS(); got != 0 {
+				t.Fatalf("учтено %d с; want 0 (сеанс заблокирован)", got)
+			}
+		})
+	}
+}
+
+// Ловит: событие с неизвестным номером сеанса (не удалось прочитать данные уведомления)
+// обрабатывается вслепую: снимает ожидания всех сеансов или не обновляет состояние экрана.
+// Безопасно: состояние экрана берётся из полной сверки сеансов, блокировка по такому событию
+// не ставится, разблокировка, вход и подключение снимают признак у всех.
+func TestUnknownSessionEventsUseFullSync(t *testing.T) {
+	t.Run("отключение: экран перечитан из списка", func(t *testing.T) {
+		h := newHarness(t, withChild(childSID, "Миша", 120))
+		h.start()
+		h.childSessionIs(ScreenOn)
+		h.svc.OnSession(SessionLogon, childSession, h.real.Now())
+		h.run(3, fullscreenSample)
+		h.childSessionIs(ScreenOff)
+		h.svc.OnSession(SessionDisconnect, SessionUnknown, h.real.Now())
+		h.run(4, fullscreenSample)
+		if got := h.usedS(); got != 3 {
+			t.Fatalf("учтено %d с; want 3", got)
+		}
+	})
+	t.Run("разблокировка снимает признак у всех сеансов", func(t *testing.T) {
+		h := newHarness(t, withChild(childSID, "Миша", 120))
+		h.start()
+		h.childSessionIs(ScreenOn)
+		h.svc.OnSession(SessionLogon, childSession, h.real.Now())
+		h.svc.OnSession(SessionLock, childSession, h.real.Now())
+		h.run(2, fullscreenSample)
+		h.svc.OnSession(SessionUnlock, SessionUnknown, h.real.Now())
+		h.run(4, fullscreenSample)
+		if got := h.usedS(); got != 4 {
+			t.Fatalf("учтено %d с; want 4", got)
+		}
+	})
+	t.Run("блокировка с неизвестным номером не останавливает время вслепую", func(t *testing.T) {
+		h := newHarness(t, withChild(childSID, "Миша", 120))
+		h.start()
+		h.childSessionIs(ScreenOn)
+		h.svc.OnSession(SessionLogon, childSession, h.real.Now())
+		h.svc.OnSession(SessionLock, SessionUnknown, h.real.Now())
+		h.run(3, fullscreenSample)
+		if got := h.usedS(); got != 3 {
+			t.Fatalf("учтено %d с; want 3 (блокировку увидит страж)", got)
+		}
+	})
+}

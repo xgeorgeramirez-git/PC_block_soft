@@ -109,6 +109,7 @@ func TestDeathInLiveSessionIsJournaledAfterFiveSeconds(t *testing.T) {
 
 // Ловит: конец сеанса или остановка службы за 5 с после гибели всё же даёт запись об обходе —
 // ложная «попытка обойти защиту» при выключении и выходе из учётки, замечание заказчика FB-1.
+// Отключение сеанса (смена пользователя) процессы не убивает: гибель перед ним остаётся обходом.
 func TestDeathBeforeSessionEndIsNotBypass(t *testing.T) {
 	actions := []struct {
 		name string
@@ -118,7 +119,8 @@ func TestDeathBeforeSessionEndIsNotBypass(t *testing.T) {
 		{"сеанс жив: запись есть", func(h *harness) {}, 1},
 		{"остановка службы", func(h *harness) { h.svc.Shutdown(h.real.Now()) }, 0},
 		{"выход из учётной записи", func(h *harness) { h.svc.OnSession(SessionLogoff, childSession, h.real.Now()) }, 0},
-		{"отключение сеанса (смена пользователя)", func(h *harness) { h.svc.OnSession(SessionDisconnect, childSession, h.real.Now()) }, 0},
+		{"отключение сеанса (смена пользователя): процессы живут, это обход", func(h *harness) { h.svc.OnSession(SessionDisconnect, childSession, h.real.Now()) }, 1},
+		{"выход, номер сеанса неизвестен: ожидания вслепую не снимаются", func(h *harness) { h.svc.OnSession(SessionLogoff, SessionUnknown, h.real.Now()) }, 1},
 		{"сеанс пропал из списка Windows", func(h *harness) { h.launcher.setSessions(); h.hk(1) }, 0},
 		{"в сеансе другой пользователь, потом снова ребёнок", func(h *harness) {
 			h.launcher.setSessions(SessionInfo{ID: childSession, User: `PC\Анна`, SID: parentSID})
@@ -196,28 +198,90 @@ func TestRepeatedDeathKeepsSingleWait(t *testing.T) {
 	})
 }
 
-// Ловит: GuardClosing принимается от любого процесса (ребёнок «закрылся штатно» и убил
-// стража без следа) или не принимается от настоящего стража (ложная запись при выключении).
-func TestGuardClosingFromRealGuardIsNotBypass(t *testing.T) {
-	h := newHarness(t, withChild(childSID, "Миша", 120))
-	h.start()
-	h.childLogsIn()
-	h.ok(h.guardProcPeer(childSession), "", ipc.CmdGuardClosing, nil, nil)
-	h.launcher.kill(h.launcher.aliveOf(ProcGuard, childSession)[0])
-	h.hk(1)
-	if len(h.svc.bypassWait) != 0 {
-		t.Fatalf("штатное закрытие стража поставило ожидание: %+v", h.svc.bypassWait)
+// Ловит: GuardClosing стирает запись об обходе или откладывает возвращение стража, хотя сеанс
+// не заканчивается (ребёнок запустил shutdown и отменил его отказом в WM_QUERYENDSESSION): тогда
+// 30 с гибель стража не пишется и страж не возвращается (FR-27). Сообщение только продлевает
+// ожидание до 30 с; конец сеанса, исчезновение сеанса и остановка службы снимают его без записи.
+func TestGuardClosingExtendsWaitAndRestartsGuardAtOnce(t *testing.T) {
+	closeAndKill := func(h *harness) {
+		h.ok(h.guardProcPeer(childSession), "", ipc.CmdGuardClosing, nil, nil)
+		h.launcher.kill(h.launcher.aliveOf(ProcGuard, childSession)[0])
+		h.hk(1) // служба заметила гибель
+		if len(h.launcher.aliveOf(ProcGuard, childSession)) != 1 {
+			t.Fatal("страж не перезапущен сразу после гибели с GuardClosing (FR-27: не позже 3 с)")
+		}
+		if len(h.svc.bypassWait) != 1 {
+			t.Fatalf("ожиданий %d; want 1 (запись не стирается, а ждёт)", len(h.svc.bypassWait))
+		}
 	}
-	if len(h.launcher.aliveOf(ProcGuard, childSession)) != 0 {
-		t.Fatal("страж вернулся сразу после штатного закрытия (сеанс может заканчиваться)")
-	}
-	h.hk(10)
-	if n := h.bypassCount(); n != 0 {
-		t.Fatalf("штатное закрытие стража записано обходом: %d; want 0", n)
-	}
-	if len(h.launcher.aliveOf(ProcGuard, childSession)) != 1 {
-		t.Fatal("страж не вернулся через 10 с, хотя сеанс остался")
-	}
+	t.Run("сеанс жив: запись одна, ровно через 30 с", func(t *testing.T) {
+		h := newHarness(t, withChild(childSID, "Миша", 120))
+		h.start()
+		h.childLogsIn()
+		closeAndKill(h)
+		h.hk(29)
+		if n := h.bypassCount(); n != 0 {
+			t.Fatalf("запись через 29 с после гибели: %d; want 0", n)
+		}
+		h.hk(1)
+		evs := h.store.eventsOf("bypass")
+		if len(evs) != 1 || evs[0].Details["subtype"] != "guard_closed" {
+			t.Fatalf("через 30 с записи: %+v; want одна guard_closed", evs)
+		}
+		h.hk(60)
+		if n := h.bypassCount(); n != 1 {
+			t.Fatalf("записей %d; want 1", n)
+		}
+	})
+	t.Run("остановка службы в окне: записи нет", func(t *testing.T) {
+		h := newHarness(t, withChild(childSID, "Миша", 120))
+		h.start()
+		h.childLogsIn()
+		closeAndKill(h)
+		h.hk(10)
+		h.svc.Shutdown(h.real.Now())
+		h.hk(60)
+		if n := h.bypassCount(); n != 0 {
+			t.Fatalf("записей %d; want 0", n)
+		}
+	})
+	t.Run("выход из учётной записи в окне: записи нет", func(t *testing.T) {
+		h := newHarness(t, withChild(childSID, "Миша", 120))
+		h.start()
+		h.childLogsIn()
+		closeAndKill(h)
+		h.hk(10)
+		h.svc.OnSession(SessionLogoff, childSession, h.real.Now())
+		h.hk(60)
+		if n := h.bypassCount(); n != 0 {
+			t.Fatalf("записей %d; want 0", n)
+		}
+	})
+	t.Run("сеанс исчез в окне: записи нет", func(t *testing.T) {
+		h := newHarness(t, withChild(childSID, "Миша", 120))
+		h.start()
+		h.childLogsIn()
+		closeAndKill(h)
+		h.hk(10)
+		h.launcher.setSessions()
+		h.hk(60)
+		if n := h.bypassCount(); n != 0 {
+			t.Fatalf("записей %d; want 0", n)
+		}
+	})
+	t.Run("GuardClosing позже гибели продлевает уже стоящее ожидание", func(t *testing.T) {
+		h := newHarness(t, withChild(childSID, "Миша", 120))
+		h.start()
+		h.childLogsIn()
+		peer := h.guardProcPeer(childSession)
+		h.launcher.kill(h.launcher.aliveOf(ProcGuard, childSession)[0])
+		h.hk(1)
+		h.svc.guardClosing(peer) // старый PID уже не тот: сообщение чужое, срок прежний 5 с
+		h.hk(5)
+		if n := h.bypassCount(); n != 1 {
+			t.Fatalf("записей %d; want 1 (сообщение от мёртвого процесса не продлевает)", n)
+		}
+	})
 }
 
 // Ловит: GuardClosing от чужого PID (не от стража, запущенного службой) гасит запись об обходе.

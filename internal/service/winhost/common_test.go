@@ -204,3 +204,29 @@ func TestServiceLogFileName(t *testing.T) {
 		t.Errorf("журнал по кругу: %d байт x %d файлов, ждали 10 МБ x 5", logMaxBytes, logFiles)
 	}
 }
+
+// Ловит: номер сеанса из уведомления диспетчера служб (WTSSESSION_NOTIFICATION) читается не
+// из того места или без проверки размера: в боевой службе тогда номер всегда 0, и события
+// конца сеанса, блокировки и отключения не доходят до нужного сеанса (FB-1, FB-3).
+func TestSessionIDOfNotification(t *testing.T) {
+	cases := []struct {
+		name   string
+		raw    []byte
+		wantID uint32
+		wantOK bool
+	}{
+		{"cbSize 8, сеанс 3", []byte{8, 0, 0, 0, 3, 0, 0, 0}, 3, true},
+		{"сеанс 258 (два байта)", []byte{8, 0, 0, 0, 2, 1, 0, 0}, 258, true},
+		{"cbSize больше 8, лишний хвост", []byte{12, 0, 0, 0, 5, 0, 0, 0, 9, 9, 9, 9}, 5, true},
+		{"пустые данные", nil, 0, false},
+		{"короче структуры", []byte{8, 0, 0, 0, 3, 0, 0}, 0, false},
+		{"cbSize меньше структуры", []byte{4, 0, 0, 0, 3, 0, 0, 0}, 0, false},
+		{"cbSize больше данных", []byte{16, 0, 0, 0, 3, 0, 0, 0}, 0, false},
+	}
+	for _, c := range cases {
+		id, ok := sessionIDOf(c.raw)
+		if id != c.wantID || ok != c.wantOK {
+			t.Errorf("%s: %d %v; want %d %v", c.name, id, ok, c.wantID, c.wantOK)
+		}
+	}
+}

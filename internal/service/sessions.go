@@ -24,8 +24,8 @@ type supProc struct {
 	pid       uint32
 	stamp     uint64
 	startedAt time.Time
-	expected  bool      // закрытие сообщено интерфейсом (TrayClosing, GuardClosing, WindowClosing): это не обход
-	closingAt time.Time // когда страж сообщил GuardClosing; метка expected от него живёт closingLife
+	expected  bool      // закрытие сообщено интерфейсом (TrayClosing, WindowClosing) или службой (конец сеанса): это не обход
+	closingAt time.Time // когда страж сообщил GuardClosing; действует closingLife, обход не стирает, а откладывает
 	nextTry   time.Time // не запускать заново раньше этого момента
 	failures  int
 }
@@ -35,10 +35,19 @@ type supProc struct {
 // bypassGrace: за это время приходит событие конца сеанса или остановка службы, и записи нет.
 type pendingBypass struct {
 	sessionID uint32
-	sid       string    // пользователь сеанса в момент гибели
-	detail    string    // подробность для журнала
-	subtype   string    // подтип события: guard_closed, tray_closed, window_closed
-	at        time.Time // настоящий момент, когда служба заметила гибель
+	sid       string        // пользователь сеанса в момент гибели
+	detail    string        // подробность для журнала
+	subtype   string        // подтип события: guard_closed, tray_closed, window_closed
+	at        time.Time     // настоящий момент, когда служба заметила гибель
+	grace     time.Duration // срок решения; 0: bypassGrace. Гибель стража с GuardClosing ждёт closingLife
+}
+
+// wait возвращает срок решения по этому ожиданию.
+func (p pendingBypass) wait() time.Duration {
+	if p.grace > 0 {
+		return p.grace
+	}
+	return bypassGrace
 }
 
 // sessState — интерактивный сеанс Windows и запущенные в нём части программы.
@@ -48,7 +57,7 @@ type sessState struct {
 	sid     string
 	childID int64       // 0: в сеансе работает не ребёнок
 	screen  ScreenState // на экране ли сеанс: по списку Windows и событиям подключения (FB-3)
-	locked  bool        // сеанс заблокирован: по событиям блокировки и разблокировки (FB-3)
+	locked  bool        // сеанс заблокирован: по событиям блокировки и разблокировки; сбрасывается снимком стража (FB-3)
 	guard   *supProc
 	tray    *supProc
 	windows map[string]*supProc
@@ -69,17 +78,19 @@ func (s *Service) OnSession(ev SessionEvent, id uint32, real time.Time) {
 	case SessionLogoff:
 		// Штатный выход из учётки завершает процессы сеанса: это не обход (R17, D-41). Их
 		// помечаем как ожидаемое завершение, а то, что успело погибнуть раньше события, не
-		// записываем (FB-1).
-		if ss := s.sessions[id]; ss != nil {
-			s.expectSessionProcs(ss)
+		// записываем (FB-1). Номер сеанса неизвестен: вслепую ничего не снимаем, исчезнувший
+		// сеанс сверка уберёт сама (dropSession снимает его ожидания).
+		if id != SessionUnknown {
+			if ss := s.sessions[id]; ss != nil {
+				s.expectSessionProcs(ss)
+			}
+			s.cancelBypass(id, "конец сеанса")
 		}
-		s.cancelBypass(id, "конец сеанса")
 	case SessionDisconnect:
 		// Смена пользователя сеанс не завершает: страж, значок и окна ребёнка в отключённом
-		// сеансе живут дальше, поэтому они не помечаются и их настоящее принудительное
-		// завершение остаётся обходом (FB-3, Ruling). Гибель в последние секунды до отключения
-		// не записывается: в сеансе, который уходит с экрана, это не действие за компьютером.
-		s.cancelBypass(id, "конец сеанса")
+		// сеансе живут дальше, поэтому они не помечаются, а ожидания не снимаются: гибель
+		// стража, значка или окна прямо перед отключением остаётся обходом (иначе это дыра:
+		// убить и сменить пользователя). Признак «не на экране» ставит noteSessionState.
 	}
 	s.guard("session", nil, func() { s.syncSessions(real) })
 	s.noteSessionState(ev, id)
@@ -90,6 +101,17 @@ func (s *Service) OnSession(ev SessionEvent, id uint32, real time.Time) {
 // о новом сеансе. Событие точнее списка Windows, который в этот момент мог ещё не обновиться;
 // следующая сверка снова берёт состояние из списка.
 func (s *Service) noteSessionState(ev SessionEvent, id uint32) {
+	if id == SessionUnknown {
+		// Номер сеанса прочитать не удалось: экран уже перечитан сверкой со списком Windows,
+		// блокировку по такому событию не ставим (её видит страж), а разблокировку, вход и
+		// подключение применяем ко всем сеансам: лишний сброс безвреден, страж поправит.
+		if ev == SessionUnlock || ev == SessionLogon || ev == SessionConnect {
+			for _, ss := range s.sessions {
+				ss.locked = false
+			}
+		}
+		return
+	}
 	ss := s.sessions[id]
 	if ss == nil {
 		return
@@ -105,6 +127,19 @@ func (s *Service) noteSessionState(ev SessionEvent, id uint32) {
 		ss.screen, ss.locked = ScreenOn, false
 	case SessionDisconnect:
 		ss.screen = ScreenOff
+	}
+}
+
+// lockResetInputMs — ввод не старше этого значит: за сеансом сидят. Снимок стража с таким вводом
+// и SessionActive=true противоречит блокировке (в заблокированном сеансе страж видит рабочий
+// стол Winlogon и присылает SessionActive=false) и сбрасывает признак, если событие
+// разблокировки потеряно.
+const lockResetInputMs = 5000
+
+// resetLockBySample сбрасывает признак блокировки по свежему снимку стража, пока сеанс на экране.
+func (ss *sessState) resetLockBySample(sm ipc.SensorSample) {
+	if ss.locked && ss.screen == ScreenOn && sm.SessionActive && sm.LastInputAgoMs < lockResetInputMs {
+		ss.locked = false
 	}
 }
 
@@ -260,7 +295,6 @@ func (s *Service) superviseSession(ss *sessState, real time.Time) {
 func (s *Service) ensureProc(ss *sessState, sp *supProc, args []string, real time.Time) {
 	if sp.proc != nil {
 		if sp.proc.Alive() {
-			sp.expireClosing(real)
 			return
 		}
 		s.procDied(ss, sp, real)
@@ -278,6 +312,7 @@ func (s *Service) ensureProc(ss *sessState, sp *supProc, args []string, real tim
 func (s *Service) procDied(ss *sessState, sp *supProc, real time.Time) {
 	sp.proc.Close()
 	sp.proc = nil
+	closing := !sp.closingAt.IsZero() && real.Sub(sp.closingAt) <= closingLife
 	if sp.expected {
 		sp.expected, sp.closingAt = false, time.Time{}
 		sp.nextTry = real.Add(10 * time.Second)
@@ -297,16 +332,15 @@ func (s *Service) procDied(ss *sessState, sp *supProc, real time.Time) {
 		detail, subtype = detailGuardClosed, "guard_closed"
 	}
 	s.cfg.Logf("Процесс %s в сеансе %d завершился без сообщения интерфейса", sp.role, ss.id)
-	s.deferBypass(ss, detail, subtype, real)
-}
-
-// expireClosing снимает метку «закрывается штатно», которую поставило сообщение стража, если
-// страж живёт дольше closingLife: выключение или выход отменили, и его настоящая гибель
-// снова считается обходом, а перезапуск не откладывается.
-func (sp *supProc) expireClosing(real time.Time) {
-	if sp.expected && !sp.closingAt.IsZero() && real.Sub(sp.closingAt) > closingLife {
-		sp.expected, sp.closingAt = false, time.Time{}
+	grace := bypassGrace
+	if closing {
+		// Страж сообщил GuardClosing: выключение или выход могли быть отменены, поэтому гибель
+		// не стирается, а ждёт решения дольше; конец сеанса и остановка службы всё равно снимут
+		// её без записи. Перезапуск от этого не откладывается (FR-27).
+		grace = closingLife
 	}
+	sp.closingAt = time.Time{}
+	s.deferBypass(ss, detail, subtype, real, grace)
 }
 
 // backoff возвращает паузу перед следующей попыткой запуска: 1, 2, 4 ... не больше 30 с.
@@ -332,21 +366,24 @@ func (s *Service) launchProc(ss *sessState, sp *supProc, args []string, real tim
 	return true
 }
 
-// deferBypass ставит возможный обход в ожидание на bypassGrace вместо немедленной записи (FB-1,
+// deferBypass ставит возможный обход в ожидание на grace (обычно bypassGrace) вместо немедленной записи (FB-1,
 // R17, FR-27): при выключении, перезагрузке и выходе из учётки Windows закрывает стража, значок и
 // окна раньше, чем служба узнаёт о конце сеанса. Повторная гибель того же вида в пределах
 // ожидания второго ожидания не создаёт и срок не сдвигает. В сеансе без ребёнка ожидать нечего.
-func (s *Service) deferBypass(ss *sessState, detail, subtype string, real time.Time) {
+func (s *Service) deferBypass(ss *sessState, detail, subtype string, real time.Time, grace time.Duration) {
 	if ss.childID == 0 {
 		return
 	}
-	for _, p := range s.bypassWait {
+	for i, p := range s.bypassWait {
 		if p.sessionID == ss.id && p.subtype == subtype {
+			if grace > p.wait() {
+				s.bypassWait[i].grace = grace // страж сообщил GuardClosing: срок продлевается, начало прежнее
+			}
 			return
 		}
 	}
-	s.bypassWait = append(s.bypassWait, pendingBypass{sessionID: ss.id, sid: ss.sid, detail: detail, subtype: subtype, at: real})
-	s.vlogf("Обход в сеансе %d поставлен в ожидание на %d с: %s", ss.id, int(bypassGrace/time.Second), detail)
+	s.bypassWait = append(s.bypassWait, pendingBypass{sessionID: ss.id, sid: ss.sid, detail: detail, subtype: subtype, at: real, grace: grace})
+	s.vlogf("Обход в сеансе %d поставлен в ожидание на %d с: %s", ss.id, int(grace/time.Second), detail)
 }
 
 // cancelBypass снимает без записи все ожидания сеанса: пришёл конец сеанса или сеанс исчез.
@@ -376,7 +413,7 @@ func (s *Service) settleBypass(real time.Time) {
 	var due []pendingBypass
 	keep := s.bypassWait[:0]
 	for _, p := range s.bypassWait {
-		if real.Sub(p.at) < bypassGrace {
+		if real.Sub(p.at) < p.wait() {
 			keep = append(keep, p)
 		} else {
 			due = append(due, p)
@@ -438,7 +475,7 @@ func (s *Service) superviseWindow(ss *sessState, kind string, sp *supProc, real 
 	if ss.childID == 0 {
 		return
 	}
-	s.deferBypass(ss, detailWindowClosed, "window_closed", real)
+	s.deferBypass(ss, detailWindowClosed, "window_closed", real, bypassGrace)
 	if _, err := s.openWindow(ss, kind, false, real); err != nil {
 		s.logRate(fmt.Sprint("reopen", ss.id), "окно %s не открыто заново: %v", kind, err)
 	}
@@ -512,15 +549,18 @@ func (s *Service) trayClosing(peer ipc.Peer) {
 	}
 }
 
-// guardClosing принимает от стража сообщение «закрываюсь штатно» (конец сеанса: выход из учётной
-// записи, выключение, смена пользователя): это не обход (R17, FR-27, FB-1). Принимается только от
-// процесса, который служба сама запустила, как и у значка. Метка живёт closingLife: если сеанс
-// не закончился (выключение отменили), страж остаётся, и его настоящая гибель снова обход.
+// guardClosing принимает от стража сообщение «закрываюсь» (конец сеанса: выход из учётной
+// записи, выключение, смена пользователя): R17, FR-27, FB-1. Принимается только от процесса,
+// который служба сама запустила, как и у значка. Запись об обходе сообщение НЕ стирает: ребёнок
+// может запустить shutdown и отменить его отказом в WM_QUERYENDSESSION, и тогда страж пропал,
+// а сеанс остался. Поэтому сообщение лишь продлевает ожидание решения до closingLife (procDied);
+// конец сеанса, исчезновение сеанса и остановка службы снимают его без записи, перезапуск стража
+// идёт сразу, как при любой гибели.
 func (s *Service) guardClosing(peer ipc.Peer) {
 	ss := s.sessions[peer.SessionID]
 	if ss != nil && ss.guard != nil && ss.guard.proc != nil && ss.guard.pid == peer.PID {
-		ss.guard.expected, ss.guard.closingAt = true, s.real
-		s.vlogf("страж сеанса %d сообщил о штатном закрытии", ss.id)
+		ss.guard.closingAt = s.real
+		s.vlogf("страж сеанса %d сообщил о закрытии: решение об обходе отложено на %d с", ss.id, int(closingLife/time.Second))
 	}
 }
 

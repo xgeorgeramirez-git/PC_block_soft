@@ -128,9 +128,9 @@ func (h *host) serve(ctx context.Context) {
 	}
 }
 
-// onSession сообщает службе о событии сеанса (вход, выход, подключение).
-func (h *host) onSession(ev service.SessionEvent) {
-	go h.svc.OnSession(ev, 0, time.Now())
+// onSession сообщает службе о событии сеанса (вход, выход, подключение) и номере сеанса.
+func (h *host) onSession(ev service.SessionEvent, id uint32) {
+	go h.svc.OnSession(ev, id, time.Now())
 }
 
 // stop останавливает цикл и канал, сохраняет состояние, завершает значки, стражей и окна во

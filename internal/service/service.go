@@ -52,6 +52,10 @@ const (
 	SessionUnlock
 )
 
+// SessionUnknown — номер сеанса в событии, когда служба не смогла прочитать его из уведомления
+// диспетчера служб. Такое событие не относится ни к какому сеансу: служба сверяет весь список.
+const SessionUnknown uint32 = 0xFFFFFFFF
+
 // Config — всё, что нужно службе. Store, Hasher, Launcher и Clock обязательны.
 type Config struct {
 	Store    Store
