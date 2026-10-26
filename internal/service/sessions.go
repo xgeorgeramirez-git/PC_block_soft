@@ -46,7 +46,9 @@ type sessState struct {
 	id      uint32
 	user    string
 	sid     string
-	childID int64 // 0: в сеансе работает не ребёнок
+	childID int64       // 0: в сеансе работает не ребёнок
+	screen  ScreenState // на экране ли сеанс: по списку Windows и событиям подключения (FB-3)
+	locked  bool        // сеанс заблокирован: по событиям блокировки и разблокировки (FB-3)
 	guard   *supProc
 	tray    *supProc
 	windows map[string]*supProc
@@ -63,17 +65,51 @@ func (s *Service) OnSession(ev SessionEvent, id uint32, real time.Time) {
 		return
 	}
 	s.vlogf("событие сеанса %d: %v", id, ev)
-	if ev == SessionLogoff || ev == SessionDisconnect {
-		// Штатный выход из учётки или смена пользователя завершает процессы сеанса —
-		// это не обход (R17, D-41): помечаем их как ожидаемое завершение, а то, что успело
-		// погибнуть раньше события, не записываем (FB-1).
+	switch ev {
+	case SessionLogoff:
+		// Штатный выход из учётки завершает процессы сеанса: это не обход (R17, D-41). Их
+		// помечаем как ожидаемое завершение, а то, что успело погибнуть раньше события, не
+		// записываем (FB-1).
 		if ss := s.sessions[id]; ss != nil {
 			s.expectSessionProcs(ss)
 		}
 		s.cancelBypass(id, "конец сеанса")
+	case SessionDisconnect:
+		// Смена пользователя сеанс не завершает: страж, значок и окна ребёнка в отключённом
+		// сеансе живут дальше, поэтому они не помечаются и их настоящее принудительное
+		// завершение остаётся обходом (FB-3, Ruling). Гибель в последние секунды до отключения
+		// не записывается: в сеансе, который уходит с экрана, это не действие за компьютером.
+		s.cancelBypass(id, "конец сеанса")
 	}
 	s.guard("session", nil, func() { s.syncSessions(real) })
+	s.noteSessionState(ev, id)
 }
+
+// noteSessionState запоминает, на экране ли сеанс и заблокирован ли он, по событию Windows
+// (FB-3, R2). Вызывается после сверки сеансов: событие может прийти раньше, чем служба узнала
+// о новом сеансе. Событие точнее списка Windows, который в этот момент мог ещё не обновиться;
+// следующая сверка снова берёт состояние из списка.
+func (s *Service) noteSessionState(ev SessionEvent, id uint32) {
+	ss := s.sessions[id]
+	if ss == nil {
+		return
+	}
+	switch ev {
+	case SessionLock:
+		ss.locked = true
+	case SessionUnlock, SessionLogon:
+		ss.locked = false
+	case SessionConnect:
+		// Подключение сбрасывает признак блокировки: пропущенная разблокировка не должна
+		// навсегда остановить время, а экран входа после подключения видит сам страж.
+		ss.screen, ss.locked = ScreenOn, false
+	case SessionDisconnect:
+		ss.screen = ScreenOff
+	}
+}
+
+// offScreen: ребёнка за компьютером нет, что бы ни прислал страж (отключённый сеанс, блокировка).
+func (ss *sessState) offScreen() bool { return ss.screen == ScreenOff || ss.locked }
 
 // expectSessionProcs помечает значок, страж и окна сеанса как штатно завершаемые, чтобы их
 // гибель при выходе из учётки или смене пользователя не считалась обходом (R17, D-41).
@@ -113,6 +149,9 @@ func (s *Service) syncSessions(real time.Time) {
 		if ss == nil {
 			ss = &sessState{id: si.ID, user: si.User, sid: si.SID, windows: map[string]*supProc{}}
 			s.sessions[si.ID] = ss
+		}
+		if si.Screen != ScreenUnknown {
+			ss.screen = si.Screen
 		}
 		prev := ss.childID
 		ss.childID = 0

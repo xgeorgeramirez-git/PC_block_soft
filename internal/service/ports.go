@@ -129,11 +129,22 @@ func (k ProcKind) String() string {
 	return "unknown"
 }
 
+// ScreenState — подключён ли сеанс к экрану (состояние WTS «активен»). Отключённый сеанс
+// остаётся при смене пользователя: программы ребёнка в нём живут, но за компьютером его нет.
+type ScreenState uint8
+
+const (
+	ScreenUnknown ScreenState = iota // состояние узнать не удалось: решает снимок стража
+	ScreenOn                         // сеанс на экране
+	ScreenOff                        // сеанс отключён (смена пользователя, экран выбора пользователя)
+)
+
 // SessionInfo — интерактивный сеанс Windows с пользователем.
 type SessionInfo struct {
-	ID   uint32
-	User string // «ДОМЕН\учётка»
-	SID  string
+	ID     uint32
+	User   string // «ДОМЕН\учётка»
+	SID    string
+	Screen ScreenState // нулевое значение: неизвестно
 }
 
 // Proc — запущенный службой процесс (ручка процесса на Windows).
@@ -146,7 +157,8 @@ type Proc interface {
 
 // SessionLauncher — запуск и слежение за процессами в сеансах (на Windows: winsession).
 type SessionLauncher interface {
-	// Sessions перечисляет активные интерактивные сеансы с вошедшим пользователем.
+	// Sessions перечисляет интерактивные сеансы с вошедшим пользователем, в том числе
+	// отключённые (смена пользователя), с признаком, на экране ли сеанс (FB-3).
 	Sessions() ([]SessionInfo, error)
 	// Launch запускает программу (ключи в args) в сеансе: страж от имени системы, значок
 	// и окна от имени пользователя сеанса.

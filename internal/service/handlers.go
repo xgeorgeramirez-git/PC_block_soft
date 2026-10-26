@@ -877,7 +877,7 @@ func (s *Service) hGuardPoll(c *callCtx) ipc.Reply {
 	if cs == nil {
 		return ipc.OK(ipc.GuardPollReply{Status: ipc.ChildStatusNotChild(), Warnings: []ipc.GuardWarning{}, Commands: []ipc.GuardCommand{}})
 	}
-	cs.sample, cs.sampleAt, cs.haveSample = req.Sample, c.real, true
+	cs.sample, cs.sampleAt, cs.sampleSess, cs.haveSample = req.Sample, c.real, session, true
 	for _, ev := range req.Events {
 		if ev.Kind == ipc.GuardEvBypass && !cs.admin {
 			s.markBypass(cs, ev.Detail, "guard", c.real)

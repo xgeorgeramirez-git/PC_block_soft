@@ -95,8 +95,15 @@ func (s *Service) runGuarded(where string, f func()) {
 
 // sampleFor возвращает снимок датчиков для тика: свежий снимок стража, иначе «неактивен».
 // Служба ничего не додумывает за стража: нет вестей дольше sampleMaxAge, секунда не идёт.
+// Но и стражу она не верит там, где знает больше него (FB-3, R2): страж в отключённом сеансе
+// не может открыть рабочий стол ввода и считает сеанс незаблокированным, а после выхода из
+// учётки его последний снимок ещё живёт до sampleMaxAge. Сеанса нет, в нём другой пользователь,
+// он отключён или заблокирован: секунда не идёт.
 func (s *Service) sampleFor(cs *childState) core.SessionSample {
 	if !cs.haveSample || s.real.Sub(cs.sampleAt) > sampleMaxAge {
+		return core.SessionSample{}
+	}
+	if ss := s.sessions[cs.sampleSess]; ss == nil || ss.childID != cs.child.ID || ss.offScreen() {
 		return core.SessionSample{}
 	}
 	return cs.sample.ToCore()

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"pcblock/internal/service"
+	"pcblock/internal/winsession"
 )
 
 // Ловит: коды уведомлений диспетчера служб (WTS_SESSION_*) переведены в не те события службы:
@@ -33,6 +34,34 @@ func TestSessionEventOf(t *testing.T) {
 		if _, ok := sessionEventOf(code); ok {
 			t.Errorf("код %d не должен давать событие", code)
 		}
+	}
+}
+
+// Ловит: отключённый сеанс (смена пользователя) пропадает из списка службы или выглядит
+// подключённым: тогда служба не знает, что ребёнок не за компьютером (FB-3, D-52). Сеансы без
+// пользователя (служебный, экран входа) в список не попадают.
+func TestSessionInfosKeepDisconnectedUsers(t *testing.T) {
+	list := []winsession.Session{
+		{ID: 0, SID: "", Active: false},                            // служебный сеанс
+		{ID: 1, User: `PC\Анна`, SID: "S-1-5-21-1", Active: true},  // на экране
+		{ID: 3, User: `PC\Миша`, SID: "S-1-5-21-2", Active: false}, // отключён: смена пользователя
+		{ID: 4, SID: "", Active: true},                             // экран входа без пользователя
+	}
+	want := []service.SessionInfo{
+		{ID: 1, User: `PC\Анна`, SID: "S-1-5-21-1", Screen: service.ScreenOn},
+		{ID: 3, User: `PC\Миша`, SID: "S-1-5-21-2", Screen: service.ScreenOff},
+	}
+	got := sessionInfos(list)
+	if len(got) != len(want) {
+		t.Fatalf("сеансов %d: %+v; want %d", len(got), got, len(want))
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("сеанс %d: %+v; want %+v", i, got[i], want[i])
+		}
+	}
+	if got := sessionInfos(nil); got == nil || len(got) != 0 {
+		t.Errorf("пустой список: %#v; want пустой не nil", got)
 	}
 }
 

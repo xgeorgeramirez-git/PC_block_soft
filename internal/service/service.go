@@ -107,6 +107,7 @@ type childState struct {
 	rulesAt      time.Time
 	sample       ipc.SensorSample
 	sampleAt     time.Time
+	sampleSess   uint32 // сеанс, из которого пришёл снимок: время идёт, только пока он на экране (FB-3)
 	haveSample   bool
 	warns        []pendingWarning
 	undo         *undoRec

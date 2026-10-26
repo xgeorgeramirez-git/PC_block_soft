@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"pcblock/internal/service"
+	"pcblock/internal/winsession"
 )
 
 // Имена и значения, общие для всех систем.
@@ -58,6 +59,26 @@ func sessionEventOf(eventType uint32) (service.SessionEvent, bool) {
 		return service.SessionUnlock, true
 	}
 	return 0, false
+}
+
+// sessionInfos переводит сеансы Windows в список службы (FB-3, R2): в него входят все сеансы
+// с вошедшим пользователем, в том числе отключённые при смене пользователя, с признаком,
+// на экране ли сеанс. Служебный сеанс 0 и экран входа без пользователя не в счёт. Отключённый
+// сеанс нельзя выбрасывать из списка: служба сочла бы его закрытым и завершила бы стража, а
+// программы ребёнка в нём продолжают работать и должны оставаться под присмотром.
+func sessionInfos(list []winsession.Session) []service.SessionInfo {
+	out := make([]service.SessionInfo, 0, len(list))
+	for _, s := range list {
+		if s.SID == "" {
+			continue
+		}
+		screen := service.ScreenOff
+		if s.Active {
+			screen = service.ScreenOn
+		}
+		out = append(out, service.SessionInfo{ID: s.ID, User: s.User, SID: s.SID, Screen: screen})
+	}
+	return out
 }
 
 // dbPath — путь к базе в папке данных.
