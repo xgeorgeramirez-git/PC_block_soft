@@ -439,12 +439,15 @@ test("s06 моя статистика: сегодня с кнопками", asyn
   await page.screenshot({ path: `${SCREENS}/s06-my-stats-today.png`, fullPage: true });
 });
 
-// s06 — настоящий размер окна ребёнка (800 x 640 и самое маленькое 640 x 520): ничто не перекрывает
-// друг друга при любой прокрутке (замечание заказчика: «Настройки для родителя» и промокод).
+// s06 — окно ребёнка в размерах от 800 x 1200 до 800 x 480 и самом узком 640 x 520: оболочка это три части в
+// потоке (шапка, область прокрутки, в ней же «Настройки для родителя» последним блоком), поэтому ничто
+// не лежит поверх соседнего блока в верху, середине и низу прокрутки (замечание заказчика).
 for (const [w, h] of [
+  [800, 1200],
+  [800, 800],
   [800, 640],
+  [800, 480],
   [640, 520],
-  [800, 900],
 ]) {
   test(`s06 моя статистика: блоки не пересекаются в окне ${w} x ${h}`, async ({ page }) => {
     await page.setViewportSize({ width: w, height: h });
@@ -454,38 +457,49 @@ for (const [w, h] of [
       myChildId: 1,
     });
     await page.goto("/");
-    const names = [
+    await expect(page.getByRole("button", { name: "Настройки для родителя" })).toBeVisible();
+    const parts = [
+      page.locator("header.topbar"),
+      page.getByRole("region", { name: "Нужно больше времени?" }),
       page.getByRole("button", { name: "Попросить ещё" }),
       page.getByRole("button", { name: "Взять из копилки" }),
       page.getByRole("textbox", { name: "Промокод" }),
       page.getByRole("button", { name: "Ввести промокод" }),
       page.getByRole("button", { name: "Настройки для родителя" }),
     ];
-    const scroller = page.locator("main.content");
+    // Вложенные блоки (кнопка внутри карточки) пересекаться могут, как и положено: сравниваем только
+    // блоки, из которых ни один не лежит внутри другого.
     const noOverlap = async () => {
-      const boxes = await Promise.all(names.map((n) => n.evaluate((el) => el.getBoundingClientRect().toJSON())));
+      const boxes = await Promise.all(parts.map((n) => n.evaluate((el) => el.getBoundingClientRect().toJSON())));
+      const inside = (a: DOMRect, b: DOMRect) => a.left >= b.left && a.right <= b.right && a.top >= b.top && a.bottom <= b.bottom;
       for (let i = 0; i < boxes.length; i++) {
         for (let j = i + 1; j < boxes.length; j++) {
           const a = boxes[i];
           const b = boxes[j];
+          if (inside(a, b) || inside(b, a)) continue;
           const apart = a.right <= b.left || b.right <= a.left || a.bottom <= b.top || b.bottom <= a.top;
           expect(apart, `блоки ${i} и ${j} пересекаются: ${JSON.stringify([a, b])}`).toBe(true);
         }
       }
     };
-    const height = await scroller.evaluate((el) => el.scrollHeight);
-    for (let y = 0; y <= height; y += Math.max(40, Math.floor(h / 4))) {
-      await scroller.evaluate((el, top) => el.scrollTo(0, top), y);
+    const scroller = page.locator("main.content");
+    // Область прокрутки начинается не выше низа шапки, шапка и страница не прокручиваются вместе.
+    const head = await page.locator("header.topbar").evaluate((el) => el.getBoundingClientRect().bottom);
+    expect(await scroller.evaluate((el) => el.getBoundingClientRect().top)).toBeGreaterThanOrEqual(head - 0.5);
+    expect(await page.evaluate(() => document.scrollingElement?.scrollTop ?? 0)).toBe(0);
+    const max = await scroller.evaluate((el) => el.scrollHeight - el.clientHeight);
+    const shot = w === 800 && (h === 640 || h === 480) ? h : 0;
+    for (const [label, frac] of [["top", 0], ["mid", 0.5], ["bottom", 1]] as const) {
+      await scroller.evaluate((el, top) => el.scrollTo(0, top), Math.round(max * frac));
       await noOverlap();
+      expect(await page.evaluate(() => document.scrollingElement?.scrollTop ?? 0)).toBe(0);
+      if (shot) await page.screenshot({ path: `${SCREENS}/s06-my-stats-${shot}-${label}.png` });
     }
-    // Низ страницы: «Настройки для родителя» достижима прокруткой и стоит под всем содержимым.
-    await scroller.evaluate((el) => el.scrollTo(0, el.scrollHeight));
+    // Низ: «Настройки для родителя» достижима прокруткой и стоит под всем содержимым.
     const link = page.getByRole("button", { name: "Настройки для родителя" });
     await expect(link).toBeInViewport({ ratio: 1 });
     await expect(page.getByText("Когда время выйдет, экран закроется блокировкой.", { exact: false })).toBeInViewport({ ratio: 1 });
-    await noOverlap();
     await noHorizontalScroll(page);
-    if (w === 800 && h === 640) await page.screenshot({ path: `${SCREENS}/s06-my-stats-window.png` });
     if (w === 640) await page.screenshot({ path: `${SCREENS}/s06-my-stats-small.png` });
   });
 }

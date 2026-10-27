@@ -39,4 +39,21 @@ describe("окно «Моя статистика»: вёрстка", () => {
     expect(css).toMatch(/html:has\(\.shell-child\) body\s*\{[^}]*overflow:\s*hidden/);
     expect(css).not.toMatch(/position:\s*sticky/);
   });
+
+  // Ловит: шапка или страница лежат поверх области прокрутки (sticky, fixed, absolute, отрицательные
+  // отступы) вместо трёх частей в потоке: тогда содержимое уходит под шапку (замечание заказчика).
+  // Оболочка общая для окна родителя и окна ребёнка, поэтому правится и проверяется в одном месте.
+  it("оболочка: шапка в потоке, прокручивается только область под ней", () => {
+    const shell = rule(".shell");
+    expect(shell).toMatch(/display:\s*flex/);
+    expect(shell).toMatch(/flex-direction:\s*column/);
+    const top = rule(".topbar");
+    expect(top).not.toMatch(/position:|z-index|margin(-top)?:\s*-/);
+    const content = rule(".content");
+    expect(content).toMatch(/flex:\s*1/);
+    expect(content).toMatch(/min-height:\s*0/);
+    expect(content).toMatch(/overflow-y:\s*auto/);
+    expect(content).not.toMatch(/position:/);
+    expect(rule(".my-stats")).not.toMatch(/position:|margin(-top|-bottom)?:\s*-/);
+  });
 });
