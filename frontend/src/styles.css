@@ -712,24 +712,11 @@ html:has(.shell-child) body {
   outline: none;
 }
 
-/* Полоса «Настройки для родителя» липкая: снизу страницы запас на её высоту, чтобы последний блок
-   прокручивался целиком выше полосы. */
-.my-stats {
-  padding-bottom: var(--space-6);
-}
-
-.content:has(.my-foot) {
-  scroll-padding-bottom: 64px;
-}
-
 .my-foot {
-  /* Всегда у нижнего края окна: окно 800 x 640 не вмещает все разделы, а ссылку нельзя прятать
-     под прокруткой (ТЗ 8.2.6 п.1). */
-  position: sticky;
-  bottom: 0;
-  margin: var(--space-4) 0 0;
-  padding: var(--space-2) 0;
-  background: var(--bg);
+  /* Обычный блок в самом конце страницы: ничего не накрывает при любой высоте окна и прокрутке
+     (ТЗ 8.2.6 п.1). Страница прокручивается до него. */
+  margin: var(--space-6) 0 0;
+  padding: var(--space-3) 0 0;
   border-top: 1px solid var(--line);
 }
 

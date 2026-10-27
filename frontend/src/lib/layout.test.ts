@@ -12,12 +12,12 @@ function rule(selector: string): string {
 }
 
 describe("окно «Моя статистика»: вёрстка", () => {
-  // Ловит: «Настройки для родителя» уезжает под прокрутку окна 800 x 640 (кадр s34-mystats-today).
-  it("ссылка «Настройки для родителя» липнет к нижнему краю окна", () => {
+  // Ловит: «Настройки для родителя» липкая или наложенная и пересекается с полем промокода
+  // (замечание заказчика): это обычный блок в конце страницы.
+  it("ссылка «Настройки для родителя» стоит обычным блоком, без sticky, fixed и absolute", () => {
     const r = rule(".my-foot");
-    expect(r).toMatch(/position:\s*sticky/);
-    expect(r).toMatch(/bottom:\s*0/);
-    expect(r).toMatch(/background:\s*var\(--bg\)/);
+    expect(r).not.toMatch(/position:/);
+    expect(r).not.toMatch(/bottom:/);
   });
 
   // Ловит: недоступная «Взять из копилки» выглядит как рабочая (кадр s06-spend-forbidden).
@@ -34,11 +34,9 @@ describe("окно «Моя статистика»: вёрстка", () => {
     expect(r).toMatch(/font-size:\s*16px/);
   });
 
-  // Ловит: липкая полоса перекрывает низ последнего блока, а End уводит документ за содержимое
-  // (пустой серый кадр s34-mystats-bottom).
-  it("запас под липкой полосой и прокрутка только внутри окна ребёнка", () => {
-    expect(css).toMatch(/\.content:has\(\.my-foot\)\s*\{[^}]*scroll-padding-bottom:\s*64px/);
-    expect(css).toMatch(/\.my-stats\s*\{[^}]*padding-bottom:\s*var\(--space-6\)/);
+  // Ловит: End уводит документ за содержимое (пустой серый кадр s34-mystats-bottom).
+  it("в окне ребёнка прокручивается только страница внутри окна", () => {
     expect(css).toMatch(/html:has\(\.shell-child\) body\s*\{[^}]*overflow:\s*hidden/);
+    expect(css).not.toMatch(/position:\s*sticky/);
   });
 });

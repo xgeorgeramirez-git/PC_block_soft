@@ -439,24 +439,56 @@ test("s06 моя статистика: сегодня с кнопками", asyn
   await page.screenshot({ path: `${SCREENS}/s06-my-stats-today.png`, fullPage: true });
 });
 
-// s06 — настоящий размер окна ребёнка (800 x 640): «Настройки для родителя» видна без прокрутки
-// (ТЗ 8.2.6 п.1), хотя разделы целиком в окно не влезают.
-test("s06 моя статистика: «Настройки для родителя» видна в окне 800 x 640", async ({ page }) => {
-  await page.setViewportSize({ width: 800, height: 640 });
-  await mockProgram(page, {
-    mode: "mystats",
-    children: [child({ bonusBalance: 45, schedule: nightEveryDay })],
-    myChildId: 1,
+// s06 — настоящий размер окна ребёнка (800 x 640 и самое маленькое 640 x 520): ничто не перекрывает
+// друг друга при любой прокрутке (замечание заказчика: «Настройки для родителя» и промокод).
+for (const [w, h] of [
+  [800, 640],
+  [640, 520],
+  [800, 900],
+]) {
+  test(`s06 моя статистика: блоки не пересекаются в окне ${w} x ${h}`, async ({ page }) => {
+    await page.setViewportSize({ width: w, height: h });
+    await mockProgram(page, {
+      mode: "mystats",
+      children: [child({ bonusBalance: 45, schedule: nightEveryDay })],
+      myChildId: 1,
+    });
+    await page.goto("/");
+    const names = [
+      page.getByRole("button", { name: "Попросить ещё" }),
+      page.getByRole("button", { name: "Взять из копилки" }),
+      page.getByRole("textbox", { name: "Промокод" }),
+      page.getByRole("button", { name: "Ввести промокод" }),
+      page.getByRole("button", { name: "Настройки для родителя" }),
+    ];
+    const scroller = page.locator("main.content");
+    const noOverlap = async () => {
+      const boxes = await Promise.all(names.map((n) => n.evaluate((el) => el.getBoundingClientRect().toJSON())));
+      for (let i = 0; i < boxes.length; i++) {
+        for (let j = i + 1; j < boxes.length; j++) {
+          const a = boxes[i];
+          const b = boxes[j];
+          const apart = a.right <= b.left || b.right <= a.left || a.bottom <= b.top || b.bottom <= a.top;
+          expect(apart, `блоки ${i} и ${j} пересекаются: ${JSON.stringify([a, b])}`).toBe(true);
+        }
+      }
+    };
+    const height = await scroller.evaluate((el) => el.scrollHeight);
+    for (let y = 0; y <= height; y += Math.max(40, Math.floor(h / 4))) {
+      await scroller.evaluate((el, top) => el.scrollTo(0, top), y);
+      await noOverlap();
+    }
+    // Низ страницы: «Настройки для родителя» достижима прокруткой и стоит под всем содержимым.
+    await scroller.evaluate((el) => el.scrollTo(0, el.scrollHeight));
+    const link = page.getByRole("button", { name: "Настройки для родителя" });
+    await expect(link).toBeInViewport({ ratio: 1 });
+    await expect(page.getByText("Когда время выйдет, экран закроется блокировкой.", { exact: false })).toBeInViewport({ ratio: 1 });
+    await noOverlap();
+    await noHorizontalScroll(page);
+    if (w === 800 && h === 640) await page.screenshot({ path: `${SCREENS}/s06-my-stats-window.png` });
+    if (w === 640) await page.screenshot({ path: `${SCREENS}/s06-my-stats-small.png` });
   });
-  await page.goto("/");
-  const link = page.getByRole("button", { name: "Настройки для родителя" });
-  await expect(link).toBeInViewport({ ratio: 1 });
-  // Низ страницы: последний блок «Мои правила» виден целиком над полосой.
-  await page.locator("main.content").evaluate((el) => el.scrollTo(0, el.scrollHeight));
-  await expect(page.getByText("Когда время выйдет, экран закроется блокировкой.", { exact: false })).toBeInViewport({ ratio: 1 });
-  await expect(link).toBeInViewport({ ratio: 1 });
-  await page.screenshot({ path: `${SCREENS}/s06-my-stats-window.png` });
-});
+}
 
 // s06 — панель «Позови родителя» (FR-10): пароль родителя и +15 / +30 / +60 / своё число.
 test("s06 панель «Позови родителя»", async ({ page }) => {

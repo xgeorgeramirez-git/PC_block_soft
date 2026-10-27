@@ -27,11 +27,14 @@ func TestCardLayoutProportions(t *testing.T) {
 // плиток вылезают за карточку или заходят друг на друга, подписи не под парами.
 func TestCardLayoutTiles(t *testing.T) {
 	l100, l150 := NewCardLayout(CardScale(96)), NewCardLayout(CardScale(144))
-	if l100.Tiles[0].Dx() != 54 || l100.Tiles[0].Dy() != 88 {
-		t.Errorf("плитка при 100 %%: %dx%d, ждали 54x88 (ближе к квадрату, чем 50x104)", l100.Tiles[0].Dx(), l100.Tiles[0].Dy())
+	if l100.Tiles[0].Dx() != 43 || l100.Tiles[0].Dy() != 70 {
+		t.Errorf("плитка при 100 %%: %dx%d, ждали 43x70 (54x88 уменьшено на 20 %%)", l100.Tiles[0].Dx(), l100.Tiles[0].Dy())
 	}
-	if l150.Tiles[0].Dx() != 81 || l150.Tiles[0].Dy() != 132 {
-		t.Errorf("плитка при 150 %%: %dx%d, ждали 81x132", l150.Tiles[0].Dx(), l150.Tiles[0].Dy())
+	if l150.Tiles[0].Dx() != 65 || l150.Tiles[0].Dy() != 106 {
+		t.Errorf("плитка при 150 %%: %dx%d, ждали 65x106", l150.Tiles[0].Dx(), l150.Tiles[0].Dy())
+	}
+	if l100.Card.Dx() != 384 || l100.Card.Dy() != 232 {
+		t.Errorf("карточка при 100 %%: %dx%d, ждали 384x232 (480x290 уменьшено на 20 %%)", l100.Card.Dx(), l100.Card.Dy())
 	}
 	for _, l := range []CardLayout{l100, l150} {
 		for i, tl := range l.Tiles {
@@ -125,8 +128,8 @@ func TestCardColonAir(t *testing.T) {
 		l := NewCardLayout(sc)
 		for g, c := range l.Colons {
 			air := float64(c.Dx())/2 - cardDotRadius*sc
-			if air < 12*sc-1 {
-				t.Errorf("масштаб %.1f, двоеточие %d: воздуха до плитки %.1f px, ждали не меньше %.0f", sc, g, air, 12*sc)
+			if air < 12*l.Scale-1 {
+				t.Errorf("масштаб %.1f, двоеточие %d: воздуха до плитки %.1f px, ждали не меньше %.0f", sc, g, air, 12*l.Scale)
 			}
 		}
 	}
@@ -152,18 +155,19 @@ func TestCardLabelSize(t *testing.T) {
 		if f := float64(label) / float64(digit); f < 0.25 || f > 0.40 {
 			t.Errorf("масштаб %.1f: подпись %d px при цифрах %d px (доля %.2f), ждали 0,25 до 0,40", sc, label, digit, f)
 		}
-		if label < int(24*sc) {
-			t.Errorf("масштаб %.1f: подпись %d px, ждали не меньше %d", sc, label, int(24*sc))
+		if label < int(24*l.Scale) {
+			t.Errorf("масштаб %.1f: подпись %d px, ждали не меньше %d", sc, label, int(24*l.Scale))
 		}
 	}
 }
 
-// Ловит: заголовок «ОСТАЛОСЬ ВРЕМЕНИ:» мельче макета (было 25 px, нужно не меньше 28 при 100 %).
+// Ловит: заголовок «ОСТАЛОСЬ ВРЕМЕНИ:» мельче, чем должен (28 px базового размера, с учётом уменьшения на 20 %).
 func TestCardTitleSize(t *testing.T) {
 	for _, sc := range []float64{1, 1.5} {
-		for _, r := range CardTexts(NewCardLayout(sc), timeView("01", "23", "45", StatusNormal)) {
-			if r.Role == RoleTitle && r.Px < int(28*sc) {
-				t.Errorf("масштаб %.1f: заголовок %d px, ждали не меньше %d", sc, r.Px, int(28*sc))
+		l := NewCardLayout(sc)
+		for _, r := range CardTexts(l, timeView("01", "23", "45", StatusNormal)) {
+			if r.Role == RoleTitle && r.Px < int(28*l.Scale) {
+				t.Errorf("масштаб %.1f: заголовок %d px, ждали не меньше %d", sc, r.Px, int(28*l.Scale))
 			}
 		}
 	}

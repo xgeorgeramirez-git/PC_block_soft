@@ -59,6 +59,11 @@ type CardLayout struct {
 	Button Rect    // «Обновить»
 }
 
+// cardSize — общий коэффициент размера табло (заказчик: «поменьше процентов на 20»). Все размеры
+// карточки, шрифты и тень умножаются на него вместе с масштабом экрана, поэтому пропорции,
+// скругление относительно ширины и цельность плиток не меняются.
+const cardSize = 0.8
+
 // CardScale переводит dpi в масштаб карточки: от 100 % до 400 %.
 func CardScale(dpi int) float64 {
 	s := float64(dpi) / 96
@@ -73,6 +78,7 @@ func CardScale(dpi int) float64 {
 
 // NewCardLayout считает места по масштабу.
 func NewCardLayout(scale float64) CardLayout {
+	scale *= cardSize
 	px := func(v int) int { return int(math.Round(float64(v) * scale)) }
 	l := CardLayout{Scale: scale, Margin: px(cardBaseMargin), Radius: px(cardBaseRadius)}
 	cw, ch := px(cardBaseW), px(cardBaseH)
