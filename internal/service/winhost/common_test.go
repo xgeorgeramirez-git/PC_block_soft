@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"pcblock/internal/service"
+	"pcblock/internal/winsession"
 )
 
 // Ловит: коды уведомлений диспетчера служб (WTS_SESSION_*) переведены в не те события службы:
@@ -33,6 +34,34 @@ func TestSessionEventOf(t *testing.T) {
 		if _, ok := sessionEventOf(code); ok {
 			t.Errorf("код %d не должен давать событие", code)
 		}
+	}
+}
+
+// Ловит: отключённый сеанс (смена пользователя) пропадает из списка службы или выглядит
+// подключённым: тогда служба не знает, что ребёнок не за компьютером (FB-3, D-52). Сеансы без
+// пользователя (служебный, экран входа) в список не попадают.
+func TestSessionInfosKeepDisconnectedUsers(t *testing.T) {
+	list := []winsession.Session{
+		{ID: 0, SID: "", Active: false},                            // служебный сеанс
+		{ID: 1, User: `PC\Анна`, SID: "S-1-5-21-1", Active: true},  // на экране
+		{ID: 3, User: `PC\Миша`, SID: "S-1-5-21-2", Active: false}, // отключён: смена пользователя
+		{ID: 4, SID: "", Active: true},                             // экран входа без пользователя
+	}
+	want := []service.SessionInfo{
+		{ID: 1, User: `PC\Анна`, SID: "S-1-5-21-1", Screen: service.ScreenOn},
+		{ID: 3, User: `PC\Миша`, SID: "S-1-5-21-2", Screen: service.ScreenOff},
+	}
+	got := sessionInfos(list)
+	if len(got) != len(want) {
+		t.Fatalf("сеансов %d: %+v; want %d", len(got), got, len(want))
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("сеанс %d: %+v; want %+v", i, got[i], want[i])
+		}
+	}
+	if got := sessionInfos(nil); got == nil || len(got) != 0 {
+		t.Errorf("пустой список: %#v; want пустой не nil", got)
 	}
 }
 
@@ -173,5 +202,31 @@ func TestServiceLogFileName(t *testing.T) {
 	}
 	if logMaxBytes != 10<<20 || logFiles != 5 {
 		t.Errorf("журнал по кругу: %d байт x %d файлов, ждали 10 МБ x 5", logMaxBytes, logFiles)
+	}
+}
+
+// Ловит: номер сеанса из уведомления диспетчера служб (WTSSESSION_NOTIFICATION) читается не
+// из того места или без проверки размера: в боевой службе тогда номер всегда 0, и события
+// конца сеанса, блокировки и отключения не доходят до нужного сеанса (FB-1, FB-3).
+func TestSessionIDOfNotification(t *testing.T) {
+	cases := []struct {
+		name   string
+		raw    []byte
+		wantID uint32
+		wantOK bool
+	}{
+		{"cbSize 8, сеанс 3", []byte{8, 0, 0, 0, 3, 0, 0, 0}, 3, true},
+		{"сеанс 258 (два байта)", []byte{8, 0, 0, 0, 2, 1, 0, 0}, 258, true},
+		{"cbSize больше 8, лишний хвост", []byte{12, 0, 0, 0, 5, 0, 0, 0, 9, 9, 9, 9}, 5, true},
+		{"пустые данные", nil, 0, false},
+		{"короче структуры", []byte{8, 0, 0, 0, 3, 0, 0}, 0, false},
+		{"cbSize меньше структуры", []byte{4, 0, 0, 0, 3, 0, 0, 0}, 0, false},
+		{"cbSize больше данных", []byte{16, 0, 0, 0, 3, 0, 0, 0}, 0, false},
+	}
+	for _, c := range cases {
+		id, ok := sessionIDOf(c.raw)
+		if id != c.wantID || ok != c.wantOK {
+			t.Errorf("%s: %d %v; want %d %v", c.name, id, ok, c.wantID, c.wantOK)
+		}
 	}
 }

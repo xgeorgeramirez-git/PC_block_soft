@@ -16,6 +16,7 @@ type Session struct {
 	User   string
 	SID    string
 	Active bool
+	State  uint32 // состояние WTS: 0 активен, 4 отключён
 }
 
 // ActiveSessions перечисляет сеансы терминальной службы (WTSEnumerateSessions)
@@ -34,7 +35,7 @@ func ActiveSessions() ([]Session, error) {
 	out := make([]Session, 0, count)
 	for i := uint32(0); i < count; i++ {
 		si := (*windows.WTS_SESSION_INFO)(unsafe.Pointer(uintptr(unsafe.Pointer(p)) + uintptr(i)*size))
-		s := Session{ID: si.SessionID, Active: si.State == windows.WTSActive}
+		s := Session{ID: si.SessionID, Active: si.State == windows.WTSActive, State: uint32(si.State)}
 		if user, sid, err := sessionUser(si.SessionID); err == nil {
 			s.User, s.SID = user, sid
 		}

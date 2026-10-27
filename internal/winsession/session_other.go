@@ -10,6 +10,7 @@ type Session struct {
 	User   string
 	SID    string
 	Active bool
+	State  uint32 // состояние WTS: 0 активен, 4 отключён
 }
 
 var errOnlyWindows = errors.New("winsession: доступно только в Windows")

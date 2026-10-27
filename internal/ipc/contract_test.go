@@ -281,6 +281,7 @@ func examples() map[string]example {
 		CmdGuardLogoff:     ok(nil, Empty{}),
 		CmdGuardShutdown:   ok(nil, Empty{}),
 		CmdGuardSwitchUser: ok(nil, Empty{}),
+		CmdGuardClosing:    ok(nil, Empty{}),
 		CmdTrayClosing:     ok(nil, Empty{}),
 
 		CmdTestGuard: ok(TestGuardRequest{SessionID: 2, Action: TestGuardAction{Action: TestClick, Target: ButtonParentPassword}}, Empty{}),
@@ -350,8 +351,8 @@ func TestContractHasEveryCommand(t *testing.T) {
 			t.Errorf("пример для %s есть, а в AllCommands её нет", c)
 		}
 	}
-	if len(AllCommands) != 57 {
-		t.Errorf("команд %d, ждали 57 (48 из M1/M2/0.2.1 плюс 9 из фидбек-раунда 0.2.2: OpenLogs, SetNoForbidden, ClearBonus, ReduceBonus, CreatePromo, ListPromos, RedeemPromo, GetBonusRate, SetBonusRate)", len(AllCommands))
+	if len(AllCommands) != 58 {
+		t.Errorf("команд %d, ждали 58 (48 из M1/M2/0.2.1, 9 из фидбек-раунда 0.2.2: OpenLogs, SetNoForbidden, ClearBonus, ReduceBonus, CreatePromo, ListPromos, RedeemPromo, GetBonusRate, SetBonusRate, и GuardClosing из раунда 0.2.3)", len(AllCommands))
 	}
 }
 

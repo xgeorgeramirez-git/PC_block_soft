@@ -5,11 +5,13 @@ package winhost
 import (
 	"errors"
 	"fmt"
+	"unsafe"
 
 	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/svc"
 
 	"pcblock/internal/ipc"
+	"pcblock/internal/service"
 )
 
 // RunService подключается к диспетчеру служб и работает, пока служба не остановлена.
@@ -46,10 +48,31 @@ func (serviceHandler) Execute(_ []string, requests <-chan svc.ChangeRequest, sta
 			return false, 0
 		case svc.SessionChange:
 			if ev, ok := sessionEventOf(req.EventType); ok {
-				h.onSession(ev)
+				id, ok := sessionIDOf(notificationBytes(req.EventData))
+				if !ok {
+					id = service.SessionUnknown
+					h.logf("Событие сеанса %v без номера сеанса: служба сверит весь список сеансов", ev)
+				}
+				h.onSession(ev, id)
 			}
 		}
 	}
 	h.stop()
 	return false, 0
+}
+
+// notificationBytes возвращает данные уведомления WTSSESSION_NOTIFICATION, на которые указывает
+// EventData события SessionChange (указатель действителен, пока обрабатывается запрос). nil:
+// указателя нет или cbSize в самой структуре меньше её размера. Единственное место с unsafe.
+func notificationBytes(eventData uintptr) []byte {
+	if eventData == 0 {
+		return nil
+	}
+	p := *(*unsafe.Pointer)(unsafe.Pointer(&eventData)) // uintptr от системы, не от Go: vet не жалуется
+	const size = 8
+	cb := *(*uint32)(p)
+	if cb < size {
+		return nil
+	}
+	return unsafe.Slice((*byte)(p), cb)
 }

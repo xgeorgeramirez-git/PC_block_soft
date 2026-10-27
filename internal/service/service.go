@@ -24,6 +24,8 @@ const (
 	undoLife        = 10 * time.Second // «Отменить» после добавления времени
 	warnLife        = 20 * time.Second // непринятое предупреждение стареет
 	bypassLogWindow = 60 * time.Second // одинаковая попытка обхода пишется в журнал не чаще (D-41)
+	bypassGrace     = 5 * time.Second  // гибель стража, значка или окна записывается обходом не раньше (FB-1)
+	closingLife     = 30 * time.Second // сообщение стража «закрываюсь» действует столько, если страж жив
 )
 
 // Ключи настроек в хранилище.
@@ -49,6 +51,18 @@ const (
 	SessionLock
 	SessionUnlock
 )
+
+func (e SessionEvent) String() string {
+	names := [...]string{"вход", "выход", "подключение", "отключение", "блокировка", "разблокировка"}
+	if e >= 0 && int(e) < len(names) {
+		return names[e]
+	}
+	return fmt.Sprint("событие ", int(e))
+}
+
+// SessionUnknown — номер сеанса в событии, когда служба не смогла прочитать его из уведомления
+// диспетчера служб. Такое событие не относится ни к какому сеансу: служба сверяет весь список.
+const SessionUnknown uint32 = 0xFFFFFFFF
 
 // Config — всё, что нужно службе. Store, Hasher, Launcher и Clock обязательны.
 type Config struct {
@@ -97,20 +111,22 @@ type undoRec struct {
 
 // childState — ребёнок в памяти службы: ядро, правила, снимок датчиков.
 type childState struct {
-	child        Child
-	eng          *core.Engine
-	rules        core.Rules
-	admin        bool // R1: учётка стала администратором
-	adminAt      time.Time
-	rulesAt      time.Time
-	sample       ipc.SensorSample
-	sampleAt     time.Time
-	haveSample   bool
-	warns        []pendingWarning
-	undo         *undoRec
-	bonusUndo    *undoRec  // отмена последнего начисления копилки на 10 с (FR-22)
-	lastBypass   string    // последняя записанная попытка обхода (дедуп журнала, D-41)
-	lastBypassAt time.Time // когда записана; страж повторяет сообщение каждую секунду
+	child         Child
+	eng           *core.Engine
+	rules         core.Rules
+	admin         bool // R1: учётка стала администратором
+	adminAt       time.Time
+	rulesAt       time.Time
+	sample        ipc.SensorSample
+	sampleAt      time.Time
+	sampleVerdict string // последнее решение для журнала: снимок стража учитывается или нет
+	sampleSess    uint32 // сеанс, из которого пришёл снимок: время идёт, только пока он на экране (FB-3)
+	haveSample    bool
+	warns         []pendingWarning
+	undo          *undoRec
+	bonusUndo     *undoRec  // отмена последнего начисления копилки на 10 с (FR-22)
+	lastBypass    string    // последняя записанная попытка обхода (дедуп журнала, D-41)
+	lastBypassAt  time.Time // когда записана; страж повторяет сообщение каждую секунду
 }
 
 // Service — служба PCBlock без привязки к Windows: логика на портах (doc.go).
@@ -139,6 +155,8 @@ type Service struct {
 	loaded      bool // список детей прочитан из базы
 	verbose     bool // «Подробные логи для диагностики» включены (FR-25, D-42)
 	errAt       map[string]time.Time
+
+	bypassWait []pendingBypass // гибель стража, значка или окна, о которой ещё не решено, обход ли это (FB-1)
 }
 
 // New собирает службу. Ничего не запускает: Start читает базу и поднимает сеансные части.
@@ -266,6 +284,9 @@ func (s *Service) Shutdown(real time.Time) {
 		return
 	}
 	s.stopping = true
+	// Остановка службы это выключение или перезагрузка компьютера: то, что успело погибнуть
+	// перед ней, не обход (FB-1).
+	s.cancelAllBypass("остановка службы")
 	for _, id := range s.childOrder() {
 		s.saveDay(s.children[id])
 	}

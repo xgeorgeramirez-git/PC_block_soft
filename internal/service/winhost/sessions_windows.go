@@ -32,21 +32,15 @@ type launcher struct {
 	exe string
 }
 
-// Sessions перечисляет активные интерактивные сеансы с вошедшим пользователем: служебный
-// сеанс 0 и экран входа без пользователя не в счёт.
+// Sessions перечисляет интерактивные сеансы с вошедшим пользователем, в том числе отключённые
+// (смена пользователя), с признаком, на экране ли сеанс (FB-3): служебный сеанс 0 и экран входа
+// без пользователя не в счёт.
 func (l launcher) Sessions() ([]service.SessionInfo, error) {
 	list, err := winsession.ActiveSessions()
 	if err != nil {
 		return nil, err
 	}
-	out := make([]service.SessionInfo, 0, len(list))
-	for _, s := range list {
-		if !s.Active || s.SID == "" {
-			continue
-		}
-		out = append(out, service.SessionInfo{ID: s.ID, User: s.User, SID: s.SID})
-	}
-	return out, nil
+	return sessionInfos(list), nil
 }
 
 // Launch запускает программу с ключами args в сеансе и возвращает ручку процесса.

@@ -1,4 +1,4 @@
-﻿# Приёмка M1+M2+0.2.2+0.2.4 на настоящей Windows: сценарии S1...S13, S25...S27, S34 и LE1, LE2 (выходы с экрана блокировки) по очереди, каждый в своём процессе
+﻿# Приёмка M1+M2+0.2.3+0.2.4 на настоящей Windows: сценарии S1...S13, S25...S27, S34, LE1, LE2 (выходы с экрана блокировки), FB1 и S33 по очереди, каждый в своём процессе
 # на свежей установке и свежей папке данных (счётчик сбоев службы, Ruling 27). Падение одного не мешает
 # остальным: прогоняются все, код выхода 1 при любом падении. Снимки в папке accept-screens (PCB_ACCEPT_SHOTS).
 # S28 (подсказки и обучение) браузерный: frontend/e2e/s28-helper.spec.ts, идёт в ci.yml.
@@ -31,7 +31,9 @@ $all = @(
   @{ Id = "S27"; File = "s27-power-loss.ps1" },
   @{ Id = "S34"; File = "s34-tray-countdown.ps1" },
   @{ Id = "LE1"; File = "s-lockexits.ps1" },
-  @{ Id = "LE2"; File = "s-lockexits-auto.ps1" }
+  @{ Id = "LE2"; File = "s-lockexits-auto.ps1" },
+  @{ Id = "FB1"; File = "fb1-end-session.ps1" },
+  @{ Id = "S33"; File = "s33-switch-user.ps1" }  # последним: после отключения сеанса у раннера нет экрана
 )
 if ($Only.Count -gt 0) { $all = @($all | Where-Object { $Only -contains $_.Id }) }
 
@@ -58,6 +60,6 @@ if ($failed.Count -gt 0) {
 if ($Only.Count -gt 0) {
   Write-Host "::notice title=Приёмка M1::$($passed -join ', '): PASS (выборочный прогон)"
 } else {
-  Write-Host "::notice title=Приёмка::S1...S13, S25...S27, S34, LE1, LE2: PASS"
+  Write-Host "::notice title=Приёмка::S1...S13, S25...S27, S34, LE1, LE2, FB1, S33: PASS"
 }
 exit 0

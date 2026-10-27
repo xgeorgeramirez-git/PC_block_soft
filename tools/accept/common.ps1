@@ -511,6 +511,18 @@ function Initialize-Scenario([int]$Speed = 1, [int]$LockAutoSwitchS = 0) {
   Enable-TestMode $Speed $script:MySid $true $LockAutoSwitchS
 }
 
+# Строки журнала службы про сеансы и решения «на экране или нет» (подробные логи, FR-25) и qwinsta.
+function Write-ServiceSessionLog([string]$Tag) {
+  try { (@(& qwinsta.exe 2>&1)) | ForEach-Object { Write-Log "[$Tag] qwinsta: $_" } } catch {}
+  foreach ($dir in @($script:Data, $script:DefaultData)) {
+    $sl = Join-Path (Join-Path $dir "logs") "service.log"
+    if (Test-Path -LiteralPath $sl) {
+      Get-Content -LiteralPath $sl -Tail 600 -Encoding UTF8 | Where-Object { $_ -match 'событие сеанса|сеанс \d+:|снимок стража|удержание' } |
+        Select-Object -Last 60 | ForEach-Object { Write-Log "[$Tag] service.log: $_" }
+    }
+  }
+}
+
 function Write-Diagnostics {
   Write-Log "ERROR: [диагностика] состояние службы: $(Get-ServiceState)"
   try { (& sc.exe query $script:ServiceName) | ForEach-Object { Write-Log "ERROR: [диагностика] sc query: $_" } } catch {}
@@ -526,6 +538,14 @@ function Write-Diagnostics {
     Write-Log ("ERROR: [диагностика] GuardState: " + ($gs | ConvertTo-Json -Depth 6 -Compress))
   } catch { Write-Log "ERROR: [диагностика] канал связи не отвечает: $($_.Exception.Message)" }
   try { Write-Log ("ERROR: [диагностика] передний план: " + [PcbNative]::Foreground() + "; простой ввода, мс: " + [PcbNative]::IdleMs()) } catch {}
+  try { (@(& qwinsta.exe 2>&1)) | ForEach-Object { Write-Log "ERROR: [диагностика] qwinsta: $_" } } catch {}
+  foreach ($dir in @($script:Data, $script:DefaultData)) {
+    $sl = Join-Path (Join-Path $dir "logs") "service.log"
+    if (Test-Path -LiteralPath $sl) {
+      Get-Content -LiteralPath $sl -Tail 400 -Encoding UTF8 | Where-Object { $_ -match 'событие сеанса|сеанс \d+:|снимок стража|удержание' } |
+        Select-Object -Last 40 | ForEach-Object { Write-Log "ERROR: [диагностика] service.log (сеансы): $_" }
+    }
+  }
   foreach ($dir in @($script:Data, $script:DefaultData)) {
     foreach ($name in @("service.log", "boot.log")) {
       $f = Join-Path (Join-Path $dir "logs") $name

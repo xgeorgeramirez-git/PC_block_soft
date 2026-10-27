@@ -95,11 +95,35 @@ func (s *Service) runGuarded(where string, f func()) {
 
 // sampleFor возвращает снимок датчиков для тика: свежий снимок стража, иначе «неактивен».
 // Служба ничего не додумывает за стража: нет вестей дольше sampleMaxAge, секунда не идёт.
+// Но и стражу она не верит там, где знает больше него (FB-3, R2): страж в отключённом сеансе
+// не может открыть рабочий стол ввода и считает сеанс незаблокированным, а после выхода из
+// учётки его последний снимок ещё живёт до sampleMaxAge. Сеанса нет, в нём другой пользователь,
+// он отключён или заблокирован: секунда не идёт.
 func (s *Service) sampleFor(cs *childState) core.SessionSample {
 	if !cs.haveSample || s.real.Sub(cs.sampleAt) > sampleMaxAge {
 		return core.SessionSample{}
 	}
+	ss := s.sessions[cs.sampleSess]
+	if ss == nil || ss.childID != cs.child.ID || ss.offScreen() {
+		s.noteSampleVerdict(cs, "не учитывается", ss)
+		return core.SessionSample{}
+	}
+	s.noteSampleVerdict(cs, "учитывается", ss)
 	return cs.sample.ToCore()
+}
+
+// noteSampleVerdict пишет в подробный журнал, когда меняется решение «снимок стража учитывается»:
+// без этого красный прогон S33 не показывает, почему секунды идут или стоят.
+func (s *Service) noteSampleVerdict(cs *childState, verdict string, ss *sessState) {
+	if cs.sampleVerdict == verdict {
+		return
+	}
+	cs.sampleVerdict = verdict
+	if ss == nil {
+		s.vlogf("снимок стража сеанса %d %s: сеанса нет в списке или в нём другой пользователь", cs.sampleSess, verdict)
+		return
+	}
+	s.vlogf("снимок стража сеанса %d %s (экран: %v, блокировка: %v)", ss.id, verdict, ss.screen, ss.locked)
 }
 
 // Housekeep — обслуживание раз в настоящую секунду: сеансы и процессы, проверка R1 раз в

@@ -78,6 +78,7 @@ const (
 	CmdGuardLogoff     = "GuardLogoff"
 	CmdGuardShutdown   = "GuardShutdown"   // «Выключить компьютер» после подтверждения
 	CmdGuardSwitchUser = "GuardSwitchUser" // «Смена пользователя» и автосмена: сеанс отключается, не завершаясь
+	CmdGuardClosing    = "GuardClosing"    // страж закрывается вместе с сеансом (выход, выключение): это не обход (R17, FR-27)
 
 	// Значок (только процесс пользователя своего сеанса).
 	CmdTrayClosing = "TrayClosing"
@@ -101,7 +102,7 @@ var AllCommands = []string{
 	CmdGetSchedule, CmdSaveSchedule, CmdPause, CmdPauseAll,
 	CmdGrantBonus, CmdUndoBonus, CmdGetBonus, CmdCopyRules,
 	CmdMyToday, CmdFirstRunSeen, CmdAskMore, CmdSpendBonus, CmdRedeemPromo,
-	CmdGuardPoll, CmdGuardLogoff, CmdGuardShutdown, CmdGuardSwitchUser,
+	CmdGuardPoll, CmdGuardLogoff, CmdGuardShutdown, CmdGuardSwitchUser, CmdGuardClosing,
 	CmdTrayClosing,
 	CmdTestGuard, CmdTestClock, CmdGuardState,
 }
@@ -578,6 +579,9 @@ const (
 	TestWMClose = "wmClose" // послать окну экрана WM_CLOSE
 	TestAltF4   = "altF4"   // нажать Alt+F4
 	TestEsc     = "esc"     // нажать Esc
+	// TestEndSession: страж проходит тот же путь, что при конце сеанса Windows (WM_ENDSESSION):
+	// сообщает службе GuardClosing и завершается. Приёмка проверяет, что это не обход (FB-1).
+	TestEndSession = "endSession"
 )
 
 // TestGuardAction — одно действие стражу.
