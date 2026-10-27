@@ -64,8 +64,13 @@ describe("окно «Моя статистика»: вёрстка", () => {
     expect(top).toMatch(/border-bottom:\s*1px solid var\(--line\)/);
     expect(top).toMatch(/box-shadow:/);
     const content = rule(".content");
-    expect(content).toMatch(/margin-top:\s*var\(--space-4\)/);
     expect(content).toMatch(/scroll-padding-top:\s*var\(--space-4\)/);
+    // Прокладка структурная: рамка с padding-top и overflow hidden, не поле, которое может схлопнуться.
+    const frame = rule(".content-frame");
+    expect(frame).toMatch(/padding-top:\s*var\(--space-4\)/);
+    expect(frame).toMatch(/overflow:\s*hidden/);
+    expect(frame).toMatch(/min-height:\s*0/);
+    expect(rule(".shell")).toMatch(/overflow:\s*hidden/);
     expect(rule(".content-centered")).toMatch(/padding-top:\s*var\(--space-4\)/);
   });
 });

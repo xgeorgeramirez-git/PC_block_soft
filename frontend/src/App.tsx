@@ -161,13 +161,15 @@ export default function App() {
   return (
     <div className={childWindow ? "shell shell-child" : "shell"}>
       <Topbar childWindow={childWindow} />
-      <main
-        className="content content-centered"
-        tabIndex={childWindow ? -1 : undefined}
-        ref={childWindow ? focusScroller : undefined}
-      >
-        {body}
-      </main>
+      <div className="content-frame">
+        <main
+          className="content content-centered"
+          tabIndex={childWindow ? -1 : undefined}
+          ref={childWindow ? focusScroller : undefined}
+        >
+          {body}
+        </main>
+      </div>
     </div>
   );
 }

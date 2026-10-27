@@ -100,6 +100,7 @@ p {
   display: flex;
   flex-direction: column;
   height: 100%;
+  overflow: hidden;
 }
 
 .topbar {
@@ -111,6 +112,22 @@ p {
   border-bottom: 1px solid var(--line);
   /* Шапка читается отдельной полосой: прокручиваемое содержимое не сливается с названием. */
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+}
+
+/* Прокладка между шапкой и областью прокрутки: 16 px фона над ней вне прокрутки. Содержимое
+   срезается на границе внутренней области, а не у шапки, и не зависит от схлопывания полей. */
+.content-frame {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  padding-top: var(--space-4);
+  overflow: hidden;
+}
+
+.content-frame > .content {
+  flex: 1;
+  margin-top: 0;
 }
 
 .topbar-spacer {
