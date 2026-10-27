@@ -14,8 +14,8 @@ func TestCardLayoutProportions(t *testing.T) {
 		if ratio := float64(l.Card.Dx()) / float64(l.Card.Dy()); ratio < 1.6 || ratio > 1.7 {
 			t.Errorf("dpi %d: пропорции самой карточки %.3f, ждали 1,6 до 1,7", dpi, ratio)
 		}
-		if l.Radius < int(40*l.Scale) {
-			t.Errorf("dpi %d: радиус углов %d, у макета заметно круглее (не меньше %d)", dpi, l.Radius, int(40*l.Scale))
+		if min := l.Card.Dx() * 105 / 1000; l.Radius < min {
+			t.Errorf("dpi %d: радиус углов %d, у макета заметно круглее (не меньше 10,5 %% ширины карточки, то есть %d)", dpi, l.Radius, min)
 		}
 		if l.Card.Left != l.Margin || l.Card.Top != l.Margin || l.W != l.Card.Dx()+2*l.Margin || l.H != l.Card.Dy()+2*l.Margin {
 			t.Errorf("dpi %d: окно %dx%d не вмещает карточку %+v с полями %d", dpi, l.W, l.H, l.Card, l.Margin)
@@ -149,8 +149,22 @@ func TestCardLabelSize(t *testing.T) {
 				}
 			}
 		}
-		if f := float64(label) / float64(digit); f < 0.25 || f > 0.36 {
-			t.Errorf("масштаб %.1f: подпись %d px при цифрах %d px (доля %.2f), ждали 0,25 до 0,36", sc, label, digit, f)
+		if f := float64(label) / float64(digit); f < 0.25 || f > 0.40 {
+			t.Errorf("масштаб %.1f: подпись %d px при цифрах %d px (доля %.2f), ждали 0,25 до 0,40", sc, label, digit, f)
+		}
+		if label < int(24*sc) {
+			t.Errorf("масштаб %.1f: подпись %d px, ждали не меньше %d", sc, label, int(24*sc))
+		}
+	}
+}
+
+// Ловит: заголовок «ОСТАЛОСЬ ВРЕМЕНИ:» мельче макета (было 25 px, нужно не меньше 28 при 100 %).
+func TestCardTitleSize(t *testing.T) {
+	for _, sc := range []float64{1, 1.5} {
+		for _, r := range CardTexts(NewCardLayout(sc), timeView("01", "23", "45", StatusNormal)) {
+			if r.Role == RoleTitle && r.Px < int(28*sc) {
+				t.Errorf("масштаб %.1f: заголовок %d px, ждали не меньше %d", sc, r.Px, int(28*sc))
+			}
 		}
 	}
 }

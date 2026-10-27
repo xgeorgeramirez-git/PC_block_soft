@@ -33,4 +33,12 @@ describe("окно «Моя статистика»: вёрстка", () => {
     expect(r).toMatch(/color:\s*var\(--text\)/);
     expect(r).toMatch(/font-size:\s*16px/);
   });
+
+  // Ловит: липкая полоса перекрывает низ последнего блока, а End уводит документ за содержимое
+  // (пустой серый кадр s34-mystats-bottom).
+  it("запас под липкой полосой и прокрутка только внутри окна ребёнка", () => {
+    expect(css).toMatch(/\.content:has\(\.my-foot\)\s*\{[^}]*scroll-padding-bottom:\s*64px/);
+    expect(css).toMatch(/\.my-stats\s*\{[^}]*padding-bottom:\s*var\(--space-6\)/);
+    expect(css).toMatch(/html:has\(\.shell-child\) body\s*\{[^}]*overflow:\s*hidden/);
+  });
 });

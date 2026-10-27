@@ -419,7 +419,7 @@ const nightEveryDay = [1, 2, 3, 4, 5, 6, 7].map((weekday) => ({ weekday, startMi
 test("s06 моя статистика: сегодня с кнопками", async ({ page }) => {
   // Окно прокручивается внутри, fullPage его не растягивает: высота с запасом, чтобы «Бонусы» и
   // поле промокода влезли в кадр целиком.
-  await tallWindow(page, 1500);
+  await tallWindow(page, 2400); // страница целиком выше окна: липкая полоса стоит на своём месте, ничего не закрывает
   await mockProgram(page, {
     mode: "mystats",
     children: [child({ bonusBalance: 45, schedule: nightEveryDay })],
@@ -451,7 +451,9 @@ test("s06 моя статистика: «Настройки для родите�
   await page.goto("/");
   const link = page.getByRole("button", { name: "Настройки для родителя" });
   await expect(link).toBeInViewport({ ratio: 1 });
-  await page.getByRole("region", { name: "Мои правила" }).scrollIntoViewIfNeeded();
+  // Низ страницы: последний блок «Мои правила» виден целиком над полосой.
+  await page.locator("main.content").evaluate((el) => el.scrollTo(0, el.scrollHeight));
+  await expect(page.getByText("Когда время выйдет, экран закроется блокировкой.", { exact: false })).toBeInViewport({ ratio: 1 });
   await expect(link).toBeInViewport({ ratio: 1 });
   await page.screenshot({ path: `${SCREENS}/s06-my-stats-window.png` });
 });
@@ -499,6 +501,22 @@ test("s06 «Взять из копилки»: подтверждение", async
   await expect(page.getByText("Взято из копилки 30 мин")).toBeVisible();
 });
 
+// s06 — выбор суммы при большой копилке: видны все четыре варианта 15 / 30 / 60 / всё.
+test("s06 «Взять из копилки»: выбор суммы при копилке 90 мин", async ({ page }) => {
+  await mockProgram(page, {
+    mode: "mystats",
+    children: [child({ bonusBalance: 90, schedule: nightEveryDay })],
+    myChildId: 1,
+  });
+  await page.goto("/");
+  await page.getByRole("button", { name: "Взять из копилки" }).click();
+  const dialog = page.getByRole("dialog", { name: "Взять из копилки" });
+  for (const name of ["15 мин", "30 мин", "60 мин", "Всё: 90 мин"]) {
+    await expect(dialog.getByRole("button", { name })).toBeVisible();
+  }
+  await page.screenshot({ path: `${SCREENS}/s06-spend-choose-big.png` });
+});
+
 // s06 — запретные часы: «Взять из копилки» недоступна и называет час (урок L-17).
 test("s06 копилка в запретные часы недоступна с пояснением", async ({ page }) => {
   await mockProgram(page, {
@@ -506,7 +524,7 @@ test("s06 копилка в запретные часы недоступна с 
     children: [child({ bonusBalance: 45, schedule: nightEveryDay, forbiddenUntil: "Можно снова: сегодня в 07:00" })],
     myChildId: 1,
   });
-  await tallWindow(page, 1500);
+  await tallWindow(page, 2400);
   await page.goto("/");
   await expect(page.getByRole("button", { name: "Взять из копилки" })).toHaveAttribute("aria-disabled", "true");
   await expect(page.getByText("Из копилки можно взять с 07:00")).toBeVisible();

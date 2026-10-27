@@ -11,14 +11,14 @@ const (
 	cardBaseH      = 290
 	cardBaseMargin = 14 // поля вокруг карточки под мягкую тень; окно целиком выходит около 1,6 : 1
 	cardBasePad    = 26
-	cardBaseRadius = 44
+	cardBaseRadius = 54
 	cardBaseArrow  = 50 // диаметр круглой кнопки
 	cardBaseTileW  = 54
 	cardBaseTileH  = 88  // ближе к квадрату, чем 50x104 в первой версии
 	cardBasePair   = 8   // зазор между плитками одной пары
 	cardBaseColon  = 40  // ширина между парами: тут двоеточие, с воздухом до плиток
 	cardBaseTop    = 112 // верх плиток
-	cardBaseLabelH = 30
+	cardBaseLabelH = 32
 	cardBaseBtnW   = 176
 	cardBaseBtnH   = 44
 )

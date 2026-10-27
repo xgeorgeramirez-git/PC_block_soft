@@ -320,7 +320,7 @@ func digitColor(s Status) color.RGBA {
 // CardTexts перечисляет надписи карточки.
 func CardTexts(l CardLayout, v CountdownView) []TextRun {
 	px := func(base int) int { return int(math.Round(float64(base) * l.Scale)) }
-	runs := []TextRun{{Role: RoleTitle, Text: v.Title, Rect: l.Title, Px: px(25), Bold: true, Color: colorWhite, Align: AlignLeft}}
+	runs := []TextRun{{Role: RoleTitle, Text: v.Title, Rect: l.Title, Px: px(28), Bold: true, Color: colorWhite, Align: AlignLeft}}
 	switch v.Kind {
 	case CountdownTime:
 		digits := []rune(v.Hours + v.Minutes + v.Seconds)
@@ -331,7 +331,7 @@ func CardTexts(l CardLayout, v CountdownView) []TextRun {
 			runs = append(runs, TextRun{Role: RoleDigit, Text: string(d), Rect: l.Tiles[i], Px: px(68), Bold: true, Color: digitColor(v.Status), Align: AlignCenter})
 		}
 		for i, name := range []string{textLabelHours, textLabelMinutes, textLabelSeconds} {
-			runs = append(runs, TextRun{Role: RoleLabel, Text: name, Rect: l.Labels[i], Px: px(22), Bold: true, Color: colorLabel, Align: AlignCenter})
+			runs = append(runs, TextRun{Role: RoleLabel, Text: name, Rect: l.Labels[i], Px: px(25), Bold: true, Color: colorLabel, Align: AlignCenter})
 		}
 	case CountdownMessage:
 		runs = append(runs, TextRun{Role: RoleMessage, Text: v.Big, Rect: l.Text, Px: px(28), Bold: true, Color: colorWhite, Align: AlignCenter, Wrap: true})
