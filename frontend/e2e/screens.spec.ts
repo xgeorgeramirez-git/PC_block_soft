@@ -470,8 +470,25 @@ for (const [w, h] of [
     // Вложенные блоки (кнопка внутри карточки) пересекаться могут, как и положено: сравниваем только
     // блоки, из которых ни один не лежит внутри другого.
     const noOverlap = async () => {
-      const boxes = await Promise.all(parts.map((n) => n.evaluate((el) => el.getBoundingClientRect().toJSON())));
-      const inside = (a: DOMRect, b: DOMRect) => a.left >= b.left && a.right <= b.right && a.top >= b.top && a.bottom <= b.bottom;
+      // Видимая часть блока: то, что осталось после обрезки областью прокрутки. Прокрученная за её край
+      // часть не видна и шапку не перекрывает (шапка не входит в область прокрутки).
+      const boxes = await Promise.all(
+        parts.map((n, i) =>
+          n.evaluate((el, isHead) => {
+            const r = el.getBoundingClientRect();
+            if (isHead) return { left: r.left, right: r.right, top: r.top, bottom: r.bottom };
+            const c = document.querySelector("main.content")!.getBoundingClientRect();
+            return {
+              left: Math.max(r.left, c.left),
+              right: Math.min(r.right, c.right),
+              top: Math.max(r.top, c.top),
+              bottom: Math.min(r.bottom, c.bottom),
+            };
+          }, i === 0),
+        ),
+      );
+      type B = { left: number; right: number; top: number; bottom: number };
+      const inside = (a: B, b: B) => a.left >= b.left && a.right <= b.right && a.top >= b.top && a.bottom <= b.bottom;
       for (let i = 0; i < boxes.length; i++) {
         for (let j = i + 1; j < boxes.length; j++) {
           const a = boxes[i];
