@@ -116,6 +116,11 @@ func (s *Service) hTrayClosing(c *callCtx) ipc.Reply {
 	return ipc.OK(ipc.Empty{})
 }
 
+func (s *Service) hGuardClosing(c *callCtx) ipc.Reply {
+	s.guardClosing(c.peer)
+	return ipc.OK(ipc.Empty{})
+}
+
 // --- мастер и администратор ---------------------------------------------------------------
 
 // canBeChild: детской может быть только обычная учётка (A2); в тестовом режиме запрет снят
@@ -872,7 +877,8 @@ func (s *Service) hGuardPoll(c *callCtx) ipc.Reply {
 	if cs == nil {
 		return ipc.OK(ipc.GuardPollReply{Status: ipc.ChildStatusNotChild(), Warnings: []ipc.GuardWarning{}, Commands: []ipc.GuardCommand{}})
 	}
-	cs.sample, cs.sampleAt, cs.haveSample = req.Sample, c.real, true
+	cs.sample, cs.sampleAt, cs.sampleSess, cs.haveSample = req.Sample, c.real, session, true
+	ss.resetLockBySample(req.Sample)
 	for _, ev := range req.Events {
 		if ev.Kind == ipc.GuardEvBypass && !cs.admin {
 			s.markBypass(cs, ev.Detail, "guard", c.real)
@@ -934,6 +940,7 @@ func (s *Service) hGuardSwitchUser(c *callCtx) ipc.Reply {
 
 var testActions = map[string]bool{
 	ipc.TestClick: true, ipc.TestType: true, ipc.TestWMClose: true, ipc.TestAltF4: true, ipc.TestEsc: true,
+	ipc.TestEndSession: true,
 }
 
 func (s *Service) hTestGuard(c *callCtx) ipc.Reply {

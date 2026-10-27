@@ -681,6 +681,12 @@
       "field": "minutes"
     }
   },
+  "GuardClosing": {
+    "reply": {
+      "ok": true,
+      "payload": {}
+    }
+  },
   "GuardLogoff": {
     "reply": {
       "ok": true,

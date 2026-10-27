@@ -14,7 +14,8 @@ import (
 // настоящие сообщения собственных окон: нажатие кнопки это BM_CLICK, ввод в поле это
 // WM_SETTEXT, закрытие это WM_CLOSE, WM_SYSCOMMAND/SC_CLOSE (Alt+F4) и WM_KEYDOWN Esc. Кнопки,
 // которой сейчас нет на экране или которая недоступна, действие не касается, как и у человека.
-// Вызывается только из потока окон.
+// Действие endSession изображает конец сеанса Windows (FB-1): настоящий выход из сеанса раннера
+// CI устроить нельзя. Вызывается только из потока окон.
 func (a *app) runTestAction(t ipc.TestGuardAction) {
 	switch t.Action {
 	case ipc.TestClick:
@@ -53,5 +54,8 @@ func (a *app) runTestAction(t ipc.TestGuardAction) {
 		if a.lock != nil {
 			procSendMessage.Call(a.lock.hwnd, wmKeyDown, vkEscape, 0)
 		}
+	case ipc.TestEndSession:
+		// Тот же путь, что при WM_ENDSESSION: сообщить службе GuardClosing и завершиться.
+		a.endSession()
 	}
 }

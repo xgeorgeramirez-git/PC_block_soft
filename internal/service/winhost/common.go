@@ -2,6 +2,7 @@ package winhost
 
 import (
 	"bytes"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"pcblock/internal/service"
+	"pcblock/internal/winsession"
 )
 
 // Имена и значения, общие для всех систем.
@@ -40,8 +42,24 @@ const (
 // recoveryDelays — перезапуск службы после 1-го, 2-го и следующих сбоев (ТЗ 3.2, Ruling 27).
 var recoveryDelays = [...]time.Duration{5 * time.Second, 10 * time.Second, 30 * time.Second}
 
+// sessionIDOf читает номер сеанса из данных события SessionChange: структура
+// WTSSESSION_NOTIFICATION {cbSize uint32, dwSessionId uint32}. false: данных нет, они короче
+// структуры или cbSize не сходится с ними; тогда служба получает SessionUnknown и сверяет весь
+// список сеансов, а не угадывает сеанс.
+func sessionIDOf(raw []byte) (uint32, bool) {
+	const size = 8
+	if len(raw) < size {
+		return 0, false
+	}
+	cb := binary.LittleEndian.Uint32(raw)
+	if cb < size || int64(cb) > int64(len(raw)) {
+		return 0, false
+	}
+	return binary.LittleEndian.Uint32(raw[4:]), true
+}
+
 // sessionEventOf переводит код WTS_SESSION_* из уведомления диспетчера служб в событие службы.
-// Номер сеанса службе не нужен: на любое событие она заново сверяет список сеансов.
+// Номер сеанса приходит отдельно (sessionIDOf); на любое событие служба ещё и сверяет список сеансов.
 func sessionEventOf(eventType uint32) (service.SessionEvent, bool) {
 	switch eventType {
 	case 1, 3, 0xa: // WTS_CONSOLE_CONNECT, WTS_REMOTE_CONNECT, WTS_SESSION_CREATE
@@ -58,6 +76,26 @@ func sessionEventOf(eventType uint32) (service.SessionEvent, bool) {
 		return service.SessionUnlock, true
 	}
 	return 0, false
+}
+
+// sessionInfos переводит сеансы Windows в список службы (FB-3, R2): в него входят все сеансы
+// с вошедшим пользователем, в том числе отключённые при смене пользователя, с признаком,
+// на экране ли сеанс. Служебный сеанс 0 и экран входа без пользователя не в счёт. Отключённый
+// сеанс нельзя выбрасывать из списка: служба сочла бы его закрытым и завершила бы стража, а
+// программы ребёнка в нём продолжают работать и должны оставаться под присмотром.
+func sessionInfos(list []winsession.Session) []service.SessionInfo {
+	out := make([]service.SessionInfo, 0, len(list))
+	for _, s := range list {
+		if s.SID == "" {
+			continue
+		}
+		screen := service.ScreenOff
+		if s.Active {
+			screen = service.ScreenOn
+		}
+		out = append(out, service.SessionInfo{ID: s.ID, User: s.User, SID: s.SID, Screen: screen, WTSState: s.State})
+	}
+	return out
 }
 
 // dbPath — путь к базе в папке данных.
