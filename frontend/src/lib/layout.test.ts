@@ -56,4 +56,16 @@ describe("окно «Моя статистика»: вёрстка", () => {
     expect(content).not.toMatch(/position:/);
     expect(rule(".my-stats")).not.toMatch(/position:|margin(-top|-bottom)?:\s*-/);
   });
+
+  // Ловит: блок содержимого вплотную к шапке (нулевой зазор, «Ввести промокод» сливается с названием):
+  // шапка с нижней границей и тенью, между шапкой и областью прокрутки 16 px вне её.
+  it("шапка отделена линией и тенью, под ней зазор 16 px, не входящий в прокрутку", () => {
+    const top = rule(".topbar");
+    expect(top).toMatch(/border-bottom:\s*1px solid var\(--line\)/);
+    expect(top).toMatch(/box-shadow:/);
+    const content = rule(".content");
+    expect(content).toMatch(/margin-top:\s*var\(--space-4\)/);
+    expect(content).toMatch(/scroll-padding-top:\s*var\(--space-4\)/);
+    expect(rule(".content-centered")).toMatch(/padding-top:\s*var\(--space-4\)/);
+  });
 });

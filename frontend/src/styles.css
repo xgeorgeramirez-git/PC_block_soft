@@ -109,6 +109,8 @@ p {
   padding: var(--space-3) var(--space-6);
   background: var(--surface);
   border-bottom: 1px solid var(--line);
+  /* Шапка читается отдельной полосой: прокручиваемое содержимое не сливается с названием. */
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
 }
 
 .topbar-spacer {
@@ -200,6 +202,11 @@ p {
   min-height: 0;
   overflow-y: auto;
   padding: var(--space-8);
+  /* Зазор между шапкой и областью прокрутки вне неё: при любой прокрутке блок обрезается не у самой
+     шапки, а на 16 px ниже, и не прилипает к названию. */
+  padding-top: var(--space-4);
+  margin-top: var(--space-4);
+  scroll-padding-top: var(--space-4);
 }
 
 /* Рабочая область не растягивается на всю ширину большого окна и не жмётся в ленту:
@@ -215,7 +222,7 @@ p {
   display: flex;
   justify-content: center;
   align-items: flex-start;
-  padding-top: var(--space-8);
+  padding-top: var(--space-4);
 }
 
 .overlay {

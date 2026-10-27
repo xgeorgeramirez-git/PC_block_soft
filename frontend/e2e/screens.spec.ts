@@ -521,6 +521,47 @@ for (const [w, h] of [
   });
 }
 
+// s06 — зазор между шапкой «PC Block» и первым блоком окна ребёнка (замечание заказчика: «Ввести
+// промокод» сливается с названием): не меньше 16 px при масштабе 1 и 1,5, в трёх высотах окна и на любой прокрутке.
+for (const dsf of [1, 1.5]) {
+  test.describe(`зазор под шапкой, масштаб ${dsf}`, () => {
+    test.use({ deviceScaleFactor: dsf });
+    for (const h of [1200, 640, 480]) {
+      test(`s06 моя статистика: под шапкой зазор 16 px в окне 800 x ${h}`, async ({ page }) => {
+        await page.setViewportSize({ width: 800, height: h });
+        await mockProgram(page, {
+          mode: "mystats",
+          children: [child({ bonusBalance: 45, schedule: nightEveryDay })],
+          myChildId: 1,
+        });
+        await page.goto("/");
+        const head = page.locator("header.topbar");
+        await expect(head).toBeVisible();
+        expect(await head.evaluate((el) => getComputedStyle(el).borderBottomWidth)).not.toBe("0px");
+        expect(await head.evaluate((el) => getComputedStyle(el).boxShadow)).not.toBe("none");
+        const scroller = page.locator("main.content");
+        const gap = async () =>
+          scroller.evaluate((el) => {
+            const bottom = document.querySelector("header.topbar")!.getBoundingClientRect().bottom;
+            return el.getBoundingClientRect().top - bottom;
+          });
+        expect(await gap()).toBeGreaterThanOrEqual(16);
+        // Первый блок содержимого в покое отстоит от шапки не меньше чем на 16 px.
+        const first = await page.locator("main.content .my-stats .page-head").evaluate((el) => el.getBoundingClientRect().top);
+        const bottom = await head.evaluate((el) => el.getBoundingClientRect().bottom);
+        expect(first - bottom).toBeGreaterThanOrEqual(16);
+        const max = await scroller.evaluate((el) => el.scrollHeight - el.clientHeight);
+        for (const y of [0, Math.round(max / 2), max]) {
+          await scroller.evaluate((el, top) => el.scrollTo(0, top), y);
+          expect(await gap()).toBeGreaterThanOrEqual(16);
+        }
+        await scroller.evaluate((el) => el.scrollTo(0, 0));
+        if (h === 640) await page.screenshot({ path: `${SCREENS}/s06-my-stats-640-top${dsf === 1 ? "" : "-150"}.png` });
+      });
+    }
+  });
+}
+
 // s06 — панель «Позови родителя» (FR-10): пароль родителя и +15 / +30 / +60 / своё число.
 test("s06 панель «Позови родителя»", async ({ page }) => {
   await mockProgram(page, { mode: "mystats", children: [child({ bonusBalance: 45 })], myChildId: 1 });
