@@ -159,11 +159,24 @@ export default function App() {
 
   const childWindow = boot.kind === "simple" && (boot.mode === "mystats" || boot.mode === "firstrun");
   return (
-    <div className="shell">
+    <div className={childWindow ? "shell shell-child" : "shell"}>
       <Topbar childWindow={childWindow} />
-      <main className="content content-centered">{body}</main>
+      <div className="content-frame">
+        <main
+          className="content content-centered"
+          tabIndex={childWindow ? -1 : undefined}
+          ref={childWindow ? focusScroller : undefined}
+        >
+          {body}
+        </main>
+      </div>
     </div>
   );
+}
+
+/** Окно ребёнка: страница прокручивается внутри, фокус на ней, чтобы PageDown и End работали сразу. */
+function focusScroller(el: HTMLElement | null) {
+  el?.focus({ preventScroll: true });
 }
 
 function SimpleScreen({ mode }: { mode: "reset-password" | "uninstall-gate" | "mystats" | "firstrun" }) {

@@ -54,6 +54,8 @@ export interface MockChild {
   admin?: boolean;
   /** Сегодня запретные часы сняты родителем (R24, D-51). */
   noForbiddenToday?: boolean;
+  /** Сейчас запретные часы: «Можно снова: сегодня в 07:00» (R7). Статус forbidden с блокировкой. */
+  forbiddenUntil?: string;
 }
 
 /** Промокод в подменной программе (R26, D-50). */
@@ -118,6 +120,8 @@ export interface MockState {
   myChildId: number | null;
   /** Ребёнок нажал «Понятно» в окне первого входа (FirstRunSeen). */
   firstRunSeen: boolean;
+  /** Окна, которые просили у службы командой OpenWindow, по порядку. */
+  openedWindows: string[];
   /** Код, с которым окно закрыли через Finish; null - не закрывали. */
   finishCode: number | null;
   linkDown: boolean;
@@ -211,7 +215,10 @@ function forbiddenNoteOf(child: MockChild, nowMs: number): string {
   if (child.noForbiddenToday) return "Сегодня запретные часы не действуют";
   const wd = weekdayOfMs(nowMs, localOffsetMin(new Date(nowMs)));
   const iv = (child.schedule ?? []).filter((x) => x.weekday === wd).sort((a, b) => a.startMin - b.startMin)[0];
-  return iv ? `Сегодня нельзя с ${formatHour(iv.startMin)} до ${formatHour(iv.endMin)}` : "";
+  if (iv) return `Сегодня нельзя с ${formatHour(iv.startMin)} до ${formatHour(iv.endMin)}`;
+  // Запретный интервал идёт сейчас, а расписания в данных нет: строка не должна говорить «часов нет».
+  const until = /(\d{1,2}:\d{2})/.exec(child.forbiddenUntil ?? "")?.[1];
+  return until ? `Сегодня нельзя до ${until}` : "";
 }
 
 /** Статус ребёнка: слова и числа собираются в одном месте, как это делает служба. */
@@ -249,6 +256,25 @@ export function statusOf(child: MockChild, nowMs: number): ChildStatus {
   const usedText = limit.unlimited
     ? `Сегодня: ${formatDuration(child.usedS)}`
     : `Сегодня: ${formatDuration(child.usedS)} из ${formatLimit(limitMin)}`;
+
+  if (child.forbiddenUntil) {
+    const reason = "Сейчас нельзя пользоваться компьютером";
+    return {
+      ...base,
+      status: "forbidden",
+      statusText: "Запретные часы",
+      label: "0",
+      tooltip: reason,
+      summary: reason,
+      limitS,
+      unlimited: limit.unlimited,
+      remainingS: limit.unlimited ? 0 : Math.max(0, limitS - child.usedS),
+      lock: "forbidden",
+      reason,
+      until: child.forbiddenUntil,
+      used: usedText,
+    };
+  }
 
   // Обход больше не блокирует экран (D-41): поле blocked на статус не влияет.
   if (limit.unlimited) {
@@ -396,6 +422,7 @@ function makeState(opts: MockOptions): MockState {
     helper: opts.helper ?? {},
     myChildId: opts.myChildId === undefined ? (children[0]?.childId ?? null) : opts.myChildId,
     firstRunSeen: false,
+    openedWindows: [],
     finishCode: null,
     linkDown: opts.linkDown ?? false,
     nextChildId: Math.max(0, ...children.map((c) => c.childId)) + 1,
@@ -837,6 +864,52 @@ export function createBackend(opts: MockOptions = {}): MockBackend {
       child.extraMin += promo.minutes;
       addEvent(now, child, "promo_redeem", `${child.name}: промокод «${promo.codeDisplay}» +${promo.minutes} мин`);
       return okReply({ card: cardOf(child, now), addedMin: promo.minutes, message: `Добавлено ${promo.minutes} ${minutesWord(promo.minutes)}` });
+    },
+
+    // --- Окно ребёнка (D-53): «Попросить ещё», «Взять из копилки», «Настройки для родителя» ---
+
+    AskMore: (req, now) => {
+      const paused = pausedReply(now);
+      if (paused) return paused;
+      const child = childById(req.childId);
+      if (!child) return fail("Ребёнок не найден");
+      if (!Number.isInteger(req.minutes) || req.minutes < 1 || req.minutes > 240) {
+        return fail("Можно от 1 до 240 минут", "minutes");
+      }
+      if (req.password !== state.password) return deny(now);
+      state.attemptsLeft = state.attemptsMax;
+      child.extraMin += req.minutes;
+      addEvent(now, child, "extra_time", `${child.name}: доп. время +${req.minutes} мин`);
+      return okReply({ card: cardOf(child, now), message: `Добавлено ${req.minutes} ${minutesWord(req.minutes)}` });
+    },
+
+    SpendBonus: (req, now) => {
+      // Только свой сеанс (childSelf): чужой номер службой отклоняется.
+      const child = childById(state.myChildId ?? -1);
+      if (!child || (req.childId && req.childId !== child.childId)) return fail("Ребёнок не найден");
+      const m = req.minutes;
+      if (!Number.isInteger(m) || m < 1) return fail("Можно от 1 до 240 минут", "minutes");
+      if (child.forbiddenUntil) {
+        const at = /(\d{1,2}:\d{2})/.exec(child.forbiddenUntil)?.[1] ?? "";
+        return fail(`Из копилки можно взять с ${at}`, "minutes");
+      }
+      const cur = child.bonusBalance ?? 0;
+      if (m > cur) return fail(`В копилке ${cur} мин, столько взять нельзя`, "minutes");
+      const after = cur - m;
+      child.bonusBalance = after;
+      child.extraMin += m;
+      child.bonusLedger = [
+        { atMs: now, tzOffsetMin: localOffsetMin(new Date(now)), deltaMin: -m, reason: "взято из копилки", balanceAfter: after },
+        ...(child.bonusLedger ?? []),
+      ];
+      addEvent(now, child, "bonus_spend", `${child.name}: из копилки -${m} мин`);
+      return okReply({ card: cardOf(child, now), message: `Взято из копилки ${m} мин`, balanceAfter: after });
+    },
+
+    OpenWindow: (req) => {
+      if (!["parent", "mystats", "firstrun"].includes(req.kind)) return fail("Не получилось открыть окно. Попробуй ещё раз");
+      state.openedWindows.push(req.kind);
+      return okReply({ opened: true });
     },
 
     OpenLogs: () => {

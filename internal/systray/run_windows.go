@@ -8,6 +8,7 @@ import (
 	"runtime"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unsafe"
 
@@ -21,6 +22,7 @@ const (
 	wmTrayCallback = wmApp + 1 // действие пользователя со значком
 	wmStatus       = wmApp + 2 // опрос службы получил ответ или ошибку
 	wmOpenDone     = wmApp + 3 // служба ответила на просьбу открыть окно
+	wmTestOpenCard = wmApp + 4 // тестовый режим: открыть табло без мыши (testhook_windows.go)
 
 	hostTimerID    = 5
 	hostTimerEvery = 2000 // мс: повторить добавление значка, пока оболочка не готова
@@ -47,7 +49,10 @@ type app struct {
 	kick    chan struct{}
 
 	icon  *trayIcon
-	panel *panel
+	panel *panel // мини-панель взрослого сеанса (ТЗ 8.2.1 п.7)
+	card  *card  // табло остатка в детском сеансе (D-53)
+
+	cardOpen atomic.Bool // пока табло открыто, служба опрашивается раз в секунду
 
 	mu       sync.Mutex
 	note     string // итог последней просьбы открыть окно, если не получилось
@@ -167,6 +172,12 @@ func Run(opts launch.Options) error {
 	if p, err := newPanel(a.onPanelButton); err == nil {
 		a.panel = p
 	}
+	if c, err := newCard(a.onCardPress); err == nil {
+		c.onHide = func() { a.cardOpen.Store(false) }
+		a.card = c
+	} else {
+		testTrace("табло не создано: " + err.Error())
+	}
 
 	stop := make(chan struct{})
 	var wg sync.WaitGroup
@@ -176,6 +187,8 @@ func Run(opts launch.Options) error {
 		a.pollLoop(stop)
 	}()
 	procSetTimer.Call(host, hostTimerID, hostTimerEvery, 0)
+	stopHook := a.startTestHook(stop)
+	defer stopHook()
 
 	a.loop()
 
@@ -186,17 +199,19 @@ func Run(opts launch.Options) error {
 	return nil
 }
 
-// pollLoop опрашивает службу раз в PollEvery и сразу по просьбе (Kick).
+// pollLoop опрашивает службу раз в PollEvery (раз в секунду, пока открыто табло) и сразу по
+// просьбе (Kick).
 func (a *app) pollLoop(stop <-chan struct{}) {
-	t := time.NewTicker(PollEvery)
-	defer t.Stop()
 	for {
 		safely(a.pollOnce)
+		t := time.NewTimer(PollInterval(a.cardOpen.Load()))
 		select {
 		case <-stop:
+			t.Stop()
 			return
 		case <-t.C:
 		case <-a.kick:
+			t.Stop()
 		}
 	}
 }
@@ -264,12 +279,46 @@ func (a *app) filter(m *tagMSG) bool {
 	return r != 0
 }
 
-// refresh приводит значок и открытую панель к последним данным службы.
+// refresh приводит значок и открытые панель и табло к последним данным службы.
 func (a *app) refresh() {
 	now := time.Now()
 	a.icon.apply(a.tracker.Display(now))
 	if a.panel != nil && a.panel.visible {
 		a.panel.setView(BuildPanel(a.tracker.Snapshot(now), a.currentNote()))
+	}
+	if a.card != nil && a.card.visible {
+		a.card.setView(a.cardView(now))
+	}
+}
+
+// cardView — что показать на табло: по данным службы; если не вышло открыть окно, текст
+// отказа с кнопкой «Обновить» (она снимает его).
+func (a *app) cardView(now time.Time) CountdownView {
+	v := CountdownFor(a.tracker.Snapshot(now))
+	if note := a.currentNote(); note != "" && v.Kind != CountdownError {
+		return CountdownView{Kind: CountdownError, Title: v.Title, Big: note, Button: textButtonRefresh}
+	}
+	return v
+}
+
+// setBusy запрещает нажатия, пока команда службе в пути.
+func (a *app) setBusy(b bool) {
+	if a.panel != nil {
+		a.panel.setBusy(b)
+	}
+	if a.card != nil {
+		a.card.setBusy(b)
+	}
+}
+
+// onCardPress выполняет нажатие кнопки табло: стрелка открывает «Мою статистику», «Обновить»
+// повторяет запрос к службе.
+func (a *app) onCardPress(t CardTarget) {
+	switch t {
+	case TargetArrow:
+		a.onPanelButton(PanelButton{Kind: PanelMyStats})
+	case TargetRefresh:
+		a.onPanelButton(PanelButton{Kind: PanelRefresh})
 	}
 }
 
@@ -291,8 +340,37 @@ func (a *app) isNotChild() bool {
 	return a.notChild
 }
 
-// togglePanel открывает мини-панель у значка или закрывает открытую.
+// togglePanel по щелчку на значке: в детском сеансе открывает табло, во взрослом мини-панель
+// (ТЗ 8.2.1 п.7); открытую закрывает.
 func (a *app) togglePanel() {
+	if a.card != nil && UsesCountdown(a.tracker.Snapshot(time.Now())) {
+		a.toggleCard()
+		return
+	}
+	a.togglePanelMini()
+}
+
+// toggleCard открывает табло у значка или закрывает открытое.
+func (a *app) toggleCard() {
+	c := a.card
+	if c.visible {
+		c.hide()
+		return
+	}
+	a.setNote("")
+	a.cardOpen.Store(true) // секундный опрос с этого момента
+	a.kickPoll()           // свежие цифры к открытию
+	c.setBusy(false)
+	c.setView(a.cardView(time.Now()))
+	anchor, ok := a.icon.rect()
+	c.show(anchor, ok)
+	if !c.visible {
+		a.cardOpen.Store(false)
+	}
+}
+
+// togglePanelMini открывает мини-панель у значка или закрывает открытую.
+func (a *app) togglePanelMini() {
 	p := a.panel
 	if p == nil {
 		return
@@ -336,7 +414,7 @@ func (a *app) onPanelButton(b PanelButton) {
 		return
 	}
 	a.setNote("")
-	a.panel.setBusy(true)
+	a.setBusy(true)
 	go safely(func() {
 		var rep ipc.OpenWindowReply
 		err := ipc.Call(a.caller, ipc.CmdOpenWindow, "", ipc.OpenWindowRequest{Kind: kind}, &rep)
@@ -369,7 +447,7 @@ func (a *app) onSpendBonus() {
 		return
 	}
 	a.setNote("")
-	a.panel.setBusy(true)
+	a.setBusy(true)
 	go safely(func() {
 		var rep ipc.SpendBonusReply
 		// ChildID 0: служба берёт ребёнка этого сеанса (childSelf).
@@ -399,6 +477,9 @@ func (a *app) shutdown() {
 	}
 	if a.panel != nil {
 		a.panel.close()
+	}
+	if a.card != nil {
+		a.card.close()
 	}
 	if a.host != 0 {
 		procDestroyWindow.Call(a.host)
@@ -445,15 +526,31 @@ func hostProc(hwnd, msg, wParam, lParam uintptr) uintptr {
 		}
 		return 0
 	case wmOpenDone:
-		if a != nil && a.panel != nil {
+		if a != nil {
 			safely(func() {
-				a.panel.setBusy(false)
+				a.setBusy(false)
 				if wParam != 0 {
-					a.panel.hide() // окно открывается, панель своё дело сделала
+					// Окно открывается, панель и табло своё дело сделали.
+					if a.panel != nil {
+						a.panel.hide()
+					}
+					if a.card != nil {
+						a.card.hide()
+					}
 					return
 				}
 				a.refresh()
 			})
+		}
+		return 0
+	case wmTestOpenCard:
+		if a != nil && a.card != nil && !a.card.visible {
+			s := a.tracker.Snapshot(time.Now())
+			testTrace(fmt.Sprintf("событие открытия табло: has=%v fresh=%v failed=%v status=%q", s.Has, s.Fresh, s.Failed, s.Status.Status))
+			safely(a.togglePanel)
+			testTrace(fmt.Sprintf("после открытия: visible=%v", a.card.visible))
+		} else {
+			testTrace("событие открытия табло пропущено: нет табло или оно уже открыто")
 		}
 		return 0
 	case wmQueryEndSession:

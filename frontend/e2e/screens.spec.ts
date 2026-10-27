@@ -412,6 +412,230 @@ test("s10 снять запрет на сегодня", async ({ page }) => {
   await page.screenshot({ path: `${SCREENS}/s10-no-forbidden.png`, fullPage: true });
 });
 
+// s06 — «Сегодня» окна ребёнка (D-53, ТЗ 8.2.6 п.1): остатки, лимит дня, запретные часы, копилка, кнопки
+// «Попросить ещё» и «Взять из копилки», внизу мелко «Настройки для родителя».
+const nightEveryDay = [1, 2, 3, 4, 5, 6, 7].map((weekday) => ({ weekday, startMin: 21 * 60, endMin: 7 * 60 }));
+
+test("s06 моя статистика: сегодня с кнопками", async ({ page }) => {
+  // Окно прокручивается внутри, fullPage его не растягивает: высота с запасом, чтобы «Бонусы» и
+  // поле промокода влезли в кадр целиком.
+  await tallWindow(page, 2400); // страница целиком выше окна: липкая полоса стоит на своём месте, ничего не закрывает
+  await mockProgram(page, {
+    mode: "mystats",
+    children: [child({ bonusBalance: 45, schedule: nightEveryDay })],
+    myChildId: 1,
+  });
+  await page.goto("/");
+  const left = page.getByRole("region", { name: "Сколько осталось" });
+  await expect(left.getByText("Осталось всего")).toBeVisible();
+  await expect(left.getByText("Сегодня нельзя с 21:00 до 07:00")).toBeVisible();
+  await expect(left.getByText("Копилка")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Попросить ещё" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Взять из копилки" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Настройки для родителя" })).toBeVisible();
+  await expect(page.getByRole("textbox")).toHaveCount(1);
+  await expect(page.getByRole("region", { name: "Бонусы" }).getByRole("textbox", { name: "Промокод" })).toBeInViewport({ ratio: 1 });
+  await noHorizontalScroll(page);
+  await page.screenshot({ path: `${SCREENS}/s06-my-stats-today.png`, fullPage: true });
+});
+
+// s06 — окно ребёнка в размерах от 800 x 1200 до 800 x 480 и самом узком 640 x 520: оболочка это три части в
+// потоке (шапка, область прокрутки, в ней же «Настройки для родителя» последним блоком), поэтому ничто
+// не лежит поверх соседнего блока в верху, середине и низу прокрутки (замечание заказчика).
+for (const [w, h] of [
+  [800, 1200],
+  [800, 800],
+  [800, 640],
+  [800, 480],
+  [640, 520],
+]) {
+  test(`s06 моя статистика: блоки не пересекаются в окне ${w} x ${h}`, async ({ page }) => {
+    await page.setViewportSize({ width: w, height: h });
+    await mockProgram(page, {
+      mode: "mystats",
+      children: [child({ bonusBalance: 45, schedule: nightEveryDay })],
+      myChildId: 1,
+    });
+    await page.goto("/");
+    await expect(page.getByRole("button", { name: "Настройки для родителя" })).toBeVisible();
+    const parts = [
+      page.locator("header.topbar"),
+      page.getByRole("region", { name: "Нужно больше времени?" }),
+      page.getByRole("button", { name: "Попросить ещё" }),
+      page.getByRole("button", { name: "Взять из копилки" }),
+      page.getByRole("textbox", { name: "Промокод" }),
+      page.getByRole("button", { name: "Ввести промокод" }),
+      page.getByRole("button", { name: "Настройки для родителя" }),
+    ];
+    // Вложенные блоки (кнопка внутри карточки) пересекаться могут, как и положено: сравниваем только
+    // блоки, из которых ни один не лежит внутри другого.
+    const noOverlap = async () => {
+      // Видимая часть блока: то, что осталось после обрезки областью прокрутки. Прокрученная за её край
+      // часть не видна и шапку не перекрывает (шапка не входит в область прокрутки).
+      const boxes = await Promise.all(
+        parts.map((n, i) =>
+          n.evaluate((el, isHead) => {
+            const r = el.getBoundingClientRect();
+            if (isHead) return { left: r.left, right: r.right, top: r.top, bottom: r.bottom };
+            const c = document.querySelector("main.content")!.getBoundingClientRect();
+            return {
+              left: Math.max(r.left, c.left),
+              right: Math.min(r.right, c.right),
+              top: Math.max(r.top, c.top),
+              bottom: Math.min(r.bottom, c.bottom),
+            };
+          }, i === 0),
+        ),
+      );
+      type B = { left: number; right: number; top: number; bottom: number };
+      const inside = (a: B, b: B) => a.left >= b.left && a.right <= b.right && a.top >= b.top && a.bottom <= b.bottom;
+      for (let i = 0; i < boxes.length; i++) {
+        for (let j = i + 1; j < boxes.length; j++) {
+          const a = boxes[i];
+          const b = boxes[j];
+          if (inside(a, b) || inside(b, a)) continue;
+          const apart = a.right <= b.left || b.right <= a.left || a.bottom <= b.top || b.bottom <= a.top;
+          expect(apart, `блоки ${i} и ${j} пересекаются: ${JSON.stringify([a, b])}`).toBe(true);
+        }
+      }
+    };
+    const scroller = page.locator("main.content");
+    // Область прокрутки начинается не выше низа шапки, шапка и страница не прокручиваются вместе.
+    const head = await page.locator("header.topbar").evaluate((el) => el.getBoundingClientRect().bottom);
+    expect(await scroller.evaluate((el) => el.getBoundingClientRect().top)).toBeGreaterThanOrEqual(head - 0.5);
+    expect(await page.evaluate(() => document.scrollingElement?.scrollTop ?? 0)).toBe(0);
+    const max = await scroller.evaluate((el) => el.scrollHeight - el.clientHeight);
+    const shot = w === 800 && (h === 640 || h === 480) ? h : 0;
+    for (const [label, frac] of [["top", 0], ["mid", 0.5], ["bottom", 1]] as const) {
+      await scroller.evaluate((el, top) => el.scrollTo(0, top), Math.round(max * frac));
+      await noOverlap();
+      expect(await page.evaluate(() => document.scrollingElement?.scrollTop ?? 0)).toBe(0);
+      if (shot) await page.screenshot({ path: `${SCREENS}/s06-my-stats-${shot}-${label}.png` });
+    }
+    // Низ: «Настройки для родителя» достижима прокруткой и стоит под всем содержимым.
+    const link = page.getByRole("button", { name: "Настройки для родителя" });
+    await expect(link).toBeInViewport({ ratio: 1 });
+    await expect(page.getByText("Когда время выйдет, экран закроется блокировкой.", { exact: false })).toBeInViewport({ ratio: 1 });
+    await noHorizontalScroll(page);
+    if (w === 640) await page.screenshot({ path: `${SCREENS}/s06-my-stats-small.png` });
+  });
+}
+
+// s06 — зазор между шапкой «PC Block» и первым блоком окна ребёнка (замечание заказчика: «Ввести
+// промокод» сливается с названием): не меньше 16 px при масштабе 1 и 1,5, в трёх высотах окна и на любой прокрутке.
+for (const dsf of [1, 1.5]) {
+  test.describe(`зазор под шапкой, масштаб ${dsf}`, () => {
+    test.use({ deviceScaleFactor: dsf });
+    for (const h of [1200, 640, 480]) {
+      test(`s06 моя статистика: под шапкой зазор 16 px в окне 800 x ${h}`, async ({ page }) => {
+        await page.setViewportSize({ width: 800, height: h });
+        await mockProgram(page, {
+          mode: "mystats",
+          children: [child({ bonusBalance: 45, schedule: nightEveryDay })],
+          myChildId: 1,
+        });
+        await page.goto("/");
+        const head = page.locator("header.topbar");
+        await expect(head).toBeVisible();
+        expect(await head.evaluate((el) => getComputedStyle(el).borderBottomWidth)).not.toBe("0px");
+        expect(await head.evaluate((el) => getComputedStyle(el).boxShadow)).not.toBe("none");
+        const scroller = page.locator("main.content");
+        const gap = async () =>
+          scroller.evaluate((el) => {
+            const bottom = document.querySelector("header.topbar")!.getBoundingClientRect().bottom;
+            return el.getBoundingClientRect().top - bottom;
+          });
+        expect(await gap()).toBeGreaterThanOrEqual(16);
+        // Первый блок содержимого в покое отстоит от шапки не меньше чем на 16 px.
+        const first = await page.locator("main.content .my-stats .page-head").evaluate((el) => el.getBoundingClientRect().top);
+        const bottom = await head.evaluate((el) => el.getBoundingClientRect().bottom);
+        expect(first - bottom).toBeGreaterThanOrEqual(16);
+        const max = await scroller.evaluate((el) => el.scrollHeight - el.clientHeight);
+        for (const y of [0, Math.round(max / 2), max]) {
+          await scroller.evaluate((el, top) => el.scrollTo(0, top), y);
+          expect(await gap()).toBeGreaterThanOrEqual(16);
+        }
+        await scroller.evaluate((el) => el.scrollTo(0, 0));
+        if (h === 640) await page.screenshot({ path: `${SCREENS}/s06-my-stats-640-top${dsf === 1 ? "" : "-150"}.png` });
+      });
+    }
+  });
+}
+
+// s06 — панель «Позови родителя» (FR-10): пароль родителя и +15 / +30 / +60 / своё число.
+test("s06 панель «Позови родителя»", async ({ page }) => {
+  await mockProgram(page, { mode: "mystats", children: [child({ bonusBalance: 45 })], myChildId: 1 });
+  await page.goto("/");
+  await page.getByRole("button", { name: "Попросить ещё" }).click();
+  const dialog = page.getByRole("dialog", { name: "Позови родителя" });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByLabel("Пароль родителя")).toBeFocused();
+  await expect(dialog.getByRole("button", { name: "+30" })).toBeVisible();
+  await expect(dialog.getByLabel("Своё число минут")).toBeVisible();
+  await dialog.getByLabel("Пароль родителя").fill("не тот");
+  await dialog.getByRole("button", { name: "+15" }).click();
+  await expect(dialog.getByText("Неверный пароль. Осталось попыток: 4")).toBeVisible();
+  await noHorizontalScroll(page);
+  await page.screenshot({ path: `${SCREENS}/s06-ask-more.png` });
+  await dialog.getByLabel("Пароль родителя").fill("секрет-123");
+  await dialog.getByRole("button", { name: "+30" }).click();
+  await expect(page.getByText("Добавлено 30 минут")).toBeVisible();
+});
+
+// s06 — «Взять из копилки» (FR-11): выбор суммы и подтверждение с остатком.
+test("s06 «Взять из копилки»: подтверждение", async ({ page }) => {
+  // То же состояние, что в соседних кадрах: запретные часы 21:00 до 07:00 (сейчас день), копилка 45 мин.
+  await mockProgram(page, {
+    mode: "mystats",
+    children: [child({ bonusBalance: 45, schedule: nightEveryDay })],
+    myChildId: 1,
+  });
+  await page.goto("/");
+  await page.getByRole("button", { name: "Взять из копилки" }).click();
+  const dialog = page.getByRole("dialog", { name: "Взять из копилки" });
+  await expect(dialog.getByRole("button", { name: "Всё: 45 мин" })).toBeVisible();
+  // Варианты из FR-11: 15, 30 и весь баланс (60 больше баланса 45, его нет).
+  await expect(dialog.getByRole("button", { name: "15 мин" })).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "30 мин" })).toBeVisible();
+  await page.screenshot({ path: `${SCREENS}/s06-spend-choose.png` });
+  await dialog.getByRole("button", { name: "30 мин" }).click();
+  await expect(dialog.getByText("Взять из копилки 30 мин? Останется 15 мин")).toBeVisible();
+  await page.screenshot({ path: `${SCREENS}/s06-spend-bonus.png` });
+  await dialog.getByRole("button", { name: "Взять" }).click();
+  await expect(page.getByText("Взято из копилки 30 мин")).toBeVisible();
+});
+
+// s06 — выбор суммы при большой копилке: видны все четыре варианта 15 / 30 / 60 / всё.
+test("s06 «Взять из копилки»: выбор суммы при копилке 90 мин", async ({ page }) => {
+  await mockProgram(page, {
+    mode: "mystats",
+    children: [child({ bonusBalance: 90, schedule: nightEveryDay })],
+    myChildId: 1,
+  });
+  await page.goto("/");
+  await page.getByRole("button", { name: "Взять из копилки" }).click();
+  const dialog = page.getByRole("dialog", { name: "Взять из копилки" });
+  for (const name of ["15 мин", "30 мин", "60 мин", "Всё: 90 мин"]) {
+    await expect(dialog.getByRole("button", { name })).toBeVisible();
+  }
+  await page.screenshot({ path: `${SCREENS}/s06-spend-choose-big.png` });
+});
+
+// s06 — запретные часы: «Взять из копилки» недоступна и называет час (урок L-17).
+test("s06 копилка в запретные часы недоступна с пояснением", async ({ page }) => {
+  await mockProgram(page, {
+    mode: "mystats",
+    children: [child({ bonusBalance: 45, schedule: nightEveryDay, forbiddenUntil: "Можно снова: сегодня в 07:00" })],
+    myChildId: 1,
+  });
+  await tallWindow(page, 2400);
+  await page.goto("/");
+  await expect(page.getByRole("button", { name: "Взять из копилки" })).toHaveAttribute("aria-disabled", "true");
+  await expect(page.getByText("Из копилки можно взять с 07:00")).toBeVisible();
+  await expect(page.getByText("Сегодня нельзя с 21:00 до 07:00")).toBeVisible();
+  await page.screenshot({ path: `${SCREENS}/s06-spend-forbidden.png`, fullPage: true });
+});
+
 // s06 — «Бонусы» у ребёнка: копилка, автобонус простыми словами, промокод (R25, R26).
 test("s06 бонусы ребёнка и промокод", async ({ page }) => {
   await tallWindow(page, 1000);

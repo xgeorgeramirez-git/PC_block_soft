@@ -18,7 +18,7 @@
 | `internal/service` | 17 (17) | service — служба PCBlock: фоновая часть, которая считает время за компьютером, |
 | `internal/service/winhost` | 19 (1) | winhost — Windows-обвязка службы PCBlock: всё, что внутри internal/service |
 | `internal/storage` | 5 (5) | storage — хранилище программы: SQLite в режиме WAL (ТЗ 3.1, 3.4, 4), драйвер на чистом Go. |
-| `internal/systray` | 12 (6) | systray — значок у часов и мини-панель: надпись остатка, подсказка, цвет статуса, |
+| `internal/systray` | 17 (9) | systray — значок у часов и мини-панель: надпись остатка, подсказка, цвет статуса, |
 | `internal/ui` | 3 (1) | ui — окно программы на Wails: запуск окна и методы, доступные интерфейсу. |
 | `internal/version` | 1 (1) | version хранит номер версии программы. |
 | `internal/winsession` | 5 (0) | winsession запускает процессы в интерактивных сеансах Windows: |
@@ -33,6 +33,7 @@
 - `src/App.tsx`
 - `src/__mocks__/backend.ts`
 - `src/api.ts`
+- `src/components/AskMoreDialog.tsx`
 - `src/components/DayStrip.tsx`
 - `src/components/Dialog.tsx`
 - `src/components/GrantBonusForm.tsx`
@@ -44,6 +45,7 @@
 - `src/components/SaveBar.tsx`
 - `src/components/ScheduleEditor.tsx`
 - `src/components/ServiceNotices.tsx`
+- `src/components/SpendBonusDialog.tsx`
 - `src/components/TextField.tsx`
 - `src/components/usePause.ts`
 - `src/global.d.ts`

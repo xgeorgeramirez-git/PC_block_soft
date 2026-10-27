@@ -100,6 +100,7 @@ p {
   display: flex;
   flex-direction: column;
   height: 100%;
+  overflow: hidden;
 }
 
 .topbar {
@@ -109,6 +110,24 @@ p {
   padding: var(--space-3) var(--space-6);
   background: var(--surface);
   border-bottom: 1px solid var(--line);
+  /* Шапка читается отдельной полосой: прокручиваемое содержимое не сливается с названием. */
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+}
+
+/* Прокладка между шапкой и областью прокрутки: 16 px фона над ней вне прокрутки. Содержимое
+   срезается на границе внутренней области, а не у шапки, и не зависит от схлопывания полей. */
+.content-frame {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  padding-top: var(--space-4);
+  overflow: hidden;
+}
+
+.content-frame > .content {
+  flex: 1;
+  margin-top: 0;
 }
 
 .topbar-spacer {
@@ -200,6 +219,11 @@ p {
   min-height: 0;
   overflow-y: auto;
   padding: var(--space-8);
+  /* Зазор между шапкой и областью прокрутки вне неё: при любой прокрутке блок обрезается не у самой
+     шапки, а на 16 px ниже, и не прилипает к названию. */
+  padding-top: var(--space-4);
+  margin-top: var(--space-4);
+  scroll-padding-top: var(--space-4);
 }
 
 /* Рабочая область не растягивается на всю ширину большого окна и не жмётся в ленту:
@@ -215,7 +239,7 @@ p {
   display: flex;
   justify-content: center;
   align-items: flex-start;
-  padding-top: var(--space-8);
+  padding-top: var(--space-4);
 }
 
 .overlay {
@@ -693,6 +717,71 @@ p {
 
 .stat-row-muted {
   color: var(--text-muted);
+}
+
+.stat-row-lead dt,
+.stat-row-lead dd {
+  font-weight: 600;
+}
+
+/* «Настройки для родителя» внизу окна ребёнка: мелкая ссылка, а не кнопка (ТЗ 8.2.6 п.1). */
+/* Только внутри окна ребёнка прокручивается страница, а не документ: клавиши End и PageDown не
+   уводят окно за конец содержимого. */
+html:has(.shell-child),
+html:has(.shell-child) body {
+  overflow: hidden;
+}
+
+.content:focus {
+  outline: none;
+}
+
+.my-foot {
+  /* Обычный блок в самом конце страницы: ничего не накрывает при любой высоте окна и прокрутке
+     (ТЗ 8.2.6 п.1). Страница прокручивается до него. */
+  margin: var(--space-6) 0 0;
+  padding: var(--space-3) 0 0;
+  border-top: 1px solid var(--line);
+}
+
+.my-foot .link {
+  color: var(--text-muted);
+  text-decoration: underline;
+}
+
+/* Причина, по которой кнопка недоступна: заметная строка рядом с кнопкой, а не серая подсказка. */
+.spend-note {
+  margin: var(--space-3) 0 0;
+  padding: var(--space-2) var(--space-3);
+  border-left: 4px solid var(--status-warn);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 16px;
+  font-weight: 600;
+}
+
+/* Недоступная кнопка: приглушена и без отклика на наведение, но остаётся в Tab-порядке, чтобы
+   пояснение зачитывалось по фокусу (aria-describedby). */
+.btn[aria-disabled="true"] {
+  border-style: dashed;
+  color: var(--text-muted);
+  background: transparent;
+  cursor: not-allowed;
+}
+
+.ask-presets {
+  margin-bottom: var(--space-3);
+}
+
+.ask-custom {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-2);
+}
+
+.ask-custom .field {
+  margin-bottom: 0;
 }
 
 .my-rules {

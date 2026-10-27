@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { getBonus, myToday } from "../api";
+import { getBonus, myToday, openWindow } from "../api";
+import AskMoreDialog from "../components/AskMoreDialog";
 import Notice from "../components/Notice";
 import PromoRedeem from "../components/PromoRedeem";
+import SpendBonusDialog from "../components/SpendBonusDialog";
 import { historyText } from "../lib/bonus";
 import { childErrorText } from "../lib/errors";
 import { formatDuration, formatEventTime, formatLimit, weekdayName } from "../lib/format";
-import { summaryLines, todayRuleWeekday } from "../lib/mytoday";
+import { spendBlockedNote, summaryLines, todayRows, todayRuleWeekday } from "../lib/mytoday";
 import type { GetBonusReply, MyTodayReply } from "../types";
 
 const LOAD_ERROR = "Не удалось получить данные. Попробуй через минуту";
@@ -13,6 +15,7 @@ const NO_DATA = "За этот период пока нет данных";
 const PERIODS = ["Сегодня", "Неделя", "Месяц", "Год", "Всё время"] as const;
 const PERIODS_NOTE = "Неделя, месяц, год и всё время появятся в полной статистике";
 const NOT_COUNTED = "Пока не считается";
+const OPEN_FAILED = "Не получилось открыть окно. Попробуй ещё раз";
 const END_MODE = "Когда время выйдет, экран закроется блокировкой. Открытые окна останутся под ней.";
 
 /** Окно «Моя статистика» (FR-12, R21, сценарий 8.2.6): только просмотр, свои данные, в M1 - сегодня и правила. */
@@ -20,6 +23,9 @@ export default function MyStats() {
   const [data, setData] = useState<MyTodayReply | null>(null);
   const [bonus, setBonus] = useState<GetBonusReply | null>(null);
   const [error, setError] = useState("");
+  const [dialog, setDialog] = useState<"ask" | "spend" | null>(null);
+  const [done, setDone] = useState("");
+  const [openError, setOpenError] = useState("");
   const alive = useRef(true);
 
   const load = useCallback(async () => {
@@ -52,6 +58,21 @@ export default function MyStats() {
     };
   }, [load]);
 
+  const finish = (message: string) => {
+    setDialog(null);
+    setDone(message);
+    void load();
+  };
+
+  const openParent = async () => {
+    setOpenError("");
+    try {
+      await openWindow("parent");
+    } catch {
+      setOpenError(OPEN_FAILED);
+    }
+  };
+
   return (
     <div className="my-stats">
       <div className="page-head">
@@ -67,6 +88,13 @@ export default function MyStats() {
       {error ? (
         <Notice tone="warn" urgent>
           {error}
+        </Notice>
+      ) : null}
+
+      {done ? <Notice tone="ok">{done}</Notice> : null}
+      {openError ? (
+        <Notice tone="warn" urgent>
+          {openError}
         </Notice>
       ) : null}
 
@@ -100,11 +128,24 @@ export default function MyStats() {
         error ? null : <p className="panel-text">Загружаю данные</p>
       ) : (
         <div id="period-panel" role="tabpanel" aria-labelledby="period-Сегодня">
+          {data.status.status === "notChild" ? null : (
+            <Remaining data={data} onAsk={() => setDialog("ask")} onSpend={() => setDialog("spend")} />
+          )}
           <Totals data={data} />
           {data.status.status === "notChild" ? null : <Bonuses bonus={bonus} onChange={() => void load()} />}
           <Rules data={data} />
+          <p className="my-foot">
+            <button type="button" className="btn link" onClick={() => void openParent()}>
+              Настройки для родителя
+            </button>
+          </p>
         </div>
       )}
+
+      {dialog === "ask" ? <AskMoreDialog childId={bonus?.childId ?? null} onDone={finish} onClose={() => setDialog(null)} /> : null}
+      {dialog === "spend" && data ? (
+        <SpendBonusDialog balance={data.status.bonusBalance} onDone={finish} onClose={() => setDialog(null)} />
+      ) : null}
     </div>
   );
 }
@@ -113,6 +154,56 @@ function LOAD_ERROR_FOR(e: unknown): string {
   const text = childErrorText(e);
   // Связь с программой оборвалась: тот же текст, что в мини-панели (8.2.1 п.5).
   return text.startsWith("Программа не отвечает") ? LOAD_ERROR : text;
+}
+
+/**
+ * «Сколько осталось» и кнопки «Попросить ещё» / «Взять из копилки» (ТЗ 8.2.6 п.1, FR-10, FR-11, D-53).
+ * Недоступная кнопка остаётся на месте и объясняет почему (урок L-17).
+ */
+export function Remaining({ data, onAsk, onSpend }: { data: MyTodayReply; onAsk: () => void; onSpend: () => void }) {
+  const rows = todayRows(data.status);
+  const note = spendBlockedNote(data.status, data.status.bonusBalance);
+  return (
+    <>
+      <section className="panel stat-panel" aria-labelledby="my-left">
+        <h3 id="my-left" className="section-title">
+          Сколько осталось
+        </h3>
+        <dl className="stat-list">
+          {rows.map((r, i) => (
+            <div key={r.label} className={i === 0 ? "stat-row stat-row-lead" : "stat-row"}>
+              <dt>{r.label}</dt>
+              <dd>{r.value}</dd>
+            </div>
+          ))}
+        </dl>
+      </section>
+      <section className="panel stat-panel" aria-labelledby="my-more">
+        <h3 id="my-more" className="section-title">
+          Нужно больше времени?
+        </h3>
+        <div className="action-row">
+          <button type="button" className="btn btn-primary" onClick={onAsk}>
+            Попросить ещё
+          </button>
+          <button
+            type="button"
+            className="btn"
+            aria-disabled={note ? "true" : undefined}
+            aria-describedby={note ? "spend-note" : undefined}
+            onClick={note ? undefined : onSpend}
+          >
+            Взять из копилки
+          </button>
+        </div>
+        {note ? (
+          <p id="spend-note" className="spend-note" role="note">
+            {note}
+          </p>
+        ) : null}
+      </section>
+    </>
+  );
 }
 
 export function Totals({ data }: { data: MyTodayReply }) {
@@ -133,7 +224,7 @@ export function Totals({ data }: { data: MyTodayReply }) {
           ))}
           <dl className="stat-list">
             <div className="stat-row">
-              <dt>Всего</dt>
+              <dt>Использовано сегодня</dt>
               <dd>{formatDuration(data.status.usedS)}</dd>
             </div>
             {["Игры", "Видео и соцсети", "Учёба"].map((label) => (

@@ -176,6 +176,14 @@ export interface RedeemPromoReply {
   message: string;
 }
 
+/** Окна, которые окно ребёнка просит у службы (internal/ipc.OpenWindowRequest.Kind). */
+export type WindowKind = "parent" | "mystats" | "firstrun";
+
+export interface OpenWindowReply {
+  /** Окно запущено или уже открыто. */
+  opened: boolean;
+}
+
 export interface OpenLogsReply {
   path: string;
   message: string;
