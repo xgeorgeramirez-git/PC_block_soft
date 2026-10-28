@@ -15,7 +15,7 @@
 | `internal/guidance` | 2 (1) | guidance хранит каталог Помощника (FR-34, ТЗ 8.4 и 10.9) и проверяет его. |
 | `internal/ipc` | 12 (6) | ipc — канал связи службы программы с её окнами, стражем сеанса и значком на том |
 | `internal/launch` | 1 (1) | launch разбирает ключи запуска программы: в каком режиме работает PCBlock.exe. |
-| `internal/service` | 17 (17) | service — служба PCBlock: фоновая часть, которая считает время за компьютером, |
+| `internal/service` | 17 (18) | service — служба PCBlock: фоновая часть, которая считает время за компьютером, |
 | `internal/service/winhost` | 19 (1) | winhost — Windows-обвязка службы PCBlock: всё, что внутри internal/service |
 | `internal/storage` | 5 (5) | storage — хранилище программы: SQLite в режиме WAL (ТЗ 3.1, 3.4, 4), драйвер на чистом Go. |
 | `internal/systray` | 17 (9) | systray — значок у часов и мини-панель: надпись остатка, подсказка, цвет статуса, |

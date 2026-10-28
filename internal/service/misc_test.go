@@ -368,7 +368,7 @@ func TestGarbagePayloadIsBadRequest(t *testing.T) {
 	for cmd, who := range map[string]ipc.Peer{
 		ipc.CmdSetup: elevatedPeer(), ipc.CmdResetPassword: elevatedPeer(), ipc.CmdUninstallCheck: elevatedPeer(),
 		ipc.CmdOpenWindow: childPeer(), ipc.CmdWindowClosing: childPeer(), ipc.CmdLogin: adminPeer(),
-		ipc.CmdTestClock: adminPeer(), ipc.CmdTestGuard: adminPeer(), ipc.CmdGuardPoll: guardPeer(),
+		ipc.CmdTestClock: adminPeer(), ipc.CmdTestGuard: adminPeer(), ipc.CmdTestSession: adminPeer(), ipc.CmdGuardPoll: guardPeer(),
 	} {
 		if cmd == ipc.CmdSetup {
 			h2 := newHarness(t)
@@ -380,7 +380,7 @@ func TestGarbagePayloadIsBadRequest(t *testing.T) {
 			continue
 		}
 		hh := h
-		if cmd == ipc.CmdTestClock || cmd == ipc.CmdTestGuard {
+		if cmd == ipc.CmdTestClock || cmd == ipc.CmdTestGuard || cmd == ipc.CmdTestSession {
 			hh = newHarness(t, withTestMode(TestMode{ClockSpeed: 1}))
 			hh.start()
 		}

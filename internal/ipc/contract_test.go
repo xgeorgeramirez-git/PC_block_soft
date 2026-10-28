@@ -284,8 +284,9 @@ func examples() map[string]example {
 		CmdGuardClosing:    ok(nil, Empty{}),
 		CmdTrayClosing:     ok(nil, Empty{}),
 
-		CmdTestGuard: ok(TestGuardRequest{SessionID: 2, Action: TestGuardAction{Action: TestClick, Target: ButtonParentPassword}}, Empty{}),
-		CmdTestClock: ok(TestClockRequest{Paused: true}, TestClockReply{Paused: true, NowMs: t0, Speed: 60}),
+		CmdTestGuard:   ok(TestGuardRequest{SessionID: 2, Action: TestGuardAction{Action: TestClick, Target: ButtonParentPassword}}, Empty{}),
+		CmdTestClock:   ok(TestClockRequest{Paused: true}, TestClockReply{Paused: true, NowMs: t0, Speed: 60}),
+		CmdTestSession: ok(TestSessionRequest{Event: TestSessionLogoff, SessionID: 7, SID: "S-1-5-21-1-2-3-1001"}, Empty{}),
 		CmdGuardState: ok(nil, GuardStateReply{
 			Warnings:  []ShownWarning{{AtMs: t0 - 60_000, Threshold: 1, Text: "Осталась 1 минута: 0:59"}},
 			Sounds:    []ShownSound{{AtMs: t0 - 60_000, Threshold: 1, OK: true}},
@@ -352,8 +353,8 @@ func TestContractHasEveryCommand(t *testing.T) {
 			t.Errorf("пример для %s есть, а в AllCommands её нет", c)
 		}
 	}
-	if len(AllCommands) != 58 {
-		t.Errorf("команд %d, ждали 58 (48 из M1/M2/0.2.1, 9 из фидбек-раунда 0.2.2: OpenLogs, SetNoForbidden, ClearBonus, ReduceBonus, CreatePromo, ListPromos, RedeemPromo, GetBonusRate, SetBonusRate, и GuardClosing из раунда 0.2.3)", len(AllCommands))
+	if len(AllCommands) != 59 {
+		t.Errorf("команд %d, ждали 59 (48 из M1/M2/0.2.1, 9 из фидбек-раунда 0.2.2: OpenLogs, SetNoForbidden, ClearBonus, ReduceBonus, CreatePromo, ListPromos, RedeemPromo, GetBonusRate, SetBonusRate, GuardClosing из раунда 0.2.3 и тестовая TestSession из 0.2.5)", len(AllCommands))
 	}
 }
 
