@@ -251,7 +251,7 @@ func TestCatalog025Coverage(t *testing.T) {
 		t.Fatalf("N-0.2.5: %+v", *n)
 	}
 	all := strings.Join(n.Items, " | ")
-	for _, want := range []string{"30, 15, 5 и 1", "табло", "сигнал", "5 секунд", "1 минуту остаётся", "смены пользователя", "обходом защиты"} {
+	for _, want := range []string{"30, 15, 5 и 1", "табло", "сигнал", "5 секунд", "1 минуту остаётся", "смене пользователя", "обходом защиты"} {
 		if !strings.Contains(all, want) {
 			t.Errorf("N-0.2.5 без «%s»: %s", want, all)
 		}
