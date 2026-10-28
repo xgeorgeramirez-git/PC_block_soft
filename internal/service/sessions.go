@@ -43,16 +43,18 @@ type pendingBypass struct {
 	away      bool          // сеанс был отключён (смена пользователя): ребёнка за компьютером нет (FB-5)
 }
 
-// logoffMark — выход из учётки в сеансе Windows: номер сеанса (SessionUnknown, если не прочитан)
-// и момент события (FB-5).
+// logoffMark — конец сеанса, в котором служба знала пользователя: выход из учётки или исчезновение
+// сеанса из списка Windows (FB-5). Сеансы без пользователя (экран входа) и выход с неизвестным
+// номером сеанса отметок не дают: по ним нельзя сказать, что вышел другой человек.
 type logoffMark struct {
-	sessionID uint32
-	at        time.Time
+	sid string
+	at  time.Time
 }
 
-// foreignLogoffNear — насколько выход из другого сеанса может отстоять от гибели в отключённом
-// сеансе ребёнка, чтобы гибель считалась следствием выхода, а не обходом (FB-5). Windows
-// закрывает процессы раньше и позже события выхода в пределах нескольких секунд.
+// foreignLogoffNear — насколько конец сеанса другого пользователя может отстоять от гибели в
+// отключённом сеансе ребёнка, чтобы гибель считалась его следствием, а не обходом (FB-5). Гибель
+// после конца сеанса учитывается в пределах этого окна; гибель до него — пока ожидание не
+// превратилось в запись (5 с, после «закрываюсь» стража 30 с).
 const foreignLogoffNear = 10 * time.Second
 
 // wait возвращает срок решения по этому ожиданию.
@@ -102,8 +104,10 @@ func (s *Service) onSession(ev SessionEvent, id uint32, real time.Time) {
 		// записываем (FB-1). Номер сеанса неизвестен: вслепую ничего не снимаем, исчезнувший
 		// сеанс сверка уберёт сама (dropSession снимает его ожидания). Выход запоминается:
 		// гибель рядом с ним в отключённом сеансе ребёнка обходом не считается (FB-5).
-		s.noteLogoff(id, real)
 		if id != SessionUnknown {
+			if ss := s.sessions[id]; ss != nil {
+				s.noteLogoff(ss.sid, real)
+			}
 			if ss := s.sessions[id]; ss != nil {
 				s.expectSessionProcs(ss)
 			}
@@ -259,6 +263,7 @@ func (s *Service) sessionOrder() []uint32 {
 
 // dropSession завершает то, что осталось в исчезнувшем сеансе, и забывает его.
 func (s *Service) dropSession(ss *sessState) {
+	s.noteLogoff(ss.sid, s.real)
 	s.cancelBypass(ss.id, "сеанс исчез или в нём другой пользователь")
 	s.stopSession(ss)
 	for _, ps := range s.parents {
@@ -424,24 +429,28 @@ func (s *Service) deferBypass(ss *sessState, detail, subtype string, real time.T
 	s.vlogf("Обход в сеансе %d поставлен в ожидание на %d с (сеанс отключён: %v): %s", ss.id, int(grace/time.Second), away, detail)
 }
 
-// noteLogoff запоминает выход из учётки (FB-5). Хранятся только свежие отметки: старше
-// closingLife + foreignLogoffNear ни одно ожидание их уже не спросит.
-func (s *Service) noteLogoff(id uint32, real time.Time) {
+// noteLogoff запоминает конец сеанса пользователя sid (FB-5); пустой sid (сеанс без пользователя)
+// не запоминается. Хранятся только свежие отметки: старше closingLife + foreignLogoffNear ни
+// одно ожидание их уже не спросит.
+func (s *Service) noteLogoff(sid string, real time.Time) {
+	if sid == "" || real.IsZero() {
+		return
+	}
 	keep := s.logoffs[:0]
 	for _, m := range s.logoffs {
 		if real.Sub(m.at) <= closingLife+foreignLogoffNear {
 			keep = append(keep, m)
 		}
 	}
-	s.logoffs = append(keep, logoffMark{sessionID: id, at: real})
+	s.logoffs = append(keep, logoffMark{sid: sid, at: real})
 }
 
-// otherLogoffNear: рядом с гибелью (не дальше foreignLogoffNear в обе стороны) вышел из учётки
-// другой сеанс или сеанс с непрочитанным номером. Так бывает, когда родитель выходит из своей
-// учётки, а сеанс ребёнка отключён сменой пользователя (FB-5).
+// otherLogoffNear: рядом с гибелью (см. foreignLogoffNear) закончился сеанс другого
+// пользователя. Так бывает, когда родитель выходит из своей учётки, а сеанс ребёнка отключён
+// сменой пользователя (FB-5).
 func (s *Service) otherLogoffNear(p pendingBypass) bool {
 	for _, m := range s.logoffs {
-		if m.sessionID == p.sessionID {
+		if m.sid == p.sid {
 			continue
 		}
 		d := m.at.Sub(p.at)

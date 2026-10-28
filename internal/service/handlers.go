@@ -1015,6 +1015,9 @@ func (s *Service) hTestSession(c *callCtx) ipc.Reply {
 		return bad()
 	}
 	s.cfg.Logf("Тестовое событие сеанса %d: %s", req.SessionID, req.Event)
+	if ev == SessionLogoff && req.SID != "" && s.sessions[req.SessionID] == nil {
+		s.noteLogoff(req.SID, c.real)
+	}
 	s.onSession(ev, req.SessionID, c.real)
 	return ipc.OK(ipc.Empty{})
 }

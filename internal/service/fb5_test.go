@@ -179,10 +179,24 @@ func TestTestSessionCommandFeedsSessionEvents(t *testing.T) {
 		h.ok(adminPeer(), "", ipc.CmdTestSession, ipc.TestSessionRequest{Event: ipc.TestSessionDisconnect, SessionID: childSession}, nil)
 		h.launcher.kill(h.launcher.aliveOf(ProcGuard, childSession)[0])
 		h.hk(1)
-		h.ok(adminPeer(), "", ipc.CmdTestSession, ipc.TestSessionRequest{Event: ipc.TestSessionLogoff, SessionID: 99}, nil)
+		h.ok(adminPeer(), "", ipc.CmdTestSession, ipc.TestSessionRequest{Event: ipc.TestSessionLogoff, SessionID: 99, SID: parentSID}, nil)
 		h.hk(40)
 		if n := h.bypassCount(); n != 0 {
 			t.Fatalf("записей об обходе %d; want 0", n)
+		}
+	})
+	t.Run("выход незнакомого сеанса без SID пользователя: запись есть", func(t *testing.T) {
+		h := newHarness(t, withChild(childSID, "Миша", 120), withTestMode(TestMode{ClockSpeed: 1}))
+		h.start()
+		h.childLogsIn()
+		h.hk(2)
+		h.ok(adminPeer(), "", ipc.CmdTestSession, ipc.TestSessionRequest{Event: ipc.TestSessionDisconnect, SessionID: childSession}, nil)
+		h.launcher.kill(h.launcher.aliveOf(ProcGuard, childSession)[0])
+		h.hk(1)
+		h.ok(adminPeer(), "", ipc.CmdTestSession, ipc.TestSessionRequest{Event: ipc.TestSessionLogoff, SessionID: 99}, nil)
+		h.hk(40)
+		if n := h.bypassCount(); n != 1 {
+			t.Fatalf("записей об обходе %d; want 1", n)
 		}
 	})
 	t.Run("контроль: только отключение, без выхода другого сеанса, запись есть", func(t *testing.T) {
@@ -197,4 +211,49 @@ func TestTestSessionCommandFeedsSessionEvents(t *testing.T) {
 			t.Fatalf("записей об обходе %d; want 1", n)
 		}
 	})
+}
+
+// Ловит лазейку (ревью FB-5): ребёнок запускает отложенное закрытие значка, жмёт «Сменить
+// пользователя» и возвращается в свою учётку. Временный сеанс экрана входа (без пользователя)
+// завершается событием выхода с другим номером, а выход с неизвестным номером не говорит, кто
+// вышел: ни то ни другое не выход другого пользователя, запись остаётся.
+func TestLogoffWithoutOtherUserKeepsBypass(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		id   uint32
+	}{{"экран входа без пользователя", 7}, {"номер сеанса неизвестен", SessionUnknown}} {
+		t.Run(c.name, func(t *testing.T) {
+			h := newHarness(t, withChild(childSID, "Миша", 120))
+			h.start()
+			h.launcher.setSessions(SessionInfo{ID: childSession, User: `PC\Миша`, SID: childSID, Screen: ScreenOn})
+			h.svc.OnSession(SessionLogon, childSession, h.real.Now())
+			h.hk(2)
+			h.svc.OnSession(SessionDisconnect, childSession, h.real.Now())
+			h.launcher.setSessions(SessionInfo{ID: childSession, User: `PC\Миша`, SID: childSID, Screen: ScreenOff})
+			h.hk(1)
+			h.launcher.kill(h.launcher.aliveOf(ProcTray, childSession)[0])
+			h.hk(1)
+			h.svc.OnSession(SessionLogoff, c.id, h.real.Now())
+			h.hk(10)
+			if n := h.bypassCount(); n != 1 {
+				t.Fatalf("записей об обходе %d; want 1", n)
+			}
+		})
+	}
+}
+
+// Ловит: сеанс родителя исчез из списка Windows раньше, чем пришло событие выхода (или событие
+// потерялось), и исправление FB-5 не срабатывает.
+func TestParentSessionVanishedCountsAsLogoff(t *testing.T) {
+	h := newHarness(t, withChild(childSID, "Миша", 120))
+	h.start()
+	h.childAwayParentIn()
+	h.launcher.kill(h.launcher.aliveOf(ProcGuard, childSession)[0])
+	h.launcher.setSessions(SessionInfo{ID: childSession, User: `PC\Миша`, SID: childSID, Screen: ScreenOff})
+	h.hk(1)
+	h.svc.OnSession(SessionLogoff, parentSessionFB5, h.real.Now())
+	h.hk(60)
+	if n := h.bypassCount(); n != 0 {
+		t.Fatalf("записей об обходе %d; want 0: %+v", n, h.store.eventsOf("bypass"))
+	}
 }

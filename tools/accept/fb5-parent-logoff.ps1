@@ -13,8 +13,13 @@ $ErrorActionPreference = "Stop"
 
 $script:EndPattern = 'обойти защиту|Защита программы была остановлена|закрыто не кнопкой окна'
 
-function Send-TestSession([string]$Event, [int]$SessionId) {
-  $r = Send-Pcb "TestSession" @{ event = $Event; sessionId = $SessionId }
+# Пользователь, чей выход изображается: в CI второго пользователя нет, служба знает его только по SID.
+$script:OtherSid = "S-1-5-21-1000-1000-1000-1099"
+
+function Send-TestSession([string]$Event, [int]$SessionId, [string]$Sid = "") {
+  $p = @{ event = $Event; sessionId = $SessionId }
+  if ($Sid) { $p.sid = $Sid }
+  $r = Send-Pcb "TestSession" $p
   Assert-Reply $r "TestSession $Event $SessionId"
   Write-Log "Тестовое событие сеанса ${SessionId}: $Event"
 }
@@ -32,7 +37,7 @@ function Stop-GuardWhileAway {
     ($now.Count -eq 1) -and ([int]$now[0].ProcessId -ne $killPid)
   } 15 "страж перезапущен после принудительного завершения"
   Write-Log ("Страж перезапущен через {0:N1} с" -f $sw.Elapsed.TotalSeconds)
-  Assert-That ($sw.Elapsed.TotalSeconds -le 4) ("Страж перезапущен через {0:N1} с, ждали не больше 3 (FR-27)" -f $sw.Elapsed.TotalSeconds)
+  Assert-That ($sw.Elapsed.TotalSeconds -le 4) ("Страж перезапущен через {0:N1} с, ждали не больше 3 (FR-27; +1 с на опрос и taskkill)" -f $sw.Elapsed.TotalSeconds)
 }
 
 Invoke-Scenario "FB5" "Выход родителя при отключённом сеансе ребёнка: записи об обходе нет" {
@@ -49,7 +54,7 @@ Invoke-Scenario "FB5" "Выход родителя при отключённом
 
   Step "Сеанс ребёнка отключён, страж погиб, другой сеанс вышел из учётки: страж вернулся" {
     Stop-GuardWhileAway
-    Send-TestSession "logoff" 99
+    Send-TestSession "logoff" 99 $script:OtherSid
   }
 
   Step "Через 40 с в журнале нет записи об обходе" {

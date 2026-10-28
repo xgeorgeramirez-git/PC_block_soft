@@ -620,7 +620,10 @@ type TestGuardRequest struct {
 // которого можно было бы сделать по-настоящему, а сеанс раннера сам возвращается на экран.
 type TestSessionRequest struct {
 	Event     string `json:"event"`     // TestSession*
-	SessionID uint32 `json:"sessionId"` // номер сеанса; для выхода годится и несуществующий
+	SessionID uint32 `json:"sessionId"` // номер сеанса
+	// SID — пользователь сеанса, который выходит, если служба этот сеанс не знает (в CI нет второго
+	// пользователя): выход засчитывается как конец сеанса этого пользователя (FB-5).
+	SID string `json:"sid,omitempty"`
 }
 
 // События TestSession.
