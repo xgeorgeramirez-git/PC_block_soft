@@ -48,6 +48,7 @@ type Controller struct {
 	sounds    []ipc.ShownSound // сыгранные звуки (журнал для GuardState, только тестовый режим)
 	soundID   int              // ID плашки, для которой звук уже сыгран
 	play      func() bool      // проиграть звук предупреждения; true — Windows принял звук
+	soundQ    chan int         // номера записей журнала звуков для исполнителя звука; nil — исполнитель не запущен
 	speed     int              // ускорение часов ядра, сообщённое окном; модели передаётся только в тестовом режиме
 	curThr    int              // порог плашки, которая показана сейчас; 0 — плашки нет или она не про порог
 	seenPlate int              // ID последней плашки, о которой уже известно
@@ -400,30 +401,52 @@ func (c *Controller) View() View {
 }
 
 // playDue играет звук один раз на каждую новую плашку предупреждения (D-55): решение
-// SoundDue модели, окно только исполняет. Звук асинхронный и не держит поток окон; его отказ
-// (нет звуковой карты) показ плашки не трогает. В тестовом режиме звук и ответ Windows
-// пишутся в журнал для GuardState.
+// SoundDue модели, окно только исполняет. Звук уходит исполнителю в своей горутине: PlaySoundW
+// может не вернуться сразу (раннер без звуковой карты, смена звука), а поток окон ждать не должен,
+// иначе плашка 1 мин не сменит табло (CI 40751015930). Его отказ показ плашки не трогает. В
+// тестовом режиме звук пишется в журнал сразу, ответ Windows (OK) дописывается, когда придёт.
 func (c *Controller) playDue(now time.Time, w *WarningView) {
 	c.mu.Lock()
+	defer c.mu.Unlock()
 	if !SoundDue(c.soundID, w) {
-		c.mu.Unlock()
 		return
 	}
 	c.soundID = w.ID
-	play := c.play
-	c.mu.Unlock()
-	ok := false
-	if play != nil {
-		safely(func() { ok = play() })
+	if c.play == nil {
+		return
 	}
-	c.mu.Lock()
+	idx := -1
 	if c.testMode {
-		c.sounds = append(c.sounds, ipc.ShownSound{AtMs: now.UnixMilli(), Threshold: w.Threshold, OK: ok})
+		c.sounds = append(c.sounds, ipc.ShownSound{AtMs: now.UnixMilli(), Threshold: w.Threshold})
 		if len(c.sounds) > maxSoundLog {
 			c.sounds = c.sounds[len(c.sounds)-maxSoundLog:]
 		}
+		idx = len(c.sounds) - 1
 	}
-	c.mu.Unlock()
+	if c.soundQ == nil {
+		c.soundQ = make(chan int, 8)
+		go c.soundLoop(c.play, c.soundQ)
+	}
+	select {
+	case c.soundQ <- idx:
+	default: // очередь полна: звуки идут чаще, чем Windows их принимает; лишний пропускается
+	}
+}
+
+// soundLoop играет звуки по одному (PlaySoundW не любит одновременных вызовов) и дописывает
+// ответ Windows в журнал. Записи журнала могли сдвинуться при обрезке до maxSoundLog: тогда
+// ответ теряется, а не попадает к чужой записи.
+func (c *Controller) soundLoop(play func() bool, q <-chan int) {
+	for idx := range q {
+		ok := false
+		safely(func() { ok = play() })
+		c.mu.Lock()
+		if idx >= 0 && idx < len(c.sounds) && len(c.sounds) < maxSoundLog {
+			c.sounds[idx].OK = ok
+		}
+		c.mu.Unlock()
+		c.wake()
+	}
 }
 
 // Notice возвращает короткий ответ под заголовком экрана («Не удалось выполнить…»); пусто,

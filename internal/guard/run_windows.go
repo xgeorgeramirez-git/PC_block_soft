@@ -5,6 +5,7 @@ package guard
 import (
 	"errors"
 	"fmt"
+	"log"
 	"runtime"
 	"strconv"
 	"sync"
@@ -28,6 +29,8 @@ const (
 	dialTimeout = 2 * time.Second // сколько ждать канал службы за один заход
 
 	closingTimeout = 2 * time.Second // сколько ждать службу при конце сеанса: сеанс не должен ждать дольше (FB-1)
+
+	boardRetry = time.Minute // окно табло не создалось: следующая попытка не раньше (не каждый кадр 250 мс)
 )
 
 var (
@@ -50,6 +53,7 @@ type app struct {
 	ui        *lockUI
 	plate     *plateWindow
 	board     *systray.WarningCard
+	boardFail time.Time // когда не удалось создать окно табло; повтор не чаще boardRetry
 	hookTried bool
 }
 
@@ -331,22 +335,23 @@ func (a *app) applyLock(v View) {
 // applyPlate показывает плашку предупреждения или прячет её: табло за 30/15/5 мин — общей
 // карточкой (systray.WarningCard, R-2), плашку 1 мин и «Добавлено N минут» — текстовым окном.
 func (a *app) applyPlate(v View) {
-	w := v.Warning
-	var board, text *WarningView
-	if w != nil && w.Board != nil {
-		board = w
-	} else {
-		text = w
-	}
+	board, text := SplitPlate(v.Warning)
 	if board == nil {
 		if a.board != nil {
 			a.board.Hide()
 		}
 	} else {
-		if a.board == nil {
+		if a.board == nil && (a.boardFail.IsZero() || time.Since(a.boardFail) >= boardRetry) {
 			c, err := systray.NewWarningCard(func() { a.press(ButtonWarningClose) })
 			if err == nil {
-				a.board = c
+				a.board, a.boardFail = c, time.Time{}
+			} else {
+				if a.boardFail.IsZero() {
+					// Один раз за серию отказов: у стража нет своего журнала, строка идёт в stderr
+					// процесса (виден в отладке и в тестовом режиме); показ плашек это не останавливает.
+					log.Printf("PC Block, страж: окно табло предупреждения не создано: %v", err)
+				}
+				a.boardFail = time.Now()
 			}
 		}
 		if a.board != nil {

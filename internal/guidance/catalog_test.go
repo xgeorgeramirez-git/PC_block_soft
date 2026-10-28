@@ -251,12 +251,13 @@ func TestCatalog025Coverage(t *testing.T) {
 		t.Fatalf("N-0.2.5: %+v", *n)
 	}
 	all := strings.Join(n.Items, " | ")
-	for _, want := range []string{"30, 15, 5 и 1", "табло", "сигнал", "5 секунд", "1 минуту остаётся", "смена пользователя", "попытка обойти защиту"} {
+	for _, want := range []string{"30, 15, 5 и 1", "табло", "сигнал", "5 секунд", "1 минуту остаётся", "смены пользователя", "обходом защиты"} {
 		if !strings.Contains(all, want) {
 			t.Errorf("N-0.2.5 без «%s»: %s", want, all)
 		}
 	}
-	if h.Kind != KindHint || h.Anchor != "limits-table" || !strings.Contains(h.Body, "30, 15, 5 и 1") || !strings.Contains(h.Title+h.Body, "звук") {
+	if h.Kind != KindHint || h.Anchor != "limits-table" || !strings.Contains(h.Body, "30, 15, 5 и 1") || !strings.Contains(h.Title+h.Body, "звук") ||
+		!strings.Contains(h.Body, "запретных часов") || !strings.Contains(h.Body, "паузы") {
 		t.Errorf("H-M2-08: %+v", *h)
 	}
 }

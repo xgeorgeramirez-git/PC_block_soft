@@ -1069,3 +1069,15 @@ func addedText(n int) string {
 	}
 	return fmt.Sprintf("%s %d %s", verb, n, minutesWord(n))
 }
+
+// SplitPlate решает, каким окном показать плашку: табло (общая карточка systray) или текстовым
+// окном (плашка 1 мин, «Добавлено N минут»). Ровно одно из двух не nil, если w не nil.
+func SplitPlate(w *WarningView) (board, text *WarningView) {
+	if w == nil {
+		return nil, nil
+	}
+	if w.Board != nil {
+		return w, nil
+	}
+	return nil, w
+}

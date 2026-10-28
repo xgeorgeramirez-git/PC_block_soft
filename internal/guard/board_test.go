@@ -1,6 +1,8 @@
 package guard
 
 import (
+	"fmt"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -131,8 +133,9 @@ func TestBoardDuplicateWarningOnePlate(t *testing.T) {
 func TestControllerSoundOncePerPlate(t *testing.T) {
 	r := newCtRig()
 	r.svc.test = true
-	played := 0
-	r.ctl.SetSoundPlayer(func() bool { played++; return false })
+	var playedN atomic.Int32
+	r.ctl.SetSoundPlayer(func() bool { playedN.Add(1); return false })
+	played := func() int { return waitPlayed(&playedN) }
 	r.svc.status = ctRunningStatus(1800)
 	r.svc.warns = []ipc.GuardWarning{ipc.NewGuardWarning(30)}
 	if v := r.poll(); v.Warning == nil || v.Warning.Board == nil {
@@ -142,8 +145,8 @@ func TestControllerSoundOncePerPlate(t *testing.T) {
 	r.clk.Advance(time.Second)
 	r.svc.status = ctRunningStatus(1799)
 	r.poll()
-	if played != 1 {
-		t.Fatalf("звук сыгран %d раз за одну плашку", played)
+	if played() != 1 {
+		t.Fatalf("звук сыгран %d раз за одну плашку", played())
 	}
 	r.clk.Advance(time.Second)
 	r.svc.status = ctRunningStatus(3600)
@@ -151,15 +154,15 @@ func TestControllerSoundOncePerPlate(t *testing.T) {
 	if v := r.poll(); v.Warning == nil || v.Warning.Text != "Добавлено 30 минут" {
 		t.Fatalf("«Добавлено» не показано: %+v", v.Warning)
 	}
-	if played != 1 {
-		t.Fatalf("звук на «Добавлено»: %d", played)
+	if played() != 1 {
+		t.Fatalf("звук на «Добавлено»: %d", played())
 	}
 	r.clk.Advance(time.Second)
 	r.svc.status = ctRunningStatus(60)
 	r.svc.warns = []ipc.GuardWarning{ipc.NewGuardWarning(1)}
 	r.poll()
-	if played != 2 {
-		t.Fatalf("звук за 1 мин не сыгран: %d", played)
+	if waitPlayedN(&playedN, 2) != 2 {
+		t.Fatalf("звук за 1 мин не сыгран: %d", playedN.Load())
 	}
 	r.ctl.mu.Lock()
 	st := StateFromView(r.ctl.last, r.ctl.lastLock, r.ctl.shown, r.ctl.sounds, r.ctl.fields)
@@ -201,4 +204,112 @@ func TestControllerCloseButtonAcks(t *testing.T) {
 	if ack != 1 {
 		t.Fatalf("подтверждений %d, события %+v", ack, req.Events)
 	}
+}
+
+// Ловит (CI 40751015930, S2 и S35): табло «за 5» ещё видно, через 4 с приходит порог 1 — плашка 1 мин
+// должна сменить табло (без крестика, новый ID) и звук за 1 играет один раз.
+func TestBoard5ReplacedByOneMinute(t *testing.T) {
+	r := newCtRig()
+	r.svc.test = true
+	var playedN atomic.Int32
+	r.ctl.SetSoundPlayer(func() bool { playedN.Add(1); return true })
+	r.svc.status = ctRunningStatus(300)
+	r.svc.warns = []ipc.GuardWarning{ipc.NewGuardWarning(5)}
+	five := r.poll().Warning
+	for i := 1; i <= 4; i++ {
+		r.clk.Advance(time.Second)
+		r.svc.status = ctRunningStatus(300 - 60*i)
+		if i == 4 {
+			r.svc.status = ctRunningStatus(60)
+			r.svc.warns = []ipc.GuardWarning{ipc.NewGuardWarning(1)}
+		}
+		r.poll()
+	}
+	v := r.ctl.View()
+	if v.Warning == nil || v.Warning.Threshold != 1 || v.Warning.Board != nil || v.Warning.ID == five.ID || len(v.Warning.Buttons) != 0 {
+		t.Fatalf("после порога 1: %+v", v.Warning)
+	}
+	n := waitPlayedN(&playedN, 2)
+	r.ctl.mu.Lock()
+	st := StateFromView(r.ctl.last, "", r.ctl.shown, r.ctl.sounds, r.ctl.fields)
+	r.ctl.mu.Unlock()
+	if len(st.Buttons) != 0 || Get(st.Sounds) != "5,1" || n != 2 {
+		t.Fatalf("кнопки %v, звуки %v, сыграно %d", st.Buttons, st.Sounds, n)
+	}
+}
+
+// Get — пороги звуков строкой.
+func Get(ss []ipc.ShownSound) string {
+	out := ""
+	for i, s := range ss {
+		if i > 0 {
+			out += ","
+		}
+		out += itoa(s.Threshold)
+	}
+	return out
+}
+
+func itoa(n int) string { return fmt.Sprint(n) }
+
+// Ловит (корень CI 40751015930): PlaySoundW, который не вернулся сразу (раннер без звуковой карты,
+// предыдущий звук в памяти), держит поток окон: вид стража не обновляется, плашка 1 мин не
+// показывается, табло висит. Звук не должен блокировать View.
+func TestSoundDoesNotBlockView(t *testing.T) {
+	r := newCtRig()
+	r.svc.test = true
+	block := make(chan struct{})
+	defer close(block)
+	r.ctl.SetSoundPlayer(func() bool { <-block; return true })
+	r.svc.status = ctRunningStatus(300)
+	r.svc.warns = []ipc.GuardWarning{ipc.NewGuardWarning(5)}
+	r.ctl.PollOnce()
+	done := make(chan View, 1)
+	go func() { done <- r.ctl.View() }()
+	select {
+	case v := <-done:
+		if v.Warning == nil || v.Warning.Threshold != 5 {
+			t.Fatalf("вид %+v", v.Warning)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("View ждёт окончания звука: поток окон заблокирован")
+	}
+	r.ctl.mu.Lock()
+	n := len(r.ctl.sounds)
+	r.ctl.mu.Unlock()
+	if n != 1 {
+		t.Fatalf("звук не записан в журнал до окончания: %d", n)
+	}
+}
+
+// Ловит: решение «какое окно показать» для табло и плашки 1 мин (run_windows.go) путает их.
+func TestSplitPlate(t *testing.T) {
+	m := NewModel()
+	m.OnDecision(t0, runningDecision(300), false, []int{5})
+	b, x := SplitPlate(m.View(t0).Warning)
+	if b == nil || x != nil {
+		t.Fatalf("табло: %v %v", b, x)
+	}
+	m.OnDecision(at(4*time.Second), runningDecision(60), false, []int{1})
+	b, x = SplitPlate(m.View(at(4 * time.Second)).Warning)
+	if b != nil || x == nil || x.Threshold != 1 {
+		t.Fatalf("плашка 1 мин: %v %v", b, x)
+	}
+	if b, x = SplitPlate(nil); b != nil || x != nil {
+		t.Fatal("нет плашки")
+	}
+}
+
+// waitPlayedN ждёт (до 2 с), пока исполнитель звука сыграет want звуков; возвращает, сколько сыграно.
+func waitPlayedN(n *atomic.Int32, want int32) int {
+	for end := time.Now().Add(2 * time.Second); n.Load() < want && time.Now().Before(end); {
+		time.Sleep(5 * time.Millisecond)
+	}
+	return int(n.Load())
+}
+
+// waitPlayed даёт исполнителю звука доиграть очередь и возвращает, сколько сыграно.
+func waitPlayed(n *atomic.Int32) int {
+	time.Sleep(50 * time.Millisecond)
+	return int(n.Load())
 }

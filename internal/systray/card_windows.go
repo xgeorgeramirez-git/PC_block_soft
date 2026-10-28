@@ -533,6 +533,12 @@ func (w *WarningCard) Show(v CountdownView) {
 	if c.hwnd == 0 {
 		return
 	}
+	if c.visible && v == c.view && c.baseBGRA != nil {
+		// Вид тот же: слой не перерисовывается, только «поверх всех» без активации (игра на весь
+		// экран могла подняться выше).
+		procSetWindowPos.Call(c.hwnd, hwndTopmost, 0, 0, 0, 0, swpNoMove|swpNoSize|swpNoActivate|swpShowWindow)
+		return
+	}
 	c.view = v
 	if !c.visible {
 		fg, _, _ := procGetForegroundWindow.Call()
