@@ -84,9 +84,10 @@ const (
 	CmdTrayClosing = "TrayClosing"
 
 	// Только тестовый режим (ТЗ 10.8).
-	CmdTestGuard  = "TestGuard"
-	CmdTestClock  = "TestClock"
-	CmdGuardState = "GuardState"
+	CmdTestGuard   = "TestGuard"
+	CmdTestClock   = "TestClock"
+	CmdTestSession = "TestSession"
+	CmdGuardState  = "GuardState"
 )
 
 // AllCommands — все команды M1 в порядке групп. По этому списку служба проверяет, что у
@@ -104,7 +105,7 @@ var AllCommands = []string{
 	CmdMyToday, CmdFirstRunSeen, CmdAskMore, CmdSpendBonus, CmdRedeemPromo,
 	CmdGuardPoll, CmdGuardLogoff, CmdGuardShutdown, CmdGuardSwitchUser, CmdGuardClosing,
 	CmdTrayClosing,
-	CmdTestGuard, CmdTestClock, CmdGuardState,
+	CmdTestGuard, CmdTestClock, CmdTestSession, CmdGuardState,
 }
 
 // Имена полей, к которым служба привязывает ошибку (Reply.Field, L-121).
@@ -613,6 +614,23 @@ type TestGuardRequest struct {
 	SessionID uint32          `json:"sessionId,omitempty"`
 	Action    TestGuardAction `json:"action"`
 }
+
+// TestSessionRequest — событие сеанса Windows, которое служба принимает тем же путём, что от
+// диспетчера служб (только тестовый режим, приёмка FB5): в CI нет второго сеанса, выход из
+// которого можно было бы сделать по-настоящему, а сеанс раннера сам возвращается на экран.
+type TestSessionRequest struct {
+	Event     string `json:"event"`     // TestSession*
+	SessionID uint32 `json:"sessionId"` // номер сеанса
+	// SID — пользователь сеанса, который выходит, если служба этот сеанс не знает (в CI нет второго
+	// пользователя): выход засчитывается как конец сеанса этого пользователя (FB-5).
+	SID string `json:"sid,omitempty"`
+}
+
+// События TestSession.
+const (
+	TestSessionDisconnect = "disconnect" // смена пользователя: сеанс отключён
+	TestSessionLogoff     = "logoff"     // выход из учётки
+)
 
 // TestClockRequest — поставить часы ядра на паузу или продолжить их (Ruling 4).
 type TestClockRequest struct {

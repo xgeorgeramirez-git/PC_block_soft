@@ -268,9 +268,10 @@ func init() {
 
 		ipc.CmdTrayClosing: {users(), (*Service).hTrayClosing},
 
-		ipc.CmdTestGuard:  {testMode(admins()), (*Service).hTestGuard},
-		ipc.CmdTestClock:  {testMode(admins()), (*Service).hTestClock},
-		ipc.CmdGuardState: {testMode(kinds(kindGuard, kindAdmin, kindElev)), (*Service).hGuardState},
+		ipc.CmdTestGuard:   {testMode(admins()), (*Service).hTestGuard},
+		ipc.CmdTestClock:   {testMode(admins()), (*Service).hTestClock},
+		ipc.CmdTestSession: {testMode(admins()), (*Service).hTestSession},
+		ipc.CmdGuardState:  {testMode(kinds(kindGuard, kindAdmin, kindElev)), (*Service).hGuardState},
 	}
 }
 
