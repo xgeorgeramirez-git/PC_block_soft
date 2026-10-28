@@ -1,6 +1,7 @@
 package service
 
 import (
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -112,9 +113,10 @@ func TestClosedDaySavedAtMidnight(t *testing.T) {
 }
 
 // Ловит: предупреждения R9 доходят до стража не по одному разу (повтор при каждом опросе)
-// или не в порядке 15, 5, 1; текст берётся не из общего места.
+// или не в порядке 30, 15, 5, 1; текст берётся не из общего места; вид события и секунды до
+// него не доходят до стража (R-3).
 func TestWarningsDeliveredOncePerThreshold(t *testing.T) {
-	h := newHarness(t, withChild(childSID, "Миша", 20))
+	h := newHarness(t, withChild(childSID, "Миша", 40))
 	h.start()
 	h.childLogsIn()
 	var got []int
@@ -122,40 +124,44 @@ func TestWarningsDeliveredOncePerThreshold(t *testing.T) {
 		for _, r := range rs {
 			for _, w := range r.Warnings {
 				got = append(got, w.Threshold)
-				if want := ipc.NewGuardWarning(w.Threshold); w.Text != want.Text || w.Sound != want.Sound {
+				if want := ipc.NewGuardWarning(w.Threshold); w != want {
 					t.Errorf("предупреждение %d: %+v, ждали %+v", w.Threshold, w, want)
 				}
 			}
 		}
 	}
-	collect(h.run(20*60+5, activeSample))
-	if len(got) != 3 || got[0] != 15 || got[1] != 5 || got[2] != 1 {
-		t.Fatalf("предупреждения %v, ждали [15 5 1] по одному разу", got)
+	collect(h.run(40*60+5, activeSample))
+	if !slices.Equal(got, []int{30, 15, 5, 1}) {
+		t.Fatalf("предупреждения %v, ждали [30 15 5 1] по одному разу", got)
 	}
 }
 
 // Ловит: предупреждения перед запретным интервалом (R9, G6) не доходят до стража тем же
-// путём, что и предупреждения о лимите. Большой лимит, интервал пн 15:16 наступает раньше.
+// путём, что и предупреждения о лимите, или идут с видом «лимит». Большой лимит, интервал пн
+// 15:36 наступает раньше.
 func TestForbiddenWarningsDeliveredBeforeInterval(t *testing.T) {
 	h := newHarness(t, withChild(childSID, "Миша", 600))
 	id := h.childID(childSID)
-	if err := h.store.SetSchedule(id, []core.Interval{{Weekday: core.Monday, StartMin: 916, EndMin: 420}}); err != nil {
+	if err := h.store.SetSchedule(id, []core.Interval{{Weekday: core.Monday, StartMin: 936, EndMin: 420}}); err != nil {
 		t.Fatal(err)
 	}
 	h.start()
 	h.childLogsIn()
 	var got []int
 	locked := false
-	for _, r := range h.run(20*60, activeSample) {
+	for _, r := range h.run(40*60, activeSample) {
 		for _, w := range r.Warnings {
 			got = append(got, w.Threshold)
+			if want := ipc.NewGuardWarningFor(w.Threshold, core.WarnForbidden, w.Threshold*60); w != want {
+				t.Errorf("предупреждение %d: %+v, ждали %+v", w.Threshold, w, want)
+			}
 		}
 		if r.Status.Lock == ipc.LockForbidden {
 			locked = true
 		}
 	}
-	if len(got) != 3 || got[0] != 15 || got[1] != 5 || got[2] != 1 {
-		t.Fatalf("предупреждения перед интервалом %v, ждали [15 5 1]", got)
+	if !slices.Equal(got, []int{30, 15, 5, 1}) {
+		t.Fatalf("предупреждения перед интервалом %v, ждали [30 15 5 1]", got)
 	}
 	if !locked {
 		t.Fatal("блокировка по запретному интервалу не наступила")

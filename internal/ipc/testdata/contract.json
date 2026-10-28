@@ -755,7 +755,9 @@
           {
             "threshold": 1,
             "text": "Осталась 1 минута",
-            "sound": true
+            "sound": true,
+            "event": "limit",
+            "eventS": 60
           }
         ],
         "commands": [

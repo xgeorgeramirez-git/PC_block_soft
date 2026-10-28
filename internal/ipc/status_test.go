@@ -162,22 +162,35 @@ func TestSensorSampleJSONKeys(t *testing.T) {
 	}
 }
 
+// Ловит: нет текста за 30 минут, звук не на всех четырёх порогах (D-55), вид события и секунды до
+// него не доходят до стража (R-3: плитки табло считают до события).
 func TestGuardWarningTexts(t *testing.T) {
-	cases := map[int]struct {
-		sound bool
-		text  string
+	cases := []struct {
+		th   int
+		ev   core.WarnEvent
+		text string
+		name string
 	}{
-		15: {false, "Через 15 минут время на сегодня закончится"},
-		5:  {false, "Через 5 минут время закончится. Сохрани игру"},
-		1:  {true, "Осталась 1 минута"},
+		{30, core.WarnLimit, "Через 30 минут время на сегодня закончится", WarnEventLimit},
+		{15, core.WarnLimit, "Через 15 минут время на сегодня закончится", WarnEventLimit},
+		{5, core.WarnLimit, "Через 5 минут время закончится. Сохрани игру", WarnEventLimit},
+		{1, core.WarnLimit, "Осталась 1 минута", WarnEventLimit},
+		{30, core.WarnForbidden, "Через 30 минут начнутся запретные часы", WarnEventForbidden},
+		{15, core.WarnForbidden, "Через 15 минут начнутся запретные часы", WarnEventForbidden},
+		{5, core.WarnForbidden, "Через 5 минут начнутся запретные часы", WarnEventForbidden},
+		{1, core.WarnForbidden, "Через минуту начнутся запретные часы", WarnEventForbidden},
+		{30, core.WarnPauseEnd, "Через 30 минут закончится пауза", WarnEventPause},
+		{15, core.WarnPauseEnd, "Через 15 минут закончится пауза", WarnEventPause},
+		{5, core.WarnPauseEnd, "Через 5 минут закончится пауза", WarnEventPause},
+		{1, core.WarnPauseEnd, "Через минуту закончится пауза", WarnEventPause},
 	}
-	for th, want := range cases {
-		w := NewGuardWarning(th)
-		if w.Threshold != th || w.Text != want.text || w.Sound != want.sound {
-			t.Errorf("порог %d: %+v", th, w)
+	for _, c := range cases {
+		w := NewGuardWarningFor(c.th, c.ev, c.th*60)
+		if w.Threshold != c.th || w.Text != c.text || !w.Sound || w.Event != c.name || w.EventS != c.th*60 {
+			t.Errorf("порог %d %v: %+v", c.th, c.ev, w)
 		}
 	}
-	if w := NewGuardWarning(3); w.Threshold != 3 || w.Text != "Через 3 мин время закончится" {
+	if w := NewGuardWarning(3); w.Threshold != 3 || w.Text != "Через 3 мин время закончится" || w.Event != WarnEventLimit || w.EventS != 180 {
 		t.Errorf("нестандартный порог: %+v", w)
 	}
 }

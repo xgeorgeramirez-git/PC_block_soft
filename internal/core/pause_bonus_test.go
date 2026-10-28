@@ -38,6 +38,7 @@ func TestEnginePauseLikeG11(t *testing.T) {
 	// Учёт идёт во время паузы: 21:10…22:10 добавляет 3600 с к общему.
 	log := warnEvLog(e, c, at(21, 10, 0), at(22, 10, 2), activeSample())
 	want := []string{
+		"21:40:00 30 pause_end",
 		"21:55:00 15 pause_end",
 		"22:05:00 5 pause_end",
 		"22:09:00 1 pause_end",

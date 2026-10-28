@@ -180,6 +180,7 @@ const (
 	textLogoffQuestion   = "Несохранённые документы закроются. Выйти?"
 	textShutdownQuestion = "Несохранённые документы закроются. Выключить компьютер?"
 	textEnterPassword    = "Введите пароль"
+	textWarn30           = "Через 30 минут время на сегодня закончится"
 	textWarn15           = "Через 15 минут время на сегодня закончится"
 	textWarn5            = "Через 5 минут время закончится. Сохрани игру"
 	textWarn1            = "Осталась 1 минута: "
@@ -221,8 +222,8 @@ func indexClock(s string) int {
 	return -1
 }
 
-// warnThresholds — пороги R9, по которым бывают плашки, в минутах.
-var warnThresholds = [3]int{15, 5, 1}
+// warnThresholds — пороги R9, по которым бывают плашки, в минутах: те же, что у ядра (D-54).
+var warnThresholds = core.WarnThresholds
 
 type plateKind int
 
@@ -849,6 +850,8 @@ func (m *Model) plateView() *WarningView {
 	}
 	w.Buttons = []ButtonView{{Button: ButtonWarningOK, Label: textWarningOK, Enabled: true}}
 	switch p.threshold {
+	case 30:
+		w.Text = textWarn30
 	case 15:
 		w.Text = textWarn15
 	case 5:

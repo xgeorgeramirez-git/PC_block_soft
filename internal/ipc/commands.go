@@ -547,7 +547,7 @@ const (
 type GuardEvent struct {
 	Kind      string `json:"kind"`      // GuardEv*
 	AtMs      int64  `json:"atMs"`      // UTC мс
-	Threshold int    `json:"threshold"` // для warningShown и warningAck: 15, 5 или 1
+	Threshold int    `json:"threshold"` // для warningShown и warningAck: 30, 15, 5 или 1
 	Button    string `json:"button"`    // для button: Button*
 	Detail    string `json:"detail"`    // для bypass: что произошло, без заголовков окон (R23)
 }
@@ -560,10 +560,21 @@ type GuardPollRequest struct {
 
 // GuardWarning — предупреждение, которое страж показывает один раз (R9).
 type GuardWarning struct {
-	Threshold int    `json:"threshold"` // 15, 5 или 1 минута
-	Text      string `json:"text"`
-	Sound     bool   `json:"sound"` // за 1 минуту — звук и обратный отсчёт
+	Threshold int    `json:"threshold"` // 30, 15, 5 или 1 минута (D-54)
+	Text      string `json:"text"`      // что закончится: строка под плитками табло или текст плашки 1 мин
+	Sound     bool   `json:"sound"`     // звук заказчика в момент показа: на всех порогах (D-55)
+	Event     string `json:"event"`     // вид события: WarnEvent*
+	EventS    int    `json:"eventS"`    // секунды до события в момент срабатывания
 }
+
+// Виды события предупреждения в GuardWarning.Event (R9): от вида зависит, как страж считает
+// секунды на плитках табло. Лимит: остаток службы (стоит, когда время не идёт, R2); запретные
+// часы и конец паузы: настоящие часы.
+const (
+	WarnEventLimit     = "limit"
+	WarnEventForbidden = "forbidden"
+	WarnEventPause     = "pause"
+)
 
 // Виды команд стражу в GuardPollReply.Commands.
 const (

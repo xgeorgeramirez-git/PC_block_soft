@@ -426,7 +426,7 @@ func (s *Service) afterDecision(cs *childState, d core.Decision, extra map[strin
 	if d.Warning != 0 {
 		// Текст предупреждения зависит от вида ближайшего события (R9, FR-9): исчерпание
 		// времени, начало запретных часов или конец паузы.
-		cs.warns = append(cs.warns, pendingWarning{w: ipc.NewGuardWarningFor(d.Warning, d.WarningEvent), at: s.real})
+		cs.warns = append(cs.warns, pendingWarning{w: ipc.NewGuardWarningFor(d.Warning, d.WarningEvent, d.WarningS), at: s.real})
 	}
 }
 
