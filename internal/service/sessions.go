@@ -86,6 +86,11 @@ func (s *Service) OnSession(ev SessionEvent, id uint32, real time.Time) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.real = real
+	s.onSession(ev, id, real)
+}
+
+// onSession — тело OnSession под блокировкой службы; его же зовёт тестовая команда TestSession.
+func (s *Service) onSession(ev SessionEvent, id uint32, real time.Time) {
 	if s.stopping || !s.started {
 		return
 	}

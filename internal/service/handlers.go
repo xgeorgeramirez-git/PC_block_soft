@@ -998,6 +998,27 @@ func (s *Service) hTestClock(c *callCtx) ipc.Reply {
 	})
 }
 
+// hTestSession подаёт службе событие сеанса Windows тем же путём, что диспетчер служб (только
+// тестовый режим, приёмка FB5).
+func (s *Service) hTestSession(c *callCtx) ipc.Reply {
+	var req ipc.TestSessionRequest
+	if c.msg.Into(&req) != nil {
+		return bad()
+	}
+	var ev SessionEvent
+	switch req.Event {
+	case ipc.TestSessionDisconnect:
+		ev = SessionDisconnect
+	case ipc.TestSessionLogoff:
+		ev = SessionLogoff
+	default:
+		return bad()
+	}
+	s.cfg.Logf("Тестовое событие сеанса %d: %s", req.SessionID, req.Event)
+	s.onSession(ev, req.SessionID, c.real)
+	return ipc.OK(ipc.Empty{})
+}
+
 // guardView — что страж сеанса показывает сейчас; страж в тестовом режиме присылает свой вид,
 // проверяющий читает его пустым запросом.
 type guardView struct {

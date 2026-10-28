@@ -517,7 +517,7 @@ function Write-ServiceSessionLog([string]$Tag) {
   foreach ($dir in @($script:Data, $script:DefaultData)) {
     $sl = Join-Path (Join-Path $dir "logs") "service.log"
     if (Test-Path -LiteralPath $sl) {
-      Get-Content -LiteralPath $sl -Tail 600 -Encoding UTF8 | Where-Object { $_ -match 'событие сеанса|сеанс \d+:|снимок стража|удержание' } |
+      Get-Content -LiteralPath $sl -Tail 600 -Encoding UTF8 | Where-Object { $_ -match 'событие сеанса|сеанс \d+:|снимок стража|удержание|Обход|Тестовое событие' } |
         Select-Object -Last 60 | ForEach-Object { Write-Log "[$Tag] service.log: $_" }
     }
   }
@@ -542,7 +542,7 @@ function Write-Diagnostics {
   foreach ($dir in @($script:Data, $script:DefaultData)) {
     $sl = Join-Path (Join-Path $dir "logs") "service.log"
     if (Test-Path -LiteralPath $sl) {
-      Get-Content -LiteralPath $sl -Tail 400 -Encoding UTF8 | Where-Object { $_ -match 'событие сеанса|сеанс \d+:|снимок стража|удержание' } |
+      Get-Content -LiteralPath $sl -Tail 400 -Encoding UTF8 | Where-Object { $_ -match 'событие сеанса|сеанс \d+:|снимок стража|удержание|Обход|Тестовое событие' } |
         Select-Object -Last 40 | ForEach-Object { Write-Log "ERROR: [диагностика] service.log (сеансы): $_" }
     }
   }

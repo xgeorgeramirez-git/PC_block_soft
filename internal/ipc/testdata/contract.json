@@ -1965,6 +1965,16 @@
       "payload": {}
     }
   },
+  "TestSession": {
+    "request": {
+      "event": "logoff",
+      "sessionId": 7
+    },
+    "reply": {
+      "ok": true,
+      "payload": {}
+    }
+  },
   "TrayClosing": {
     "reply": {
       "ok": true,

@@ -153,3 +153,48 @@ func TestForcedGuardKillStillJournaledFB5(t *testing.T) {
 		}
 	})
 }
+
+// Ловит: тестовая команда TestSession (приёмка FB5 в CI) не доходит до того же пути, что событие
+// Windows, работает вне тестового режима или принимает неизвестное событие.
+func TestTestSessionCommandFeedsSessionEvents(t *testing.T) {
+	t.Run("вне тестового режима отказ", func(t *testing.T) {
+		h := newHarness(t, withChild(childSID, "Миша", 120))
+		h.start()
+		h.fail(adminPeer(), "", ipc.CmdTestSession, ipc.TestSessionRequest{Event: ipc.TestSessionLogoff, SessionID: 99})
+	})
+	t.Run("неизвестное событие: отказ", func(t *testing.T) {
+		h := newHarness(t, withChild(childSID, "Миша", 120), withTestMode(TestMode{ClockSpeed: 1}))
+		h.start()
+		h.childLogsIn()
+		rep := h.fail(adminPeer(), "", ipc.CmdTestSession, ipc.TestSessionRequest{Event: "reboot", SessionID: childSession})
+		if rep.Error != ipc.TextBadRequest {
+			t.Fatalf("отказ %q; want %q", rep.Error, ipc.TextBadRequest)
+		}
+	})
+	t.Run("отключение и выход другого сеанса гасят запись, как события Windows", func(t *testing.T) {
+		h := newHarness(t, withChild(childSID, "Миша", 120), withTestMode(TestMode{ClockSpeed: 1}))
+		h.start()
+		h.childLogsIn()
+		h.hk(2)
+		h.ok(adminPeer(), "", ipc.CmdTestSession, ipc.TestSessionRequest{Event: ipc.TestSessionDisconnect, SessionID: childSession}, nil)
+		h.launcher.kill(h.launcher.aliveOf(ProcGuard, childSession)[0])
+		h.hk(1)
+		h.ok(adminPeer(), "", ipc.CmdTestSession, ipc.TestSessionRequest{Event: ipc.TestSessionLogoff, SessionID: 99}, nil)
+		h.hk(40)
+		if n := h.bypassCount(); n != 0 {
+			t.Fatalf("записей об обходе %d; want 0", n)
+		}
+	})
+	t.Run("контроль: только отключение, без выхода другого сеанса, запись есть", func(t *testing.T) {
+		h := newHarness(t, withChild(childSID, "Миша", 120), withTestMode(TestMode{ClockSpeed: 1}))
+		h.start()
+		h.childLogsIn()
+		h.hk(2)
+		h.ok(adminPeer(), "", ipc.CmdTestSession, ipc.TestSessionRequest{Event: ipc.TestSessionDisconnect, SessionID: childSession}, nil)
+		h.launcher.kill(h.launcher.aliveOf(ProcGuard, childSession)[0])
+		h.hk(10)
+		if n := h.bypassCount(); n != 1 {
+			t.Fatalf("записей об обходе %d; want 1", n)
+		}
+	})
+}
