@@ -16,6 +16,10 @@ import (
 // (card_render.go: сглаженные углы, переход цвета, тени) целиком кладётся на экран через
 // UpdateLayeredWindow, цифры и подписи рисует шрифт системы прямо в тот же буфер. Окно ни
 // разу не стирается и не перерисовывается кусками, поэтому секундная смена цифр не мерцает.
+//
+// Один код окна у двух мест (R-2 пакета 0.2.5): табло у значка (над значком, берёт фокус,
+// Esc, стрелка) и плашка-табло предупреждения стража (WarningCard: правый нижний угол рабочей
+// области, без активации и без клавиатуры, крестик, строка текста под плитками).
 
 const (
 	wmCardPress = wmApp + 21 // нажатие обрабатывается следующим сообщением, не внутри щелчка
@@ -44,6 +48,13 @@ const (
 
 	fontBahnschrift = "Bahnschrift"
 	fontFallback    = "Segoe UI"
+
+	wsExNoActivate  = 0x08000000 // WS_EX_NOACTIVATE: окно не становится активным, игра остаётся в фокусе
+	wmMouseActivate = 0x0021
+	maNoActivate    = 3
+	swpNoActivate   = 0x0010
+	swpShowWindow   = 0x0040
+	cornerGap       = 16 // отступ плашки-табло от края рабочей области, px при 100 %
 )
 
 var cardProcPtr uintptr
@@ -84,6 +95,8 @@ type fontKey struct {
 type card struct {
 	hwnd, hInst uintptr
 	dpi         int
+	opts        CardOptions
+	noActivate  bool // плашка предупреждения: не берёт фокус, клавиатуры нет, не прячется по потере активации
 	layout      CardLayout
 	onPress     func(CardTarget)
 	onHide      func() // карточка закрылась (щелчком мимо, Esc, потерей активации)
@@ -105,19 +118,27 @@ type card struct {
 	fonts              map[fontKey]uintptr
 }
 
-var theCard *card
+// cards — окна карточек этого процесса по hwnd; трогает только поток окон.
+var cards = map[uintptr]*card{}
 
 func newCard(onPress func(CardTarget)) (*card, error) {
+	return newCardWith(onPress, CardOptions{}, false)
+}
+
+func newCardWith(onPress func(CardTarget), o CardOptions, noActivate bool) (*card, error) {
 	hInst, _, _ := procGetModuleHandle.Call(0)
-	c := &card{hInst: hInst, dpi: systemDPI(), onPress: onPress, fonts: map[fontKey]uintptr{}}
-	c.layout = NewCardLayout(CardScale(c.dpi))
+	c := &card{hInst: hInst, dpi: systemDPI(), opts: o, noActivate: noActivate, onPress: onPress, fonts: map[fontKey]uintptr{}}
+	c.layout = NewCardLayoutFor(CardScale(c.dpi), o)
 	cls, err := registerPlainClass("PCBlockTrayCard", cardProcPtr, hInst, 0)
 	if err != nil {
 		return nil, fmt.Errorf("RegisterClassEx(табло): %w", err)
 	}
-	theCard = c
+	ex := uintptr(wsExToolWin | wsExTopmost | wsExLayered)
+	if noActivate {
+		ex |= wsExNoActivate
+	}
 	hwnd, _, err := procCreateWindowEx.Call(
-		wsExToolWin|wsExTopmost|wsExLayered,
+		ex,
 		uintptr(unsafe.Pointer(cls)),
 		uintptr(unsafe.Pointer(wstr("PC Block: сколько осталось времени"))),
 		wsPopup,
@@ -125,10 +146,10 @@ func newCard(onPress func(CardTarget)) (*card, error) {
 		0, 0, hInst, 0,
 	)
 	if hwnd == 0 {
-		theCard = nil
 		return nil, fmt.Errorf("CreateWindowEx(табло): %w", err)
 	}
 	c.hwnd = hwnd
+	cards[hwnd] = c
 	return c, nil
 }
 
@@ -208,7 +229,7 @@ func (c *card) ensureSurface() bool {
 // baseFor возвращает рисунок без текста для текущего вида и подсветки; пересчитывается только
 // при смене вида карточки, наведения или фокуса, а не каждую секунду.
 func (c *card) baseFor() []byte {
-	key := fmt.Sprintf("%d|%v", c.view.Kind, c.state)
+	key := fmt.Sprintf("%d|%v|%d", c.view.Kind, c.state, c.view.Status)
 	if key == c.baseKey && c.baseBGRA != nil {
 		return c.baseBGRA
 	}
@@ -394,6 +415,7 @@ func (c *card) onKey(vk uintptr) bool {
 
 func (c *card) close() {
 	if c.hwnd != 0 {
+		delete(cards, c.hwnd)
 		procDestroyWindow.Call(c.hwnd)
 		c.hwnd = 0
 	}
@@ -408,15 +430,18 @@ func (c *card) close() {
 		procDeleteDC.Call(c.memDC)
 		c.memDC, c.dib, c.bits = 0, 0, nil
 	}
-	theCard = nil
 }
 
 func cardProc(hwnd, msg, wParam, lParam uintptr) uintptr {
-	c := theCard
+	c := cards[hwnd]
 	if c != nil && c.hwnd == hwnd {
 		switch uint32(msg) {
+		case wmMouseActivate:
+			if c.noActivate {
+				return maNoActivate // щелчок по крестику не забирает фокус у игры
+			}
 		case wmActivate:
-			if wParam&0xFFFF == waInactive {
+			if !c.noActivate && wParam&0xFFFF == waInactive {
 				c.hide()
 			}
 			return 0
@@ -467,7 +492,7 @@ func cardProc(hwnd, msg, wParam, lParam uintptr) uintptr {
 			}
 			return 0
 		case wmKeyDown:
-			if c.onKey(wParam) {
+			if !c.noActivate && c.onKey(wParam) {
 				return 0
 			}
 		case wmCardPress:
@@ -478,3 +503,83 @@ func cardProc(hwnd, msg, wParam, lParam uintptr) uintptr {
 	r, _, _ := procDefWindowProc.Call(hwnd, msg, wParam, lParam)
 	return r
 }
+
+// WarningCard — плашка-табло предупреждения стража за 30, 15 и 5 минут (FR-9, D-55): та же
+// карточка, что табло значка (рисунок, раскладка, окно), но в правом нижнем углу рабочей
+// области монитора, где сейчас окно на переднем плане (игра на весь экран), поверх всех окон и
+// без перехвата фокуса; крестик вместо стрелки и строка текста под плитками. Что показать и
+// когда закрыть, решает модель стража; окно только рисует и сообщает о крестике. Работает в
+// потоке окон.
+type WarningCard struct{ c *card }
+
+// NewWarningCard создаёт скрытое окно плашки; onClose — нажат крестик.
+func NewWarningCard(onClose func()) (*WarningCard, error) {
+	c, err := newCardWith(func(t CardTarget) {
+		if t == TargetClose && onClose != nil {
+			onClose()
+		}
+	}, CardOptions{Button: CardButtonClose, Line: true}, true)
+	if err != nil {
+		return nil, err
+	}
+	return &WarningCard{c: c}, nil
+}
+
+// Show показывает плашку с видом v или обновляет цифры. Первый показ ставит окно в угол
+// рабочей области монитора окна на переднем плане; каждый вызов подтверждает «поверх всех» без
+// активации (игра на весь экран могла поднять себя выше).
+func (w *WarningCard) Show(v CountdownView) {
+	c := w.c
+	if c.hwnd == 0 {
+		return
+	}
+	c.view = v
+	if !c.visible {
+		fg, _, _ := procGetForegroundWindow.Call()
+		var wr rect
+		if fg == 0 || func() bool { r, _, _ := procGetWindowRect.Call(fg, uintptr(unsafe.Pointer(&wr))); return r == 0 }() {
+			wr = rect{0, 0, 1, 1}
+		}
+		work := monitorWork(wr).toRect()
+		x, y := PlaceCorner(work, c.layout.Card.Dx(), c.layout.Card.Dy(), int(scaled(cornerGap, c.dpi)))
+		at := point{int32(x - c.layout.Margin), int32(y - c.layout.Margin)}
+		c.state = CardState{}
+		c.render(&at)
+		c.visible, c.shownAt = true, time.Now()
+	} else {
+		c.render(nil)
+	}
+	procSetWindowPos.Call(c.hwnd, hwndTopmost, 0, 0, 0, 0, swpNoMove|swpNoSize|swpNoActivate|swpShowWindow)
+}
+
+// Hide прячет плашку.
+func (w *WarningCard) Hide() {
+	c := w.c
+	if !c.visible {
+		return
+	}
+	c.visible = false
+	procShowWindow.Call(c.hwnd, swHide)
+}
+
+// Visible: плашка на экране.
+func (w *WarningCard) Visible() bool { return w.c.visible }
+
+// HWND — окно плашки (тестовые помощники приёмки).
+func (w *WarningCard) HWND() uintptr { return w.c.hwnd }
+
+// ClickClose нажимает крестик настоящими сообщениями мыши окну (TestGuard, Ruling 5): тот же
+// путь, что у щелчка человека, без активации окна.
+func (w *WarningCard) ClickClose() {
+	c := w.c
+	if !c.visible {
+		return
+	}
+	x, y := c.layout.CloseCenter()
+	lp := uintptr(uint32(y)<<16 | uint32(x)&0xFFFF)
+	procSendMessage.Call(c.hwnd, wmLButtonDown, 1, lp)
+	procSendMessage.Call(c.hwnd, wmLButtonUp, 0, lp)
+}
+
+// Close уничтожает окно.
+func (w *WarningCard) Close() { w.c.close() }

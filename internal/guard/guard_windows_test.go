@@ -11,6 +11,7 @@ import (
 	"pcblock/internal/core"
 	"pcblock/internal/ipc"
 	"pcblock/internal/launch"
+	"pcblock/internal/systray"
 )
 
 var procPeekMessage = user32.NewProc("PeekMessageW")
@@ -152,12 +153,12 @@ func TestLockScreenStaysAfterCloseAttempts(t *testing.T) {
 	}
 }
 
-func TestWarningPlateShowsAndAcknowledges(t *testing.T) {
+// Ловит: текстовая плашка 1 мин не показывается или не прячется.
+func TestWarningPlateShowsAndHides(t *testing.T) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
-	acked := 0
-	p, err := newPlateWindow(func() { acked++ })
+	p, err := newPlateWindow()
 	if err != nil {
 		t.Skipf("окно создать нельзя (нет рабочего стола): %v", err)
 	}
@@ -166,19 +167,54 @@ func TestWarningPlateShowsAndAcknowledges(t *testing.T) {
 		pump(20 * time.Millisecond)
 	}()
 
-	p.apply(&WarningView{ID: 1, Text: "Осталось 15 минут", Buttons: []ButtonView{{Button: ButtonWarningOK, Label: textWarningOK, Enabled: true}}})
+	p.apply(&WarningView{ID: 1, Threshold: 1, Text: "Осталась 1 минута: 0:59", Buttons: []ButtonView{}})
 	pump(20 * time.Millisecond)
 	if r, _, _ := procIsWindowVisible.Call(p.hwnd); r == 0 {
 		t.Fatal("плашка должна быть видна")
 	}
-	procSendMessage.Call(p.btn, bmClick, 0, 0)
-	pump(20 * time.Millisecond)
-	if acked != 1 {
-		t.Fatalf("нажатие «Понятно» дошло %d раз, ждали 1", acked)
-	}
 	p.hide()
 	if r, _, _ := procIsWindowVisible.Call(p.hwnd); r != 0 {
 		t.Fatal("плашка должна прятаться")
+	}
+}
+
+// Ловит: плашка-табло забирает фокус у окна на переднем плане при показе или щелчке по крестику
+// (класс B); крестик не доходит до стража.
+func TestWarningCardKeepsFocusAndCloses(t *testing.T) {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+
+	closed := 0
+	c, err := systray.NewWarningCard(func() { closed++ })
+	if err != nil {
+		t.Skipf("окно создать нельзя (нет рабочего стола): %v", err)
+	}
+	defer func() {
+		c.Close()
+		pump(20 * time.Millisecond)
+	}()
+	before, _, _ := procGetForegroundWin.Call()
+	v := systray.TimeCountdown(1800)
+	v.Line = "Через 30 минут время на сегодня закончится"
+	c.Show(v)
+	pump(30 * time.Millisecond)
+	if r, _, _ := procIsWindowVisible.Call(c.HWND()); r == 0 {
+		t.Fatal("табло должно быть видно")
+	}
+	if after, _, _ := procGetForegroundWin.Call(); after == c.HWND() || after != before {
+		t.Fatalf("фокус ушёл: до %x, после %x, табло %x", before, after, c.HWND())
+	}
+	c.ClickClose()
+	pump(30 * time.Millisecond)
+	if closed != 1 {
+		t.Fatalf("крестик дошёл %d раз, ждали 1", closed)
+	}
+	if after, _, _ := procGetForegroundWin.Call(); after == c.HWND() {
+		t.Fatal("щелчок по крестику активировал табло")
+	}
+	c.Hide()
+	if r, _, _ := procIsWindowVisible.Call(c.HWND()); r != 0 {
+		t.Fatal("табло должно прятаться")
 	}
 }
 

@@ -173,6 +173,17 @@ func distSegment(px, py, ax, ay, bx, by float64) float64 {
 	return math.Hypot(px-(ax+t*dx), py-(ay+t*dy))
 }
 
+// cross рисует крестик «×» двумя отрезками с круглыми концами.
+func cross(img *image.RGBA, cx, cy, d, w float64, c color.RGBA) {
+	k := 0.14 * d
+	reach := int(0.3*d) + 2
+	b := image.Rect(int(cx)-reach, int(cy)-reach, int(cx)+reach+1, int(cy)+reach+1)
+	paintRegion(img, b, func(x, y float64) float64 {
+		dist := math.Min(distSegment(x, y, cx-k, cy-k, cx+k, cy+k), distSegment(x, y, cx-k, cy+k, cx+k, cy-k))
+		return coverage(dist - w/2)
+	}, solid(c, 1))
+}
+
 // chevron рисует стрелку «>» двумя отрезками с круглыми концами.
 func chevron(img *image.RGBA, cx, cy, d, w float64, c color.RGBA) {
 	ax, ay := cx-0.08*d, cy-0.17*d
@@ -260,14 +271,18 @@ func drawArrow(img *image.RGBA, l CardLayout, st CardState) {
 	cx, cy := float64(a.Left+a.Right)/2, float64(a.Top+a.Bottom)/2
 	r := float64(a.Dx()) / 2
 	switch {
-	case st.Pressed == TargetArrow:
+	case st.Pressed == TargetArrow || st.Pressed == TargetClose:
 		disc(img, cx, cy, r, colorWhite, 0.30)
-	case st.Hover == TargetArrow:
+	case st.Hover == TargetArrow || st.Hover == TargetClose:
 		disc(img, cx, cy, r, colorWhite, 0.16)
 	}
 	w := 2 * s
 	ring(img, cx, cy, r-w/2, w, colorWhite, 0.86)
-	chevron(img, cx, cy, float64(a.Dx()), 3.2*s, colorWhite)
+	if l.Close {
+		cross(img, cx, cy, float64(a.Dx()), 3.2*s, colorWhite)
+	} else {
+		chevron(img, cx, cy, float64(a.Dx()), 3.2*s, colorWhite)
+	}
 	if st.FocusVisible && st.Focus == TargetArrow {
 		fw := 2.6 * s
 		ring(img, cx, cy, r+cardFocusGap*s, fw, colorWhite, 1)
@@ -284,6 +299,7 @@ const (
 	RoleMessage
 	RoleError
 	RoleButton
+	RoleLine // строка под плитками плашки-табло: что закончится
 )
 
 // Align — выравнивание текста в прямоугольнике.
@@ -323,6 +339,9 @@ func CardTexts(l CardLayout, v CountdownView) []TextRun {
 	runs := []TextRun{{Role: RoleTitle, Text: v.Title, Rect: l.Title, Px: px(28), Bold: true, Color: colorWhite, Align: AlignLeft}}
 	switch v.Kind {
 	case CountdownTime:
+		if v.Line != "" && l.Line.Dy() > 0 {
+			runs = append(runs, TextRun{Role: RoleLine, Text: v.Line, Rect: l.Line, Px: px(24), Bold: true, Color: colorWhite, Align: AlignCenter, Wrap: true})
+		}
 		digits := []rune(v.Hours + v.Minutes + v.Seconds)
 		for i, d := range digits {
 			if i >= len(l.Tiles) {

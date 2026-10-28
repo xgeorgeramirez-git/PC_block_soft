@@ -7,14 +7,19 @@ import (
 	"time"
 
 	"pcblock/internal/core"
+	"pcblock/internal/ipc"
+	"pcblock/internal/systray"
 )
 
 // Сроки стража. Все моменты, которые получает Model, это реальные часы (Ruling 4):
 // ускорение учёта в тестовом режиме их не касается.
 const (
 	offlineAfter = 10 * time.Second // нет ответа службы дольше этого срока: экран снят (Ruling 15, NFR-10)
-	warningLife  = 15 * time.Second // плашка предупреждения закрывается сама (FR-9)
+	boardLife    = 5 * time.Second  // плашка-табло за 30, 15 и 5 мин закрывается сама (FR-9, D-55)
 	addedLife    = 5 * time.Second  // плашка «Добавлено N минут» (ТЗ 8.2.2 п.4)
+	// staleGrace — сколько после момента события (запретные часы, конец паузы) ждать экрана
+	// блокировки: не пришёл, значит событие отменено или отодвинулось, плашка 1 мин снимается.
+	staleGrace = 10 * time.Second
 
 	// autoSwitchAfter — через сколько после появления экрана блокировки без родительского
 	// пароля сама выполняется «Смена пользователя» (ТЗ 8.2.3 п.10, D-40).
@@ -48,7 +53,7 @@ const (
 	ButtonShutdown               // «Выключить компьютер» на экране
 	ButtonConfirmShutdown        // «Выключить» в подтверждении выключения
 	ButtonSwitchUser             // «Смена пользователя» на экране
-	ButtonWarningOK              // «Понятно» на плашке предупреждения
+	ButtonWarningClose           // крестик «Закрыть» на плашке-табло предупреждения (FR-9)
 	ButtonAskMore                // «Попросить ещё» на экране (FR-10): открывает панель пароля
 	ButtonSpendBonus             // «Взять из копилки» на экране (FR-11): без пароля
 	ButtonPromo                  // «Ввести промокод» на экране (FR-35, R26): открывает поле кода
@@ -113,15 +118,45 @@ type ButtonView struct {
 
 // WarningView — плашка справа внизу без перехвата фокуса.
 type WarningView struct {
-	// ID растёт с каждой новой плашкой и не меняется, пока плашка та же (обновляется
-	// только отсчёт): окно играет звук, когда ID сменился и Sound = true.
-	ID int
-	// Text — полный текст плашки, уже с отсчётом («Осталась 1 минута: 0:59»).
+	// ID растёт с каждой новой плашкой и не меняется, пока плашка та же (обновляются только
+	// цифры): окно играет звук, когда ID сменился и Sound = true (SoundDue).
+	ID        int
+	Threshold int // порог в минутах; 0 у «Добавлено N минут»
+	// Text — что закончится: строка под плитками табло («Через 5 минут время закончится.
+	// Сохрани игру») или полный текст плашки 1 мин с отсчётом («Осталась 1 минута: 0:59»).
 	Text string
-	// Countdown — тот же отсчёт отдельно, м:сс; пусто у плашек без отсчёта.
+	// Countdown — отсчёт плашки 1 мин отдельно, м:сс; пусто у других плашек.
 	Countdown string
-	Sound     bool         // сопровождается звуком (за 1 минуту)
-	Buttons   []ButtonView // «Понятно»; у «Добавлено N минут» кнопок нет; не nil
+	// Board — табло за 30, 15 и 5 мин тем же кодом, что у значка (D-55, R-2): плитки до события,
+	// цвет статуса, строка Text под плитками (Board.Line); nil у плашки 1 мин и «Добавлено».
+	Board   *systray.CountdownView
+	Sound   bool         // в момент показа играет звук заказчика: на всех порогах (D-55)
+	Buttons []ButtonView // у табло крестик «Закрыть»; у плашки 1 мин и «Добавлено» кнопок нет; не nil
+}
+
+// SoundDue: окну пора сыграть звук для плашки w, если до этого звук играл для плашки lastID.
+// Звук один раз на каждую новую плашку предупреждения: не при обновлении цифр, не на
+// «Добавлено N минут» (D-55, класс A).
+func SoundDue(lastID int, w *WarningView) bool {
+	return w != nil && w.Sound && w.ID != lastID
+}
+
+// Incoming — предупреждение службы для модели (ipc.GuardWarning): порог, текст, вид события
+// и секунды до него в момент срабатывания.
+type Incoming struct {
+	Threshold int
+	Text      string
+	Event     string // ipc.WarnEvent*; пусто — лимит
+	EventS    int
+}
+
+// IncomingOf переводит предупреждения службы для модели.
+func IncomingOf(ws []ipc.GuardWarning) []Incoming {
+	out := make([]Incoming, 0, len(ws))
+	for _, w := range ws {
+		out = append(out, Incoming{Threshold: w.Threshold, Text: w.Text, Event: w.Event, EventS: w.EventS})
+	}
+	return out
 }
 
 // View — что показать сейчас. Окно стража только рисует его и сообщает нажатия.
@@ -176,14 +211,14 @@ const (
 	textAskMore          = "Попросить ещё"
 	textConfirmLogoff    = "Выйти"
 	textConfirmShutdown  = "Выключить"
-	textWarningOK        = "Понятно"
+	textWarningClose     = "Закрыть"
 	textLogoffQuestion   = "Несохранённые документы закроются. Выйти?"
 	textShutdownQuestion = "Несохранённые документы закроются. Выключить компьютер?"
 	textEnterPassword    = "Введите пароль"
 	textWarn30           = "Через 30 минут время на сегодня закончится"
 	textWarn15           = "Через 15 минут время на сегодня закончится"
 	textWarn5            = "Через 5 минут время закончится. Сохрани игру"
-	textWarn1            = "Осталась 1 минута: "
+	textWarn1            = "Осталась 1 минута"
 	textChildAskParent   = "Попроси родителя, если нужно больше времени"
 	textPromo            = "Ввести промокод"
 	textSubmitPromo      = "Применить"
@@ -228,7 +263,7 @@ var warnThresholds = core.WarnThresholds
 type plateKind int
 
 const (
-	plateThreshold plateKind = iota // предупреждение за 15/5/1 минут
+	plateThreshold plateKind = iota // предупреждение за 30/15/5/1 минут
 	plateAdded                      // «Добавлено N минут»
 )
 
@@ -236,16 +271,42 @@ const (
 type plate struct {
 	id        int
 	kind      plateKind
-	threshold int // минуты порога (plateThreshold)
+	threshold int    // минуты порога (plateThreshold)
+	text      string // текст службы: что закончится
+	event     string // ipc.WarnEvent*
+	deadline  time.Time
 	minutes   int // добавленные минуты (plateAdded)
 	shownAt   time.Time
 }
 
+// life — срок плашки; 0 — без срока: плашка 1 мин держится, пока её не сменит экран блокировки
+// или «Добавлено N минут» (FR-9).
 func (p *plate) life() time.Duration {
-	if p.kind == plateAdded {
+	switch {
+	case p.kind == plateAdded:
 		return addedLife
+	case p.threshold == 1:
+		return 0
 	}
-	return warningLife
+	return boardLife
+}
+
+func (p *plate) expired(now time.Time) bool {
+	l := p.life()
+	return l > 0 && !now.Before(p.shownAt.Add(l))
+}
+
+// byClock: секунды до события идут по настоящим часам (запретные часы, конец паузы); для
+// лимита они берутся из остатка службы, который стоит, когда время не считается (R2).
+func byClock(event string) bool {
+	return event == ipc.WarnEventForbidden || event == ipc.WarnEventPause
+}
+
+// lastWarn — последний показанный порог: служба могла прислать его повторно (класс A).
+type lastWarn struct {
+	thr      int
+	event    string
+	deadline time.Time
 }
 
 // Model — состояние стража без Windows: что показать по решениям службы, нажатиям и
@@ -276,13 +337,26 @@ type Model struct {
 
 	warn     *plate
 	plateSeq int
+	last     lastWarn // последний показанный порог; пусто, когда событие отодвинулось
+	speed    int      // ускорение часов ядра в тестовом режиме (секунды до события по часам), иначе 1
 
 	events []Event
 }
 
 // NewModel создаёт модель без решений: пока служба не ответила, ничего не показывается.
 func NewModel() *Model {
-	return &Model{events: []Event{}}
+	return &Model{events: []Event{}, speed: 1}
+}
+
+// SetClockSpeed задаёт ускорение часов ядра (только тестовый режим): секунды до запретных часов
+// и конца паузы на табло идут в том же темпе, что учёт. Меньше 1 — обычный темп.
+func (m *Model) SetClockSpeed(n int) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if n < 1 {
+		n = 1
+	}
+	m.speed = n
 }
 
 // offlineAt: успешного ответа службы нет дольше offlineAfter. Ровно offlineAfter ещё
@@ -351,7 +425,7 @@ func (m *Model) advance(now time.Time) {
 		m.resetUI()
 		return
 	}
-	if m.warn != nil && !now.Before(m.warn.shownAt.Add(m.warn.life())) {
+	if m.warn != nil && m.warn.expired(now) {
 		m.warn = nil
 	}
 	if !m.blockedUntil.IsZero() && !now.Before(m.blockedUntil) {
@@ -361,8 +435,18 @@ func (m *Model) advance(now time.Time) {
 }
 
 // OnDecision принимает успешный ответ службы: решение, признак родительской сессии
-// (hideForParent, Ruling 19) и пороги, о которых служба сообщила впервые.
+// (hideForParent, Ruling 19) и пороги, о которых служба сообщила впервые; все про лимит
+// (короткая запись для тестов, служба присылает OnWarnings).
 func (m *Model) OnDecision(now time.Time, d core.Decision, hideForParent bool, newWarnings []int) {
+	in := make([]Incoming, 0, len(newWarnings))
+	for _, t := range newWarnings {
+		in = append(in, Incoming{Threshold: t, Event: ipc.WarnEventLimit, EventS: t * 60})
+	}
+	m.OnWarnings(now, d, hideForParent, in)
+}
+
+// OnWarnings — OnDecision с полными предупреждениями службы (вид события и секунды до него).
+func (m *Model) OnWarnings(now time.Time, d core.Decision, hideForParent bool, newWarnings []Incoming) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.advance(now)
@@ -394,40 +478,85 @@ func (m *Model) OnDecision(now time.Time, d core.Decision, hideForParent bool, n
 		return
 	}
 
-	if m.warn != nil && m.stale() {
+	if m.warn != nil && m.stale(now) {
 		m.warn = nil
 	}
-	if thr := mostUrgent(newWarnings); thr != 0 {
-		m.newPlate(now, plateThreshold, thr, 0)
+	if m.last.thr != 0 && !byClock(m.last.event) && (m.dec.Unlimited || m.dec.RemainingS > m.last.thr*60) {
+		m.last = lastWarn{} // остаток снова больше порога: событие отодвинулось, порог можно показать снова
 	}
+	w, ok := mostUrgent(newWarnings)
+	if !ok {
+		return
+	}
+	deadline := now.Add(time.Duration(w.EventS) * time.Second / time.Duration(m.speed))
+	if m.duplicate(w, deadline) {
+		return // служба прислала тот же порог того же события ещё раз: одна плашка, один звук
+	}
+	m.last = lastWarn{thr: w.Threshold, event: w.Event, deadline: deadline}
+	m.newPlate(now, plateThreshold, w.Threshold, 0)
+	m.warn.text, m.warn.event, m.warn.deadline = w.Text, w.Event, deadline
 }
 
-// mostUrgent возвращает меньший из известных порогов (одна причина: одно уведомление,
-// L-118); 0, если известных нет.
-func mostUrgent(newWarnings []int) int {
-	best := 0
+// duplicate: тот же порог того же события, что показан последним, и событие не сдвинулось.
+func (m *Model) duplicate(w Incoming, deadline time.Time) bool {
+	if w.Threshold != m.last.thr || w.Event != m.last.event {
+		return false
+	}
+	if !byClock(w.Event) {
+		return true // для лимита сдвиг виден по остатку: тогда last уже очищен
+	}
+	d := deadline.Sub(m.last.deadline)
+	return d > -3*time.Second && d < 3*time.Second
+}
+
+// mostUrgent возвращает предупреждение с меньшим из известных порогов (одна причина: одно
+// уведомление, L-118); false, если известных нет.
+func mostUrgent(newWarnings []Incoming) (Incoming, bool) {
+	var best Incoming
 	for _, w := range newWarnings {
 		for _, known := range warnThresholds {
-			if w == known && (best == 0 || w < best) {
+			if w.Threshold == known && (best.Threshold == 0 || w.Threshold < best.Threshold) {
 				best = w
 			}
 		}
 	}
-	return best
+	if best.Event == "" {
+		best.Event = ipc.WarnEventLimit
+	}
+	return best, best.Threshold != 0
 }
 
-// stale: событие, о котором предупреждала плашка, отодвинулось (доп. время, новые
-// правила) или лимита больше нет: плашка устарела (R9: пороги взводятся заново).
-func (m *Model) stale() bool {
-	if m.warn.kind != plateThreshold {
+// stale: событие, о котором предупреждала плашка, отодвинулось или отменено, плашка устарела
+// (R9: пороги взводятся заново). Лимит: остаток больше порога или лимита нет. Запретные часы:
+// включена пауза или момент начала прошёл без экрана блокировки. Конец паузы: пауза снята или
+// её момент прошёл без экрана.
+func (m *Model) stale(now time.Time) bool {
+	p := m.warn
+	if p.kind != plateThreshold {
 		return false
 	}
-	return m.dec.Unlimited || m.dec.RemainingS > m.warn.threshold*60
+	switch p.event {
+	case ipc.WarnEventForbidden:
+		return m.dec.Status == core.StatusPaused || now.After(p.deadline.Add(staleGrace))
+	case ipc.WarnEventPause:
+		return m.dec.Status != core.StatusPaused || now.After(p.deadline.Add(staleGrace))
+	}
+	return m.dec.Unlimited || m.dec.RemainingS > p.threshold*60
+}
+
+// eventSecs — секунды до события плашки сейчас (Review Focus 4): лимит по остатку службы,
+// запретные часы и конец паузы по настоящим часам (с ускорением тестового режима).
+func (m *Model) eventSecs(now time.Time) int {
+	p := m.warn
+	if !byClock(p.event) {
+		return m.dec.RemainingS
+	}
+	return secondsCeil(p.deadline.Sub(now) * time.Duration(m.speed))
 }
 
 func (m *Model) newPlate(now time.Time, kind plateKind, threshold, minutes int) {
 	m.plateSeq++
-	m.warn = &plate{id: m.plateSeq, kind: kind, threshold: threshold, minutes: minutes, shownAt: now}
+	m.warn = &plate{id: m.plateSeq, kind: kind, threshold: threshold, minutes: minutes, shownAt: now, event: ipc.WarnEventLimit}
 }
 
 // OnServiceUnreachable сообщает, что службы нет: сам по себе вид не меняет, но подводит
@@ -558,8 +687,9 @@ func (m *Model) Press(now time.Time, b Button, password string) Action {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.advance(now)
-	if b == ButtonWarningOK {
-		if m.plateVisible(now) {
+	if b == ButtonWarningClose {
+		// Крестик есть только у табло 30/15/5; плашку 1 мин кнопкой не закрыть (FR-9).
+		if m.plateVisible(now) && m.warn.kind == plateThreshold && m.warn.threshold != 1 {
 			m.warn = nil
 		}
 		return Action{}
@@ -709,10 +839,10 @@ func (m *Model) plateVisible(now time.Time) bool {
 	if m.warn == nil || !m.hasDec || m.hidden || m.dec.Lock != core.LockNone || m.offlineAt(now) {
 		return false
 	}
-	if !now.Before(m.warn.shownAt.Add(m.warn.life())) {
+	if m.warn.expired(now) {
 		return false
 	}
-	return !m.stale()
+	return !m.stale(now)
 }
 
 // View возвращает, что показать в момент now. Состояния не меняет.
@@ -725,7 +855,7 @@ func (m *Model) View(now time.Time) View {
 	}
 	if m.dec.Lock == core.LockNone {
 		if m.plateVisible(now) {
-			v.Warning = m.plateView()
+			v.Warning = m.plateView(now)
 		}
 		return v
 	}
@@ -841,27 +971,47 @@ func (m *Model) choicesView() []ButtonView {
 	}
 }
 
-func (m *Model) plateView() *WarningView {
+func (m *Model) plateView(now time.Time) *WarningView {
 	p := m.warn
 	w := &WarningView{ID: p.id, Buttons: []ButtonView{}}
 	if p.kind == plateAdded {
 		w.Text = addedText(p.minutes)
 		return w
 	}
-	w.Buttons = []ButtonView{{Button: ButtonWarningOK, Label: textWarningOK, Enabled: true}}
-	switch p.threshold {
-	case 30:
-		w.Text = textWarn30
-	case 15:
-		w.Text = textWarn15
-	case 5:
-		w.Text = textWarn5
-	default:
-		w.Countdown = clock(m.dec.RemainingS)
-		w.Text = textWarn1 + w.Countdown
-		w.Sound = true
+	w.Threshold, w.Sound = p.threshold, true
+	secs := m.eventSecs(now)
+	text := p.text
+	if text == "" {
+		text = fallbackWarnText(p.threshold)
 	}
+	if p.threshold == 1 {
+		// Плашка 1 мин: обратный отсчёт, без кнопок и без срока (FR-9; кнопки копилки и
+		// «Попросить ещё» на ней — бэклог B-27).
+		w.Countdown = clock(secs)
+		if !byClock(p.event) {
+			text = textWarn1
+		}
+		w.Text = text + ": " + w.Countdown
+		return w
+	}
+	board := systray.TimeCountdown(secs)
+	board.Line = text
+	w.Text, w.Board = text, &board
+	w.Buttons = []ButtonView{{Button: ButtonWarningClose, Label: textWarningClose, Enabled: true}}
 	return w
+}
+
+// fallbackWarnText — текст порога о лимите, если служба текста не прислала.
+func fallbackWarnText(thr int) string {
+	switch thr {
+	case 30:
+		return textWarn30
+	case 15:
+		return textWarn15
+	case 5:
+		return textWarn5
+	}
+	return textWarn1
 }
 
 // clock форматирует секунды как м:сс; отрицательные считаются нулём.

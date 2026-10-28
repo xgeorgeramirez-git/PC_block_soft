@@ -265,7 +265,7 @@ func examples() map[string]example {
 			Sample: SampleFromCore(core.SessionSample{AtMs: t0, TzOffsetMin: 180, LastInputAgoMs: 1200, Fullscreen: true, Foreground: core.CatGames, SessionActive: true}),
 			Events: []GuardEvent{
 				{Kind: GuardEvWarningShown, AtMs: t0 - 2000, Threshold: 5},
-				{Kind: GuardEvButton, AtMs: t0 - 500, Button: ButtonAck},
+				{Kind: GuardEvButton, AtMs: t0 - 500, Button: ButtonWarningClose},
 				{Kind: GuardEvBypass, AtMs: t0 - 100, Detail: "Изменено системное время"},
 			},
 		}, GuardPollReply{
@@ -287,7 +287,8 @@ func examples() map[string]example {
 		CmdTestGuard: ok(TestGuardRequest{SessionID: 2, Action: TestGuardAction{Action: TestClick, Target: ButtonParentPassword}}, Empty{}),
 		CmdTestClock: ok(TestClockRequest{Paused: true}, TestClockReply{Paused: true, NowMs: t0, Speed: 60}),
 		CmdGuardState: ok(nil, GuardStateReply{
-			Warnings:  []ShownWarning{{AtMs: t0 - 60_000, Threshold: 1, Text: "Осталась 1 минута"}},
+			Warnings:  []ShownWarning{{AtMs: t0 - 60_000, Threshold: 1, Text: "Осталась 1 минута: 0:59"}},
+			Sounds:    []ShownSound{{AtMs: t0 - 60_000, Threshold: 1, OK: true}},
 			LockShown: true,
 			LockKind:  LockTimeUp,
 			Buttons:   []string{ButtonParentPassword, ButtonShutdown, ButtonLogoff, ButtonSwitchUser},

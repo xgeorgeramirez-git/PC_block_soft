@@ -715,7 +715,7 @@
           "kind": "button",
           "atMs": 1759999999500,
           "threshold": 0,
-          "button": "ack",
+          "button": "warningClose",
           "detail": ""
         },
         {
@@ -835,7 +835,14 @@
           {
             "atMs": 1759999940000,
             "threshold": 1,
-            "text": "Осталась 1 минута"
+            "text": "Осталась 1 минута: 0:59"
+          }
+        ],
+        "sounds": [
+          {
+            "atMs": 1759999940000,
+            "threshold": 1,
+            "ok": true
           }
         ],
         "lockShown": true,
@@ -863,6 +870,7 @@
       "ok": true,
       "payload": {
         "warnings": [],
+        "sounds": [],
         "lockShown": false,
         "lockKind": "",
         "buttons": [],

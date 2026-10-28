@@ -7,21 +7,39 @@ import "math"
 
 // Размеры карточки при 100 % (пропорции макета 1,6 : 1), px.
 const (
-	cardBaseW      = 480
-	cardBaseH      = 290
-	cardBaseMargin = 14 // поля вокруг карточки под мягкую тень; окно целиком выходит около 1,6 : 1
-	cardBasePad    = 26
-	cardBaseRadius = 54
-	cardBaseArrow  = 50 // диаметр круглой кнопки
-	cardBaseTileW  = 54
-	cardBaseTileH  = 88  // ближе к квадрату, чем 50x104 в первой версии
-	cardBasePair   = 8   // зазор между плитками одной пары
-	cardBaseColon  = 40  // ширина между парами: тут двоеточие, с воздухом до плиток
-	cardBaseTop    = 112 // верх плиток
-	cardBaseLabelH = 32
-	cardBaseBtnW   = 176
-	cardBaseBtnH   = 44
+	cardBaseW       = 480
+	cardBaseH       = 290
+	cardBaseMargin  = 14 // поля вокруг карточки под мягкую тень; окно целиком выходит около 1,6 : 1
+	cardBasePad     = 26
+	cardBaseRadius  = 54
+	cardBaseArrow   = 50 // диаметр круглой кнопки
+	cardBaseTileW   = 54
+	cardBaseTileH   = 88  // ближе к квадрату, чем 50x104 в первой версии
+	cardBasePair    = 8   // зазор между плитками одной пары
+	cardBaseColon   = 40  // ширина между парами: тут двоеточие, с воздухом до плиток
+	cardBaseTop     = 112 // верх плиток
+	cardBaseLabelH  = 32
+	cardBaseBtnW    = 176
+	cardBaseBtnH    = 44
+	cardBaseLineH   = 64 // строка под подписями у плашки-табло предупреждения: до двух строк текста
+	cardBaseLineGap = 6
 )
+
+// CardButton — кнопка в правом верхнем углу карточки.
+type CardButton int
+
+const (
+	CardButtonArrow CardButton = iota // стрелка: открыть «Мою статистику» (табло значка)
+	CardButtonClose                   // крестик «Закрыть» (плашка-табло предупреждения стража)
+)
+
+// CardOptions — вариант общей карточки (R-2 пакета 0.2.5): табло значка (по умолчанию) или
+// плашка-табло предупреждения стража с крестиком и строкой текста под плитками. Ширина у
+// вариантов одна, строка добавляет высоту.
+type CardOptions struct {
+	Button CardButton
+	Line   bool // строка под подписями плиток (что закончится)
+}
 
 // CardTarget — что на карточке нажимается мышью и клавишами.
 type CardTarget int
@@ -30,6 +48,7 @@ const (
 	TargetNone    CardTarget = iota
 	TargetArrow              // круглая кнопка со стрелкой: открыть «Мою статистику»
 	TargetRefresh            // «Обновить» под текстом ошибки
+	TargetClose              // крестик «Закрыть» плашки-табло предупреждения
 )
 
 // Contains: точка внутри прямоугольника (правая и нижняя границы не входят).
@@ -57,6 +76,9 @@ type CardLayout struct {
 	Body   Rect    // вся зона плиток: на ней крупная строка или ошибка
 	Text   Rect    // место текста ошибки и крупной строки
 	Button Rect    // «Обновить»
+	Line   Rect    // строка под подписями (только плашка-табло); пусто у табло значка
+
+	Close bool // в правом верхнем углу крестик (CardButtonClose), иначе стрелка
 }
 
 // cardSize — общий коэффициент размера табло (заказчик: «поменьше процентов на 20»). Все размеры
@@ -76,8 +98,12 @@ func CardScale(dpi int) float64 {
 	return s
 }
 
-// NewCardLayout считает места по масштабу.
-func NewCardLayout(scale float64) CardLayout {
+// NewCardLayout считает места табло значка по масштабу.
+func NewCardLayout(scale float64) CardLayout { return NewCardLayoutFor(scale, CardOptions{}) }
+
+// NewCardLayoutFor считает места варианта карточки: тот же расчёт, что у табло значка, плюс
+// строка под подписями (карточка выше на её высоту) и крестик на месте стрелки.
+func NewCardLayoutFor(scale float64, o CardOptions) CardLayout {
 	scale *= cardSize
 	px := func(v int) int { return int(math.Round(float64(v) * scale)) }
 	l := CardLayout{Scale: scale, Margin: px(cardBaseMargin), Radius: px(cardBaseRadius)}
@@ -116,7 +142,36 @@ func NewCardLayout(scale float64) CardLayout {
 	cx := (l.Body.Left + l.Body.Right) / 2
 	l.Button = Rect{cx - btnW/2, l.Body.Bottom - px(14) - btnH, cx - btnW/2 + btnW, l.Body.Bottom - px(14)}
 	l.Text = Rect{l.Body.Left + px(14), l.Body.Top + px(10), l.Body.Right - px(14), l.Body.Bottom - px(10)}
+	l.Close = o.Button == CardButtonClose
+	if o.Line {
+		top := l.Labels[2].Bottom + px(cardBaseLineGap)
+		l.Line = Rect{l.Card.Left + pad, top, l.Card.Right - pad, top + px(cardBaseLineH)}
+		grow := l.Line.Bottom + px(cardBaseLineGap) - l.Card.Bottom
+		if d := l.Line.Bottom + pad/2 - l.Card.Bottom; d > grow {
+			grow = d
+		}
+		l.Card.Bottom += grow
+		l.H += grow
+	}
 	return l
+}
+
+// CloseCenter — центр кнопки в правом верхнем углу (стрелки или крестика) в координатах окна.
+func (l CardLayout) CloseCenter() (x, y int) {
+	return (l.Arrow.Left + l.Arrow.Right) / 2, (l.Arrow.Top + l.Arrow.Bottom) / 2
+}
+
+// PlaceCorner ставит окно w x h в правый нижний угол рабочей области work с отступом gap; если
+// окно больше области, оно прижимается к её левому верхнему углу.
+func PlaceCorner(work Rect, w, h, gap int) (x, y int) {
+	x, y = work.Right-gap-w, work.Bottom-gap-h
+	if x < work.Left {
+		x = work.Left
+	}
+	if y < work.Top {
+		y = work.Top
+	}
+	return x, y
 }
 
 // ErrorText — место текста ошибки: над кнопкой «Обновить».
@@ -133,6 +188,9 @@ func (l CardLayout) HitTest(x, y int, kind CountdownKind) CardTarget {
 	cx, cy := float64(a.Left+a.Right)/2, float64(a.Top+a.Bottom)/2
 	r := float64(a.Dx()) / 2
 	if dx, dy := float64(x)+0.5-cx, float64(y)+0.5-cy; dx*dx+dy*dy <= r*r {
+		if l.Close {
+			return TargetClose
+		}
 		return TargetArrow
 	}
 	if kind == CountdownError && l.Button.Contains(x, y) {

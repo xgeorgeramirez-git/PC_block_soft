@@ -337,3 +337,47 @@ func TestCardLabelContrast(t *testing.T) {
 		}
 	}
 }
+
+// Ловит: у плашки-табло нет строки под плитками или она не белая и не с переносом; у табло
+// значка появилась лишняя строка.
+func TestCardTextsBoardLine(t *testing.T) {
+	v := timeView("00", "05", "00", StatusLow)
+	v.Line = "Через 5 минут время закончится. Сохрани игру"
+	l := NewCardLayoutFor(1, CardOptions{Button: CardButtonClose, Line: true})
+	n := 0
+	for _, r := range CardTexts(l, v) {
+		if r.Role == RoleLine {
+			n++
+			if r.Text != v.Line || r.Rect != l.Line || !r.Wrap || r.Color != colorWhite {
+				t.Errorf("строка %+v", r)
+			}
+		}
+	}
+	if n != 1 {
+		t.Fatalf("строк под плитками %d", n)
+	}
+	for _, r := range CardTexts(NewCardLayout(1), v) {
+		if r.Role == RoleLine {
+			t.Fatalf("у табло значка строка %+v", r)
+		}
+	}
+}
+
+// Ловит: на месте стрелки у плашки-табло всё ещё стрелка (рисунок не различает варианты).
+func TestRenderCloseDiffersFromArrow(t *testing.T) {
+	v := timeView("00", "30", "00", StatusNormal)
+	tray := RenderCardBase(NewCardLayout(1), v, CardState{})
+	board := RenderCardBase(NewCardLayoutFor(1, CardOptions{Button: CardButtonClose}), v, CardState{})
+	l := NewCardLayout(1)
+	diff := 0
+	for y := l.Arrow.Top; y < l.Arrow.Bottom; y++ {
+		for x := l.Arrow.Left; x < l.Arrow.Right; x++ {
+			if tray.RGBAAt(x, y) != board.RGBAAt(x, y) {
+				diff++
+			}
+		}
+	}
+	if diff < 20 {
+		t.Fatalf("крестик не отличается от стрелки: %d разных пикселей", diff)
+	}
+}

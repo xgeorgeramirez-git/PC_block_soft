@@ -202,3 +202,24 @@ func TestPollInterval(t *testing.T) {
 		t.Errorf("закрытая: %v, ждали 5s", got)
 	}
 }
+
+// Ловит: табло предупреждения стража считает цифры и цвет не тем кодом, что табло значка
+// (R-2, класс A/C): одинаковые секунды дают разные плитки или разный цвет.
+func TestTimeCountdownSameAsTray(t *testing.T) {
+	for _, rem := range []int{1800, 1797, 901, 900, 300, 59, 1, 0} {
+		got := TimeCountdown(rem)
+		want := CountdownFor(freshSnap(okStatus(rem, 7200)))
+		if rem == 0 {
+			want = CountdownFor(freshSnap(ipc.ChildStatus{Status: ipc.StatusTimeUp, Lock: ipc.LockTimeUp}))
+		}
+		if got != want {
+			t.Errorf("остаток %d: табло предупреждения %+v, табло значка %+v", rem, got, want)
+		}
+	}
+	if v := TimeCountdown(1800); v.Hours != "00" || v.Minutes != "30" || v.Seconds != "00" || v.Status != StatusNormal || v.Title != "ОСТАЛОСЬ ВРЕМЕНИ:" {
+		t.Errorf("30 минут: %+v", v)
+	}
+	if v := TimeCountdown(-5); v.Hours != "00" || v.Minutes != "00" || v.Seconds != "00" || v.Status != StatusOut {
+		t.Errorf("отрицательный остаток: %+v", v)
+	}
+}

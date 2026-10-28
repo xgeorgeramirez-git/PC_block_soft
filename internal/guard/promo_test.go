@@ -191,7 +191,7 @@ func TestControllerPromoBusyAndField(t *testing.T) {
 		t.Fatalf("«Применить» должна ждать ответа службы (без двойной отправки)")
 	}
 	st := StateFromView(View{LockShown: true, Panel: PanelPromo, Buttons: []ButtonView{}, Choices: []ButtonView{}},
-		ipc.LockTimeUp, nil, map[string]string{FieldPromoID: "a12", FieldPasswordID: "секрет"})
+		ipc.LockTimeUp, nil, nil, map[string]string{FieldPromoID: "a12", FieldPasswordID: "секрет"})
 	if len(st.Fields) != 1 || st.Fields[0].ID != FieldPromoID || st.Fields[0].Text != "a12" {
 		t.Fatalf("поля GuardState на панели промокода: %+v", st.Fields)
 	}

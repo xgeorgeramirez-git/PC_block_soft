@@ -8,7 +8,7 @@ import (
 
 func TestTargetNamesAreUniqueAndRoundTrip(t *testing.T) {
 	seen := map[string]Button{}
-	for b := ButtonParentPassword; b <= ButtonWarningOK; b++ {
+	for b := ButtonParentPassword; b <= ButtonWarningClose; b++ {
 		name := TargetName(b)
 		if name == "" {
 			t.Errorf("у кнопки %d нет имени для канала", b)
@@ -29,7 +29,7 @@ func TestTargetNamesMatchChannel(t *testing.T) {
 	// Три имени заданы каналом связи, их менять нельзя: ими пользуется приёмка.
 	if TargetName(ButtonParentPassword) != ipc.ButtonParentPassword ||
 		TargetName(ButtonLogoff) != ipc.ButtonLogoff ||
-		TargetName(ButtonWarningOK) != ipc.ButtonAck {
+		TargetName(ButtonWarningClose) != ipc.ButtonWarningClose {
 		t.Fatal("имена кнопок разошлись с ipc.Button*")
 	}
 }

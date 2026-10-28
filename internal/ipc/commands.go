@@ -540,7 +540,7 @@ const (
 	ButtonLogoff         = "logoff"         // «Выйти из учётной записи»
 	ButtonShutdown       = "shutdown"       // «Выключить компьютер»
 	ButtonSwitchUser     = "switchUser"     // «Смена пользователя»
-	ButtonAck            = "ack"            // «Понятно»
+	ButtonWarningClose   = "warningClose"   // крестик «Закрыть» на плашке-табло предупреждения
 )
 
 // GuardEvent — событие, которое страж сообщает службе.
@@ -644,6 +644,14 @@ type ShownWarning struct {
 	Text      string `json:"text"`
 }
 
+// ShownSound — звук предупреждения, который страж сыграл (тестовый режим): порог и ответ
+// Windows (PlaySoundW принял звук; на раннере без звуковой карты бывает false).
+type ShownSound struct {
+	AtMs      int64 `json:"atMs"`
+	Threshold int   `json:"threshold"`
+	OK        bool  `json:"ok"`
+}
+
 // GuardField — поле ввода стража и его текст.
 type GuardField struct {
 	ID   string `json:"id"`
@@ -653,6 +661,7 @@ type GuardField struct {
 // GuardStateReply — что сейчас показывает страж (GuardState, только тестовый режим).
 type GuardStateReply struct {
 	Warnings  []ShownWarning `json:"warnings"`  // журнал показанных предупреждений
+	Sounds    []ShownSound   `json:"sounds"`    // журнал сыгранных звуков предупреждений (D-55)
 	LockShown bool           `json:"lockShown"` // экран блокировки показан
 	LockKind  string         `json:"lockKind"`  // Lock*
 	Buttons   []string       `json:"buttons"`   // видимые кнопки (Button*)

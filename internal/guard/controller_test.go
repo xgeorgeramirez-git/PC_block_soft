@@ -274,7 +274,7 @@ func TestThresholdWarningShownOnceWithEvents(t *testing.T) {
 	if v.Warning == nil || v.Warning.Text != "Через 15 минут время на сегодня закончится" {
 		t.Fatalf("плашка: %+v", v.Warning)
 	}
-	r.ctl.Press(ButtonWarningOK, "")
+	r.ctl.Press(ButtonWarningClose, "")
 	if v := r.ctl.View(); v.Warning != nil {
 		t.Fatal("плашка осталась после «Понятно»")
 	}
@@ -298,8 +298,8 @@ func TestThresholdWarningShownOnceWithEvents(t *testing.T) {
 			}
 		case ipc.GuardEvButton:
 			btn++
-			if e.Button != TargetAck {
-				t.Fatalf("кнопка в событии %q, ждали %q", e.Button, TargetAck)
+			if e.Button != TargetWarningClose {
+				t.Fatalf("кнопка в событии %q, ждали %q", e.Button, TargetWarningClose)
 			}
 		}
 	}
@@ -810,10 +810,10 @@ func TestTestGuardCommandsOnlyInTestMode(t *testing.T) {
 		r := newCtRig()
 		r.svc.test = test
 		r.svc.status = ctRunningStatus(3600)
-		r.svc.cmds = []ipc.GuardCommand{{Kind: ipc.GuardCmdTest, Test: &ipc.TestGuardAction{Action: ipc.TestClick, Target: TargetAck}}}
+		r.svc.cmds = []ipc.GuardCommand{{Kind: ipc.GuardCmdTest, Test: &ipc.TestGuardAction{Action: ipc.TestClick, Target: TargetWarningClose}}}
 		r.poll()
 		got := r.ctl.QueuedTests()
-		if test && (len(got) != 1 || got[0].Target != TargetAck) {
+		if test && (len(got) != 1 || got[0].Target != TargetWarningClose) {
 			t.Errorf("тестовый режим: действия %+v", got)
 		}
 		if !test && len(got) != 0 {
@@ -880,7 +880,7 @@ func TestFieldTextIsKeptOnlyInTestMode(t *testing.T) {
 }
 
 func TestStateFromViewKeepsSlicesNonNil(t *testing.T) {
-	st := StateFromView(View{Buttons: []ButtonView{}, Choices: []ButtonView{}}, "", nil, nil)
+	st := StateFromView(View{Buttons: []ButtonView{}, Choices: []ButtonView{}}, "", nil, nil, nil)
 	raw, err := json.Marshal(st)
 	if err != nil {
 		t.Fatal(err)
