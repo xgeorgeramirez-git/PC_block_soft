@@ -777,6 +777,18 @@ function Format-GuardState($s) {
 
 function Get-WarnThresholds($State) { return @(List $State.warnings | ForEach-Object { [int]$_.threshold }) }
 
+# Порог показан не больше одного раза (R9: одно предупреждение на событие, класс A).
+function Assert-NoRepeatWarnings($State, [string]$What) {
+  $seen = @{}
+  foreach ($t in (Get-WarnThresholds $State)) {
+    Assert-That (-not $seen.ContainsKey($t)) "${What}: порог $t показан дважды ($((Get-WarnThresholds $State) -join ','))"
+    $seen[$t] = $true
+  }
+}
+
+# Пороги сыгранных звуков предупреждений (GuardState.sounds, D-55): по одному на каждую плашку.
+function Get-SoundThresholds($State) { return @(List $State.sounds | ForEach-Object { [int]$_.threshold }) }
+
 # Ждёт, пока вид стража (GuardState) подойдёт под условие; условие получает состояние первым аргументом.
 # Возвращает последнее состояние; секунды ожидания лежат в $script:WaitElapsed.
 function Wait-GuardState([scriptblock]$Cond, [double]$Seconds, [string]$What, [int]$PollMs = 150) {
