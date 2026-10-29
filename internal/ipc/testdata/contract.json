@@ -852,6 +852,7 @@
         },
         "lockShown": true,
         "lockKind": "timeUp",
+        "plate": "",
         "buttons": [
           "parentPassword",
           "shutdown",
@@ -883,6 +884,7 @@
         },
         "lockShown": false,
         "lockKind": "",
+        "plate": "",
         "buttons": [],
         "fields": [],
         "exits": []

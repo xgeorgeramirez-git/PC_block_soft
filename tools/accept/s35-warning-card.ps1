@@ -121,8 +121,11 @@ Invoke-Scenario "S35" "Плашка-табло 30, 15, 5, плашка 1 мин 
     Open-Parent
     Assert-Reply (Send-Parent "AddExtra" @{ childId = $script:ChildId; minutes = 30 }) "AddExtra +30"
     Assert-Reply (Send-Parent "Logout") "Logout"
-    Wait-Until { (Get-GuardWindows "PCBlockGuardPlate").Count -eq 1 } 5 "плашка «Добавлено 30 минут» видна"
-    Start-Sleep -Milliseconds 300
+    # Окно плашки то же, что у плашки 1 мин: ждать текст в GuardState, а не число окон (иначе снимок
+    # делается раньше смены текста, CI 40817372454).
+    $g = Wait-GuardState { param($s) [string]$s.plate -eq "Добавлено 30 минут" } 5 "плашка «Добавлено 30 минут» видна"
+    Assert-That ((Get-GuardWindows "PCBlockGuardPlate").Count -eq 1) "Окна плашки «Добавлено» нет: $((Get-GuardWindows 'PCBlockGuardPlate') -join ' ; ')"
+    Start-Sleep -Milliseconds 500 # поток окон перерисовывает плашку по своему таймеру
     Save-Screen "s35-added"
     $st = Get-Status
     Write-Log "После «+30»: остаток $($st.remainingS) с"
@@ -131,6 +134,7 @@ Invoke-Scenario "S35" "Плашка-табло 30, 15, 5, плашка 1 мин 
     $g = Get-GuardState
     Assert-That ((Get-WarnThresholds $g) -join "," -eq "30,15,5,1") "После «+30» журнал предупреждений: $((Get-WarnThresholds $g) -join ','), ждали 30,15,5,1 без повтора"
     Assert-That ((Get-SoundThresholds $g) -join "," -eq "30,15,5,1") "После «+30» звуки: $((Get-SoundThresholds $g) -join ','), ждали без нового звука"
+    Assert-That ([string]$g.plate -eq "") "Через 6 с на плашке «$($g.plate)», ждали, что «Добавлено 30 минут» закроется"
     Assert-That ((Get-GuardWindows "PCBlockGuardPlate").Count -eq 0) "«Добавлено 30 минут» висит дольше 5 с"
     Stop-Fullscreen
   }

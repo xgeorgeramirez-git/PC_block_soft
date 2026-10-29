@@ -379,3 +379,32 @@ func TestPushStateCarriesUIDiag(t *testing.T) {
 		t.Fatalf("диагностика %+v", st.UI)
 	}
 }
+
+// Ловит (снимок s35-added в CI был копией плашки 1 мин): приёмка не видит, какой текст сейчас на
+// плашке, и снимает «Добавлено 30 минут», пока на экране ещё «Осталась 1 минута». GuardState
+// называет текст видимой плашки; плашки нет — пусто.
+func TestPushStateNamesVisiblePlateText(t *testing.T) {
+	r := newCtRig()
+	r.svc.test = true
+	r.svc.status = ctRunningStatus(60)
+	r.svc.warns = []ipc.GuardWarning{ipc.NewGuardWarning(1)}
+	r.ctl.PollOnce()
+	r.ctl.PushState()
+	if got := lastPushed(t, r).Plate; got != "Осталась 1 минута: 1:00" {
+		t.Fatalf("плашка %q; ждали «Осталась 1 минута: 1:00»", got)
+	}
+	r.clk.Advance(time.Second)
+	r.svc.status = ctRunningStatus(1860)
+	r.svc.cmds = []ipc.GuardCommand{{Kind: ipc.GuardCmdNotice, Text: "Добавлено 30 минут"}}
+	r.ctl.PollOnce()
+	r.ctl.PushState()
+	if got := lastPushed(t, r).Plate; got != "Добавлено 30 минут" {
+		t.Fatalf("плашка %q; ждали «Добавлено 30 минут»", got)
+	}
+	r.clk.Advance(6 * time.Second)
+	r.ctl.PollOnce()
+	r.ctl.PushState()
+	if got := lastPushed(t, r).Plate; got != "" {
+		t.Fatalf("через 6 с плашка %q; ждали пусто", got)
+	}
+}

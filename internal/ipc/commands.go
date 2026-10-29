@@ -691,6 +691,7 @@ type GuardStateReply struct {
 	UI        GuardUI        `json:"ui"`        // диагностика потока окон стража (тестовый режим)
 	LockShown bool           `json:"lockShown"` // экран блокировки показан
 	LockKind  string         `json:"lockKind"`  // Lock*
+	Plate     string         `json:"plate"`     // текст видимой плашки или табло предупреждения; пусто — плашки нет
 	Buttons   []string       `json:"buttons"`   // видимые кнопки (Button*)
 	Fields    []GuardField   `json:"fields"`    // поля ввода и их текст
 	// Exits — выходы, о которых страж просил службу в тестовом режиме (Exit*), по порядку.

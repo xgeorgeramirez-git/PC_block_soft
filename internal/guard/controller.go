@@ -724,6 +724,7 @@ func StateFromView(v View, lockKind string, shown []ipc.ShownWarning, sounds []i
 	add(v.Choices)
 	if v.Warning != nil {
 		add(v.Warning.Buttons)
+		st.Plate = v.Warning.Text
 	}
 	switch v.Panel {
 	case PanelPassword:
