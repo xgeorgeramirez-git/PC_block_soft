@@ -89,13 +89,6 @@ jobs:
           exec > >(tee -a "$RUNNER_TEMP/ci.log") 2>&1
           bash tools/check_nsis_bom.sh
 
-      # Каталог Помощника (FR-34): уникальные номера, длина текстов, нет длинных тире, каждый якорь известен,
-      # матрица docs/HELPER_COVERAGE.md не отстаёт от каталога. Отдельным шагом, чтобы сбой было видно сразу.
-      - name: Каталог помощника
-        run: |
-          exec > >(tee -a "$RUNNER_TEMP/ci.log") 2>&1
-          go test -count=1 ./internal/guidance/...
-
       - name: go vet и сборка для Windows (кросс-компиляция)
         env:
           GOOS: windows

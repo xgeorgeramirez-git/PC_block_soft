@@ -12,22 +12,22 @@
 | `internal/auth/pwhash` | 1 (1) | pwhash — хеш пароля родителя Argon2id (NFR-9): память 64 МБ, 3 прохода, строка формата PHC. |
 | `internal/core` | 12 (15) | core — ядро правил и учёта времени: активные секунды, лимиты, предупреждения, блокировка; только стандартная библиотека, всё внешнее через порты. |
 | `internal/guard` | 15 (8) | guard — страж сеанса: нативный экран блокировки Windows, который |
-| `internal/guidance` | 2 (1) | guidance хранит каталог Помощника (FR-34, ТЗ 8.4 и 10.9) и проверяет его. |
 | `internal/ipc` | 12 (6) | ipc — канал связи службы программы с её окнами, стражем сеанса и значком на том |
 | `internal/launch` | 1 (1) | launch разбирает ключи запуска программы: в каком режиме работает PCBlock.exe. |
 | `internal/service` | 17 (18) | service — служба PCBlock: фоновая часть, которая считает время за компьютером, |
 | `internal/service/winhost` | 19 (1) | winhost — Windows-обвязка службы PCBlock: всё, что внутри internal/service |
 | `internal/sound` | 3 (1) | sound — звук предупреждения заказчика (D-55, FR-9). Файл заказчика |
-| `internal/storage` | 5 (5) | storage — хранилище программы: SQLite в режиме WAL (ТЗ 3.1, 3.4, 4), драйвер на чистом Go. |
+| `internal/storage` | 5 (6) | storage — хранилище программы: SQLite в режиме WAL (ТЗ 3.1, 3.4, 4), драйвер на чистом Go. |
 | `internal/systray` | 17 (9) | systray — значок у часов и мини-панель: надпись остатка, подсказка, цвет статуса, |
 | `internal/ui` | 3 (1) | ui — окно программы на Wails: запуск окна и методы, доступные интерфейсу. |
-| `internal/version` | 1 (1) | version хранит номер версии программы. |
+| `internal/version` | 1 (2) | version хранит номер версии программы. |
 | `internal/winsession` | 5 (0) | winsession запускает процессы в интерактивных сеансах Windows: |
 
 ## Миграции базы
 
 - `001_init.sql` — Назначение: начальная схема базы по ТЗ 4 целиком (таблицы M1 и поля M2+ сразу, чтобы не мигрировать повторно).
 - `002_feedback_0_2_2.sql` — Назначение: фидбек-раунд 0.2.2 — автобонусы (R25), снятие запрета на день (R24), промокоды (R26).
+- `003_drop_helper_state.sql` — Назначение: удалить сохранённое состояние Помощника (D-56)
 
 ## Интерфейс (frontend/src)
 
@@ -51,22 +51,6 @@
 - `src/components/usePause.ts`
 - `src/global.d.ts`
 - `src/guard.tsx`
-- `src/guidance/GuidanceProvider.tsx`
-- `src/guidance/HelpCenter.tsx`
-- `src/guidance/HintCard.tsx`
-- `src/guidance/HintSlot.tsx`
-- `src/guidance/Tour.tsx`
-- `src/guidance/candidates.ts`
-- `src/guidance/catalog.ts`
-- `src/guidance/context.ts`
-- `src/guidance/detectors.ts`
-- `src/guidance/engine.ts`
-- `src/guidance/icons.tsx`
-- `src/guidance/io.ts`
-- `src/guidance/lists.ts`
-- `src/guidance/state.ts`
-- `src/guidance/steps.ts`
-- `src/guidance/useHelperSwitch.ts`
 - `src/lib/bonus.ts`
 - `src/lib/errors.ts`
 - `src/lib/format.ts`
@@ -98,6 +82,8 @@
 - `src/types.ts`
 - `src/useSessionWatcher.ts`
 - `src/vite-env.d.ts`
+- `src/whatsnew/WhatsNew.tsx`
+- `src/whatsnew/entries.ts`
 
 ## Биндинги Wails (что интерфейс может вызвать у программы)
 

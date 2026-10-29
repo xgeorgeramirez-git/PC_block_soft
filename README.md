@@ -46,7 +46,6 @@ internal/service/       служба Windows и её обработчики ко
 internal/guard/         страж сеанса ребёнка и экран блокировки
 internal/systray/       значок у часов и мини-панель
 internal/auth/          пароль родителя (Argon2id)
-internal/guidance/      каталог подсказок Помощника
 internal/ui/            связка окна (Wails)
 internal/version/       номер версии
 frontend/               интерфейс: React + TypeScript + Vite
