@@ -991,22 +991,64 @@ func containsAll(s string, subs ...string) bool {
 
 // --- сканер программ и свойства файлов (M3) ---------------------------------------------
 
-// fakeScanner — снимок Program Files: список, ошибка и число вызовов.
+// fakeScanner — снимок Program Files: список, ошибка и число вызовов. gate (не nil) держит Scan,
+// пока его не закроют, entered получает сигнал о входе в Scan (сканер с задержкой, Д-2).
 type fakeScanner struct {
-	mu    sync.Mutex
-	list  []FoundProgram
-	err   error
-	calls int
+	mu      sync.Mutex
+	list    []FoundProgram
+	err     error
+	calls   int
+	gate    chan struct{}
+	entered chan struct{}
 }
 
 func (sc *fakeScanner) Scan() ([]FoundProgram, error) {
 	sc.mu.Lock()
-	defer sc.mu.Unlock()
 	sc.calls++
-	if sc.err != nil {
-		return nil, sc.err
+	gate, entered, err := sc.gate, sc.entered, sc.err
+	list := append([]FoundProgram{}, sc.list...)
+	sc.mu.Unlock()
+	if entered != nil {
+		entered <- struct{}{}
 	}
-	return append([]FoundProgram{}, sc.list...), nil
+	if gate != nil {
+		<-gate
+	}
+	if err != nil {
+		return nil, err
+	}
+	return list, nil
+}
+
+// hold включает задержку: Scan ждёт release.
+func (sc *fakeScanner) hold() {
+	sc.mu.Lock()
+	sc.gate, sc.entered = make(chan struct{}), make(chan struct{}, 8)
+	sc.mu.Unlock()
+}
+
+// release отпускает задержанные Scan.
+func (sc *fakeScanner) release() {
+	sc.mu.Lock()
+	g := sc.gate
+	sc.gate = nil
+	sc.mu.Unlock()
+	if g != nil {
+		close(g)
+	}
+}
+
+// waitEntered ждёт входа в Scan не дольше d.
+func (sc *fakeScanner) waitEntered(d time.Duration) bool {
+	sc.mu.Lock()
+	e := sc.entered
+	sc.mu.Unlock()
+	select {
+	case <-e:
+		return true
+	case <-time.After(d):
+		return false
+	}
 }
 
 func (sc *fakeScanner) callCount() int {

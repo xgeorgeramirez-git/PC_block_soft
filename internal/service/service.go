@@ -168,6 +168,7 @@ type Service struct {
 	progReady  bool
 	progTryAt  time.Time
 	progUndo   *progUndoRec
+	scan       *scanFlight // идущее сканирование программ (вне s.mu, Д-2); nil — не идёт
 
 	bypassWait []pendingBypass // гибель стража, значка или окна, о которой ещё не решено, обход ли это (FB-1)
 	logoffs    []logoffMark    // недавние выходы из учёток: гибель рядом с ними в отключённом сеансе ребёнка не обход (FB-5)

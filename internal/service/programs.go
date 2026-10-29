@@ -1,6 +1,7 @@
 package service
 
 import (
+	"fmt"
 	"time"
 
 	"pcblock/internal/programs"
@@ -25,12 +26,59 @@ type progUndoRec struct {
 	pending  []PendingProgram // вернуть в «Ждут решения» (RestorePending)
 }
 
+// scanFlight — идущее сканирование программ: второй вызов во время первого ждёт его итога, а не
+// запускает новое (Д-2).
+type scanFlight struct {
+	done  chan struct{}
+	found []FoundProgram
+	err   error
+}
+
+// scanUnlocked сканирует программы, отпустив s.mu на время Scan (Д-2): сканер на настоящем
+// компьютере идёт до 10 с, а канал связи, значок и страж не должны его ждать. Если сканирование
+// уже идёт, ждёт его итог. Паника сканера — ошибка сканирования. Вызывать под s.mu; возвращается
+// под s.mu, но состояние службы за это время могло измениться.
+func (s *Service) scanUnlocked() ([]FoundProgram, error) {
+	fl := s.scan
+	leader := fl == nil
+	if leader {
+		fl = &scanFlight{done: make(chan struct{})}
+		s.scan = fl
+	}
+	s.unlocked(func() {
+		if !leader {
+			<-fl.done
+			return
+		}
+		defer close(fl.done)
+		defer func() {
+			if p := recover(); p != nil {
+				fl.found, fl.err = nil, fmt.Errorf("сбой сканера программ: %v", p)
+			}
+		}()
+		fl.found, fl.err = s.cfg.Scanner.Scan()
+	})
+	if leader {
+		s.scan = nil
+	}
+	return fl.found, fl.err
+}
+
+// unlocked выполняет f, отпустив s.mu, и всегда берёт её снова (и при панике в f): обработчик
+// канала и guard дальше работают под блокировкой, а отложенный Unlock в Handle не падает.
+func (s *Service) unlocked(f func()) {
+	s.mu.Unlock()
+	defer s.mu.Lock()
+	f()
+}
+
 // programsReady сообщает, что список программ готов: снимок сделан и прочитан в классификатор.
 // Пока не готов, наблюдатель ничего не закрывает (RM3-10, R18). Вызывать под s.mu.
 func (s *Service) programsReady() bool { return s.progReady }
 
 // ensurePrograms делает снимок и загружает список программ, если это ещё не удалось; повтор не
-// чаще programsRetryEvery. Вызывается под s.mu из Start и Housekeep.
+// чаще programsRetryEvery. Вызывается под s.mu из Start и Housekeep; само сканирование идёт вне
+// блокировки (scanUnlocked, Д-2), повторное не начинается, пока идёт прежнее (progTryAt).
 func (s *Service) ensurePrograms(real time.Time) {
 	if s.progReady || (!s.progTryAt.IsZero() && real.Sub(s.progTryAt) < programsRetryEvery) {
 		return
@@ -58,7 +106,10 @@ func (s *Service) seedPrograms() bool {
 		s.logRate("seed", "снимок программ не сделан: сканер не подключён, программы не закрываются")
 		return false
 	}
-	found, err := s.cfg.Scanner.Scan()
+	found, err := s.scanUnlocked()
+	if s.stopping {
+		return false // служба остановилась, пока шло сканирование: база может быть уже закрыта
+	}
 	if err != nil {
 		s.logRate("seed", "снимок программ не сделан, программы не закрываются до повтора: %v", err)
 		return false

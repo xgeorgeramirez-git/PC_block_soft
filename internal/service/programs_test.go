@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"pcblock/internal/ipc"
 	"pcblock/internal/programs"
 )
 
@@ -216,5 +217,93 @@ func TestSeedProgramsStorePackages(t *testing.T) {
 	defer h.svc.mu.Unlock()
 	if r := h.svc.classifier.Classify(wa+`microsoft.windowscalculator_11.2502.0.0_x64__8wekyb3d8bbwe\calculatorapp.exe`, ""); r.Verdict != programs.VerdictAllow {
 		t.Errorf("калькулятор новой версии: %+v, want разрешён", r)
+	}
+}
+
+// within выполняет f и ждёт его не дольше d: иначе тест падает (вызов ждёт блокировку службы).
+func within(t *testing.T, d time.Duration, what string, f func()) {
+	t.Helper()
+	done := make(chan struct{})
+	go func() { defer close(done); f() }()
+	select {
+	case <-done:
+	case <-time.After(d):
+		t.Fatalf("%s не ответил за %v: ждёт блокировку службы", what, d)
+	}
+}
+
+// Ловит (Д-2): сканирование Program Files (до 10 с на настоящем компьютере) идёт под блокировкой
+// службы: канал связи, значок и страж ждут его. Повтор в Housekeep и мастер ScanPrograms; второй
+// ScanPrograms во время первого не запускает второе сканирование.
+func TestScanProgramsOutsideServiceLock(t *testing.T) {
+	sc := typicalScan()
+	sc.err = errors.New("занято")
+	h := newHarness(t, configured(), withChild(childSID, "Миша", 120), withPrograms(sc))
+	h.start()
+	h.childLogsIn()
+	t.Cleanup(sc.release)
+
+	sc.mu.Lock()
+	sc.err = nil
+	sc.mu.Unlock()
+	sc.hold()
+	h.real.Advance(programsRetryEvery)
+	hk := make(chan struct{})
+	go func() { defer close(hk); h.svc.Housekeep(h.real.Now()) }()
+	if !sc.waitEntered(2 * time.Second) {
+		t.Fatal("Housekeep не начал повтор сканирования")
+	}
+	within(t, time.Second, "GetChildStatus во время сканирования", func() {
+		h.svc.Handle(childPeer(), ipc.Msg{Cmd: ipc.CmdGetChildStatus}, h.real.Now())
+	})
+	within(t, time.Second, "GuardPoll во время сканирования", func() {
+		h.svc.Handle(guardPeer(), ipc.Msg{Cmd: ipc.CmdGuardPoll, Payload: ipc.Payload(ipc.GuardPollRequest{Sample: activeSample})}, h.real.Now())
+	})
+	sc.release()
+	<-hk
+	h.svc.mu.Lock()
+	ready := h.svc.programsReady()
+	h.svc.mu.Unlock()
+	if !ready || sc.callCount() != 2 {
+		t.Fatalf("после повтора: готово %v, вызовов %d; want true, 2", ready, sc.callCount())
+	}
+}
+
+// Ловит (Д-2): мастер ScanPrograms держит блокировку службы на время сканирования; второй вызов
+// во время первого запускает второе сканирование.
+func TestWizardScanOutsideServiceLock(t *testing.T) {
+	sc := typicalScan()
+	h := newHarness(t, withPrograms(sc))
+	h.start()
+	t.Cleanup(sc.release)
+	n := sc.callCount()
+	sc.hold()
+	replies := make(chan ipc.Reply, 2)
+	for i := 0; i < 2; i++ {
+		go func() {
+			replies <- h.svc.Handle(elevatedPeer(), ipc.Msg{Cmd: ipc.CmdScanPrograms}, h.real.Now())
+		}()
+	}
+	if !sc.waitEntered(2 * time.Second) {
+		t.Fatal("ScanPrograms не начал сканирование")
+	}
+	within(t, time.Second, "GetChildStatus во время сканирования мастера", func() {
+		h.svc.Handle(childPeer(), ipc.Msg{Cmd: ipc.CmdGetChildStatus}, h.real.Now())
+	})
+	time.Sleep(100 * time.Millisecond) // второй ScanPrograms успевает дойти до сканера
+	sc.release()
+	for i := 0; i < 2; i++ {
+		select {
+		case rep := <-replies:
+			var out ipc.ScanProgramsReply
+			if !rep.OK || rep.Into(&out) != nil || len(out.Programs) != 4 {
+				t.Errorf("ответ ScanPrograms %d: ok %v, %s", i, rep.OK, rep.Payload)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatal("ScanPrograms не ответил после сканирования")
+		}
+	}
+	if got := sc.callCount() - n; got != 1 {
+		t.Errorf("сканирований во время двух ScanPrograms: %d, want 1", got)
 	}
 }

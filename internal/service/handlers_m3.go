@@ -364,11 +364,20 @@ func (s *Service) hScanPrograms(c *callCtx) ipc.Reply {
 	if s.cfg.Scanner == nil {
 		return ipc.OK(out)
 	}
-	found, err := s.cfg.Scanner.Scan()
+	found, err := s.scanUnlocked() // сканер и свойства файлов — вне блокировки службы (Д-2)
 	if err != nil {
 		s.logRate("scan", "программы компьютера не найдены: %v", err)
 		return ipc.Fail(textScanFailed)
 	}
+	s.unlocked(func() { out.Programs = s.scanDTOs(found) })
+	return ipc.OK(out)
+}
+
+// scanDTOs — строки шага мастера: игры вперёд, затем браузеры из каталога, затем остальные; не
+// больше maxScanPrograms. Не трогает состояние службы (классификатор безопасен сам), поэтому
+// зовётся вне s.mu: свойства файлов читаются с диска.
+func (s *Service) scanDTOs(found []FoundProgram) []ipc.ScanProgramDTO {
+	out := ipc.ScanProgramsReply{Programs: []ipc.ScanProgramDTO{}}
 	rank := map[string]int{}
 	for _, p := range s.snapshotPrograms(found) {
 		dto := ipc.ScanProgramDTO{Path: p.Path, Name: p.Name, Publisher: p.Publisher, SuggestedCategory: p.Category}
@@ -400,7 +409,7 @@ func (s *Service) hScanPrograms(c *callCtx) ipc.Reply {
 	if len(out.Programs) > maxScanPrograms {
 		out.Programs = out.Programs[:maxScanPrograms]
 	}
-	return ipc.OK(out)
+	return out.Programs
 }
 
 // setupPrograms проверяет выбор мастера (до записи чего-либо): категории родителя, не больше
