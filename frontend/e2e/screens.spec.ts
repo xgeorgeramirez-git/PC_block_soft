@@ -612,3 +612,161 @@ test("s06 бонусы ребёнка и промокод", async ({ page }) => 
   await noHorizontalScroll(page);
   await page.screenshot({ path: `${SCREENS}/s06-my-bonuses.png`, fullPage: true });
 });
+
+// --- M3: экран «Программы» (FR-20, 8.3.4) -----------------------------------------------
+
+const H = 3600_000;
+const pendingPrograms = (now: number) => [
+  {
+    path: "c:\\users\\миша\\downloads\\supergame.exe",
+    name: "SuperGame",
+    publisher: "Без подписи издателя",
+    description: "Super Game Deluxe",
+    attempts: 4,
+    lastAttemptAt: now - 2 * H,
+    wasCategory: "games",
+    byChild: [
+      { childId: 1, name: "Миша", attempts: 3 },
+      { childId: 2, name: "Даша", attempts: 1 },
+    ],
+  },
+  {
+    path: "c:\\users\\даша\\appdata\\local\\programs\\очень длинное название папки тренажёра по математике\\версия 2026.10.1\\тренажёр таблицы умножения.exe",
+    name: "Тренажёр таблицы умножения для начальной школы",
+    publisher: "",
+    description: "",
+    attempts: 2,
+    lastAttemptAt: now - 26 * H,
+    wasCategory: "",
+    byChild: [{ childId: 2, name: "Даша", attempts: 2 }],
+  },
+];
+
+const programList = () => [
+  { path: "c:\\program files\\bravesoftware\\brave-browser\\application\\brave.exe", name: "Brave", publisher: "Brave Software, Inc.", category: "other" as const, source: "snapshot" as const, weekS: 5400 },
+  { path: "c:\\program files\\minecraft launcher\\minecraftlauncher.exe", name: "Minecraft Launcher", publisher: "Mojang", category: "games" as const, source: "catalog" as const, weekS: 7500 },
+  { path: "c:\\program files (x86)\\steam\\steamapps\\common\\очень длинное название игры с пробелами\\bin\\win64\\game.exe", name: "Очень длинное название игры с пробелами и цифрами 2026", publisher: "", category: "games" as const, source: "parent" as const, weekS: 0 },
+  { path: "c:\\program files\\uchi\\uchi.exe", name: "Учи.ру", publisher: "Учи.ру", category: "study" as const, source: "parent" as const, weekS: 1800 },
+  { path: "c:\\users\\миша\\downloads\\bad.exe", name: "Bad", publisher: "", category: "blocked" as const, source: "parent" as const, weekS: 0 },
+  { path: "c:\\windows\\system32\\notepad.exe", name: "Блокнот", publisher: "Microsoft", category: "system" as const, source: "snapshot" as const, weekS: 600 },
+];
+
+async function openPrograms(page: Page, options: MockOptions) {
+  await mockProgram(page, { mode: "parent", sessionActive: true, children: family(), ...options });
+  await page.goto("/");
+  await page.getByRole("navigation", { name: "Разделы" }).getByRole("button", { name: "Программы" }).click();
+  await expect(page.getByRole("heading", { name: "Программы", level: 2 })).toBeVisible();
+}
+
+type Box = { left: number; right: number; top: number; bottom: number; width: number; height: number };
+const boxOf = (l: ReturnType<Page["locator"]>) =>
+  l.evaluate((el) => {
+    const r = el.getBoundingClientRect();
+    return { left: r.left, right: r.right, top: r.top, bottom: r.bottom, width: r.width, height: r.height } as Box;
+  });
+
+/** Кнопки решения одной высоты, в одну строку и с равными промежутками. */
+async function decisionButtonsEven(page: Page) {
+  const groups = page.locator(".pending-actions");
+  const n = await groups.count();
+  expect(n).toBeGreaterThan(0);
+  for (let g = 0; g < n; g++) {
+    const buttons = groups.nth(g).getByRole("button");
+    await expect(buttons).toHaveText(["Игра", "Учёба", "Прочее", "Запретить"]);
+    const boxes: Box[] = [];
+    for (let i = 0; i < 4; i++) boxes.push(await boxOf(buttons.nth(i)));
+    for (const b of boxes) {
+      expect(Math.abs(b.height - boxes[0].height), "кнопки решения разной высоты").toBeLessThanOrEqual(0.5);
+      expect(Math.abs(b.top - boxes[0].top), "кнопки решения не в одну строку").toBeLessThanOrEqual(0.5);
+    }
+    const gaps = [1, 2, 3].map((i) => boxes[i].left - boxes[i - 1].right);
+    for (const gap of gaps) {
+      expect(Math.abs(gap - gaps[0]), `промежутки между кнопками разные: ${gaps.join(", ")}`).toBeLessThanOrEqual(0.5);
+      expect(gap).toBeGreaterThanOrEqual(8 - 0.5);
+    }
+  }
+}
+
+/** Зазор между соседними блоками страницы не меньше 16 px (замер, не на глаз). */
+async function blocksApart(page: Page) {
+  const parts = page.locator("main.content .programs-page > *");
+  const n = await parts.count();
+  const boxes: Box[] = [];
+  for (let i = 0; i < n; i++) boxes.push(await boxOf(parts.nth(i)));
+  for (let i = 1; i < boxes.length; i++) {
+    expect(boxes[i].top - boxes[i - 1].bottom, `между блоками ${i - 1} и ${i} меньше 16 px`).toBeGreaterThanOrEqual(16 - 0.5);
+  }
+}
+
+/** Ничего не вылезает из ячеек таблицы и из строк «Ждут решения». */
+async function nothingSticksOut(page: Page) {
+  const out = await page.evaluate(() => {
+    const bad: string[] = [];
+    for (const cell of Array.from(document.querySelectorAll<HTMLElement>(".programs-table td, .pending-item"))) {
+      const c = cell.getBoundingClientRect();
+      for (const child of Array.from(cell.querySelectorAll<HTMLElement>("select, button, input, p, .program-path"))) {
+        const r = child.getBoundingClientRect();
+        if (r.width === 0) continue;
+        if (r.right > c.right + 0.5 || r.left < c.left - 0.5) bad.push(`${child.className || child.tagName}: ${child.textContent?.slice(0, 40)}`);
+      }
+    }
+    return bad;
+  });
+  expect(out, "элементы вылезают за край").toEqual([]);
+}
+
+// s11 — «Программы»: два ждущих решения (одна с пометкой «Раньше было: игра», другая с длинным
+// путём и без издателя) и список всех программ.
+test("s11 программы: ждут решения и список", async ({ page }) => {
+  await tallWindow(page, 1500);
+  await openPrograms(page, { pending: pendingPrograms(Date.now()), programs: programList() });
+  await expect(page.getByRole("heading", { name: "Ждут решения: 2" })).toBeVisible();
+  await expect(page.getByText("Раньше было: игра")).toBeVisible();
+  const longPath = page.locator(".pending-item").nth(1).locator(".path-short");
+  await expect(longPath).toContainText("…");
+  await expect(longPath).toContainText("тренажёр таблицы умножения.exe");
+  await expect(page.getByText("Блокнот")).toHaveCount(0);
+  await decisionButtonsEven(page);
+  await blocksApart(page);
+  await nothingSticksOut(page);
+  await noHorizontalScroll(page);
+  await page.screenshot({ path: `${SCREENS}/s11-programs.png`, fullPage: true });
+});
+
+// s11 — после «Игра»: сообщение «SuperGame: игра» с «Отменить», фильтр «Игры» и отмеченные строки.
+test("s11 программы: решение, фильтр и массовая смена", async ({ page }) => {
+  await tallWindow(page, 1300);
+  await openPrograms(page, { pending: pendingPrograms(Date.now()), programs: programList() });
+  await page.locator(".pending-item").first().getByRole("button", { name: "Игра" }).click();
+  await expect(page.getByText("SuperGame: игра")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Отменить" })).toBeVisible();
+  const all = page.getByRole("region", { name: "Все программы" });
+  await all.getByRole("group", { name: "Показать" }).getByRole("button", { name: "Игры" }).click();
+  await expect(all.getByRole("button", { name: "Игры" })).toHaveAttribute("aria-pressed", "true");
+  await all.getByRole("checkbox", { name: "Выбрать всё в списке" }).check();
+  await expect(all.getByText("Выбрано: 3")).toBeVisible();
+  await decisionButtonsEven(page);
+  await blocksApart(page);
+  await nothingSticksOut(page);
+  await noHorizontalScroll(page);
+  await page.screenshot({ path: `${SCREENS}/s11-programs-filtered.png`, fullPage: true });
+});
+
+// s11 — «Программы» пустой: никто ничего не запускал.
+test("s11 программы: пусто", async ({ page }) => {
+  await openPrograms(page, { pending: [], programs: [] });
+  await expect(page.getByText("Программ пока нет: они появятся, когда ребёнок запустит что-то новое")).toBeVisible();
+  await expect(page.getByRole("heading", { name: /Ждут решения/ })).toHaveCount(0);
+  await blocksApart(page);
+  await noHorizontalScroll(page);
+  await page.screenshot({ path: `${SCREENS}/s11-programs-empty.png`, fullPage: true });
+});
+
+// s11 — тёмная тема Windows: тот же экран читается.
+test("s11 программы, тёмная тема", async ({ page }) => {
+  await page.emulateMedia({ colorScheme: "dark" });
+  await tallWindow(page, 1500);
+  await openPrograms(page, { pending: pendingPrograms(Date.now()), programs: programList() });
+  await expect(page.getByRole("heading", { name: "Ждут решения: 2" })).toBeVisible();
+  await page.screenshot({ path: `${SCREENS}/s11-programs-dark.png`, fullPage: true });
+});
