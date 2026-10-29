@@ -289,3 +289,62 @@ func TestRunStartsOneGuardAndStopsOnClose(t *testing.T) {
 		}
 	}
 }
+
+// Ловит (S2, S35): при живом табло «5» порог 1 не сменяет его плашкой 1 мин в настоящих окнах
+// (окно табло не прячется, текстовая плашка не создаётся или поток окон встаёт), а GuardState
+// после опроса показывает старый кадр.
+func TestBoardThenOneMinuteRealWindows(t *testing.T) {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+
+	r := newCtRig()
+	r.svc.test = true
+	r.ctl.SetSoundPlayer(func() bool { return true })
+	a := &app{ctl: r.ctl}
+	defer a.shutdown()
+
+	r.svc.status = ctRunningStatus(300)
+	r.svc.warns = []ipc.GuardWarning{ipc.NewGuardWarning(5)}
+	r.ctl.PollOnce()
+	a.tick()
+	pump(30 * time.Millisecond)
+	if a.board == nil {
+		t.Skip("окно табло создать нельзя (нет рабочего стола)")
+	}
+	if !a.board.Visible() {
+		t.Fatal("табло «5» не показано")
+	}
+	for i := 1; i <= 4; i++ {
+		r.clk.Advance(time.Second)
+		r.svc.status = ctRunningStatus(300 - 60*i)
+		if i == 4 {
+			r.svc.status = ctRunningStatus(60)
+			r.svc.warns = []ipc.GuardWarning{ipc.NewGuardWarning(1)}
+		}
+		r.ctl.PollOnce()
+		r.ctl.PushState()
+		a.tick()
+		pump(20 * time.Millisecond)
+	}
+	if a.board.Visible() {
+		t.Fatal("табло «5» осталось после порога 1")
+	}
+	if a.plate == nil || !a.plate.visible {
+		t.Fatal("плашка 1 мин не показана")
+	}
+	if r2, _, _ := procIsWindowVisible.Call(a.plate.hwnd); r2 == 0 {
+		t.Fatal("окно плашки 1 мин не видно")
+	}
+	if v := r.ctl.View(); v.Warning == nil || v.Warning.Threshold != 1 || len(v.Warning.Buttons) != 0 {
+		t.Fatalf("вид после порога 1: %+v", v.Warning)
+	}
+	r.ctl.PushState()
+	calls := r.svc.called(ipc.CmdGuardState)
+	var st ipc.GuardStateReply
+	if err := calls[len(calls)-1].Into(&st); err != nil {
+		t.Fatal(err)
+	}
+	if len(st.Buttons) != 0 || len(st.Sounds) != 2 || st.UI.Ticks < 5 || st.UI.Panic != "" {
+		t.Fatalf("GuardState: кнопки %v, звуки %v, поток окон %+v", st.Buttons, st.Sounds, st.UI)
+	}
+}

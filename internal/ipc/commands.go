@@ -670,6 +670,14 @@ type ShownSound struct {
 	OK        bool  `json:"ok"`
 }
 
+// GuardUI — жив ли поток окон стража: момент и число его кадров, последняя паника, пойманная в
+// потоке окон или горутинах стража. Приёмка отличает «окно стоит» от «окно падает».
+type GuardUI struct {
+	TickMs int64  `json:"tickMs"` // UTC мс последнего кадра; 0 — кадров не было
+	Ticks  int64  `json:"ticks"`
+	Panic  string `json:"panic"` // «» — паник не было
+}
+
 // GuardField — поле ввода стража и его текст.
 type GuardField struct {
 	ID   string `json:"id"`
@@ -680,6 +688,7 @@ type GuardField struct {
 type GuardStateReply struct {
 	Warnings  []ShownWarning `json:"warnings"`  // журнал показанных предупреждений
 	Sounds    []ShownSound   `json:"sounds"`    // журнал сыгранных звуков предупреждений (D-55)
+	UI        GuardUI        `json:"ui"`        // диагностика потока окон стража (тестовый режим)
 	LockShown bool           `json:"lockShown"` // экран блокировки показан
 	LockKind  string         `json:"lockKind"`  // Lock*
 	Buttons   []string       `json:"buttons"`   // видимые кнопки (Button*)

@@ -845,6 +845,11 @@
             "ok": true
           }
         ],
+        "ui": {
+          "tickMs": 0,
+          "ticks": 0,
+          "panic": ""
+        },
         "lockShown": true,
         "lockKind": "timeUp",
         "buttons": [
@@ -871,6 +876,11 @@
       "payload": {
         "warnings": [],
         "sounds": [],
+        "ui": {
+          "tickMs": 0,
+          "ticks": 0,
+          "panic": ""
+        },
         "lockShown": false,
         "lockKind": "",
         "buttons": [],

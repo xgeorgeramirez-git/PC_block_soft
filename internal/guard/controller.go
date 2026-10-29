@@ -3,7 +3,9 @@ package guard
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"pcblock/internal/core"
@@ -50,6 +52,7 @@ type Controller struct {
 	play      func() bool      // проиграть звук предупреждения; true — Windows принял звук
 	soundQ    chan int         // номера записей журнала звуков для исполнителя звука; nil — исполнитель не запущен
 	speed     int              // ускорение часов ядра, сообщённое окном; модели передаётся только в тестовом режиме
+	ui        ipc.GuardUI      // диагностика потока окон
 	curThr    int              // порог плашки, которая показана сейчас; 0 — плашки нет или она не про порог
 	seenPlate int              // ID последней плашки, о которой уже известно
 	lockWas   bool
@@ -82,11 +85,26 @@ func NewController(model *Model, call ipc.Caller, now func() time.Time, read fun
 	}
 }
 
+// lastPanic — текст последней паники, пойманной safely (диагностика GuardState.UI).
+var lastPanic atomic.Value
+
 // safely выполняет f и не даёт панике убить страж: упавший страж означает «обход» для
-// службы (R17в), а ошибка одного опроса, одного кадра или звука обходом не является.
+// службы (R17в), а ошибка одного опроса, одного кадра или звука обходом не является. Паника
+// запоминается для GuardState.UI.
 func safely(f func()) {
-	defer func() { _ = recover() }()
+	defer func() {
+		if r := recover(); r != nil {
+			lastPanic.Store(fmt.Sprint(r))
+		}
+	}()
 	f()
+}
+
+// NoteUITick отмечает кадр потока окон (диагностика GuardState.UI).
+func (c *Controller) NoteUITick(now time.Time) {
+	c.mu.Lock()
+	c.ui.TickMs, c.ui.Ticks = now.UnixMilli(), c.ui.Ticks+1
+	c.mu.Unlock()
 }
 
 // SetSoundPlayer задаёт, чем играть звук предупреждения (окно: sound.PlayWarning). Без него
@@ -290,9 +308,14 @@ func (c *Controller) PollOnce() PollResult {
 		c.model.OnExtraAdded(now, minutes)
 	}
 	v := c.model.View(now)
+	// Журнал показанного, звук и вид для GuardState берутся из одного кадра: горутина опроса
+	// отправляет GuardState сразу после PollOnce, раньше, чем поток окон перерисуется по wake.
+	// Иначе снимок несогласован: порог 1 уже в журнале, а кнопки и звуки от табло «5» (CI S2, S35).
+	c.playDue(now, v.Warning)
 
 	c.mu.Lock()
 	c.lastLock = rep.Status.Lock
+	c.last = v
 	if v.Warning != nil && v.Warning.ID != c.seenPlate {
 		c.seenPlate, c.curThr = v.Warning.ID, 0
 		if t := v.Warning.Threshold; t != 0 && len(cmds.NoticeMinutes) == 0 {
@@ -720,7 +743,11 @@ func (c *Controller) PushState() {
 		return
 	}
 	st := StateFromView(c.last, c.lastLock, c.shown, c.sounds, c.fields)
+	st.UI = c.ui
 	c.mu.Unlock()
+	if p, ok := lastPanic.Load().(string); ok {
+		st.UI.Panic = p
+	}
 	raw, err := json.Marshal(st)
 	if err != nil {
 		return

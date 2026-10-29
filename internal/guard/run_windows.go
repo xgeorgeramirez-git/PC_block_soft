@@ -289,6 +289,7 @@ func (a *app) onEdit(text string) {
 
 // tick приводит окна к виду из Model.
 func (a *app) tick() {
+	a.ctl.NoteUITick(time.Now())
 	v := a.ctl.View()
 	a.applyLock(v)
 	a.applyPlate(v)

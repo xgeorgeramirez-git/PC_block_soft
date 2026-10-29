@@ -313,3 +313,66 @@ func waitPlayed(n *atomic.Int32) int {
 	time.Sleep(50 * time.Millisecond)
 	return int(n.Load())
 }
+
+// lastPushed — последний вид, отправленный службе (GuardState).
+func lastPushed(t *testing.T, r *ctRig) ipc.GuardStateReply {
+	t.Helper()
+	calls := r.svc.called(ipc.CmdGuardState)
+	if len(calls) == 0 {
+		t.Fatal("вид не отправлен")
+	}
+	var st ipc.GuardStateReply
+	if err := calls[len(calls)-1].Into(&st); err != nil {
+		t.Fatal(err)
+	}
+	return st
+}
+
+// Ловит (корень CI 40751015930 и 40754071886, S2 и S35): горутина опроса после PollOnce сразу
+// отправляет GuardState (pollLoop), а поток окон ещё не перерисовал вид. Журнал предупреждений уже
+// с порогом 1, а кнопки и звуки от прошлого кадра (табло «5» с крестиком, звука за 1 нет): приёмка
+// видит несогласованный снимок. Порядок здесь тот же, что в pollLoop: PollOnce, PushState, кадра
+// окна между ними нет.
+func TestPushStateConsistentWithoutWindowFrame(t *testing.T) {
+	r := newCtRig()
+	r.svc.test = true
+	r.ctl.SetSoundPlayer(func() bool { return true })
+	r.svc.status = ctRunningStatus(300)
+	r.svc.warns = []ipc.GuardWarning{ipc.NewGuardWarning(5)}
+	r.ctl.PollOnce()
+	r.ctl.View() // кадр окна: табло «5»
+	r.ctl.PushState()
+	r.clk.Advance(4 * time.Second)
+	r.svc.status = ctRunningStatus(60)
+	r.svc.warns = []ipc.GuardWarning{ipc.NewGuardWarning(1)}
+	r.ctl.PollOnce()
+	r.ctl.PushState() // кадра окна после опроса ещё не было
+	st := lastPushed(t, r)
+	thr := ""
+	for i, w := range st.Warnings {
+		if i > 0 {
+			thr += ","
+		}
+		thr += itoa(w.Threshold)
+	}
+	if thr != "5,1" || len(st.Buttons) != 0 || Get(st.Sounds) != "5,1" {
+		t.Fatalf("несогласованный снимок: предупреждения %s, кнопки %v, звуки %v", thr, st.Buttons, st.Sounds)
+	}
+}
+
+// Ловит: GuardState не говорит, жив ли поток окон и была ли паника (приёмке нечем отличить
+// «стоит» от «падает»).
+func TestPushStateCarriesUIDiag(t *testing.T) {
+	r := newCtRig()
+	r.svc.test = true
+	r.svc.status = ctRunningStatus(600)
+	r.ctl.PollOnce()
+	r.ctl.NoteUITick(t0.Add(time.Second))
+	r.ctl.NoteUITick(t0.Add(2 * time.Second))
+	safely(func() { panic("проба") })
+	r.ctl.PushState()
+	st := lastPushed(t, r)
+	if st.UI.Ticks != 2 || st.UI.TickMs != t0.Add(2*time.Second).UnixMilli() || st.UI.Panic != "проба" {
+		t.Fatalf("диагностика %+v", st.UI)
+	}
+}
