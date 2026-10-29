@@ -282,7 +282,7 @@ describe("меню окна родителя", () => {
     await user.click(item);
     expect(item.getAttribute("aria-current")).toBe("page");
     const versions = (await screen.findAllByRole("heading", { level: 3 })).map((h) => h.textContent);
-    expect(versions[0]).toBe("Версия 0.2.5. Предупреждения с табло и звуком");
+    expect(versions[0]).toBe("Версия 0.3.0. Программы и игры");
     expect(screen.queryByRole("heading", { name: "Помощь" })).toBeNull();
   });
 
