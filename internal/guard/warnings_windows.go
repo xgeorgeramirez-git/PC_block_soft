@@ -9,8 +9,6 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-const idPlateOK = 1
-
 var (
 	thePlate     *plateWindow
 	plateProcPtr uintptr
@@ -18,10 +16,11 @@ var (
 
 func init() { plateProcPtr = windows.NewCallback(plateProc) }
 
-// plateWindow — плашка предупреждения справа внизу (FR-9, ТЗ 8.2.2). Окно не берёт фокус:
-// WS_EX_NOACTIVATE, показ без активации, щелчок по кнопке тоже не активирует его, поэтому
-// игра, в которой сидит ребёнок, остаётся в фокусе. Закрытие через 15 с и обратный отсчёт
-// решает Model; окно показывает Warning из View.
+// plateWindow — текстовая плашка справа внизу (FR-9, ТЗ 8.2.2): «Осталась 1 минута: 0:59»
+// и «Добавлено N минут». Кнопок нет: плашку 1 мин не закрыть (её сменяет экран блокировки или
+// «Добавлено»). Окно не берёт фокус: WS_EX_NOACTIVATE, показ без активации, щелчок тоже не
+// активирует его, поэтому игра остаётся в фокусе. Плашки 30/15/5 мин рисует общая карточка
+// (systray.WarningCard). Что показать и когда убрать, решает Model; звук играет контроллер.
 type plateWindow struct {
 	hwnd, hInst  uintptr
 	dpi          int
@@ -29,21 +28,17 @@ type plateWindow struct {
 	surfaceBrush uintptr
 	accentBrush  uintptr
 
-	btn       uintptr
-	text      string
-	hasButton bool
-	key       string
-	lastID    int
-	visible   bool
-	geom      rect
+	text    string
+	key     string
+	visible bool
+	geom    rect
 
 	textRect rect
-	onAck    func()
 }
 
-func newPlateWindow(onAck func()) (*plateWindow, error) {
+func newPlateWindow() (*plateWindow, error) {
 	hInst, _, _ := procGetModuleHandle.Call(0)
-	p := &plateWindow{hInst: hInst, dpi: systemDPI(), onAck: onAck}
+	p := &plateWindow{hInst: hInst, dpi: systemDPI()}
 	p.surfaceBrush, _, _ = procCreateSolidBr.Call(colorSurface)
 	p.accentBrush, _, _ = procCreateSolidBr.Call(colorAmber)
 	p.fonts = newFontSet(p.dpi)
@@ -64,30 +59,21 @@ func newPlateWindow(onAck func()) (*plateWindow, error) {
 		return nil, fmt.Errorf("CreateWindowEx(плашка): %w", err)
 	}
 	p.hwnd = hwnd
-	p.btn = createChild(hwnd, hInst, "BUTTON", textWarningOK, wsTabStop|bsOwnerDraw, idPlateOK, rect{0, 0, 10, 10})
-	procShowWindow.Call(p.btn, swHide)
 	return p, nil
 }
 
-// apply показывает плашку по View.Warning или прячет её (nil). Звук играет один раз на
-// каждую новую плашку со Sound.
+// apply показывает плашку по View.Warning или прячет её (nil).
 func (p *plateWindow) apply(w *WarningView) {
 	if w == nil {
 		p.hide()
 		return
 	}
-	if w.ID != p.lastID {
-		p.lastID = w.ID
-		if w.Sound {
-			playWarningSound()
-		}
-	}
-	hasButton := len(w.Buttons) > 0
-	key := fmt.Sprintf("%t|%s", hasButton, w.Text)
-	if key == p.key && p.visible {
+	if w.Text == p.key && p.visible {
+		// Поверх полноэкранной игры: «поверх всех» подтверждается без активации каждый кадр.
+		procSetWindowPos.Call(p.hwnd, hwndTopmost, 0, 0, 0, 0, swpNoMove|swpNoSize|swpNoActivate|swpShowWindow)
 		return
 	}
-	p.key, p.text, p.hasButton = key, w.Text, hasButton
+	p.key, p.text = w.Text, w.Text
 	p.layout()
 	invalidate(p.hwnd)
 }
@@ -109,16 +95,7 @@ func (p *plateWindow) layout() {
 	textW := width - 2*pad - bar
 	textH := measureHeight(hdc, p.fonts.body, p.text, textW)
 	h := pad + textH + pad
-	btnH, btnW := s(38), s(130)
 	p.textRect = rect{bar + pad, pad, bar + pad + textW, pad + textH}
-	if p.hasButton {
-		top := pad + textH + s(14)
-		h = top + btnH + pad
-		moveWindow(p.btn, rect{width - pad - btnW, top, width - pad, top + btnH})
-		procShowWindow.Call(p.btn, swShow)
-	} else {
-		procShowWindow.Call(p.btn, swHide)
-	}
 	wa := workArea()
 	g := rect{wa.right - width - s(16), wa.bottom - h - s(16), wa.right - s(16), wa.bottom - s(16)}
 	if p.visible && g == p.geom {
@@ -165,16 +142,6 @@ func plateProc(hwnd, msg, wParam, lParam uintptr) uintptr {
 			return 0
 		case wmMouseActivate:
 			return maNoActivate
-		case wmDrawItem:
-			di := ptrTo[drawItemStruct](lParam)
-			look := lookOf(true, true, di.itemState&odsSelected != 0)
-			drawButton(di, textWarningOK, p.fonts.button, look, Scaled(6, p.dpi), colorSurface)
-			return 1
-		case wmCommand:
-			if wParam&0xFFFF == idPlateOK && (wParam>>16)&0xFFFF == bnClicked && p.onAck != nil {
-				p.onAck()
-				return 0
-			}
 		}
 	}
 	r, _, _ := procDefWindowProc.Call(hwnd, msg, wParam, lParam)

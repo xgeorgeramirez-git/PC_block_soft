@@ -274,12 +274,21 @@ describe("Помощник: подсказки по экранам", () => {
     expect(c.closest("article")).toBeTruthy();
   });
 
-  // Ловит: уже объяснённое туром снова всплывает подсказкой.
+  // Ловит: уже объяснённое туром снова всплывает подсказкой. H-M2-08 (предупреждения 0.2.5) у той же
+  // таблицы лимитов тур T-M1-01 не объяснял: это новое знание, она здесь отмечена принятой, чтобы
+  // проверять только то, что гасит тур.
   it("пройденный тур гасит подсказки, которые он объяснил", async () => {
-    const { engine } = start({ done: ["H-M1-01", "H-M1-02", "H-M1-03"], tours: ["T-M1-01"] });
+    const { engine } = start({ done: ["H-M1-01", "H-M1-02", "H-M1-03", "H-M2-08"], tours: ["T-M1-01"] });
     render(<Harness engine={engine} startOn="children" />);
     await settle(1500);
     expect(card()).toBeNull();
+  });
+
+  // Ловит: новая подсказка о предупреждениях (не объяснена туром) погашена пройденным туром.
+  it("подсказка, которую тур не объяснял, после тура показывается", async () => {
+    const { engine } = start({ done: ["H-M1-01", "H-M1-02", "H-M1-03"], tours: ["T-M1-01"] });
+    render(<Harness engine={engine} startOn="children" />);
+    expect((await screen.findByRole("status")).getAttribute("data-hint-id")).toBe("H-M2-08");
   });
 });
 

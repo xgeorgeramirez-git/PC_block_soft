@@ -172,3 +172,87 @@ func TestCardTitleSize(t *testing.T) {
 		}
 	}
 }
+
+// boardOpts — вариант карточки для плашки-табло предупреждения стража (R-2).
+var boardOpts = CardOptions{Button: CardButtonClose, Line: true}
+
+// overlap: прямоугольники пересекаются.
+func overlap(a, b Rect) bool {
+	return a.Left < b.Right && b.Left < a.Right && a.Top < b.Bottom && b.Top < a.Bottom
+}
+
+// Ловит: вариант предупреждения разошёлся с табло значка (класс A/C, урок 0.2.4 про размер):
+// другая ширина, плитки или заголовок съехали; крестик не на месте стрелки; строка текста не
+// под подписями, вылезает за карточку или налезает на подписи; вариант по умолчанию изменился.
+func TestCardLayoutBoardVariant(t *testing.T) {
+	for _, sc := range []float64{1, 1.25, 1.5, 2} {
+		tray, board := NewCardLayout(sc), NewCardLayoutFor(sc, boardOpts)
+		if def := NewCardLayoutFor(sc, CardOptions{}); def != tray {
+			t.Fatalf("масштаб %.2f: вариант по умолчанию не совпал с табло значка", sc)
+		}
+		if board.W != tray.W || board.Card.Dx() != tray.Card.Dx() {
+			t.Errorf("масштаб %.2f: ширина %d/%d, у значка %d/%d", sc, board.W, board.Card.Dx(), tray.W, tray.Card.Dx())
+		}
+		if board.Tiles != tray.Tiles || board.Labels != tray.Labels || board.Title != tray.Title || board.Colons != tray.Colons {
+			t.Errorf("масштаб %.2f: плитки, подписи или заголовок съехали", sc)
+		}
+		if board.Arrow != tray.Arrow {
+			t.Errorf("масштаб %.2f: крестик %+v не на месте стрелки %+v", sc, board.Arrow, tray.Arrow)
+		}
+		if board.Line.Top < board.Labels[2].Bottom || board.Line.Bottom > board.Card.Bottom || board.Line.Dy() <= 0 {
+			t.Errorf("масштаб %.2f: строка %+v не под подписями или вне карточки %+v", sc, board.Line, board.Card)
+		}
+		if board.Line.Left < board.Card.Left || board.Line.Right > board.Card.Right {
+			t.Errorf("масштаб %.2f: строка шире карточки", sc)
+		}
+		if board.H <= tray.H || board.H != board.Card.Dy()+2*board.Margin {
+			t.Errorf("масштаб %.2f: высота окна %d (значок %d)", sc, board.H, tray.H)
+		}
+		parts := []Rect{board.Title, board.Arrow, board.Line}
+		for _, r := range board.Tiles {
+			parts = append(parts, r)
+		}
+		for _, r := range board.Labels {
+			parts = append(parts, r)
+		}
+		for i := range parts {
+			for j := i + 1; j < len(parts); j++ {
+				if overlap(parts[i], parts[j]) {
+					t.Errorf("масштаб %.2f: части %d %+v и %d %+v пересекаются", sc, i, parts[i], j, parts[j])
+				}
+			}
+		}
+		if tray.Line != (Rect{}) {
+			t.Errorf("у табло значка появилась строка: %+v", tray.Line)
+		}
+	}
+}
+
+// Ловит: щелчок по крестику не распознаётся или распознаётся как стрелка (окно открыло бы
+// «Мою статистику» вместо закрытия плашки).
+func TestCardHitTestClose(t *testing.T) {
+	l := NewCardLayoutFor(1, boardOpts)
+	cx, cy := (l.Arrow.Left+l.Arrow.Right)/2, (l.Arrow.Top+l.Arrow.Bottom)/2
+	if got := l.HitTest(cx, cy, CountdownTime); got != TargetClose {
+		t.Errorf("центр крестика: %v, ждали TargetClose", got)
+	}
+	if got := l.HitTest(l.Line.Left+2, l.Line.Top+2, CountdownTime); got != TargetNone {
+		t.Errorf("строка текста не кнопка: %v", got)
+	}
+	if x, y := l.CloseCenter(); l.HitTest(x, y, CountdownTime) != TargetClose {
+		t.Errorf("CloseCenter %d,%d мимо крестика", x, y)
+	}
+}
+
+// Ловит: плашка не в правом нижнем углу рабочей области (над панелью задач) или вылезает за неё.
+func TestPlaceCorner(t *testing.T) {
+	work := Rect{0, 0, 1920, 1040}
+	x, y := PlaceCorner(work, 400, 300, 16)
+	if x != 1920-16-400 || y != 1040-16-300 {
+		t.Fatalf("угол %d,%d", x, y)
+	}
+	x, y = PlaceCorner(Rect{100, 50, 300, 200}, 400, 300, 16)
+	if x != 100 || y != 50 {
+		t.Fatalf("окно больше рабочей области: %d,%d, ждали левый верхний угол области", x, y)
+	}
+}

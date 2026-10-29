@@ -60,6 +60,9 @@ type CountdownView struct {
 	Big     string // крупная строка особого состояния или текст ошибки
 	Status  Status // цвет цифр: обычный, янтарный, красный (ТЗ 8.0 п.3)
 	Button  string // подпись кнопки под ошибкой; пусто, если кнопки нет
+	// Line — строка под плитками у плашки-табло предупреждения стража («Через 5 минут время
+	// закончится. Сохрани игру», FR-9); у табло значка пусто.
+	Line string
 }
 
 // UsesCountdown: табло показывается в детском сеансе и пока ответа службы нет; взрослому
@@ -103,12 +106,22 @@ func CountdownFor(s Snapshot) CountdownView {
 		return msg(textCountdownTitle, tooltipUnlimited, StatusNormal)
 	}
 	rem := st.RemainingS
-	if locked || rem < 0 {
+	if locked {
+		rem = 0
+	}
+	return TimeCountdown(rem)
+}
+
+// TimeCountdown — шесть плиток «часы : минуты : секунды» для rem секунд и цвет цифр по единому
+// правилу значка. Один код для табло у значка и плашки-табло предупреждения стража (R-2):
+// цифры и цвета считаются одинаково. 0 и меньше — «ВРЕМЯ ВЫШЛО» и красные нули.
+func TimeCountdown(rem int) CountdownView {
+	if rem < 0 {
 		rem = 0
 	}
 	v := CountdownView{Kind: CountdownTime, Title: textCountdownTitle}
 	// Цвет по единому правилу значка (минуты округляются вверх): граница 15 минут одна.
-	v.Status = TrayStatus(ceilMin(rem), false, locked, false)
+	v.Status = TrayStatus(ceilMin(rem), false, false, false)
 	if v.Status == StatusOut {
 		v.Title = textCountdownTimeUp
 	}

@@ -1,10 +1,10 @@
-# S8. Запретный интервал: блокировка «forbidden», «Взять из копилки» недоступна (ТЗ 11, эталон G6).
-# Часы ядра идут в 60 раз быстрее. Часы стартуют в понедельник 15:00. Ставим запретный интервал
-# пн 15:16 -> вт 07:00 (как G6 21:00-07:00). Родительскую сессию закрываем (Logout) до ожидания
-# стража (Ruling 19).
-# Предупреждения 15/5/1 перед интервалом — детерминированно проверяет эталон G6 и интеграционный
-# тест internal/service (TestForbiddenWarningsDeliveredBeforeInterval): на ускоренных часах окно
-# в 16 секунд для устойчивого снимка плашек мало. Здесь проверяем устойчивый исход.
+# S8. Запретный интервал: предупреждения 30, 15, 5 перед ним, блокировка «forbidden», «Взять из копилки»
+# недоступна (ТЗ 11, эталон G6, D-54). Часы ядра идут в 60 раз быстрее. Часы стартуют в понедельник
+# 15:00. Ставим запретный интервал пн 15:36 -> вт 07:00 (как G6 21:00-07:00): до него больше 30 мин,
+# порог 30 взводится. Родительскую сессию закрываем (Logout) до ожидания стража (Ruling 19).
+# Секунды порогов точно проверяют эталон G6 и тест internal/service; здесь по журналу показанных
+# предупреждений стража: 30, 15, 5 по порядку, текст про запретные часы, без повторов. Плашку за
+# 1 мин при ускорении 60 экран блокировки может сменить в ту же секунду: её не требуем.
 # Снимки: s08-lock.png.
 $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "common.ps1")
@@ -22,9 +22,9 @@ Invoke-Scenario "S8" "Запретный интервал: блокировка 
     Assert-That ($st.limitS -eq 36000) "Лимит дня $($st.limitS) с, ждали 36000"
   }
 
-  Step "Родитель: запретный интервал пн 15:16 -> вт 07:00 и копилка 30 мин, затем выход" {
+  Step "Родитель: запретный интервал пн 15:36 -> вт 07:00 и копилка 30 мин, затем выход" {
     Open-Parent
-    $iv = @(@{ weekday = 1; startMin = 916; endMin = 420 })
+    $iv = @(@{ weekday = 1; startMin = 936; endMin = 420 })
     $r = Send-Parent "SaveSchedule" @{ childId = (Get-ChildId); intervals = $iv }
     Assert-Reply $r "SaveSchedule"
     $rb = Send-Parent "GrantBonus" @{ childId = (Get-ChildId); minutes = 30; reason = "за уборку" }
@@ -35,12 +35,17 @@ Invoke-Scenario "S8" "Запретный интервал: блокировка 
   }
 
   Step "Интервал наступил: экран блокировки «forbidden», «Можно снова: завтра в 07:00»" {
-    $g = Wait-LockShown 25 "forbidden"
+    $g = Wait-LockShown 60 "forbidden"
     Suspend-Clock
     Write-Log "Экран показан: $(Format-GuardState $g)"
     $st = Get-Status
     Write-Log "Статус: $($st.status), причина «$($st.reason)», «$($st.until)»; плашки до блокировки: $((Get-WarnThresholds $g) -join ',')"
     Assert-That ($st.lock -eq "forbidden") "Вид блокировки '$($st.lock)', ждали forbidden"
+    $thr = (Get-WarnThresholds $g) -join ","
+    Assert-That ($thr -eq "30,15,5" -or $thr -eq "30,15,5,1") "Плашки перед интервалом: $thr, ждали 30,15,5 (и 1)"
+    Assert-NoRepeatWarnings $g "S8"
+    $w30 = @(List $g.warnings)[0]
+    Assert-That ($w30.text -eq "Через 30 минут начнутся запретные часы") "Текст за 30 мин: «$($w30.text)»"
     Assert-That ($st.until -eq "Можно снова: завтра в 07:00") "Строка «$($st.until)», ждали «Можно снова: завтра в 07:00»"
     Assert-That (Test-HasButton $g "spendBonus") "Нет кнопки «Взять из копилки» на экране: $(Format-GuardState $g)"
     Assert-That (Test-HasButton $g "parentPassword") "Нет кнопки «Пароль родителя»: $(Format-GuardState $g)"

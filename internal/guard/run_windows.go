@@ -5,6 +5,7 @@ package guard
 import (
 	"errors"
 	"fmt"
+	"log"
 	"runtime"
 	"strconv"
 	"sync"
@@ -15,6 +16,8 @@ import (
 
 	"pcblock/internal/ipc"
 	"pcblock/internal/launch"
+	"pcblock/internal/sound"
+	"pcblock/internal/systray"
 )
 
 const (
@@ -26,6 +29,8 @@ const (
 	dialTimeout = 2 * time.Second // сколько ждать канал службы за один заход
 
 	closingTimeout = 2 * time.Second // сколько ждать службу при конце сеанса: сеанс не должен ждать дольше (FB-1)
+
+	boardRetry = time.Minute // окно табло не создалось: следующая попытка не раньше (не каждый кадр 250 мс)
 )
 
 var (
@@ -47,6 +52,8 @@ type app struct {
 	lock      *LockWindow
 	ui        *lockUI
 	plate     *plateWindow
+	board     *systray.WarningCard
+	boardFail time.Time // когда не удалось создать окно табло; повтор не чаще boardRetry
 	hookTried bool
 }
 
@@ -109,13 +116,6 @@ func sessionOf(opts launch.Options) uint32 {
 	return 0
 }
 
-// safely выполняет f и не даёт панике убить страж: упавший страж означает «обход» для
-// службы (R17в), а ошибка одного опроса или одного кадра обходом не является.
-func safely(f func()) {
-	defer func() { _ = recover() }()
-	f()
-}
-
 // Run — страж сеанса ребёнка (FR-6, FR-9). Поток блокируется за ОС, занимается мьютекс
 // Global\PCBlockGuard-<сеанс> (повторный запуск молча завершается), раз в настоящую секунду
 // идёт опрос службы, а поток окон показывает предупреждения и экран блокировки по
@@ -165,6 +165,8 @@ func Run(opts launch.Options) error {
 	a.ctl = NewController(NewModel(), caller, time.Now, a.readSensors, func() {
 		procPostMessage.Call(a.host, wmAppRefresh, 0, 0)
 	})
+	a.ctl.SetSoundPlayer(sound.PlayWarning)
+	a.ctl.SetClockSpeed(a.speed)
 
 	stop := make(chan struct{})
 	var wg sync.WaitGroup
@@ -287,6 +289,7 @@ func (a *app) onEdit(text string) {
 
 // tick приводит окна к виду из Model.
 func (a *app) tick() {
+	a.ctl.NoteUITick(time.Now())
 	v := a.ctl.View()
 	a.applyLock(v)
 	a.applyPlate(v)
@@ -330,22 +333,46 @@ func (a *app) applyLock(v View) {
 	}
 }
 
-// applyPlate показывает плашку предупреждения или прячет её.
+// applyPlate показывает плашку предупреждения или прячет её: табло за 30/15/5 мин — общей
+// карточкой (systray.WarningCard, R-2), плашку 1 мин и «Добавлено N минут» — текстовым окном.
 func (a *app) applyPlate(v View) {
-	if v.Warning == nil {
+	board, text := SplitPlate(v.Warning)
+	if board == nil {
+		if a.board != nil {
+			a.board.Hide()
+		}
+	} else {
+		if a.board == nil && (a.boardFail.IsZero() || time.Since(a.boardFail) >= boardRetry) {
+			c, err := systray.NewWarningCard(func() { a.press(ButtonWarningClose) })
+			if err == nil {
+				a.board, a.boardFail = c, time.Time{}
+			} else {
+				if a.boardFail.IsZero() {
+					// Один раз за серию отказов: у стража нет своего журнала, строка идёт в stderr
+					// процесса (виден в отладке и в тестовом режиме); показ плашек это не останавливает.
+					log.Printf("PC Block, страж: окно табло предупреждения не создано: %v", err)
+				}
+				a.boardFail = time.Now()
+			}
+		}
+		if a.board != nil {
+			a.board.Show(*board.Board)
+		}
+	}
+	if text == nil {
 		if a.plate != nil {
 			a.plate.hide()
 		}
 		return
 	}
 	if a.plate == nil {
-		p, err := newPlateWindow(func() { a.press(ButtonWarningOK) })
+		p, err := newPlateWindow()
 		if err != nil {
 			return
 		}
 		a.plate = p
 	}
-	a.plate.apply(v.Warning)
+	a.plate.apply(text)
 }
 
 // shutdown убирает окна и перехват клавиш.
@@ -360,6 +387,9 @@ func (a *app) shutdown() {
 	}
 	if a.plate != nil {
 		a.plate.close()
+	}
+	if a.board != nil {
+		a.board.Close()
 	}
 	if a.host != 0 {
 		procDestroyWindow.Call(a.host)

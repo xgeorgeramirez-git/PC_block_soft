@@ -62,6 +62,8 @@ var (
 	procSetCapture               = user32.NewProc("SetCapture")
 	procReleaseCapture           = user32.NewProc("ReleaseCapture")
 	procSetCursor                = user32.NewProc("SetCursor")
+	procGetForegroundWindow      = user32.NewProc("GetForegroundWindow")
+	procGetWindowRect            = user32.NewProc("GetWindowRect")
 
 	procCreateSolidBrush = gdi32.NewProc("CreateSolidBrush")
 	procCreateFont       = gdi32.NewProc("CreateFontW")

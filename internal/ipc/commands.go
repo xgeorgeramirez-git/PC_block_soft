@@ -541,14 +541,14 @@ const (
 	ButtonLogoff         = "logoff"         // «Выйти из учётной записи»
 	ButtonShutdown       = "shutdown"       // «Выключить компьютер»
 	ButtonSwitchUser     = "switchUser"     // «Смена пользователя»
-	ButtonAck            = "ack"            // «Понятно»
+	ButtonWarningClose   = "warningClose"   // крестик «Закрыть» на плашке-табло предупреждения
 )
 
 // GuardEvent — событие, которое страж сообщает службе.
 type GuardEvent struct {
 	Kind      string `json:"kind"`      // GuardEv*
 	AtMs      int64  `json:"atMs"`      // UTC мс
-	Threshold int    `json:"threshold"` // для warningShown и warningAck: 15, 5 или 1
+	Threshold int    `json:"threshold"` // для warningShown и warningAck: 30, 15, 5 или 1
 	Button    string `json:"button"`    // для button: Button*
 	Detail    string `json:"detail"`    // для bypass: что произошло, без заголовков окон (R23)
 }
@@ -561,10 +561,21 @@ type GuardPollRequest struct {
 
 // GuardWarning — предупреждение, которое страж показывает один раз (R9).
 type GuardWarning struct {
-	Threshold int    `json:"threshold"` // 15, 5 или 1 минута
-	Text      string `json:"text"`
-	Sound     bool   `json:"sound"` // за 1 минуту — звук и обратный отсчёт
+	Threshold int    `json:"threshold"` // 30, 15, 5 или 1 минута (D-54)
+	Text      string `json:"text"`      // что закончится: строка под плитками табло или текст плашки 1 мин
+	Sound     bool   `json:"sound"`     // звук заказчика в момент показа: на всех порогах (D-55)
+	Event     string `json:"event"`     // вид события: WarnEvent*
+	EventS    int    `json:"eventS"`    // секунды до события в момент срабатывания
 }
+
+// Виды события предупреждения в GuardWarning.Event (R9): от вида зависит, как страж считает
+// секунды на плитках табло. Лимит: остаток службы (стоит, когда время не идёт, R2); запретные
+// часы и конец паузы: настоящие часы.
+const (
+	WarnEventLimit     = "limit"
+	WarnEventForbidden = "forbidden"
+	WarnEventPause     = "pause"
+)
 
 // Виды команд стражу в GuardPollReply.Commands.
 const (
@@ -651,6 +662,22 @@ type ShownWarning struct {
 	Text      string `json:"text"`
 }
 
+// ShownSound — звук предупреждения, который страж сыграл (тестовый режим): порог и ответ
+// Windows (PlaySoundW принял звук; на раннере без звуковой карты бывает false).
+type ShownSound struct {
+	AtMs      int64 `json:"atMs"`
+	Threshold int   `json:"threshold"`
+	OK        bool  `json:"ok"`
+}
+
+// GuardUI — жив ли поток окон стража: момент и число его кадров, последняя паника, пойманная в
+// потоке окон или горутинах стража. Приёмка отличает «окно стоит» от «окно падает».
+type GuardUI struct {
+	TickMs int64  `json:"tickMs"` // UTC мс последнего кадра; 0 — кадров не было
+	Ticks  int64  `json:"ticks"`
+	Panic  string `json:"panic"` // «» — паник не было
+}
+
 // GuardField — поле ввода стража и его текст.
 type GuardField struct {
 	ID   string `json:"id"`
@@ -660,8 +687,11 @@ type GuardField struct {
 // GuardStateReply — что сейчас показывает страж (GuardState, только тестовый режим).
 type GuardStateReply struct {
 	Warnings  []ShownWarning `json:"warnings"`  // журнал показанных предупреждений
+	Sounds    []ShownSound   `json:"sounds"`    // журнал сыгранных звуков предупреждений (D-55)
+	UI        GuardUI        `json:"ui"`        // диагностика потока окон стража (тестовый режим)
 	LockShown bool           `json:"lockShown"` // экран блокировки показан
 	LockKind  string         `json:"lockKind"`  // Lock*
+	Plate     string         `json:"plate"`     // текст видимой плашки или табло предупреждения; пусто — плашки нет
 	Buttons   []string       `json:"buttons"`   // видимые кнопки (Button*)
 	Fields    []GuardField   `json:"fields"`    // поля ввода и их текст
 	// Exits — выходы, о которых страж просил службу в тестовом режиме (Exit*), по порядку.

@@ -11,6 +11,7 @@ import (
 	"pcblock/internal/core"
 	"pcblock/internal/ipc"
 	"pcblock/internal/launch"
+	"pcblock/internal/systray"
 )
 
 var procPeekMessage = user32.NewProc("PeekMessageW")
@@ -152,12 +153,12 @@ func TestLockScreenStaysAfterCloseAttempts(t *testing.T) {
 	}
 }
 
-func TestWarningPlateShowsAndAcknowledges(t *testing.T) {
+// Ловит: текстовая плашка 1 мин не показывается или не прячется.
+func TestWarningPlateShowsAndHides(t *testing.T) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
-	acked := 0
-	p, err := newPlateWindow(func() { acked++ })
+	p, err := newPlateWindow()
 	if err != nil {
 		t.Skipf("окно создать нельзя (нет рабочего стола): %v", err)
 	}
@@ -166,19 +167,54 @@ func TestWarningPlateShowsAndAcknowledges(t *testing.T) {
 		pump(20 * time.Millisecond)
 	}()
 
-	p.apply(&WarningView{ID: 1, Text: "Осталось 15 минут", Buttons: []ButtonView{{Button: ButtonWarningOK, Label: textWarningOK, Enabled: true}}})
+	p.apply(&WarningView{ID: 1, Threshold: 1, Text: "Осталась 1 минута: 0:59", Buttons: []ButtonView{}})
 	pump(20 * time.Millisecond)
 	if r, _, _ := procIsWindowVisible.Call(p.hwnd); r == 0 {
 		t.Fatal("плашка должна быть видна")
 	}
-	procSendMessage.Call(p.btn, bmClick, 0, 0)
-	pump(20 * time.Millisecond)
-	if acked != 1 {
-		t.Fatalf("нажатие «Понятно» дошло %d раз, ждали 1", acked)
-	}
 	p.hide()
 	if r, _, _ := procIsWindowVisible.Call(p.hwnd); r != 0 {
 		t.Fatal("плашка должна прятаться")
+	}
+}
+
+// Ловит: плашка-табло забирает фокус у окна на переднем плане при показе или щелчке по крестику
+// (класс B); крестик не доходит до стража.
+func TestWarningCardKeepsFocusAndCloses(t *testing.T) {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+
+	closed := 0
+	c, err := systray.NewWarningCard(func() { closed++ })
+	if err != nil {
+		t.Skipf("окно создать нельзя (нет рабочего стола): %v", err)
+	}
+	defer func() {
+		c.Close()
+		pump(20 * time.Millisecond)
+	}()
+	before, _, _ := procGetForegroundWin.Call()
+	v := systray.TimeCountdown(1800)
+	v.Line = "Через 30 минут время на сегодня закончится"
+	c.Show(v)
+	pump(30 * time.Millisecond)
+	if r, _, _ := procIsWindowVisible.Call(c.HWND()); r == 0 {
+		t.Fatal("табло должно быть видно")
+	}
+	if after, _, _ := procGetForegroundWin.Call(); after == c.HWND() || after != before {
+		t.Fatalf("фокус ушёл: до %x, после %x, табло %x", before, after, c.HWND())
+	}
+	c.ClickClose()
+	pump(30 * time.Millisecond)
+	if closed != 1 {
+		t.Fatalf("крестик дошёл %d раз, ждали 1", closed)
+	}
+	if after, _, _ := procGetForegroundWin.Call(); after == c.HWND() {
+		t.Fatal("щелчок по крестику активировал табло")
+	}
+	c.Hide()
+	if r, _, _ := procIsWindowVisible.Call(c.HWND()); r != 0 {
+		t.Fatal("табло должно прятаться")
 	}
 }
 
@@ -251,5 +287,64 @@ func TestRunStartsOneGuardAndStopsOnClose(t *testing.T) {
 		case <-deadline:
 			t.Fatal("Run не завершился после закрытия окна")
 		}
+	}
+}
+
+// Ловит (S2, S35): при живом табло «5» порог 1 не сменяет его плашкой 1 мин в настоящих окнах
+// (окно табло не прячется, текстовая плашка не создаётся или поток окон встаёт), а GuardState
+// после опроса показывает старый кадр.
+func TestBoardThenOneMinuteRealWindows(t *testing.T) {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+
+	r := newCtRig()
+	r.svc.test = true
+	r.ctl.SetSoundPlayer(func() bool { return true })
+	a := &app{ctl: r.ctl}
+	defer a.shutdown()
+
+	r.svc.status = ctRunningStatus(300)
+	r.svc.warns = []ipc.GuardWarning{ipc.NewGuardWarning(5)}
+	r.ctl.PollOnce()
+	a.tick()
+	pump(30 * time.Millisecond)
+	if a.board == nil {
+		t.Skip("окно табло создать нельзя (нет рабочего стола)")
+	}
+	if !a.board.Visible() {
+		t.Fatal("табло «5» не показано")
+	}
+	for i := 1; i <= 4; i++ {
+		r.clk.Advance(time.Second)
+		r.svc.status = ctRunningStatus(300 - 60*i)
+		if i == 4 {
+			r.svc.status = ctRunningStatus(60)
+			r.svc.warns = []ipc.GuardWarning{ipc.NewGuardWarning(1)}
+		}
+		r.ctl.PollOnce()
+		r.ctl.PushState()
+		a.tick()
+		pump(20 * time.Millisecond)
+	}
+	if a.board.Visible() {
+		t.Fatal("табло «5» осталось после порога 1")
+	}
+	if a.plate == nil || !a.plate.visible {
+		t.Fatal("плашка 1 мин не показана")
+	}
+	if r2, _, _ := procIsWindowVisible.Call(a.plate.hwnd); r2 == 0 {
+		t.Fatal("окно плашки 1 мин не видно")
+	}
+	if v := r.ctl.View(); v.Warning == nil || v.Warning.Threshold != 1 || len(v.Warning.Buttons) != 0 {
+		t.Fatalf("вид после порога 1: %+v", v.Warning)
+	}
+	r.ctl.PushState()
+	calls := r.svc.called(ipc.CmdGuardState)
+	var st ipc.GuardStateReply
+	if err := calls[len(calls)-1].Into(&st); err != nil {
+		t.Fatal(err)
+	}
+	if len(st.Buttons) != 0 || len(st.Sounds) != 2 || st.UI.Ticks < 5 || st.UI.Panic != "" {
+		t.Fatalf("GuardState: кнопки %v, звуки %v, поток окон %+v", st.Buttons, st.Sounds, st.UI)
 	}
 }

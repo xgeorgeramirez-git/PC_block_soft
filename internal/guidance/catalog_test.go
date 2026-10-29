@@ -45,6 +45,8 @@ func TestCatalogM1Contents(t *testing.T) {
 		"N-0.2.2": KindWhatsNew,
 		// 0.2.4: табло остатка у значка и окно ребёнка с кнопками (D-53).
 		"N-0.2.4": KindWhatsNew,
+		// 0.2.5: предупреждения 30, 15, 5, 1 табло и звуком (D-54, D-55), смена пользователя (FB-5).
+		"H-M2-08": KindHint, "N-0.2.5": KindWhatsNew,
 	}
 	got := map[string]Kind{}
 	for _, e := range Catalog() {
@@ -225,5 +227,37 @@ func TestExpandedTemplatesStayShort(t *testing.T) {
 		if n := utf8.RuneCountInString(Expand(e.Body, LongName)); n > MaxBodyExpanded {
 			t.Errorf("%s: текст с длинным именем %d знаков, предел %d", e.ID, n, MaxBodyExpanded)
 		}
+	}
+}
+
+// Ловит: «Что нового» 0.2.5 и подсказка у лимитов потеряли главное (правило покрытия: каждая новая
+// функция в общем пуле Помощника): пороги 30/15/5/1, табло и звук, срок 5 с и плашка 1 мин,
+// смена пользователя без записи об обходе; подсказка не у настроек лимита.
+func TestCatalog025Coverage(t *testing.T) {
+	var n, h *Entry
+	for _, e := range Catalog() {
+		e := e
+		switch e.ID {
+		case "N-0.2.5":
+			n = &e
+		case "H-M2-08":
+			h = &e
+		}
+	}
+	if n == nil || h == nil {
+		t.Fatalf("нет записей N-0.2.5 или H-M2-08")
+	}
+	if n.Version != "0.2.5" || len(n.Items) != 3 {
+		t.Fatalf("N-0.2.5: %+v", *n)
+	}
+	all := strings.Join(n.Items, " | ")
+	for _, want := range []string{"30, 15, 5 и 1", "табло", "сигнал", "5 секунд", "1 минуту остаётся", "смене пользователя", "обходом защиты"} {
+		if !strings.Contains(all, want) {
+			t.Errorf("N-0.2.5 без «%s»: %s", want, all)
+		}
+	}
+	if h.Kind != KindHint || h.Anchor != "limits-table" || !strings.Contains(h.Body, "30, 15, 5 и 1") || !strings.Contains(h.Title+h.Body, "звук") ||
+		!strings.Contains(h.Body, "запретных часов") || !strings.Contains(h.Body, "паузы") {
+		t.Errorf("H-M2-08: %+v", *h)
 	}
 }

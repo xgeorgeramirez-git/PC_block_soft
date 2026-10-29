@@ -86,6 +86,7 @@ func TestEngineWarnsOnNearestEventLimit(t *testing.T) {
 	e := NewEngine(c, msk, r, DayState{Day: monday}, "")
 	got := warnEvLog(e, c, at(15, 0, 0), at(17, 0, 2), activeSample())
 	want := []string{
+		"16:30:00 30 limit",
 		"16:45:00 15 limit",
 		"16:55:00 5 limit",
 		"16:59:00 1 limit",

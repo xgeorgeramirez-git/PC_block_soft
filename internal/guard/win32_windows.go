@@ -328,15 +328,6 @@ func workArea() rect {
 	return rc
 }
 
-// playWarningSound играет два коротких сигнала. Beep не зависит от звуковой схемы
-// пользователя, чего нельзя сказать про MessageBeep в процессе системы.
-func playWarningSound() {
-	go func() {
-		procBeep.Call(880, 180)
-		procBeep.Call(660, 220)
-	}()
-}
-
 // registerPlainClass регистрирует простой класс окна со своей оконной процедурой.
 func registerPlainClass(name string, proc, hInst, brush uintptr) (*uint16, error) {
 	cls := utf16(name)

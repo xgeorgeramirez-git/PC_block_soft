@@ -23,11 +23,15 @@ func (a *app) runTestAction(t ipc.TestGuardAction) {
 		if !ok {
 			return
 		}
+		if b == ButtonWarningClose {
+			// Крестик табло: щелчок мыши окну карточки, тот же путь, что у человека.
+			if a.board != nil && a.board.Visible() {
+				a.board.ClickClose()
+			}
+			return
+		}
 		var h uintptr
-		switch {
-		case b == ButtonWarningOK && a.plate != nil && a.plate.visible:
-			h = a.plate.btn
-		case b != ButtonWarningOK && a.ui != nil && a.lock != nil && a.lock.Visible():
+		if a.ui != nil && a.lock != nil && a.lock.Visible() {
 			h = a.ui.buttonHandle(b)
 		}
 		if h != 0 {

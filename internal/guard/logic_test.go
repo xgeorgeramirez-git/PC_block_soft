@@ -11,14 +11,15 @@ import (
 
 	"pcblock/internal/core"
 	"pcblock/internal/ipc"
+	"pcblock/internal/systray"
 )
 
 // Граница связи со службой (Ruling 15): ровно 10 с экран ещё показан, 10 с + 1 мс скрыт.
-// Сроки плашек: предупреждение закрывается через 15 с, «Добавлено» через 5 с.
+// Сроки плашек: табло за 30/15/5 мин и «Добавлено» закрываются через 5 с, плашка 1 мин без срока.
 // Константы заданы в тестах отдельно от кода: сдвиг границы в коде ломает тест.
 const (
 	testOffline   = 10 * time.Second
-	testWarnLife  = 15 * time.Second
+	testBoardLife = 5 * time.Second
 	testAddedLife = 5 * time.Second
 
 	// Автоматическая смена пользователя: 15 минут от появления экрана (ТЗ 8.2.3 п.10).
@@ -686,7 +687,7 @@ func TestButtonMatrix(t *testing.T) {
 	// Ловит: кнопка срабатывает на чужой панели (например «Выйти» из окна пароля,
 	// «+30» с главного экрана, «Продолжить» из подтверждения выхода).
 	all := []Button{ButtonNone, ButtonParentPassword, ButtonLogoff, ButtonSubmitPassword, ButtonCancel, ButtonAdd15,
-		ButtonAdd30, ButtonAdd60, ButtonOpenSettings, ButtonClearBlock, ButtonConfirmLogoff, ButtonWarningOK,
+		ButtonAdd30, ButtonAdd60, ButtonOpenSettings, ButtonClearBlock, ButtonConfirmLogoff, ButtonWarningClose,
 		ButtonShutdown, ButtonConfirmShutdown, ButtonSwitchUser}
 	states := []struct {
 		name  string
@@ -731,7 +732,7 @@ func TestNoScreenNoActions(t *testing.T) {
 	// Ловит: нажатия действуют, когда экрана нет (нет решения, блокировки нет, родительская
 	// сессия, нет связи): иначе невидимая кнопка может выйти из учётки или снять блокировку.
 	all := []Button{ButtonParentPassword, ButtonLogoff, ButtonSubmitPassword, ButtonCancel, ButtonAdd15,
-		ButtonAdd30, ButtonAdd60, ButtonOpenSettings, ButtonClearBlock, ButtonConfirmLogoff, ButtonWarningOK,
+		ButtonAdd30, ButtonAdd60, ButtonOpenSettings, ButtonClearBlock, ButtonConfirmLogoff, ButtonWarningClose,
 		ButtonShutdown, ButtonConfirmShutdown, ButtonSwitchUser}
 	cases := []struct {
 		name  string
@@ -928,21 +929,25 @@ func TestParentSessionWithoutLockHidesPlates(t *testing.T) {
 }
 
 func TestWarningTexts(t *testing.T) {
-	// Ловит: тексты плашек 15/5/1 (ТЗ 8.2.2) не дословные; звук не только у плашки за 1 минуту;
-	// отсчёт не по остатку из решения; нет кнопки «Понятно».
+	// Ловит: за 30/15/5 мин не табло или не те цифры, строка, крестик; за 1 мин есть кнопки или
+	// не обратный отсчёт; звук не на каждом пороге (FR-9, D-55).
+	closeBtn := []ButtonView{{Button: ButtonWarningClose, Label: "Закрыть", Enabled: true}}
 	cases := []struct {
 		name      string
 		thr       int
 		remaining int
 		text      string
+		hms       string // «ЧЧ:ММ:СС» на плитках; пусто — табло нет
+		status    systray.Status
 		countdown string
-		sound     bool
+		buttons   []ButtonView
 	}{
-		{"за 15 минут", 15, 900, "Через 15 минут время на сегодня закончится", "", false},
-		{"за 5 минут", 5, 300, "Через 5 минут время закончится. Сохрани игру", "", false},
-		{"за 1 минуту, 59 с", 1, 59, "Осталась 1 минута: 0:59", "0:59", true},
-		{"за 1 минуту, 60 с", 1, 60, "Осталась 1 минута: 1:00", "1:00", true},
-		{"за 1 минуту, 5 с", 1, 5, "Осталась 1 минута: 0:05", "0:05", true},
+		{"за 30 минут", 30, 1800, "Через 30 минут время на сегодня закончится", "00:30:00", systray.StatusNormal, "", closeBtn},
+		{"за 15 минут", 15, 900, "Через 15 минут время на сегодня закончится", "00:15:00", systray.StatusLow, "", closeBtn},
+		{"за 5 минут", 5, 300, "Через 5 минут время закончится. Сохрани игру", "00:05:00", systray.StatusLow, "", closeBtn},
+		{"за 1 минуту, 59 с", 1, 59, "Осталась 1 минута: 0:59", "", 0, "0:59", []ButtonView{}},
+		{"за 1 минуту, 60 с", 1, 60, "Осталась 1 минута: 1:00", "", 0, "1:00", []ButtonView{}},
+		{"за 1 минуту, 5 с", 1, 5, "Осталась 1 минута: 0:05", "", 0, "0:05", []ButtonView{}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -953,9 +958,18 @@ func TestWarningTexts(t *testing.T) {
 			if w == nil {
 				t.Fatal("плашки нет")
 			}
-			wantButtons := []ButtonView{{Button: ButtonWarningOK, Label: "Понятно", Enabled: true}}
-			if w.Text != c.text || w.Countdown != c.countdown || w.Sound != c.sound || !reflect.DeepEqual(w.Buttons, wantButtons) {
+			if w.Text != c.text || w.Countdown != c.countdown || !w.Sound || w.Threshold != c.thr || !reflect.DeepEqual(w.Buttons, c.buttons) {
 				t.Fatalf("плашка %+v", *w)
+			}
+			if c.hms == "" {
+				if w.Board != nil {
+					t.Fatalf("у плашки 1 мин табло: %+v", *w.Board)
+				}
+			} else {
+				b := w.Board
+				if b == nil || b.Kind != systray.CountdownTime || b.Title != "ОСТАЛОСЬ ВРЕМЕНИ:" || b.Hours+":"+b.Minutes+":"+b.Seconds != c.hms || b.Status != c.status || b.Line != c.text {
+					t.Fatalf("табло %+v, ждали %s, статус %v, строка %q", b, c.hms, c.status, c.text)
+				}
 			}
 			if v.LockShown || v.SuppressKeys || v.Panel != PanelNone {
 				t.Fatalf("плашка не должна включать экран и перехват: %+v", v)
@@ -986,22 +1000,22 @@ func TestWarningCountdownFollowsDecisions(t *testing.T) {
 }
 
 func TestWarningAutoClose(t *testing.T) {
-	// Ловит: граница 15 с (до 15 с плашка видна, на 15-й секунде закрыта); плашка висит дольше срока;
-	// «Понятно» не закрывает; повторное «Понятно» что-то делает.
+	// Ловит: граница 5 с у табло (до 5 с видно, на 5-й секунде закрыто); крестик не закрывает или
+	// повторное нажатие что-то делает; плашка 1 мин закрывается сама или крестиком (FR-9).
 	for _, c := range []struct {
 		after   time.Duration
 		visible bool
 	}{
-		{testWarnLife - time.Millisecond, true},
-		{testWarnLife, false},
-		{testWarnLife + time.Second, false},
+		{testBoardLife - time.Millisecond, true},
+		{testBoardLife, false},
+		{testBoardLife + time.Second, false},
 	} {
 		// Последнее решение приходит раньше момента проверки: срок плашки должен
 		// считаться по часам в View, а не только по ходу решений; Tick даёт тот же итог.
 		for _, tick := range []bool{false, true} {
 			m := NewModel()
-			m.OnDecision(t0, runningDecision(900), false, []int{15})
-			feed(m, 1, int((c.after-time.Millisecond)/time.Second), 900)
+			m.OnDecision(t0, runningDecision(1800), false, []int{30})
+			feed(m, 1, int((c.after-time.Millisecond)/time.Second), 1800)
 			if tick {
 				m.Tick(at(c.after))
 			}
@@ -1013,14 +1027,29 @@ func TestWarningAutoClose(t *testing.T) {
 
 	m := NewModel()
 	m.OnDecision(t0, runningDecision(900), false, []int{15})
-	if a := m.Press(at(2*time.Second), ButtonWarningOK, ""); a != (Action{}) {
-		t.Fatalf("«Понятно» вернуло действие %+v", a)
+	if a := m.Press(at(2*time.Second), ButtonWarningClose, ""); a != (Action{}) {
+		t.Fatalf("крестик вернул действие %+v", a)
 	}
 	if m.View(at(2*time.Second)).Warning != nil {
-		t.Fatal("«Понятно» не закрыло плашку")
+		t.Fatal("крестик не закрыл плашку")
 	}
-	if a := m.Press(at(2*time.Second), ButtonWarningOK, ""); a != (Action{}) {
-		t.Fatalf("повторное «Понятно» вернуло действие %+v", a)
+	if a := m.Press(at(2*time.Second), ButtonWarningClose, ""); a != (Action{}) {
+		t.Fatalf("повторный крестик вернул действие %+v", a)
+	}
+
+	one := NewModel()
+	one.OnDecision(t0, runningDecision(60), false, []int{1})
+	one.Press(at(time.Second), ButtonWarningClose, "")
+	// Время идёт, пока экрана блокировки нет: через 60 с плашка ещё видна (остаток 0 без экрана).
+	for s := 1; s <= 70; s++ {
+		rem := 60 - s
+		if rem < 0 {
+			rem = 0
+		}
+		one.OnDecision(at(time.Duration(s)*time.Second), runningDecision(rem), false, nil)
+	}
+	if w := one.View(at(70 * time.Second)).Warning; w == nil || w.Countdown != "0:00" {
+		t.Fatalf("плашка 1 мин закрылась сама или крестиком: %+v", w)
 	}
 }
 
@@ -1053,6 +1082,8 @@ func TestWarningPicksMostUrgent(t *testing.T) {
 		{"15 и 5", 300, []int{15, 5}, "Через 5 минут время закончится. Сохрани игру"},
 		{"1, 15, 5", 59, []int{1, 15, 5}, "Осталась 1 минута: 0:59"},
 		{"15 и мусор", 900, []int{7, 15, 100}, "Через 15 минут время на сегодня закончится"},
+		{"30", 1800, []int{30}, "Через 30 минут время на сегодня закончится"},
+		{"30 и 15", 900, []int{30, 15}, "Через 15 минут время на сегодня закончится"},
 		{"только мусор", 900, []int{7, 0, -5, 100}, ""},
 		{"nil", 900, nil, ""},
 		{"пусто", 900, []int{}, ""},
@@ -1130,10 +1161,10 @@ func TestStaleWarningIsDropped(t *testing.T) {
 }
 
 func TestOfflineHidesPlate(t *testing.T) {
-	// Ловит: плашка остаётся, когда связи со службой нет 10 с (плашка живёт 15 с, поэтому
-	// её скрывает именно потеря связи, а не срок).
+	// Ловит: плашка 1 мин остаётся, когда связи со службой нет 10 с (у неё нет срока, поэтому
+	// её скрывает именно потеря связи).
 	m := NewModel()
-	m.OnDecision(t0, runningDecision(300), false, []int{5})
+	m.OnDecision(t0, runningDecision(60), false, []int{1})
 	if m.View(at(testOffline)).Warning == nil {
 		t.Fatal("ровно через 10 с плашка должна быть видна")
 	}

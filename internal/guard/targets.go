@@ -10,7 +10,7 @@ const (
 	TargetLogoff          = ipc.ButtonLogoff         // «Выйти из учётной записи» на экране
 	TargetShutdown        = ipc.ButtonShutdown       // «Выключить компьютер» на экране
 	TargetSwitchUser      = ipc.ButtonSwitchUser     // «Смена пользователя» на экране
-	TargetAck             = ipc.ButtonAck            // «Понятно» на плашке
+	TargetWarningClose    = ipc.ButtonWarningClose   // крестик «Закрыть» на плашке-табло
 	TargetSubmit          = "submit"                 // «Продолжить» на панели пароля
 	TargetCancel          = "cancel"                 // «Отмена» на любой панели
 	TargetAdd15           = "add15"                  // «+15»
@@ -46,7 +46,7 @@ var targetNames = map[Button]string{
 	ButtonShutdown:        TargetShutdown,
 	ButtonConfirmShutdown: TargetConfirmShutdown,
 	ButtonSwitchUser:      TargetSwitchUser,
-	ButtonWarningOK:       TargetAck,
+	ButtonWarningClose:    TargetWarningClose,
 	ButtonAskMore:         TargetAskMore,
 	ButtonSpendBonus:      TargetSpendBonus,
 	ButtonPromo:           TargetPromo,

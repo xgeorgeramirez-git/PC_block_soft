@@ -186,32 +186,42 @@ func (s SensorSample) ToCore() core.SessionSample {
 // NewGuardWarning собирает предупреждение для порога об исчерпании общего времени (ТЗ
 // 8.2.2) — частый случай; для события другого вида — NewGuardWarningFor.
 func NewGuardWarning(threshold int) GuardWarning {
-	return NewGuardWarningFor(threshold, core.WarnLimit)
+	return NewGuardWarningFor(threshold, core.WarnLimit, threshold*60)
 }
 
-// NewGuardWarningFor собирает предупреждение для порога в минутах и вида ближайшего
-// события (R9): исчерпание времени, начало запретных часов или конец паузы — текст
-// говорит, что именно кончится (FR-9). За 1 минуту страж играет звук и показывает
-// обратный отсчёт по ChildStatus.RemainingS.
-func NewGuardWarningFor(threshold int, ev core.WarnEvent) GuardWarning {
-	w := GuardWarning{Threshold: threshold}
+// NewGuardWarningFor собирает предупреждение для порога в минутах, вида ближайшего события
+// (R9) и секунд до него eventS: исчерпание времени, начало запретных часов или конец паузы.
+// Текст говорит, что именно кончится (FR-9); звук на каждом пороге (D-55).
+func NewGuardWarningFor(threshold int, ev core.WarnEvent, eventS int) GuardWarning {
+	w := GuardWarning{Threshold: threshold, Sound: true, Event: warnEventName(ev), EventS: eventS}
 	what, whatShort := warnSubject(ev)
 	switch threshold {
-	case 15:
-		w.Text = fmt.Sprintf("Через 15 минут %s", what)
+	case 30, 15:
+		w.Text = fmt.Sprintf("Через %d минут %s", threshold, what)
 	case 5:
-		if ev == core.WarnLimit {
-			w.Text = "Через 5 минут время закончится. Сохрани игру"
-		} else {
+		if ev == core.WarnForbidden || ev == core.WarnPauseEnd {
 			w.Text = fmt.Sprintf("Через 5 минут %s", what)
+		} else {
+			w.Text = "Через 5 минут время закончится. Сохрани игру"
 		}
 	case 1:
 		w.Text = warnOneMinute(ev)
-		w.Sound = true
 	default:
 		w.Text = fmt.Sprintf("Через %d мин %s", threshold, whatShort)
 	}
 	return w
+}
+
+// warnEventName — вид события для канала связи; неизвестный вид считается лимитом.
+func warnEventName(ev core.WarnEvent) string {
+	switch ev {
+	case core.WarnForbidden:
+		return WarnEventForbidden
+	case core.WarnPauseEnd:
+		return WarnEventPause
+	default:
+		return WarnEventLimit
+	}
 }
 
 // warnSubject — что кончится, для порогов 15/5 мин и запасного текста.

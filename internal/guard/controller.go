@@ -3,7 +3,9 @@ package guard
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"pcblock/internal/core"
@@ -20,6 +22,7 @@ const (
 	maxQueuedEvents = 100             // очередь событий не растёт без связи со службой
 	noticeLife      = 6 * time.Second // сколько виден короткий ответ под заголовком экрана
 	maxShownLog     = 50              // журнал показанных предупреждений для GuardState
+	maxSoundLog     = 50              // журнал сыгранных звуков для GuardState
 
 	textNoticeRetry  = "Не удалось выполнить. Попробуйте ещё раз"
 	textNoticeLogoff = "Не получилось выйти. Попробуй ещё раз"
@@ -44,9 +47,14 @@ type Controller struct {
 	mu        sync.Mutex
 	events    []ipc.GuardEvent
 	shown     []ipc.ShownWarning
-	pendThr   int // порог, который служба сообщила в этом ответе; нужен, пока не ясно, показана ли плашка
-	curThr    int // порог плашки, которая показана сейчас; 0 — плашки нет или она не про порог
-	seenPlate int // ID последней плашки, о которой уже известно
+	sounds    []ipc.ShownSound // сыгранные звуки (журнал для GuardState, только тестовый режим)
+	soundID   int              // ID плашки, для которой звук уже сыгран
+	play      func() bool      // проиграть звук предупреждения; true — Windows принял звук
+	soundQ    chan int         // номера записей журнала звуков для исполнителя звука; nil — исполнитель не запущен
+	speed     int              // ускорение часов ядра, сообщённое окном; модели передаётся только в тестовом режиме
+	ui        ipc.GuardUI      // диагностика потока окон
+	curThr    int              // порог плашки, которая показана сейчас; 0 — плашки нет или она не про порог
+	seenPlate int              // ID последней плашки, о которой уже известно
 	lockWas   bool
 	lastLock  string
 	last      View
@@ -75,6 +83,44 @@ func NewController(model *Model, call ipc.Caller, now func() time.Time, read fun
 		kick:   make(chan struct{}, 1),
 		fields: map[string]string{},
 	}
+}
+
+// lastPanic — текст последней паники, пойманной safely (диагностика GuardState.UI).
+var lastPanic atomic.Value
+
+// safely выполняет f и не даёт панике убить страж: упавший страж означает «обход» для
+// службы (R17в), а ошибка одного опроса, одного кадра или звука обходом не является. Паника
+// запоминается для GuardState.UI.
+func safely(f func()) {
+	defer func() {
+		if r := recover(); r != nil {
+			lastPanic.Store(fmt.Sprint(r))
+		}
+	}()
+	f()
+}
+
+// NoteUITick отмечает кадр потока окон (диагностика GuardState.UI).
+func (c *Controller) NoteUITick(now time.Time) {
+	c.mu.Lock()
+	c.ui.TickMs, c.ui.Ticks = now.UnixMilli(), c.ui.Ticks+1
+	c.mu.Unlock()
+}
+
+// SetSoundPlayer задаёт, чем играть звук предупреждения (окно: sound.PlayWarning). Без него
+// звук не играет. Вызывать до первого View.
+func (c *Controller) SetSoundPlayer(play func() bool) {
+	c.mu.Lock()
+	c.play = play
+	c.mu.Unlock()
+}
+
+// SetClockSpeed запоминает ускорение часов ядра из реестра тестового режима: в тестовом режиме
+// секунды до запретных часов и конца паузы на табло идут в том же темпе, что учёт.
+func (c *Controller) SetClockSpeed(n int) {
+	c.mu.Lock()
+	c.speed = n
+	c.mu.Unlock()
 }
 
 // Kicked возвращает канал, в который контроллер пишет, когда опрос нужен немедленно (после
@@ -257,18 +303,22 @@ func (c *Controller) PollOnce() PollResult {
 
 	now = c.now()
 	cmds := ClassifyCommands(rep.Commands)
-	thr := Thresholds(rep.Warnings)
-	c.model.OnDecision(now, DecisionFromStatus(rep.Status), cmds.HideLock, thr)
+	c.model.OnWarnings(now, DecisionFromStatus(rep.Status), cmds.HideLock, IncomingOf(rep.Warnings))
 	for _, minutes := range cmds.NoticeMinutes {
 		c.model.OnExtraAdded(now, minutes)
 	}
 	v := c.model.View(now)
+	// Журнал показанного, звук и вид для GuardState берутся из одного кадра: горутина опроса
+	// отправляет GuardState сразу после PollOnce, раньше, чем поток окон перерисуется по wake.
+	// Иначе снимок несогласован: порог 1 уже в журнале, а кнопки и звуки от табло «5» (CI S2, S35).
+	c.playDue(now, v.Warning)
 
 	c.mu.Lock()
 	c.lastLock = rep.Status.Lock
+	c.last = v
 	if v.Warning != nil && v.Warning.ID != c.seenPlate {
 		c.seenPlate, c.curThr = v.Warning.ID, 0
-		if t := mostUrgent(thr); t != 0 && len(cmds.NoticeMinutes) == 0 {
+		if t := v.Warning.Threshold; t != 0 && len(cmds.NoticeMinutes) == 0 {
 			c.curThr = t
 			c.addEventLocked(ipc.GuardEvent{Kind: ipc.GuardEvWarningShown, AtMs: now.UnixMilli(), Threshold: t})
 			c.shown = append(c.shown, ipc.ShownWarning{AtMs: now.UnixMilli(), Threshold: t, Text: v.Warning.Text})
@@ -310,7 +360,11 @@ func (c *Controller) ensureHello() {
 	}
 	c.mu.Lock()
 	c.helloDone, c.testMode = true, h.TestMode
+	speed := c.speed
 	c.mu.Unlock()
+	if h.TestMode && speed > 1 {
+		c.model.SetClockSpeed(speed)
+	}
 	if h.TestMode && h.AutoSwitchS > 0 {
 		// Срок автосмены сокращается только в тестовом режиме: приёмка не ждёт 15 минут.
 		c.model.SetAutoSwitchAfter(time.Duration(h.AutoSwitchS) * time.Second)
@@ -354,6 +408,7 @@ func (c *Controller) View() View {
 	now := c.now()
 	c.model.Tick(now)
 	v := c.model.View(now)
+	c.playDue(now, v.Warning)
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if v.LockShown != c.lockWas {
@@ -366,6 +421,55 @@ func (c *Controller) View() View {
 	}
 	c.last = v
 	return v
+}
+
+// playDue играет звук один раз на каждую новую плашку предупреждения (D-55): решение
+// SoundDue модели, окно только исполняет. Звук уходит исполнителю в своей горутине: PlaySoundW
+// может не вернуться сразу (раннер без звуковой карты, смена звука), а поток окон ждать не должен,
+// иначе плашка 1 мин не сменит табло (CI 40751015930). Его отказ показ плашки не трогает. В
+// тестовом режиме звук пишется в журнал сразу, ответ Windows (OK) дописывается, когда придёт.
+func (c *Controller) playDue(now time.Time, w *WarningView) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if !SoundDue(c.soundID, w) {
+		return
+	}
+	c.soundID = w.ID
+	if c.play == nil {
+		return
+	}
+	idx := -1
+	if c.testMode {
+		c.sounds = append(c.sounds, ipc.ShownSound{AtMs: now.UnixMilli(), Threshold: w.Threshold})
+		if len(c.sounds) > maxSoundLog {
+			c.sounds = c.sounds[len(c.sounds)-maxSoundLog:]
+		}
+		idx = len(c.sounds) - 1
+	}
+	if c.soundQ == nil {
+		c.soundQ = make(chan int, 8)
+		go c.soundLoop(c.play, c.soundQ)
+	}
+	select {
+	case c.soundQ <- idx:
+	default: // очередь полна: звуки идут чаще, чем Windows их принимает; лишний пропускается
+	}
+}
+
+// soundLoop играет звуки по одному (PlaySoundW не любит одновременных вызовов) и дописывает
+// ответ Windows в журнал. Записи журнала могли сдвинуться при обрезке до maxSoundLog: тогда
+// ответ теряется, а не попадает к чужой записи.
+func (c *Controller) soundLoop(play func() bool, q <-chan int) {
+	for idx := range q {
+		ok := false
+		safely(func() { ok = play() })
+		c.mu.Lock()
+		if idx >= 0 && idx < len(c.sounds) && len(c.sounds) < maxSoundLog {
+			c.sounds[idx].OK = ok
+		}
+		c.mu.Unlock()
+		c.wake()
+	}
 }
 
 // Notice возвращает короткий ответ под заголовком экрана («Не удалось выполнить…»); пусто,
@@ -416,7 +520,7 @@ func (c *Controller) Press(b Button, password string) Action {
 	if name := TargetName(b); name != "" {
 		c.addEventLocked(ipc.GuardEvent{Kind: ipc.GuardEvButton, AtMs: now.UnixMilli(), Button: name})
 	}
-	if b == ButtonWarningOK && c.curThr != 0 {
+	if b == ButtonWarningClose && c.curThr != 0 {
 		c.addEventLocked(ipc.GuardEvent{Kind: ipc.GuardEvWarningAck, AtMs: now.UnixMilli(), Threshold: c.curThr})
 		c.curThr = 0
 	}
@@ -599,9 +703,10 @@ func (c *Controller) SetField(id, text string) {
 }
 
 // StateFromView собирает ответ GuardState: что страж показывает сейчас. Все срезы не nil.
-func StateFromView(v View, lockKind string, shown []ipc.ShownWarning, fields map[string]string) ipc.GuardStateReply {
+func StateFromView(v View, lockKind string, shown []ipc.ShownWarning, sounds []ipc.ShownSound, fields map[string]string) ipc.GuardStateReply {
 	st := ipc.GuardStateReply{
 		Warnings:  append([]ipc.ShownWarning{}, shown...),
+		Sounds:    append([]ipc.ShownSound{}, sounds...),
 		LockShown: v.LockShown, LockKind: ipc.LockNone,
 		Buttons: []string{}, Fields: []ipc.GuardField{}, Exits: []string{},
 	}
@@ -619,6 +724,7 @@ func StateFromView(v View, lockKind string, shown []ipc.ShownWarning, fields map
 	add(v.Choices)
 	if v.Warning != nil {
 		add(v.Warning.Buttons)
+		st.Plate = v.Warning.Text
 	}
 	switch v.Panel {
 	case PanelPassword:
@@ -637,8 +743,12 @@ func (c *Controller) PushState() {
 		c.mu.Unlock()
 		return
 	}
-	st := StateFromView(c.last, c.lastLock, c.shown, c.fields)
+	st := StateFromView(c.last, c.lastLock, c.shown, c.sounds, c.fields)
+	st.UI = c.ui
 	c.mu.Unlock()
+	if p, ok := lastPanic.Load().(string); ok {
+		st.UI.Panic = p
+	}
 	raw, err := json.Marshal(st)
 	if err != nil {
 		return

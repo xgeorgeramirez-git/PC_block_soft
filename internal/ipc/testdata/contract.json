@@ -715,7 +715,7 @@
           "kind": "button",
           "atMs": 1759999999500,
           "threshold": 0,
-          "button": "ack",
+          "button": "warningClose",
           "detail": ""
         },
         {
@@ -755,7 +755,9 @@
           {
             "threshold": 1,
             "text": "Осталась 1 минута",
-            "sound": true
+            "sound": true,
+            "event": "limit",
+            "eventS": 60
           }
         ],
         "commands": [
@@ -833,11 +835,24 @@
           {
             "atMs": 1759999940000,
             "threshold": 1,
-            "text": "Осталась 1 минута"
+            "text": "Осталась 1 минута: 0:59"
           }
         ],
+        "sounds": [
+          {
+            "atMs": 1759999940000,
+            "threshold": 1,
+            "ok": true
+          }
+        ],
+        "ui": {
+          "tickMs": 0,
+          "ticks": 0,
+          "panic": ""
+        },
         "lockShown": true,
         "lockKind": "timeUp",
+        "plate": "",
         "buttons": [
           "parentPassword",
           "shutdown",
@@ -861,8 +876,15 @@
       "ok": true,
       "payload": {
         "warnings": [],
+        "sounds": [],
+        "ui": {
+          "tickMs": 0,
+          "ticks": 0,
+          "panic": ""
+        },
         "lockShown": false,
         "lockKind": "",
+        "plate": "",
         "buttons": [],
         "fields": [],
         "exits": []

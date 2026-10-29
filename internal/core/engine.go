@@ -33,8 +33,10 @@ type Decision struct {
 	Until        string    // «Можно снова: завтра» (время вышло, запретные часы, обход)
 	PauseUntil   string    // «18:30» — конец активной паузы (R11); «» — нет паузы
 	Used         string    // «Сегодня: 2 ч 00 мин из 2 ч»
-	Warning      int       // 0 или порог 15/5/1, сработавший на этом тике
+	Warning      int       // 0 или порог 30/15/5/1, сработавший на этом тике
 	WarningEvent WarnEvent // вид события сработавшего предупреждения (лимит/интервал/пауза)
+	WarningS     int       // секунды до события сработавшего предупреждения
+
 	RemainingS   int       // остаток общего времени, с (0 без лимита)
 	LimitS       int       // лимит дня вместе с доп. временем, с (0 без лимита)
 	UsedS        int       // общее время за день, с
@@ -454,6 +456,9 @@ func (e *Engine) decide(st DayState, fire bool) Decision {
 		if fire {
 			deltaS, _, _ := e.nextEvent(st, now)
 			d.Warning, d.WarningEvent = e.warn.fire(deltaS)
+			if d.Warning != 0 {
+				d.WarningS = deltaS
+			}
 		}
 	case inForbidden:
 		d.Lock, d.Status, d.Reason = LockForbidden, StatusForbidden, ReasonForbidden
@@ -465,6 +470,9 @@ func (e *Engine) decide(st DayState, fire bool) Decision {
 		if fire {
 			deltaS, _, _ := e.nextEvent(st, now)
 			d.Warning, d.WarningEvent = e.warn.fire(deltaS)
+			if d.Warning != 0 {
+				d.WarningS = deltaS
+			}
 		}
 		switch {
 		case unl:
