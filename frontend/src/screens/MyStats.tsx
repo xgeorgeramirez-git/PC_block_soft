@@ -7,16 +7,20 @@ import SpendBonusDialog from "../components/SpendBonusDialog";
 import { historyText } from "../lib/bonus";
 import { childErrorText } from "../lib/errors";
 import { formatDuration, formatEventTime, formatLimit, weekdayName } from "../lib/format";
-import { spendBlockedNote, summaryLines, todayRows, todayRuleWeekday } from "../lib/mytoday";
+import { NOT_COUNTED, NOT_SHOWN, spendBlockedNote, splitRules, summaryLines, todayRows, todayRuleWeekday } from "../lib/mytoday";
 import type { GetBonusReply, MyTodayReply } from "../types";
 
 const LOAD_ERROR = "Не удалось получить данные. Попробуй через минуту";
 const NO_DATA = "За этот период пока нет данных";
 const PERIODS = ["Сегодня", "Неделя", "Месяц", "Год", "Всё время"] as const;
 const PERIODS_NOTE = "Неделя, месяц, год и всё время появятся в полной статистике";
-const NOT_COUNTED = "Пока не считается";
 const OPEN_FAILED = "Не получилось открыть окно. Попробуй ещё раз";
-const END_MODE = "Когда время выйдет, экран закроется блокировкой. Открытые окна останутся под ней.";
+/** Итоги по категориям: игры и учёба считаются с 0.3.0, видео и соцсети - с M4. */
+const CATEGORY_TOTALS: { label: string; value: string }[] = [
+  { label: "Игры", value: NOT_SHOWN },
+  { label: "Видео и соцсети", value: NOT_COUNTED },
+  { label: "Учёба", value: NOT_SHOWN },
+];
 
 /** Окно «Моя статистика» (FR-12, R21, сценарий 8.2.6): только просмотр, свои данные, в M1 - сегодня и правила. */
 export default function MyStats() {
@@ -227,10 +231,10 @@ export function Totals({ data }: { data: MyTodayReply }) {
               <dt>Использовано сегодня</dt>
               <dd>{formatDuration(data.status.usedS)}</dd>
             </div>
-            {["Игры", "Видео и соцсети", "Учёба"].map((label) => (
-              <div key={label} className="stat-row stat-row-muted">
-                <dt>{label}</dt>
-                <dd>{NOT_COUNTED}</dd>
+            {CATEGORY_TOTALS.map((c) => (
+              <div key={c.label} className="stat-row stat-row-muted">
+                <dt>{c.label}</dt>
+                <dd>{c.value}</dd>
               </div>
             ))}
           </dl>
@@ -273,6 +277,7 @@ export function Bonuses({ bonus, onChange }: { bonus: GetBonusReply | null; onCh
 
 export function Rules({ data }: { data: MyTodayReply }) {
   const today = todayRuleWeekday();
+  const { days, general } = splitRules(data.rules);
   return (
     <section className="panel stat-panel" aria-labelledby="my-rules">
       <h3 id="my-rules" className="section-title">
@@ -295,7 +300,7 @@ export function Rules({ data }: { data: MyTodayReply }) {
               </tr>
             </thead>
             <tbody>
-              {data.rules.map((rule) => (
+              {days.map((rule) => (
                 <tr key={rule.weekday} aria-current={rule.weekday === today ? "date" : undefined}>
                   <th scope="row">{weekdayName(rule.weekday)}</th>
                   <td>
@@ -311,7 +316,13 @@ export function Rules({ data }: { data: MyTodayReply }) {
               ))}
             </tbody>
           </table>
-          <p className="panel-note">{END_MODE}</p>
+          {general.length > 0 ? (
+            <ul className="my-rules-general" aria-label="Общие правила">
+              {general.map((text) => (
+                <li key={text}>{text}</li>
+              ))}
+            </ul>
+          ) : null}
         </>
       )}
     </section>

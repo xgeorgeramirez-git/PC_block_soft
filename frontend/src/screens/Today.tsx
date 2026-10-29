@@ -267,6 +267,7 @@ function ChildCard({ card, feedback, busy, onAdd, onReduce, onClear, onUndo, onP
 
 
       {limited ? <p className="child-used">{formatUsed(s.usedS, s.limitS, s.unlimited)}</p> : null}
+      {card.gamesText ? <p className="child-used child-games">{card.gamesText}</p> : null}
       {card.extraMin > 0 ? <p className="child-meta">{`Добавлено сегодня: ${card.extraMin} мин`}</p> : null}
       {card.extraMin < 0 ? <p className="child-meta">{`Убрано сегодня: ${-card.extraMin} мин`}</p> : null}
       {card.bonusBalance > 0 ? <p className="child-meta">{`Копилка: ${formatLimit(card.bonusBalance)}`}</p> : null}

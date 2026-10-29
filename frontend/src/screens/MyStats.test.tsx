@@ -109,14 +109,14 @@ describe("MyStats: Итоги", () => {
     expect(left?.textContent).toContain("1 ч 25 мин");
   });
 
-  // Ловит: категории показаны нулями, как будто они считаются; в M1 учёт только общий.
-  it("игры, видео и соцсети, учёба: честно «Пока не считается»", async () => {
+  // Ловит: итоги игр и учёбы показаны нулями или выдуманы: окну приходит только остаток игр.
+  it("итоги игр и учёбы «Появится позже», видео и соцсети «Пока не считается»", async () => {
     setup();
     const box = await screen.findByRole("region", { name: "Итоги" });
-    for (const label of ["Игры", "Видео и соцсети", "Учёба"]) {
-      const row = within(box).getByText(label).closest("div");
-      expect(row?.textContent).toContain("Пока не считается");
-    }
+    const value = (label: string) => within(box).getByText(label).closest("div")?.querySelector("dd")?.textContent;
+    expect(value("Игры")).toBe("Появится позже");
+    expect(value("Учёба")).toBe("Появится позже");
+    expect(value("Видео и соцсети")).toBe("Пока не считается");
   });
 
   it("время вышло: видно, когда можно снова", async () => {
@@ -154,17 +154,29 @@ describe("MyStats: Мои правила", () => {
       "Пятница2 ч",
       "Суббота4 ч",
       "ВоскресеньеБез лимита",
-      "Игры: пн до 1 ч, ср нельзя, сб до 2 ч",
-      "Когда время вышло: экран блокировки",
     ]);
     expect(rows[0].getAttribute("aria-current")).toBe("date");
     expect(rows.filter((r) => r.getAttribute("aria-current") === "date")).toHaveLength(1);
   });
 
-  it("режим окончания текстом", async () => {
+  // R21: лимит игр и режим окончания - строками службы под таблицей дней.
+  it("лимит игр и режим окончания текстом от службы", async () => {
     setup();
     const box = await screen.findByRole("region", { name: "Мои правила" });
-    expect(within(box).getByText("Когда время выйдет, экран закроется блокировкой. Открытые окна останутся под ней.")).toBeTruthy();
+    const general = within(box).getByRole("list", { name: "Общие правила" });
+    expect(within(general).getAllByRole("listitem").map((li) => li.textContent)).toEqual([
+      "Игры: пн до 1 ч, ср нельзя, сб до 2 ч",
+      "Когда время вышло: экран блокировки",
+    ]);
+  });
+
+  it("режим «Оставить только учёбу» и игры без лимита", async () => {
+    const limits = [1, 2, 3, 4, 5, 6, 7].map((weekday) => ({ weekday, totalMin: 120, unlimited: false }));
+    setup({ children: [mockChild({ limits, endMode: "study_only" })] });
+    const box = await screen.findByRole("region", { name: "Мои правила" });
+    const general = within(box).getByRole("list", { name: "Общие правила" });
+    expect(within(general).getAllByRole("listitem").map((li) => li.textContent)).toEqual(["Когда время вышло: остаётся только учёба"]);
+    expect(within(box).queryByText(/экран закроется блокировкой/)).toBeNull();
   });
 
   // Ловит: «Мои правила» обещают запретные часы, которых у ребёнка нет (они живут в «Сегодня», D-53).
@@ -308,9 +320,23 @@ describe("MyStats: «Бонусы» (R25, R26, D-49, D-50)", () => {
   });
 });
 
+async function myTodayStatus() {
+  return JSON.parse((await window.go!.ui!.App!.Call("MyToday", "{}")) as string).payload.status as { tooltip: string };
+}
+
 // D-53, ТЗ 8.2.6 п.1: «Сегодня» с остатками, лимитами, запретными часами, копилкой, кнопками и ссылкой внизу.
 describe("MyStats: «Сегодня» (D-53)", () => {
   const MONDAY_NIGHT = [{ weekday: 1, startMin: 21 * 60, endMin: 7 * 60 }];
+
+  // Review Focus 5: остаток игр в окне = подсказка значка «Игры: 20 мин» (один ответ службы).
+  it("остаток игр тот же, что в подсказке значка", async () => {
+    setup({ children: [mockChild({ gamesUsedS: 2400 })] });
+    const box = await screen.findByRole("region", { name: "Сколько осталось" });
+    const games = within(box).getByText("Игры").closest("div")?.querySelector("dd")?.textContent;
+    expect(games).toBe("Осталось 20 мин из 1 ч");
+    const tooltip = (await myTodayStatus()).tooltip;
+    expect(tooltip.split("\n")[1]).toBe("Игры: 20 мин");
+  });
 
   // Ловит: на «Сегодня» нет остатка общего времени, игр, «Видео и соцсетей», лимита, запретных часов или копилки.
   it("остатки, лимит дня, запретные часы и копилка", async () => {
@@ -321,7 +347,7 @@ describe("MyStats: «Сегодня» (D-53)", () => {
     );
     expect(rows).toEqual({
       "Осталось всего": "1 ч 25 мин",
-      "Игры": "Пока не считается",
+      "Игры": "Осталось 1 ч 00 мин из 1 ч",
       "Видео и соцсети": "Пока не считается",
       "Лимит дня": "2 ч",
       "Запретные часы": "Сегодня нельзя с 21:00 до 07:00",
