@@ -68,11 +68,13 @@ Skills to load: dev-methodology, git-guru, uiux-design, usability-heuristics; we
 
 ## M3 «Программы и игры»
 
+Первая задача вехи — B-28 из `plans/BACKLOG.md`: убрать Помощник (D-56), сначала ТЗ, потом код.
+
 ```text
 Используй скилл dev-methodology — вход B. Ты — оркестратор вехи M3 «Программы и игры» проекта PC_block_soft. Репозиторий https://github.com/xgeorgeramirez-git/PC_block_soft — подключи с правом записи. Я — заказчик, не программист: по-русски, простыми словами.
 
 Прочитай: CLAUDE.md; ТЗ — R3, R5, R8, R12, R13, FR-2 (шаг программ), FR-13, FR-16 (игры), FR-18, FR-20, разделы 8.2.4, 8.3.4, 9 (строка M3), 11 (S12…S15); эталоны G4, G5, G12; docs/LESSONS.md; plans/BACKLOG.md.
-Skills to load: dev-methodology, git-guru, uiux-design, usability-heuristics; web-design-guidelines — на ревью интерфейса; in-app-guidance — по решению из M1.
+Skills to load: dev-methodology, git-guru, uiux-design, usability-heuristics; web-design-guidelines — на ревью интерфейса; in-app-guidance не грузить (D-56: Помощник убирается).
 Порядок: Фазы 1–8; план plans/<дата>-M3.md; конвейер «два слота», реестр plans/M3-agents.md; TDD; лестница R0–R4; приёмка в CI (запуск тестовых программ из временной папки в тестовом режиме), снимки, visual-reviewer; регресс аварийного выхода.
 Закрытие: версия 0.3.0 и всё по Фазе 8; ветка feature/m3-programs → PR → зелёный CI → слей в main.
 Готово значит: S12…S15, G4, G5, G12 и регресс прошлых вех зелёные; R4 зелёная; выпуск 0.3.0; короткий отчёт мне.
@@ -86,7 +88,7 @@ Skills to load: dev-methodology, git-guru, uiux-design, usability-heuristics; we
 Используй скилл dev-methodology — вход B. Ты — оркестратор вехи M4 «Сайты и Brave» проекта PC_block_soft. Репозиторий https://github.com/xgeorgeramirez-git/PC_block_soft — подключи с правом записи. Я — заказчик, не программист: по-русски, простыми словами.
 
 Прочитай: CLAUDE.md; ТЗ — R6, R13, R14, R15, FR-2 (шаг сайтов), FR-13, FR-16 (видео), FR-21, FR-31, разделы 3.2, 8.2.5, 8.3.5, 9 (строка M4), 11 (S16…S20), 12 (Q2, Q3); docs/LESSONS.md; plans/BACKLOG.md.
-Skills to load: dev-methodology, git-guru, uiux-design, usability-heuristics; web-design-guidelines — на ревью интерфейса; in-app-guidance — по решению из M1.
+Skills to load: dev-methodology, git-guru, uiux-design, usability-heuristics; web-design-guidelines — на ревью интерфейса; in-app-guidance не грузить (D-56: Помощник убирается).
 До плана: открытые вопросы Q2 (источник и лицензия списка 18+ — предложи мне 2–3 варианта) и Q3 (нужны ли браузеры, кроме Brave) — спроси меня, ответы впиши в ТЗ заменой текста. Первая задача плана — проба чтения домена активной вкладки Brave (UI Automation); итог — Ruling.
 Порядок: Фазы 1–8; план plans/<дата>-M4.md; конвейер «два слота», реестр plans/M4-agents.md; TDD; лестница R0–R4; приёмка в CI с установленным Brave, снимки, visual-reviewer; регресс аварийного выхода.
 Закрытие: версия 0.4.0 и всё по Фазе 8; ветка feature/m4-sites → PR → зелёный CI → слей в main.
@@ -101,7 +103,7 @@ Skills to load: dev-methodology, git-guru, uiux-design, usability-heuristics; we
 Используй скилл dev-methodology — вход B. Ты — оркестратор вехи M5 «Статистика для родителя и ребёнка» проекта PC_block_soft. Репозиторий https://github.com/xgeorgeramirez-git/PC_block_soft — подключи с правом записи. Я — заказчик, не программист: по-русски, простыми словами.
 
 Прочитай: CLAUDE.md; ТЗ — R21, R22, FR-12, FR-23, FR-24, разделы 8.2.6, 8.3.7, 9 (строка M5), 10 (ST1), 11 (S21, S22); docs/LESSONS.md; plans/BACKLOG.md.
-Skills to load: dev-methodology, git-guru, uiux-design, usability-heuristics; web-design-guidelines — на ревью интерфейса; in-app-guidance — по решению из M1.
+Skills to load: dev-methodology, git-guru, uiux-design, usability-heuristics; web-design-guidelines — на ревью интерфейса; in-app-guidance не грузить (D-56: Помощник убирается).
 Порядок: Фазы 1–8; план plans/<дата>-M5.md; конвейер «два слота», реестр plans/M5-agents.md; TDD; эталонная неделя для S21 — данные и ожидаемые цифры заранее, из одной таблицы; ST1 с порогами NFR-12, NFR-13 (отчёт в test-results/); лестница R0–R4; снимки статистики у родителя и ребёнка, visual-reviewer.
 Закрытие: версия 0.5.0 и всё по Фазе 8; ветка feature/m5-stats → PR → зелёный CI → слей в main.
 Готово значит: S21, S22, ST1 и регресс прошлых вех зелёные; R4 зелёная; выпуск 0.5.0; короткий отчёт мне.
