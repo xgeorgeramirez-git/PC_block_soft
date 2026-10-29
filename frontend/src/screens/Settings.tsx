@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { changePassword, getBonusRate, getDiag, getToday, listAccounts, openLogs, pauseAll, setBonusRate, setChildren, setDiag, version } from "../api";
-import { useHelperSwitch } from "../guidance/useHelperSwitch";
 import Dialog from "../components/Dialog";
 import Notice from "../components/Notice";
 import PausePicker from "../components/PausePicker";
@@ -11,7 +10,7 @@ import { genitiveName } from "../lib/format";
 import { validatePasswordPair } from "../lib/password";
 import type { Account, ChildInfo } from "../types";
 
-/** Общие настройки (FR-25, сценарий 8.3.8): пароль, детские учётки, Помощник, О программе. */
+/** Общие настройки (FR-25, сценарий 8.3.8): пароль, детские учётки, пауза для всех, автобонус, логи, О программе. */
 export default function Settings({ onOpenChildren }: { onOpenChildren?: () => void }) {
   const [notices, setNotices] = useState<string[]>([]);
   const [children, setChildrenList] = useState<ChildInfo[] | null>(null);
@@ -57,7 +56,6 @@ export default function Settings({ onOpenChildren }: { onOpenChildren?: () => vo
       />
       <PauseAllSection />
       <BonusRateSection />
-      <HelperSection />
       <DiagSection />
       <AboutSection />
     </div>
@@ -114,7 +112,7 @@ function BonusRateSection() {
   };
 
   return (
-    <section className="panel" aria-labelledby="settings-bonus-rate" data-help-anchor="bonus-rate">
+    <section className="panel" aria-labelledby="settings-bonus-rate">
       <h3 id="settings-bonus-rate" className="section-title">
         Бонус за неизрасходованное время
       </h3>
@@ -191,7 +189,7 @@ function DiagSection() {
     }
   };
   return (
-    <section className="panel" aria-labelledby="settings-diag" data-help-anchor="logs-folder">
+    <section className="panel" aria-labelledby="settings-diag">
       <h3 id="settings-diag" className="section-title">
         Подробные логи для диагностики
       </h3>
@@ -562,58 +560,6 @@ function ChildrenSection({ list, accounts, loadError, onReload, onChanged }: Chi
         >
           <p>{`Ограничения для ${genitiveName(removing.name)} перестанут действовать. Статистика сохранится. Убрать?`}</p>
         </Dialog>
-      ) : null}
-    </section>
-  );
-}
-
-// --- Помощник --------------------------------------------------------------------
-
-function HelperSection() {
-  const helper = useHelperSwitch();
-  const [done, setDone] = useState("");
-
-  const reset = async () => {
-    setDone("");
-    await helper.resetHidden();
-    setDone("Скрытые подсказки снова будут появляться.");
-  };
-
-  return (
-    <section className="panel" aria-labelledby="settings-helper">
-      <h3 id="settings-helper" className="section-title">
-        Помощник
-      </h3>
-      <label className="switch">
-        <input
-          type="checkbox"
-          checked={helper.enabled}
-          disabled={!helper.loaded}
-          onChange={(e) => void helper.toggle(e.target.checked)}
-        />
-        <span>Показывать подсказки</span>
-      </label>
-      <p className="field-hint">
-        Подсказки при первом открытии экранов и напоминания о важном, например когда у ребёнка не задано ни одного лимита.
-      </p>
-      {helper.error ? <p className="field-error">{helper.error}</p> : null}
-      {helper.hasProvider ? (
-        <>
-          <p className="field-hint">Обучение в разделе «Помощь» доступно всегда, даже когда подсказки выключены.</p>
-          <div className="form-actions">
-            <button type="button" className="btn btn-small" onClick={() => void reset()}>
-              Вернуть скрытые подсказки
-            </button>
-            <button type="button" className="btn btn-small" onClick={() => helper.restartTour()}>
-              Пройти обучение заново
-            </button>
-          </div>
-          {done ? (
-            <p className="field-hint" role="status">
-              {done}
-            </p>
-          ) : null}
-        </>
       ) : null}
     </section>
   );

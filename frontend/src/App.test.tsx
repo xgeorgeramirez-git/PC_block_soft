@@ -188,7 +188,7 @@ describe("мастер и вход", () => {
 });
 
 describe("меню окна родителя", () => {
-  it("«Сегодня», «Дети», «Журнал», «Настройки» и внизу «Помощь»", async () => {
+  it("«Сегодня», «Дети», «Журнал», «Настройки» и внизу «Что нового»", async () => {
     const user = setup();
     await login(user);
     const nav = screen.getByRole("navigation", { name: "Разделы" });
@@ -199,7 +199,7 @@ describe("меню окна родителя", () => {
       "Статистика",
       "Журнал",
       "Настройки",
-      "Помощь",
+      "Что нового",
     ]);
     expect(within(nav).getByRole("button", { name: "Сегодня" }).getAttribute("aria-current")).toBe("page");
   });
@@ -223,8 +223,25 @@ describe("меню окна родителя", () => {
     await user.click(within(nav).getByRole("button", { name: "Настройки" }));
     expect(await screen.findByRole("heading", { name: "Настройки" })).toBeTruthy();
 
-    await user.click(within(nav).getByRole("button", { name: "Помощь" }));
-    expect(await screen.findByRole("heading", { name: "Помощь" })).toBeTruthy();
+    await user.click(within(nav).getByRole("button", { name: "Что нового" }));
+    expect(await screen.findByRole("heading", { name: "Что нового" })).toBeTruthy();
+  });
+
+  // Ловит: «Что нового» стоит в основной группе разделов, а не отдельно внизу меню (ТЗ 8.3.2 п.2).
+  it("«Что нового» внизу меню, отдельно от разделов, и открывает список с новой версией сверху", async () => {
+    const user = setup();
+    await login(user);
+    const nav = screen.getByRole("navigation", { name: "Разделы" });
+    const list = within(nav).getByRole("list");
+    expect(within(list).queryByRole("button", { name: "Что нового" })).toBeNull();
+    const item = within(nav).getByRole("button", { name: "Что нового" });
+    expect(within(nav).getAllByRole("button").at(-1)).toBe(item);
+
+    await user.click(item);
+    expect(item.getAttribute("aria-current")).toBe("page");
+    const versions = (await screen.findAllByRole("heading", { level: 3 })).map((h) => h.textContent);
+    expect(versions[0]).toBe("Версия 0.2.5. Предупреждения с табло и звуком");
+    expect(screen.queryByRole("heading", { name: "Помощь" })).toBeNull();
   });
 
   it("ссылка «Нарушения сегодня» открывает журнал нарушений", async () => {

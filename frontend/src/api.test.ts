@@ -80,12 +80,6 @@ describe("массивы в ответах: null становится пусты
     mock.override("SetChildren", { ok: true, payload: { children: null } });
     expect(await api.setChildren({ remove: [1] })).toEqual([]);
   });
-
-  it("getHelperState без состояния", async () => {
-    const mock = installBackend({ sessionActive: true });
-    mock.override("GetHelperState", { ok: true, payload: {} });
-    expect(await api.getHelperState()).toEqual({});
-  });
 });
 
 describe("запросы", () => {

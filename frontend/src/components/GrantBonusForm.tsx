@@ -32,7 +32,7 @@ export default function GrantBonusForm({ disabled, minutesError, onGrant }: Prop
   const error = localError || minutesError;
 
   return (
-    <div className="bonus-grant" data-help-anchor="bonus-grant">
+    <div className="bonus-grant">
       <label className="field">
         <span className="field-label">Сколько минут</span>
         <input

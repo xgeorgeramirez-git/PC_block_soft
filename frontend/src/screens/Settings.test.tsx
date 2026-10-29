@@ -2,13 +2,10 @@ import { afterEach, describe, expect, it, vi, type Mock } from "vitest";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import Settings from "./Settings";
-import GuidanceProvider from "../guidance/GuidanceProvider";
-import { HelperEngine } from "../guidance/engine";
-import { apiHelperIO } from "../guidance/io";
 import { RULES_NOT_READ_TEXT } from "../lib/notices";
 import { DEFAULT_PASSWORD, installBackend, mockAccounts, mockChild, uninstallBackend, type MockBackend } from "../__mocks__/backend";
 
-// FR-25, сценарий 8.3.8: пароль, детские учётки, Помощник, О программе.
+// FR-25, сценарий 8.3.8: пароль, детские учётки, пауза, автобонус, логи, О программе.
 
 let mock: MockBackend;
 let openChildren: Mock<() => void>;
@@ -275,110 +272,14 @@ describe("Settings: детские учётки", () => {
   });
 });
 
-describe("Settings: Помощник", () => {
-  it("по умолчанию подсказки включены", async () => {
+describe("Settings: Помощника нет (D-56)", () => {
+  // Ловит: после удаления Помощника в настройках остался его раздел, переключатель или кнопки обучения.
+  it("нет раздела «Помощник», переключателя подсказок и кнопок обучения", async () => {
     await setup();
-    const toggle = within(section("Помощник")).getByRole("checkbox", { name: "Показывать подсказки" }) as HTMLInputElement;
-    await vi.waitFor(() => expect(toggle.disabled).toBe(false));
-    expect(screen.getByText(/Подсказки при первом открытии экранов/)).toBeTruthy();
-    expect(toggle.checked).toBe(true);
-  });
-
-  // Ловит: в окне родителя обещание «в следующем обновлении» вместо работающей функции; в M1 только переключатель.
-  it("только работающий переключатель, без обещаний на будущее", async () => {
-    await setup();
-    const box = section("Помощник");
-    await vi.waitFor(() => expect(within(box).getByRole("checkbox").hasAttribute("disabled")).toBe(false));
-    expect(within(box).getAllByRole("checkbox")).toHaveLength(1);
-    expect(within(box).queryByText(/следующем обновлении/)).toBeNull();
-    expect(within(box).queryByText(/появится|появятся/)).toBeNull();
-    expect(within(box).queryByRole("button")).toBeNull();
-  });
-
-  it("выключено в сохранённом состоянии - переключатель выключен", async () => {
-    await setup({ helper: { enabled: false } });
-    const toggle = within(section("Помощник")).getByRole("checkbox", { name: "Показывать подсказки" }) as HTMLInputElement;
-    await vi.waitFor(() => expect(toggle.checked).toBe(false));
-    expect(toggle.disabled).toBe(false);
-  });
-
-  // Ловит: переключатель затирает остальное состояние Помощника (прочитанные подсказки).
-  it("переключение сохраняет состояние целиком, меняя только «включено»", async () => {
-    const user = await setup({ helper: { enabled: true, seen: ["H-M1-01"], snoozed: {} } });
-    const toggle = within(section("Помощник")).getByRole("checkbox", { name: "Показывать подсказки" }) as HTMLInputElement;
-    await vi.waitFor(() => expect(toggle.disabled).toBe(false));
-    await user.click(toggle);
-    await vi.waitFor(() => expect(mock.count("SaveHelperState")).toBe(1));
-    expect(mock.calls.find((c) => c.command === "SaveHelperState")?.payload).toEqual({
-      state: { enabled: false, seen: ["H-M1-01"], snoozed: {} },
-    });
-    expect(toggle.checked).toBe(false);
-  });
-
-  it("не сохранилось: переключатель возвращается, причина простыми словами", async () => {
-    const user = await setup({ helper: { enabled: true } });
-    const toggle = within(section("Помощник")).getByRole("checkbox", { name: "Показывать подсказки" }) as HTMLInputElement;
-    await vi.waitFor(() => expect(toggle.disabled).toBe(false));
-    mock.override("SaveHelperState", "reject", 1);
-    await user.click(toggle);
-    expect(await within(section("Помощник")).findByText("Программа не отвечает. Попробуйте ещё раз через минуту")).toBeTruthy();
-    expect(toggle.checked).toBe(true);
-  });
-});
-
-describe("Settings: Помощник в окне родителя", () => {
-  async function setupWithHelper(helper: Record<string, unknown>) {
-    mock = installBackend({ sessionActive: true, helper });
-    const user = userEvent.setup();
-    render(
-      <GuidanceProvider engine={new HelperEngine(apiHelperIO)} screen="settings" navigate={() => undefined}>
-        <div data-help-anchor="menu-today" />
-        <Settings />
-      </GuidanceProvider>,
-    );
-    await vi.waitFor(() => expect(screen.queryByText("Загружаю данные")).toBeNull());
-    const box = section("Помощник");
-    await vi.waitFor(() => expect(within(box).getByRole("checkbox").hasAttribute("disabled")).toBe(false));
-    return { user, box };
-  }
-
-  // Ловит: «Вернуть скрытые» стирает и выключатель, и пройденные туры.
-  it("«Вернуть скрытые подсказки» забывает скрытое, но не трогает выключатель и туры", async () => {
-    const { user, box } = await setupWithHelper({
-      enabled: false,
-      seen: ["H-M1-02"],
-      done: ["H-M1-01"],
-      muted: ["D-M1-01:1"],
-      tours: ["T-M1-01"],
-    });
-    await user.click(within(box).getByRole("button", { name: "Вернуть скрытые подсказки" }));
-    expect(await within(box).findByText("Скрытые подсказки снова будут появляться.")).toBeTruthy();
-    const state = (mock.state.helper ?? {}) as Record<string, unknown>;
-    expect(state.enabled).toBe(false);
-    expect(state.tours).toEqual(["T-M1-01"]);
-    expect(state.seen ?? []).toEqual([]);
-    expect(state.done ?? []).toEqual([]);
-    expect(state.muted ?? []).toEqual([]);
-  });
-
-  it("«Пройти обучение заново» запускает тур", async () => {
-    const { user, box } = await setupWithHelper({ enabled: false });
-    await user.click(within(box).getByRole("button", { name: "Пройти обучение заново" }));
-    expect(await screen.findByRole("dialog", { name: "Короткий тур по окну родителя" })).toBeTruthy();
-  });
-
-  // Ловит: выключатель подсказок объясняется так, будто выключает и обучение (S28).
-  it("сказано, что обучение в «Помощи» работает и при выключенных подсказках", async () => {
-    const { box } = await setupWithHelper({ enabled: false });
-    expect(within(box).getByText(/Обучение в разделе «Помощь» доступно всегда/)).toBeTruthy();
-  });
-
-  it("выключатель сохраняет состояние целиком и здесь", async () => {
-    const { user, box } = await setupWithHelper({ enabled: true, seen: ["H-M1-01"], snoozed: {} });
-    await user.click(within(box).getByRole("checkbox", { name: "Показывать подсказки" }));
-    await vi.waitFor(() => expect(mock.count("SaveHelperState")).toBeGreaterThan(0));
-    const last = mock.calls.filter((c) => c.command === "SaveHelperState").at(-1);
-    expect(last?.payload).toMatchObject({ state: { enabled: false, seen: ["H-M1-01"] } });
+    expect(screen.queryByRole("region", { name: "Помощник" })).toBeNull();
+    expect(screen.queryByText(/подсказк/i)).toBeNull();
+    expect(screen.queryByRole("button", { name: /обучение|подсказки/i })).toBeNull();
+    expect(mock.calls.map((c) => c.command)).not.toContain("GetHelperState");
   });
 });
 

@@ -72,7 +72,7 @@ export default function Journal({ violationsOnly = false }: Props) {
         ) : null}
       </div>
 
-      <div className="tabs" role="tablist" aria-label="Период журнала" data-help-anchor="journal-periods">
+      <div className="tabs" role="tablist" aria-label="Период журнала">
         {PERIODS.map((p) => (
           <button
             key={p.id}

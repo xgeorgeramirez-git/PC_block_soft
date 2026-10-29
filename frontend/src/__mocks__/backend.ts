@@ -86,8 +86,6 @@ export interface MockOptions {
   children?: MockChild[];
   events?: JournalEntry[];
   notices?: string[];
-  /** Содержимое состояния Помощника. */
-  helper?: Record<string, unknown>;
   /**
    * Чей сеанс у окна ребёнка (MyToday): childId; null - сеанс не ребёнка (родитель в своей учётке).
    * По умолчанию - первый ребёнок.
@@ -116,7 +114,6 @@ export interface MockState {
   children: MockChild[];
   events: JournalEntry[];
   notices: string[];
-  helper: Record<string, unknown>;
   myChildId: number | null;
   /** Ребёнок нажал «Понятно» в окне первого входа (FirstRunSeen). */
   firstRunSeen: boolean;
@@ -368,8 +365,6 @@ const PARENT_COMMANDS = new Set([
   "ListEvents",
   "ChangePassword",
   "SetChildren",
-  "GetHelperState",
-  "SaveHelperState",
   "ExtendSession",
   "Logout",
   "GetSchedule",
@@ -419,7 +414,6 @@ function makeState(opts: MockOptions): MockState {
     children,
     events: opts.events ?? [],
     notices: opts.notices ?? [],
-    helper: opts.helper ?? {},
     myChildId: opts.myChildId === undefined ? (children[0]?.childId ?? null) : opts.myChildId,
     firstRunSeen: false,
     openedWindows: [],
@@ -923,13 +917,6 @@ export function createBackend(opts: MockOptions = {}): MockBackend {
       if (!Number.isInteger(req.minutes) || req.minutes < 0 || req.minutes > 600) return fail("Можно от 0 до 600 минут", "minutes");
       state.bonusRate = req.minutes;
       return okReply({ minutes: state.bonusRate });
-    },
-
-    GetHelperState: () => okReply({ state: state.helper }),
-
-    SaveHelperState: (req) => {
-      state.helper = req.state ?? {};
-      return okReply();
     },
   };
 

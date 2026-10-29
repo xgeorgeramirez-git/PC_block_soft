@@ -63,9 +63,6 @@ const CASES: [string, string, (req: any) => Promise<unknown>][] = [
   ["ChangePassword", "ChangePassword", (r) => api.changePassword(r.oldPassword, r.newPassword)],
   ["SetChildren", "SetChildren", (r) => api.setChildren(r)],
   ["SetChildren", "SetChildren#empty", (r) => api.setChildren(r)],
-  ["GetHelperState", "GetHelperState", () => api.getHelperState()],
-  ["GetHelperState", "GetHelperState#empty", () => api.getHelperState()],
-  ["SaveHelperState", "SaveHelperState", (r) => api.saveHelperState(r.state)],
   ["MyToday", "MyToday", () => api.myToday()],
   ["MyToday", "MyToday#empty", () => api.myToday()],
   ["FirstRunSeen", "FirstRunSeen", () => api.firstRunSeen()],
@@ -121,9 +118,6 @@ function payloadOf(command: string, payload: unknown): unknown {
       return p.events;
     case "SetChildren":
       return p.children;
-    case "GetHelperState":
-      return p.state;
-    case "SaveHelperState":
     case "FirstRunSeen":
     case "Logout":
     case "ResetPassword":
@@ -193,8 +187,6 @@ describe("полнота", () => {
       "ListEvents",
       "ChangePassword",
       "SetChildren",
-      "GetHelperState",
-      "SaveHelperState",
       "MyToday",
       "FirstRunSeen",
       "OpenLogs",

@@ -247,13 +247,6 @@ describe("журнал и удаление", () => {
     const mock = installBackend({ sessionActive: true });
     expect(JSON.parse(await mock.call("Nope", "{}")).ok).toBe(false);
   });
-
-  it("помощник хранит состояние как есть", async () => {
-    installBackend({ sessionActive: true, helper: { enabled: true, seen: ["H-1"] } });
-    expect(await api.getHelperState()).toEqual({ enabled: true, seen: ["H-1"] });
-    await api.saveHelperState({ enabled: false });
-    expect(await api.getHelperState()).toEqual({ enabled: false });
-  });
 });
 
 describe("ребёнок о себе: MyToday, FirstRunSeen, Finish", () => {

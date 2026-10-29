@@ -5,7 +5,6 @@ import Notice from "../components/Notice";
 import SaveBar from "../components/SaveBar";
 import ScheduleEditor from "../components/ScheduleEditor";
 import { useRegisterGuard } from "../guard";
-import HintSlot from "../guidance/HintSlot";
 import { CallError, errorText } from "../lib/errors";
 import { copyDay, limitsEqual, normalizeLimits, validateLimits, wireLimits, WORKDAYS } from "../lib/limits";
 import { schedulesEqual } from "../lib/schedule";
@@ -191,7 +190,6 @@ export default function ChildLimits({ childId, others = [], onSaved }: Props) {
           className="tab"
           aria-selected={tab === "schedule"}
           onClick={() => setTab("schedule")}
-          data-help-anchor="schedule-tab"
         >
           Запретные часы
         </button>
@@ -208,7 +206,6 @@ export default function ChildLimits({ childId, others = [], onSaved }: Props) {
               Как в субботу: на воскресенье
             </button>
           </div>
-          <HintSlot anchor="limits-table" />
           <LimitsTable childName={name} limits={draftLimits} onChange={changeLimits} errors={errors} />
         </div>
       ) : (
@@ -226,7 +223,7 @@ export default function ChildLimits({ childId, others = [], onSaved }: Props) {
 function CopyRulesButton({ others, onPick }: { others: TodayCard[]; onPick: (childId: number) => void }) {
   const [open, setOpen] = useState(false);
   return (
-    <div className="copy-rules" data-help-anchor="copy-rules">
+    <div className="copy-rules">
       <button type="button" className="btn btn-small" onClick={() => setOpen((v) => !v)} aria-expanded={open}>
         Скопировать правила с…
       </button>

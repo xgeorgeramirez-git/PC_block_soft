@@ -299,11 +299,6 @@ export interface SetChildrenReply {
   children: ChildInfo[];
 }
 
-/** Состояние Помощника: содержимое определяет каталог Помощника (T14), окно его не разбирает. */
-export interface HelperState {
-  state: Record<string, unknown>;
-}
-
 /** Строка «Моих правил»: день недели и лимит текстом (internal/ipc.MyRule). */
 export interface MyRule {
   /** 1 = пн … 7 = вс. */

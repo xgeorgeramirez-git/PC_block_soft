@@ -1,5 +1,4 @@
 import { useEffect, useId, useRef, type ReactNode } from "react";
-import { useQuietZone } from "../guidance/context";
 
 interface Props {
   title: string;
@@ -18,8 +17,6 @@ export default function Dialog({ title, children, actions, onClose }: Props) {
   const box = useRef<HTMLDivElement>(null);
   const closeRef = useRef(onClose);
   closeRef.current = onClose;
-  // Пока диалог открыт, Помощник молчит (ТЗ 8.4 п.4).
-  useQuietZone("dialog");
 
   useEffect(() => {
     const previous = document.activeElement as HTMLElement | null;

@@ -263,16 +263,6 @@ export async function finish(code: number): Promise<void> {
   }
 }
 
-/** Состояние Помощника профиля родителя. Содержимое разбирает каталог Помощника, не окно. */
-export async function getHelperState(): Promise<Record<string, unknown>> {
-  const r = await call<object, { state?: Record<string, unknown> | null }>("GetHelperState");
-  return r.state ?? {};
-}
-
-export async function saveHelperState(state: Record<string, unknown>): Promise<void> {
-  await call("SaveHelperState", { state });
-}
-
 // --- M2: расписание, пауза, копилка ---------------------------------------
 
 /** Запретные интервалы ребёнка (R7, FR-17). Пустой список приходит как null: приводим к []. */
