@@ -3,6 +3,7 @@ import { addExtra, clearExtra, getToday, grantBonus, listEvents, pause, reduceEx
 import Notice from "../components/Notice";
 import PausePicker from "../components/PausePicker";
 import ServiceNotices from "../components/ServiceNotices";
+import UndoLine from "../components/UndoLine";
 import { errorText } from "../lib/errors";
 import { formatDateLong, formatLimit, formatUsed, localOffsetMin } from "../lib/format";
 import { isViolation, startOfDayMs } from "../lib/journal";
@@ -334,34 +335,16 @@ function ChildCard({ card, feedback, busy, onAdd, onReduce, onClear, onUndo, onP
       </div>
 
 
-      {feedback ? <FeedbackLine key={feedback.seq} feedback={feedback} onUndo={onUndo} /> : null}
-    </article>
-  );
-}
-
-function FeedbackLine({ feedback, onUndo }: { feedback: Feedback; onUndo: (extraId: string) => void }) {
-  const [canUndo, setCanUndo] = useState(Boolean(feedback.undo));
-  useEffect(() => {
-    if (!feedback.undo) return;
-    const id = setTimeout(() => setCanUndo(false), feedback.undo.ms);
-    return () => clearTimeout(id);
-  }, [feedback]);
-
-  if (feedback.error) {
-    return (
-      <p className="field-error child-feedback" role="alert">
-        {feedback.text}
-      </p>
-    );
-  }
-  return (
-    <div className="child-feedback" role="status">
-      <span>{feedback.text}</span>
-      {canUndo && feedback.undo ? (
-        <button type="button" className="link" onClick={() => onUndo(feedback.undo!.extraId)}>
-          Отменить
-        </button>
+      {feedback ? (
+        <UndoLine
+          key={feedback.seq}
+          className="child-feedback"
+          text={feedback.text}
+          error={feedback.error}
+          undoMs={feedback.undo?.ms}
+          onUndo={feedback.undo ? () => onUndo(feedback.undo!.extraId) : undefined}
+        />
       ) : null}
-    </div>
+    </article>
   );
 }
