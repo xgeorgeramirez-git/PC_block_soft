@@ -470,6 +470,7 @@ func TestSetupPrograms(t *testing.T) {
 		{Path: pathBrave, Category: "blocked"},
 	}
 	h.ok(elevatedPeer(), "", ipc.CmdSetup, req, nil)
+	h.svc.waitSeed() // снимок после мастера — в своей горутине
 	geo, _, _ := h.store.GetProgram(pathGeoGebra)
 	if geo.Category != "study" || geo.Source != "parent" || geo.AppRoot != `c:\program files\geogebra` || geo.Name == "" {
 		t.Errorf("GeoGebra из мастера: %+v", geo)
@@ -526,5 +527,32 @@ func TestProgramEventTexts(t *testing.T) {
 		if got := eventText(c.kind, c.child, c.d); got != c.want {
 			t.Errorf("eventText(%s, %q, %v) = %q, want %q", c.kind, c.child, c.d, got, c.want)
 		}
+	}
+}
+
+// Ловит (возврат T4a): ответ мастеру Setup ждёт снимок остальных программ (до минуты) под
+// блокировкой службы: окно мастера и канал «висят».
+func TestSetupDoesNotWaitForSnapshot(t *testing.T) {
+	sc := typicalScan()
+	sc.err = fmt.Errorf("занято")
+	h := newHarness(t, withPrograms(sc))
+	h.start()
+	sc.mu.Lock()
+	sc.err = nil
+	sc.mu.Unlock()
+	sc.hold()
+	t.Cleanup(sc.release)
+	req := ipc.SetupRequest{Password: goodPassword, Children: []ipc.SetupChild{{SID: childSID, Name: "Миша", Limits: setupLimits(120)}}}
+	within(t, 200*time.Millisecond, "Setup во время снимка", func() { h.ok(elevatedPeer(), "", ipc.CmdSetup, req, nil) })
+	if !sc.waitEntered(2 * time.Second) {
+		t.Fatal("снимок после мастера не начат")
+	}
+	within(t, 200*time.Millisecond, "GetChildStatus во время снимка", func() {
+		h.svc.Handle(childPeer(), ipc.Msg{Cmd: ipc.CmdGetChildStatus}, h.real.Now())
+	})
+	sc.release()
+	h.svc.waitSeed()
+	if h.store.settings["programs.seeded"] != "1" {
+		t.Error("после мастера снимок не записан")
 	}
 }

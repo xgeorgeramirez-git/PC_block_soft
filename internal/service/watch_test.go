@@ -400,6 +400,7 @@ func TestWatchFirstStartAfterUpdate(t *testing.T) {
 	sc.mu.Unlock()
 	h.real.Advance(programsRetryEvery)
 	h.svc.Housekeep(h.real.Now())
+	h.svc.waitSeed()
 	h.watch()
 	if !w.alive(procs[pathBrave]) || !w.alive(procs[pathBraveUpd]) || w.alive(procs[pathSuperGame]) {
 		t.Errorf("после снимка: закрыты %v, want только SuperGame", w.killedPaths())

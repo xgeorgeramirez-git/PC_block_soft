@@ -34,34 +34,49 @@ type scanFlight struct {
 	err   error
 }
 
-// scanUnlocked сканирует программы, отпустив s.mu на время Scan (Д-2): сканер на настоящем
-// компьютере идёт до 10 с, а канал связи, значок и страж не должны его ждать. Если сканирование
-// уже идёт, ждёт его итог. Паника сканера — ошибка сканирования. Вызывать под s.mu; возвращается
+// scanUnlocked сканирует программы, отпустив s.mu на время Scan (Д-2): сканер на большом
+// компьютере идёт до минуты, а канал связи, значок и страж не должны его ждать. Если сканирование
+// уже идёт (в том числе снимок в своей горутине), ждёт его итог. Вызывать под s.mu; возвращается
 // под s.mu, но состояние службы за это время могло измениться.
 func (s *Service) scanUnlocked() ([]FoundProgram, error) {
-	fl := s.scan
-	leader := fl == nil
+	fl, leader := s.beginScan()
+	s.unlocked(func() { s.awaitScan(fl, leader) })
 	if leader {
-		fl = &scanFlight{done: make(chan struct{})}
-		s.scan = fl
-	}
-	s.unlocked(func() {
-		if !leader {
-			<-fl.done
-			return
-		}
-		defer close(fl.done)
-		defer func() {
-			if p := recover(); p != nil {
-				fl.found, fl.err = nil, fmt.Errorf("сбой сканера программ: %v", p)
-			}
-		}()
-		fl.found, fl.err = s.cfg.Scanner.Scan()
-	})
-	if leader {
-		s.scan = nil
+		s.endScan(fl)
 	}
 	return fl.found, fl.err
+}
+
+// beginScan — под s.mu: идущее сканирование (leader = false) или новое (leader = true, его надо
+// выполнить awaitScan и закрыть endScan). Одновременно идёт не больше одного сканирования.
+func (s *Service) beginScan() (*scanFlight, bool) {
+	if s.scan != nil {
+		return s.scan, false
+	}
+	s.scan = &scanFlight{done: make(chan struct{})}
+	return s.scan, true
+}
+
+// awaitScan — вне s.mu: ведущий сканирует (паника сканера — ошибка сканирования), остальные ждут.
+func (s *Service) awaitScan(fl *scanFlight, leader bool) {
+	if !leader {
+		<-fl.done
+		return
+	}
+	defer close(fl.done)
+	defer func() {
+		if p := recover(); p != nil {
+			fl.found, fl.err = nil, fmt.Errorf("сбой сканера программ: %v", p)
+		}
+	}()
+	fl.found, fl.err = s.cfg.Scanner.Scan()
+}
+
+// endScan — под s.mu: сканирование закончено, следующий вызов начнёт новое.
+func (s *Service) endScan(fl *scanFlight) {
+	if s.scan == fl {
+		s.scan = nil
+	}
 }
 
 // unlocked выполняет f, отпустив s.mu, и всегда берёт её снова (и при панике в f): обработчик
@@ -76,42 +91,78 @@ func (s *Service) unlocked(f func()) {
 // Пока не готов, наблюдатель ничего не закрывает (RM3-10, R18). Вызывать под s.mu.
 func (s *Service) programsReady() bool { return s.progReady }
 
-// ensurePrograms делает снимок и загружает список программ, если это ещё не удалось; повтор не
-// чаще programsRetryEvery. Вызывается под s.mu из Start и Housekeep; само сканирование идёт вне
-// блокировки (scanUnlocked, Д-2), повторное не начинается, пока идёт прежнее (progTryAt).
+// ensurePrograms готовит список программ, если это ещё не удалось; повтор не чаще
+// programsRetryEvery. Вызывается под s.mu из Start и Housekeep и никогда не ждёт сканер: снимок
+// уже есть — список читается сразу; нет — снимок запускается в своей горутине (startSeed), а
+// Start и цикл учёта идут дальше (диспетчер служб ждёт «запущена» не дольше WaitHint, сканер на
+// большом компьютере идёт до минуты). Пока снимка нет, programsReady() = false (RM3-10).
 func (s *Service) ensurePrograms(real time.Time) {
-	if s.progReady || (!s.progTryAt.IsZero() && real.Sub(s.progTryAt) < programsRetryEvery) {
+	if s.progReady || s.seeding || (!s.progTryAt.IsZero() && real.Sub(s.progTryAt) < programsRetryEvery) {
 		return
 	}
 	s.progTryAt = real
-	if !s.seedPrograms() {
-		return
-	}
-	s.progReady = s.reloadPrograms()
+	s.startSeed()
 }
 
-// seedPrograms делает снимок программ, если флага programs.seeded ещё нет (RM3-10): сканер →
-// записи «Прочее» или по каталогу → SeedPrograms (решения родителя не трогаются) → флаг.
-// Возвращает true, если снимок есть (сделан сейчас или раньше). Ошибка — в журнал работы, флага нет.
-func (s *Service) seedPrograms() bool {
+// startSeed — под s.mu: снимок сделан раньше — список читается сразу; иначе снимок запускается в
+// своей горутине (не больше одного сразу). Ошибка — в журнал работы, повтор через programsRetryEvery.
+func (s *Service) startSeed() {
+	if s.seeding || s.stopping {
+		return
+	}
 	v, ok, err := s.cfg.Store.GetSetting(settingProgramsSeeded)
 	if err != nil {
 		s.logRate("seed", "не удалось прочитать, сделан ли снимок программ: %v", err)
-		return false
+		return
 	}
 	if ok && v == "1" {
-		return true
+		s.progReady = s.reloadPrograms()
+		return
 	}
 	if s.cfg.Scanner == nil {
 		s.logRate("seed", "снимок программ не сделан: сканер не подключён, программы не закрываются")
-		return false
+		return
 	}
-	found, err := s.scanUnlocked()
+	s.seeding = true
+	fl, leader := s.beginScan()
+	s.seedWG.Add(1)
+	go s.runSeed(fl, leader)
+}
+
+// runSeed — горутина снимка: сканирование вне s.mu, запись итога под s.mu. После остановки
+// службы ничего не пишет (база может быть уже закрыта) и не держит остановку: Shutdown её не ждёт.
+func (s *Service) runSeed(fl *scanFlight, leader bool) {
+	defer s.seedWG.Done()
+	s.awaitScan(fl, leader)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	defer func() {
+		if p := recover(); p != nil {
+			s.internalError("programs", nil, p)
+		}
+	}()
+	s.seeding = false
+	if leader {
+		s.endScan(fl)
+	}
 	if s.stopping {
-		return false // служба остановилась, пока шло сканирование: база может быть уже закрыта
+		s.cfg.Logf("Снимок программ не записан: служба остановлена")
+		return
 	}
-	if err != nil {
-		s.logRate("seed", "снимок программ не сделан, программы не закрываются до повтора: %v", err)
+	if s.writeSeed(fl.found, fl.err) {
+		s.progReady = s.reloadPrograms()
+	}
+}
+
+// waitSeed ждёт горутину снимка (тесты; служба её не ждёт). Вызывать без s.mu.
+func (s *Service) waitSeed() { s.seedWG.Wait() }
+
+// writeSeed записывает снимок (RM3-10) под s.mu: находки сканера → записи «Прочее» или по
+// каталогу → SeedPrograms (решения родителя не трогаются) → флаг. Ошибка сканирования или записи —
+// в журнал работы, флага нет.
+func (s *Service) writeSeed(found []FoundProgram, scanErr error) bool {
+	if scanErr != nil {
+		s.logRate("seed", "снимок программ не сделан, программы не закрываются до повтора: %v", scanErr)
 		return false
 	}
 	list := s.snapshotPrograms(found)

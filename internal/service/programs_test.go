@@ -156,11 +156,13 @@ func TestSeedProgramsScanError(t *testing.T) {
 	sc.mu.Unlock()
 	h.real.Advance(time.Minute)
 	h.svc.Housekeep(h.real.Now())
+	h.svc.waitSeed()
 	if sc.callCount() != 1 {
 		t.Errorf("повтор раньше срока: вызовов %d", sc.callCount())
 	}
 	h.real.Advance(programsRetryEvery)
 	h.svc.Housekeep(h.real.Now())
+	h.svc.waitSeed()
 	h.svc.mu.Lock()
 	ready = h.svc.programsReady()
 	h.svc.mu.Unlock()
@@ -261,6 +263,7 @@ func TestScanProgramsOutsideServiceLock(t *testing.T) {
 	})
 	sc.release()
 	<-hk
+	h.svc.waitSeed()
 	h.svc.mu.Lock()
 	ready := h.svc.programsReady()
 	h.svc.mu.Unlock()
@@ -305,5 +308,102 @@ func TestWizardScanOutsideServiceLock(t *testing.T) {
 	}
 	if got := sc.callCount() - n; got != 1 {
 		t.Errorf("сканирований во время двух ScanPrograms: %d, want 1", got)
+	}
+}
+
+// Ловит (возврат T4a): Start ждёт сканер (на большом компьютере до 60 с), служба не отвечает
+// диспетчеру служб «запущена» за WaitHint 20 с, первый старт после обновления срывается; канал
+// во время снимка не отвечает; после снимка список не готов.
+func TestStartDoesNotWaitForSnapshot(t *testing.T) {
+	sc := typicalScan()
+	sc.hold()
+	t.Cleanup(sc.release)
+	h := newHarness(t, configured(), withChild(childSID, "Миша", 120), withPrograms(sc))
+	within(t, 200*time.Millisecond, "Start во время снимка программ", func() {
+		if err := h.svc.Start(h.real.Now()); err != nil {
+			t.Error(err)
+		}
+	})
+	if !sc.waitEntered(2 * time.Second) {
+		t.Fatal("снимок программ не начат")
+	}
+	within(t, 200*time.Millisecond, "GetChildStatus во время снимка", func() {
+		h.svc.Handle(childPeer(), ipc.Msg{Cmd: ipc.CmdGetChildStatus}, h.real.Now())
+	})
+	h.svc.mu.Lock()
+	ready := h.svc.programsReady()
+	h.svc.mu.Unlock()
+	if ready {
+		t.Fatal("список готов до конца снимка")
+	}
+	sc.release()
+	h.svc.waitSeed()
+	h.svc.mu.Lock()
+	ready = h.svc.programsReady()
+	h.svc.mu.Unlock()
+	if !ready || h.store.settings["programs.seeded"] != "1" {
+		t.Errorf("после снимка: готово %v, флаг %q; want true, «1»", ready, h.store.settings["programs.seeded"])
+	}
+}
+
+// Ловит (возврат T4a): повтор снимка в Housekeep держит цикл учёта (Tick и Housekeep идут из одной
+// горутины RunLoop) до конца сканирования; второй повтор запускается, пока идёт первый.
+func TestHousekeepRetryDoesNotBlockTick(t *testing.T) {
+	sc := typicalScan()
+	sc.err = errors.New("занято")
+	h := newHarness(t, configured(), withChild(childSID, "Миша", 120), withPrograms(sc))
+	h.start()
+	h.childLogsIn()
+	sc.mu.Lock()
+	sc.err = nil
+	sc.mu.Unlock()
+	sc.hold()
+	t.Cleanup(sc.release)
+	h.real.Advance(programsRetryEvery)
+	within(t, 200*time.Millisecond, "Housekeep с повтором снимка", func() { h.svc.Housekeep(h.real.Now()) })
+	if !sc.waitEntered(2 * time.Second) {
+		t.Fatal("повтор снимка не начат")
+	}
+	before := h.usedS()
+	for i := 0; i < 3; i++ {
+		within(t, 200*time.Millisecond, "шаг учёта во время снимка", func() { h.step(activeSample) })
+	}
+	if got := h.usedS(); got != before+3 {
+		t.Errorf("учёт во время снимка: %d → %d, want +3", before, got)
+	}
+	h.real.Advance(programsRetryEvery)
+	h.svc.Housekeep(h.real.Now())
+	sc.release()
+	h.svc.waitSeed()
+	h.svc.mu.Lock()
+	ready := h.svc.programsReady()
+	h.svc.mu.Unlock()
+	if !ready || sc.callCount() != 2 {
+		t.Errorf("после повтора: готово %v, сканирований %d; want true, 2 (второй не запущен, пока идёт первый)", ready, sc.callCount())
+	}
+	if n := strings.Count(h.logText(), "Снимок программ: найдено"); n != 1 {
+		t.Errorf("снимок записан %d раз, want 1 (одна горутина снимка)", n)
+	}
+}
+
+// Ловит (возврат T4a): Shutdown ждёт сканер, а сканер, закончив после остановки, пишет в уже
+// закрытую базу (снимок, флаг) или гоняется с остановкой (-race).
+func TestShutdownDuringSnapshot(t *testing.T) {
+	sc := typicalScan()
+	sc.hold()
+	t.Cleanup(sc.release)
+	h := newHarness(t, configured(), withChild(childSID, "Миша", 120), withPrograms(sc))
+	if err := h.svc.Start(h.real.Now()); err != nil { // без ожидания снимка
+		t.Fatal(err)
+	}
+	if !sc.waitEntered(2 * time.Second) {
+		t.Fatal("снимок программ не начат")
+	}
+	within(t, 200*time.Millisecond, "Shutdown во время снимка", func() { h.svc.Shutdown(h.real.Now()) })
+	h.store.Close()
+	sc.release()
+	h.svc.waitSeed()
+	if n, flag := len(h.store.programs), h.store.settings["programs.seeded"]; n != 0 || flag != "" {
+		t.Errorf("после остановки записано: программ %d, флаг %q; want ничего", n, flag)
 	}
 }

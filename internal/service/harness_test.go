@@ -126,6 +126,7 @@ func (h *harness) start() {
 	if err := h.svc.Start(h.real.Now()); err != nil {
 		h.t.Fatalf("Start: %v", err)
 	}
+	h.svc.waitSeed() // снимок программ идёт в своей горутине; поддельный сканер отвечает сразу
 }
 
 // childID возвращает id ребёнка по SID.

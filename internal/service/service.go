@@ -172,7 +172,9 @@ type Service struct {
 	progReady  bool
 	progTryAt  time.Time
 	progUndo   *progUndoRec
-	scan       *scanFlight // идущее сканирование программ (вне s.mu, Д-2); nil — не идёт
+	scan       *scanFlight    // идущее сканирование программ (вне s.mu, Д-2); nil — не идёт
+	seeding    bool           // горутина снимка программ работает (не больше одной)
+	seedWG     sync.WaitGroup // горутина снимка (ждут только тесты)
 
 	// Наблюдатель процессов (M3, watch.go): память о процессах (своя блокировка, не s.mu) и
 	// ограничитель повторов журнала и плашек (под s.mu).

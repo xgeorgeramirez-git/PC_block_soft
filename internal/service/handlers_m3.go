@@ -451,10 +451,10 @@ func (s *Service) writeSetupPrograms(list []Program) error {
 	return nil
 }
 
-// afterSetupPrograms — снимок остальных программ и загрузка списка после мастера.
+// afterSetupPrograms — снимок остальных программ и загрузка списка после мастера: как при старте,
+// в своей горутине (ответ мастеру не ждёт сканер и не держит s.mu). Снимок уже идёт — его итог
+// запишет та горутина (SeedPrograms не затирает выбор мастера).
 func (s *Service) afterSetupPrograms(c *callCtx) {
 	s.progTryAt = c.real
-	if s.seedPrograms() {
-		s.progReady = s.reloadPrograms()
-	}
+	s.startSeed()
 }
