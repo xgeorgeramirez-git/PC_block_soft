@@ -45,6 +45,44 @@ type Decision struct {
 	Status       Status    // статус ребёнка для значка и карточки
 	ClosedDay    *DayState // закончившийся при смене суток день: службе сохранить
 	Events       []Event   // события для журнала (R22); нет событий — [], не nil
+
+	GamesRemainingS int    // остаток игр, с (R5); 0 без лимита игр
+	GamesLimitS     int    // лимит игр дня вместе с доп. временем, с; 0 без лимита игр
+	GamesUnlimited  bool   // отдельного лимита игр нет (или правила не прочитаны)
+	CloseGames      bool   // закрыть и не запускать программы «Игры» (R5; R8 «Блокировать экран»)
+	StudyOnly       bool   // режим «Оставить только учёбу» действует: экрана нет, открыта только учёба (R8)
+	CloseReason     string // текст плашки ребёнку о закрытии; «» — ничего не закрыто
+
+	Counted    bool     // секунда этого тика засчитана (только Tick; в Current — false)
+	CountedCat Category // категория засчитанной секунды (для usage_daily службы)
+}
+
+// Allows сообщает, можно ли сейчас программе категории cat работать на переднем плане и
+// запускаться (R5, R8). Экран блокировки — нельзя ничего; «только учёба» — только CatStudy;
+// игры закрыты — всё, кроме игр. Нулевое решение (старый код, пауза, Broken) — можно всё.
+// Программы класса «Системное» служба передаёт как CatOther и не закрывает сама (C-8).
+func (d Decision) Allows(cat Category) bool {
+	switch {
+	case d.Lock != LockNone:
+		return false
+	case d.StudyOnly:
+		return cat == CatStudy
+	case d.CloseGames && cat == CatGames:
+		return false
+	}
+	return true
+}
+
+// DeniedText — запись журнала и плашки о закрытой попытке запуска программы категории cat
+// (R5, R8); «» — запуск разрешён или закрытие не связано с играми и режимом «только учёба».
+func (d Decision) DeniedText(cat Category) string {
+	switch {
+	case d.StudyOnly && cat != CatStudy:
+		return StudyOnlyDeniedText
+	case d.CloseGames && cat == CatGames:
+		return GamesDeniedText
+	}
+	return ""
 }
 
 // Engine — ядро учёта и правил одного ребёнка. Порядок тика (уточнение 1 пакета M1):
@@ -58,7 +96,9 @@ type Engine struct {
 	rules    Rules
 	acc      *Accumulator
 	warn     warnings
-	bypass   string // описание блокировки за обход; «» — блокировки нет
+	gwarn    warnings // пороги остатка игр (R5, R9): отдельный набор, событие WarnGames
+	fg       Category // категория переднего плана текущего тика (игровые пороги — только при игре, R9)
+	bypass   string   // описание блокировки за обход; «» — блокировки нет
 	pending  []Event
 	started  time.Time // начало учёта — первый тик (отсчёт сохранений, G10)
 	saveSlot int       // последний 30-секундный отрезок, на который ответили «сохранить»
@@ -93,10 +133,17 @@ func (e *Engine) Tick(s SessionSample) Decision {
 	}
 	closed := e.advance(now)
 	e.checkPauseEnd(now)
+	cat := CategoryOf(s)
+	e.fg = cat
 	d := e.decide(e.acc.State(), true)
 	// Пауза снимает все ограничения, но учёт идёт (R11): секунда засчитывается, даже если
-	// без паузы здесь была бы блокировка. Блокирует учёт только показанный экран.
-	e.acc.Tick(now, s, d.Lock != LockNone)
+	// без паузы здесь была бы блокировка. Не засчитывается секунда под экраном блокировки и
+	// секунда программы, которой сейчас нельзя (игра при закрытых играх, всё, кроме учёбы,
+	// в режиме «только учёба»; RM3-7): иначе G5/G12 разъезжаются на секунды закрытия.
+	blocked := d.Lock != LockNone || !d.Allows(cat)
+	if e.acc.Tick(now, s, blocked) {
+		d.Counted, d.CountedCat = true, cat
+	}
 	return e.finish(d, closed)
 }
 
@@ -281,8 +328,9 @@ func (e *Engine) ClearBlock() Decision {
 	return e.finish(e.decide(e.acc.State(), false), closed)
 }
 
-// SetRules применяет сохранённые правила сразу (FR-19): блокировка ставится или
-// снимается в возвращённом решении, пороги взводятся заново. Broken — безопасный режим
+// SetRules применяет сохранённые правила сразу (FR-19): r — правила целиком (лимиты, лимиты
+// игр, расписание, режим окончания; по частям ядро их не собирает). Блокировка и закрытия
+// ставятся или снимаются в возвращённом решении, пороги (общие и игровые) взводятся заново. Broken — безопасный режим
 // (R18): ограничений нет, событие safe_mode — один раз при переходе в этот режим.
 func (e *Engine) SetRules(r Rules) Decision {
 	e.mu.Lock()
@@ -373,10 +421,28 @@ func (e *Engine) limitFor(day string) (DayLimit, Weekday) {
 // rearm взводит пороги заново по дельте до ближайшего события (R9): минимум из остатка
 // общего лимита, секунд до начала ближайшего запретного интервала и секунд до конца
 // паузы (если активна). Вид этого события кладётся в warnings для текста предупреждения.
+// Второй набор порогов — по остатку игр (R5): взводится тем же строгим правилом.
 func (e *Engine) rearm() {
 	st := e.acc.State()
-	deltaS, ev, limited := e.nextEvent(st, e.now())
+	now := e.now()
+	deltaS, ev, limited := e.nextEvent(st, now)
 	e.warn.arm(deltaS, ev, limited)
+	gamesS, gamesLimited := e.nextGames(st, now)
+	e.gwarn.arm(gamesS, WarnGames, gamesLimited)
+}
+
+// nextGames возвращает секунды до исчерпания лимита игр и признак, что такое событие есть:
+// лимит игр задан, паузы нет (R11 снимает все ограничения) и правила прочитаны (R18).
+func (e *Engine) nextGames(st DayState, now time.Time) (deltaS int, limited bool) {
+	if e.rules.Broken {
+		return 0, false
+	}
+	if until, ok := e.pauseUntil(st); ok && now.Before(until) {
+		return 0, false
+	}
+	lim, _ := e.limitFor(st.Day)
+	rem, unl := RemainingGamesS(lim, st.ExtraMin, st.GamesS)
+	return rem, !unl
 }
 
 // nextEvent возвращает секунды до ближайшего события ограничения, его вид и признак, что
@@ -421,7 +487,7 @@ func (e *Engine) pauseUntil(st DayState) (time.Time, bool) {
 func (e *Engine) decide(st DayState, fire bool) Decision {
 	d := Decision{Day: st.Day, UsedS: st.TotalS, Events: []Event{}}
 	if e.rules.Broken {
-		d.Status, d.Unlimited = StatusSafe, true
+		d.Status, d.Unlimited, d.GamesUnlimited = StatusSafe, true, true
 		d.Used = UsedText(st.TotalS, 0, true)
 		return d
 	}
@@ -435,6 +501,11 @@ func (e *Engine) decide(st DayState, fire bool) Decision {
 		d.LimitS = limitMin * 60
 	}
 	d.Used = UsedText(st.TotalS, limitMin, unl)
+	grem, gunl := RemainingGamesS(lim, st.ExtraMin, st.GamesS)
+	d.GamesRemainingS, d.GamesUnlimited = grem, gunl
+	if !gunl {
+		d.GamesLimitS = max(0, (*lim.GamesMin+st.ExtraMin)*60)
+	}
 
 	paused := false
 	if until, ok := e.pauseUntil(st); ok && now.Before(until) {
@@ -461,18 +532,20 @@ func (e *Engine) decide(st DayState, fire bool) Decision {
 			}
 		}
 	case inForbidden:
-		d.Lock, d.Status, d.Reason = LockForbidden, StatusForbidden, ReasonForbidden
-		d.Until = UntilForbidden(now, forbiddenEnd)
+		d.Status, d.Until = StatusForbidden, UntilForbidden(now, forbiddenEnd)
+		e.endMode(&d, LockForbidden, ReasonForbidden, StudyOnlyForbiddenPlateText)
+		e.quenchGames(grem, gunl, fire)
 	case !unl && rem <= 0:
-		d.Lock, d.Status, d.Reason = LockTimeUp, StatusTimeUp, ReasonTimeUp
-		d.Until = UntilText(wd, e.rules, now)
+		d.Status, d.Until = StatusTimeUp, UntilText(wd, e.rules, now)
+		e.endMode(&d, LockTimeUp, ReasonTimeUp, StudyOnlyPlateText)
+		e.quenchGames(grem, gunl, fire)
 	default:
+		if !gunl && grem <= 0 {
+			// Лимит игр исчерпан (R5): закрываются только игры, экрана блокировки нет.
+			d.CloseGames, d.CloseReason = true, GamesOverPlateText
+		}
 		if fire {
-			deltaS, _, _ := e.nextEvent(st, now)
-			d.Warning, d.WarningEvent = e.warn.fire(deltaS)
-			if d.Warning != 0 {
-				d.WarningS = deltaS
-			}
+			e.fireWarnings(&d, st, now, grem, gunl)
 		}
 		switch {
 		case unl:
@@ -484,6 +557,49 @@ func (e *Engine) decide(st DayState, fire bool) Decision {
 		}
 	}
 	return d
+}
+
+// endMode заполняет решение по режиму окончания (R8), когда общее время вышло или идёт
+// запретный интервал: «Блокировать экран» — экран lock с причиной reason и закрытие игр;
+// «Оставить только учёбу» — экрана нет, открыта только учёба, плашка studyPlate.
+func (e *Engine) endMode(d *Decision, lock LockKind, reason, studyPlate string) {
+	if e.rules.EndMode == EndStudyOnly {
+		d.StudyOnly, d.CloseReason = true, studyPlate
+		return
+	}
+	d.Lock, d.Reason = lock, reason
+	d.CloseGames, d.CloseReason = true, reason
+}
+
+// quenchGames на тике при закрытии (экран, «только учёба») гасит игровые пороги, до которых
+// уже дошло (без уведомления): после снятия закрытия они не всплывут задним числом.
+func (e *Engine) quenchGames(grem int, gunl, fire bool) {
+	if fire && !gunl {
+		e.gwarn.fire(grem)
+	}
+}
+
+// fireWarnings — срабатывание порогов на тике без блокировки (R9, PL-14). Общий порог — по
+// ближайшему событию ограничения. Игровой порог — по остатку игр и только когда на переднем
+// плане игра (иначе он ждёт); при закрытых играх он гасится без уведомления. Игровой порог не
+// показывается, если общее событие ближе (общий лимит кончится раньше), но гасится. Если
+// сработали оба — одно уведомление: у кого меньше секунд до события, при равенстве общее.
+func (e *Engine) fireWarnings(d *Decision, st DayState, now time.Time, grem int, gunl bool) {
+	deltaS, _, has := e.nextEvent(st, now)
+	d.Warning, d.WarningEvent = e.warn.fire(deltaS)
+	if d.Warning != 0 {
+		d.WarningS = deltaS
+	}
+	if gunl || (e.fg != CatGames && !d.CloseGames) {
+		return
+	}
+	gw, _ := e.gwarn.fire(grem)
+	if gw == 0 || d.CloseGames || (has && grem > deltaS) {
+		return
+	}
+	if d.Warning == 0 || grem < deltaS {
+		d.Warning, d.WarningEvent, d.WarningS = gw, WarnGames, grem
+	}
 }
 
 // finish дополняет решение закрытым днём и накопленными событиями.

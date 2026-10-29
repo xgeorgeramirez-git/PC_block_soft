@@ -58,9 +58,10 @@ type SessionSample struct {
 }
 
 // DayLimit — лимит дня недели. TotalMin nil — без лимита; 0 — в этот день нельзя (R4).
-// В M1 только общий лимит.
+// GamesMin — лимит игр (R5): nil — игры ограничены только общим лимитом; 0 — игры сегодня нельзя.
 type DayLimit struct {
 	TotalMin *int
+	GamesMin *int
 }
 
 // LimitOf возвращает лимит в min минут.
@@ -70,13 +71,41 @@ func LimitOf(min int) DayLimit { return DayLimit{TotalMin: &min} }
 func (l DayLimit) Unlimited() bool { return l.TotalMin == nil }
 
 // Rules — правила ребёнка, которые служба передаёт ядру: лимиты по дням недели
-// (индекс 0 = пн) и запретные интервалы расписания (R7, плоский список — проще
-// копировать для FR-33). Broken — правила не прочитаны (повреждение базы и т.п.):
-// ограничения не применяются, событие уходит в журнал (R18).
+// (индекс 0 = пн), запретные интервалы расписания (R7, плоский список — проще
+// копировать для FR-33) и режим окончания (R8). Broken — правила не прочитаны
+// (повреждение базы и т.п.): ограничения не применяются, событие уходит в журнал (R18).
 type Rules struct {
 	Week     [7]DayLimit
 	Schedule []Interval
+	EndMode  EndMode
 	Broken   bool
+}
+
+// EndMode — режим окончания (R8, D-9): что происходит, когда общее время вышло или идёт
+// запретный интервал. Нулевое значение — «Блокировать экран» (по умолчанию).
+type EndMode int
+
+// Режимы окончания.
+const (
+	EndBlock     EndMode = iota // экран блокировки, игры закрываются, остальное под экраном
+	EndStudyOnly                // экрана нет, закрывается всё, кроме «Учёбы» и «Системного»
+)
+
+// String — ключ режима для хранилища и канала: "lock" или "study_only".
+func (m EndMode) String() string {
+	if m == EndStudyOnly {
+		return "study_only"
+	}
+	return "lock"
+}
+
+// EndModeFromString разбирает ключ режима; неизвестное значение — «Блокировать экран»
+// (безопасный вариант по умолчанию, R8).
+func EndModeFromString(s string) EndMode {
+	if s == "study_only" {
+		return EndStudyOnly
+	}
+	return EndBlock
 }
 
 // For возвращает лимит дня недели; день вне 1…7 — без лимита (безопасно, R18).
@@ -100,7 +129,7 @@ const (
 
 // WarnEvent — вид ближайшего события, к которому относится предупреждение R9: от него
 // зависит текст у стража («время закончится» / «начнутся запретные часы» / «закончится
-// пауза»). Нулевое значение — нет события.
+// пауза» / «закончится время на игры»). Нулевое значение — нет события.
 type WarnEvent int
 
 // Виды событий предупреждений.
@@ -109,6 +138,7 @@ const (
 	WarnLimit               // исчерпание общего времени (R4)
 	WarnForbidden           // начало запретного интервала (R7)
 	WarnPauseEnd            // окончание паузы (R11, G11)
+	WarnGames               // исчерпание лимита игр, когда на переднем плане игра (R5, R9)
 )
 
 // String — короткий ключ вида события (для тестов и выбора текста).
@@ -120,6 +150,8 @@ func (w WarnEvent) String() string {
 		return "forbidden"
 	case WarnPauseEnd:
 		return "pause_end"
+	case WarnGames:
+		return "games"
 	default:
 		return "none"
 	}

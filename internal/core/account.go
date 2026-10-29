@@ -58,11 +58,12 @@ func (a *Accumulator) Advance(now time.Time) bool {
 }
 
 // Tick засчитывает секунду [now, now+1 с) по снимку s: сначала смена суток, затем +1 с
-// в категорию секунды, если секунда активна (R2) и не показан экран блокировки.
+// в категорию секунды, если секунда активна (R2) и не заблокирована: blocked — показан экран
+// блокировки или программе этой категории сейчас нельзя работать (Decision.Allows, RM3-7).
 // Возвращает true, если секунда засчитана.
-func (a *Accumulator) Tick(now time.Time, s SessionSample, lockShown bool) bool {
+func (a *Accumulator) Tick(now time.Time, s SessionSample, blocked bool) bool {
 	a.Advance(now)
-	if lockShown || !IsActive(s, InactivityLimitMs) {
+	if blocked || !IsActive(s, InactivityLimitMs) {
 		return false
 	}
 	switch CategoryOf(s) {
