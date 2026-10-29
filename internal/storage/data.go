@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"time"
 
 	"pcblock/internal/auth"
 	"pcblock/internal/core"
@@ -234,25 +233,30 @@ func (s *Store) LoadDayState(childID int64, day string) (core.DayState, error) {
 
 // SaveDayState записывает состояние дня ребёнка (вставка или замена по паре ребёнок и день).
 // Сохраняет и pause_until (R11): nil уходит как NULL. День должен быть датой YYYY-MM-DD
-// (ErrInvalid).
+// (ErrInvalid). Вместе с учётом по программам — SaveDayAndUsage (одна транзакция).
 func (s *Store) SaveDayState(childID int64, st core.DayState) error {
-	if t, err := time.Parse(time.DateOnly, st.Day); err != nil || t.Format(time.DateOnly) != st.Day {
-		return fmt.Errorf("%w: день %q не дата вида ГГГГ-ММ-ДД", ErrInvalid, st.Day)
+	if err := checkDay(st.Day); err != nil {
+		return err
 	}
+	if err := saveDayState(s.db, childID, st); err != nil {
+		return fmt.Errorf("storage: сохранить состояние дня: %w", err)
+	}
+	return nil
+}
+
+// saveDayState пишет строку day_state через ex (база или транзакция); день уже проверен.
+func saveDayState(ex execer, childID int64, st core.DayState) error {
 	var pause any
 	if st.PauseUntilMs != nil {
 		pause = *st.PauseUntilMs
 	}
-	_, err := s.db.Exec(`INSERT INTO day_state (child_id, day, total_s, games_s, video_s, study_s, extra_min, pause_until, bonus_granted, no_forbidden)
+	_, err := ex.Exec(`INSERT INTO day_state (child_id, day, total_s, games_s, video_s, study_s, extra_min, pause_until, bonus_granted, no_forbidden)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (child_id, day) DO UPDATE SET total_s = excluded.total_s, games_s = excluded.games_s,
 			video_s = excluded.video_s, study_s = excluded.study_s, extra_min = excluded.extra_min,
 			pause_until = excluded.pause_until, bonus_granted = excluded.bonus_granted, no_forbidden = excluded.no_forbidden`,
 		childID, st.Day, st.TotalS, st.GamesS, st.VideoS, st.StudyS, st.ExtraMin, pause, boolToInt(st.BonusGranted), boolToInt(st.NoForbidden))
-	if err != nil {
-		return fmt.Errorf("storage: сохранить состояние дня: %w", err)
-	}
-	return nil
+	return err
 }
 
 // Event — запись журнала (R22, таблица events).
