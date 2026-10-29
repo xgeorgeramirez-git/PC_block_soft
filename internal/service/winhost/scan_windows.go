@@ -79,25 +79,14 @@ func newWinScanner(f machineFolders) *programScanner {
 	if f.programFiles != "" {
 		store = f.programFiles + `\WindowsApps`
 	}
-	return &programScanner{
-		programFiles: pfs,
-		store:        store,
-		installDir:   programs.Normalize(f.installDir),
-		cat:          programs.DefaultCatalog,
-		fs:           osScanFS{},
-		meta:         fileMeta,
-		timeout:      scanTimeout,
-		grace:        scanGrace,
-		maxEntries:   scanMaxEntries,
-		maxFiles:     scanMaxFiles,
-	}
+	return newProgramScanner(pfs, store, programs.Normalize(f.installDir), fileMeta, osScanFS{})
 }
 
 // osScanFS — scanFS над os.ReadDir. Ссылки и junction (ModeSymlink, ModeIrregular) не отдаются:
 // сканер по ним не ходит (петли, сетевые папки).
 type osScanFS struct{}
 
-func (osScanFS) ReadDir(dir string) ([]scanEntry, error) {
+func (osScanFS) ReadDir(dir string, sizes bool) ([]scanEntry, error) {
 	ents, err := os.ReadDir(dir)
 	if err != nil && len(ents) == 0 {
 		return nil, err
@@ -111,7 +100,8 @@ func (osScanFS) ReadDir(dir string) ([]scanEntry, error) {
 			out = append(out, scanEntry{name: e.Name(), dir: true})
 		case t.IsRegular():
 			var size int64
-			if isExe(e.Name()) {
+			if sizes && isExe(e.Name()) {
+				// Размер берётся из данных самого списка папки (FindFirstFile), без отдельного stat.
 				if fi, err := e.Info(); err == nil {
 					size = fi.Size()
 				}

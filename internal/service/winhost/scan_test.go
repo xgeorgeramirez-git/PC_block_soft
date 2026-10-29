@@ -22,11 +22,14 @@ type fakeFS struct {
 	files   map[string][]byte               // содержимое файлов (манифесты), нижний регистр
 	denied  map[string]bool                 // папки, которые не читаются
 	hang    map[string]chan struct{}        // папки, чтение которых висит до закрытия канала
+	delay   map[string]time.Duration        // папки, чтение которых идёт дольше
 	readDir int                             // сколько раз читались папки
+	reads   map[string]bool                 // прочитанные папки (нижний регистр) → читались ли с размерами
 }
 
 func newFakeFS(sizes map[string]int64) *fakeFS {
-	f := &fakeFS{dirs: map[string]map[string]scanEntry{}, files: map[string][]byte{}, denied: map[string]bool{}, hang: map[string]chan struct{}{}}
+	f := &fakeFS{dirs: map[string]map[string]scanEntry{}, files: map[string][]byte{}, denied: map[string]bool{},
+		hang: map[string]chan struct{}{}, delay: map[string]time.Duration{}, reads: map[string]bool{}}
 	for p, size := range sizes {
 		f.add(p, size)
 	}
@@ -63,17 +66,20 @@ func (f *fakeFS) addFile(p string, data string) {
 	f.files[strings.ToLower(p)] = []byte(data)
 }
 
-func (f *fakeFS) ReadDir(dir string) ([]scanEntry, error) {
+func (f *fakeFS) ReadDir(dir string, sizes bool) ([]scanEntry, error) {
 	key := strings.ToLower(dir)
 	f.mu.Lock()
 	f.readDir++
+	f.reads[key] = sizes
 	ch := f.hang[key]
 	denied := f.denied[key]
+	d := f.delay[key]
 	ents, ok := f.dirs[key]
 	f.mu.Unlock()
 	if ch != nil {
 		<-ch
 	}
+	time.Sleep(d)
 	if denied {
 		return nil, errors.New("отказано в доступе")
 	}
@@ -82,6 +88,9 @@ func (f *fakeFS) ReadDir(dir string) ([]scanEntry, error) {
 	}
 	out := make([]scanEntry, 0, len(ents))
 	for _, e := range ents {
+		if !sizes {
+			e.size = 0
+		}
 		out = append(out, e)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].name < out[j].name })
@@ -118,8 +127,10 @@ func testScanner(fsys scanFS) *programScanner {
 			}
 			return "", "", ""
 		},
-		timeout:    time.Second,
+		phase1:     time.Second,
+		timeout:    2 * time.Second,
 		grace:      200 * time.Millisecond,
+		workers:    scanWorkers,
 		maxEntries: 400,
 		maxFiles:   5000,
 	}
@@ -420,14 +431,19 @@ func TestScanHangingFolder(t *testing.T) {
 		defer close(ch)
 		fsys.hang[strings.ToLower(tPF+`\Hang`)] = ch
 		s := testScanner(fsys)
-		s.timeout, s.grace = 100*time.Millisecond, 100*time.Millisecond
+		s.phase1, s.timeout, s.grace = 100*time.Millisecond, 5*time.Second, 100*time.Millisecond
 		start := time.Now()
 		got, err := s.Scan()
 		if d := time.Since(start); d > time.Second {
-			t.Fatalf("Scan шёл %v при таймауте 100 мс", d)
+			t.Fatalf("Scan шёл %v при бюджете первого этапа 100 мс", d)
 		}
 		if err == nil {
 			t.Fatalf("первый этап не закончен, а ошибки нет: %q", foundPaths(got))
+		}
+		for _, w := range []string{"этап 1", "корней приложений 3"} {
+			if !strings.Contains(err.Error(), w) {
+				t.Errorf("в ошибке нет диагностики %q: %v", w, err)
+			}
 		}
 	})
 	t.Run("каталог", func(t *testing.T) {
@@ -436,11 +452,11 @@ func TestScanHangingFolder(t *testing.T) {
 		defer close(ch)
 		fsys.hang[strings.ToLower(tPF+`\Late\a\b\c`)] = ch
 		s := testScanner(fsys)
-		s.timeout, s.grace = 100*time.Millisecond, 100*time.Millisecond
+		s.phase1, s.timeout, s.grace = 100*time.Millisecond, 200*time.Millisecond, 100*time.Millisecond
 		start := time.Now()
 		got, err := s.Scan()
 		if d := time.Since(start); d > time.Second {
-			t.Fatalf("Scan шёл %v при таймауте 100 мс", d)
+			t.Fatalf("Scan шёл %v при общем бюджете 200 мс", d)
 		}
 		if err != nil {
 			t.Fatalf("главные exe найдены, зависла только папка третьего уровня: %v", err)
@@ -461,8 +477,8 @@ func TestScanPanicIsError(t *testing.T) {
 
 type panicFS struct{}
 
-func (panicFS) ReadDir(string) ([]scanEntry, error)    { panic("сбой") }
-func (panicFS) ReadFile(string, int64) ([]byte, error) { panic("сбой") }
+func (panicFS) ReadDir(string, bool) ([]scanEntry, error) { panic("сбой") }
+func (panicFS) ReadFile(string, int64) ([]byte, error)    { panic("сбой") }
 
 // Ловит: выбор главного exe зависит от регистра и пробелов в имени папки («Notepad++» и
 // «notepad++.exe», «Some App» и «SomeApp.exe»), установщики удаления выигрывают по размеру.
