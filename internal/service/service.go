@@ -523,16 +523,24 @@ func (s *Service) cardOf(cs *childState) ipc.TodayCard {
 	}
 }
 
-// rulesView возвращает недельные лимиты в виде команд канала.
+// rulesView возвращает недельные лимиты и режим «Когда время вышло» в виде команд канала.
 func rulesView(cs *childState) ipc.ChildRules {
-	out := ipc.ChildRules{ChildID: cs.child.ID, Name: cs.child.Name, Limits: make([]ipc.WeekdayLimit, 0, 7)}
+	return ipc.ChildRules{ChildID: cs.child.ID, Name: cs.child.Name, Limits: limitsView(cs.rules), EndMode: cs.rules.EndMode.String()}
+}
+
+// limitsView — семь дней лимитов (общий и игр) в виде канала: правила ребёнка и FR-33.
+func limitsView(r core.Rules) []ipc.WeekdayLimit {
+	out := make([]ipc.WeekdayLimit, 0, 7)
 	for i := 0; i < 7; i++ {
-		l := cs.rules.Week[i]
-		w := ipc.WeekdayLimit{Weekday: i + 1, Unlimited: l.Unlimited()}
+		l := r.Week[i]
+		w := ipc.WeekdayLimit{Weekday: i + 1, Unlimited: l.Unlimited(), GamesUnlimited: l.GamesMin == nil}
 		if !w.Unlimited {
 			w.TotalMin = *l.TotalMin
 		}
-		out.Limits = append(out.Limits, w)
+		if !w.GamesUnlimited {
+			w.GamesMin = *l.GamesMin
+		}
+		out = append(out, w)
 	}
 	return out
 }

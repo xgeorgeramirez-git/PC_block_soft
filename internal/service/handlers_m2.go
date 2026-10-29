@@ -235,17 +235,10 @@ func (s *Service) hCopyRules(c *callCtx) ipc.Reply {
 	rules := s.readRules(from.child.ID)
 	// Копирование возвращает правила для черновика приёмника (FR-19): запись делает родитель
 	// кнопкой «Сохранить», сразу в базу не пишем.
-	limits := make([]ipc.WeekdayLimit, 0, 7)
-	for i := 0; i < 7; i++ {
-		l := rules.Week[i]
-		w := ipc.WeekdayLimit{Weekday: i + 1, Unlimited: l.Unlimited()}
-		if !w.Unlimited {
-			w.TotalMin = *l.TotalMin
-		}
-		limits = append(limits, w)
-	}
+	// FR-33: лимиты (общий и игр), запретные часы и «Когда время вышло».
 	return ipc.OK(ipc.CopyRulesReply{
-		Limits: limits, Intervals: toIPCIntervals(rules.Schedule), Message: "Правила скопированы. Проверьте и сохраните",
+		Limits: limitsView(rules), Intervals: toIPCIntervals(rules.Schedule), EndMode: rules.EndMode.String(),
+		Message: "Правила скопированы. Проверьте и сохраните",
 	})
 }
 

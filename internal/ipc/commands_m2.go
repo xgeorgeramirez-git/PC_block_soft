@@ -126,8 +126,9 @@ type CopyRulesRequest struct {
 // CopyRulesReply — правила источника для вставки в черновик приёмника (FR-19): фронт
 // кладёт их в несохранённые изменения, пишет сам родитель.
 type CopyRulesReply struct {
-	Limits    []WeekdayLimit `json:"limits"`
-	Intervals []Interval     `json:"intervals"`
+	Limits    []WeekdayLimit `json:"limits"`    // общий лимит и лимит игр по дням
+	Intervals []Interval     `json:"intervals"` // запретные часы
+	EndMode   string         `json:"endMode"`   // «Когда время вышло» (FR-33 переносит и его)
 	Message   string         `json:"message"`
 }
 

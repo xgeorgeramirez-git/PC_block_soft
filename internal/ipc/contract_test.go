@@ -58,9 +58,9 @@ const (
 
 func weekLimits() []WeekdayLimit {
 	return []WeekdayLimit{
-		{Weekday: 1, TotalMin: 120}, {Weekday: 2, TotalMin: 120}, {Weekday: 3, TotalMin: 90},
-		{Weekday: 4, TotalMin: 120}, {Weekday: 5, TotalMin: 120}, {Weekday: 6, TotalMin: 240},
-		{Weekday: 7, Unlimited: true},
+		{Weekday: 1, TotalMin: 120, GamesMin: 60}, {Weekday: 2, TotalMin: 120, GamesUnlimited: true}, {Weekday: 3, TotalMin: 90, GamesMin: 0},
+		{Weekday: 4, TotalMin: 120, GamesUnlimited: true}, {Weekday: 5, TotalMin: 120, GamesUnlimited: true}, {Weekday: 6, TotalMin: 240, GamesMin: 120},
+		{Weekday: 7, Unlimited: true, GamesUnlimited: true},
 	}
 }
 
@@ -90,7 +90,7 @@ func card(st ChildStatus, extra int, canClear bool) TodayCard {
 }
 
 func childRules() ChildRules {
-	return ChildRules{ChildID: 1, Name: "Миша", Limits: weekLimits()}
+	return ChildRules{ChildID: 1, Name: "Миша", Limits: weekLimits(), EndMode: EndModeLock}
 }
 
 // examples — по одному примеру на каждую команду из AllCommands и варианты с пустыми массивами и отказами.
@@ -136,11 +136,15 @@ func examples() map[string]example {
 		}),
 		"GetToday#empty": ok(nil, GetTodayReply{}),
 		CmdGetChildRules: ok(ChildRequest{ChildID: 1}, childRules()),
-		CmdSaveLimits: ok(SaveLimitsRequest{ChildID: 1, Limits: weekLimits()}, SaveLimitsReply{
+		CmdSaveLimits: ok(SaveLimitsRequest{ChildID: 1, Limits: weekLimits(), EndMode: EndModeLock}, SaveLimitsReply{
 			Rules: childRules(), Card: card(okStatus(), 0, false), Message: "Сохранено. Новые правила уже действуют",
 		}),
 		"SaveLimits#invalid": fail(SaveLimitsRequest{ChildID: 1, Limits: []WeekdayLimit{{Weekday: 3, TotalMin: 2000}}},
 			"Не больше 24 ч", LimitField(3), nil),
+		"SaveLimits#endMode": ok(SaveLimitsRequest{ChildID: 1, Limits: []WeekdayLimit{}, EndMode: EndModeStudyOnly}, SaveLimitsReply{
+			Rules: ChildRules{ChildID: 1, Name: "Миша", Limits: weekLimits(), EndMode: EndModeStudyOnly}, Card: card(okStatus(), 0, false),
+			Message: "Сохранено. Новые правила уже действуют",
+		}),
 		CmdAddExtra: ok(AddExtraRequest{ChildID: 1, Minutes: 30}, AddExtraReply{
 			Card: card(okStatus(), 30, false), Message: "Добавлено 30 минут", ExtraID: "e-17", UndoUntilMs: t0 + 10_000,
 		}),
@@ -225,7 +229,8 @@ func examples() map[string]example {
 		}}),
 		"GetBonus#empty": ok(GetBonusRequest{ChildID: 1}, GetBonusReply{ChildID: 1, Entries: []BonusEntry{}}),
 		CmdCopyRules: ok(CopyRulesRequest{FromChildID: 2, ToChildID: 1}, CopyRulesReply{
-			Limits: weekLimits(), Intervals: []Interval{{Weekday: 1, StartMin: 1260, EndMin: 420}}, Message: "Правила скопированы. Проверьте и сохраните",
+			Limits: weekLimits(), Intervals: []Interval{{Weekday: 1, StartMin: 1260, EndMin: 420}}, EndMode: EndModeStudyOnly,
+			Message: "Правила скопированы. Проверьте и сохраните",
 		}),
 		CmdAskMore: ok(AskMoreRequest{ChildID: 1, Minutes: 30, Password: "секрет-123"}, AskMoreReply{
 			Card: card(okStatus(), 30, false), Message: "Добавлено 30 минут",

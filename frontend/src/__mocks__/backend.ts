@@ -20,6 +20,7 @@ import type {
   Reply,
   TodayCard,
   WeekdayLimit,
+  EndMode,
 } from "../types";
 
 export const DEFAULT_PASSWORD = "секрет-123";
@@ -56,6 +57,8 @@ export interface MockChild {
   noForbiddenToday?: boolean;
   /** Сейчас запретные часы: «Можно снова: сегодня в 07:00» (R7). Статус forbidden с блокировкой. */
   forbiddenUntil?: string;
+  /** «Когда время вышло» (R8, FR-18); по умолчанию экран блокировки. */
+  endMode?: EndMode;
 }
 
 /** Промокод в подменной программе (R26, D-50). */
@@ -200,6 +203,16 @@ function fail(error: string, field?: string, payload?: unknown): Reply {
 function isoDay(ms: number): string {
   const d = new Date(ms + localOffsetMin(new Date(ms)) * 60_000);
   return d.toISOString().slice(0, 10);
+}
+
+/** Семь дней лимитов, как их отдаёт служба: с полями игр (нет поля - игры без отдельного лимита). */
+function limitsWithGames(limits: WeekdayLimit[] | null | undefined): WeekdayLimit[] {
+  const src = new Map((limits ?? []).map((l) => [l.weekday, l]));
+  return normalizeLimits(limits).map((l) => {
+    const got = src.get(l.weekday);
+    const gamesUnlimited = got?.gamesUnlimited ?? got?.gamesMin === undefined;
+    return { ...l, gamesMin: gamesUnlimited ? 0 : (got?.gamesMin ?? 0), gamesUnlimited };
+  });
 }
 
 function todayLimit(child: MockChild, nowMs: number): WeekdayLimit {
@@ -484,6 +497,9 @@ export function createBackend(opts: MockOptions = {}): MockBackend {
       if (!l.unlimited && l.totalMin > MAX_LIMIT_MIN) {
         return fail("Не больше 24 ч", `limits.${l.weekday}`);
       }
+      if (l.gamesUnlimited === false && (l.gamesMin ?? 0) > MAX_LIMIT_MIN) {
+        return fail("Не больше 24 ч", `games.${l.weekday}`);
+      }
     }
     return null;
   };
@@ -572,18 +588,28 @@ export function createBackend(opts: MockOptions = {}): MockBackend {
     GetChildRules: (req) => {
       const child = childById(req.childId);
       if (!child) return fail("Ребёнок не найден");
-      return okReply({ childId: child.childId, name: child.name, limits: normalizeLimits(child.limits) });
+      return okReply({ childId: child.childId, name: child.name, limits: limitsWithGames(child.limits), endMode: child.endMode ?? "lock" });
     },
 
     SaveLimits: (req, now) => {
       const child = childById(req.childId);
       if (!child) return fail("Ребёнок не найден");
-      const bad = limitsError(req.limits ?? []);
-      if (bad) return bad;
-      child.limits = normalizeLimits(req.limits);
-      addEvent(now, child, "settings", `${child.name}: лимиты изменены`);
+      if (req.endMode && req.endMode !== "lock" && req.endMode !== "study_only") {
+        return fail("Выберите, что делать, когда время вышло", "endMode");
+      }
+      const onlyMode = !(req.limits ?? []).length && Boolean(req.endMode);
+      if (!onlyMode) {
+        const bad = limitsError(req.limits ?? []);
+        if (bad) return bad;
+        child.limits = limitsWithGames(req.limits);
+        addEvent(now, child, "settings", `${child.name}: лимиты изменены`);
+      }
+      if (req.endMode && req.endMode !== (child.endMode ?? "lock")) {
+        child.endMode = req.endMode;
+        addEvent(now, child, "settings", `${child.name}: изменён режим, когда время вышло`);
+      }
       return okReply({
-        rules: { childId: child.childId, name: child.name, limits: child.limits },
+        rules: { childId: child.childId, name: child.name, limits: limitsWithGames(child.limits), endMode: child.endMode ?? "lock" },
         card: cardOf(child, now),
         message: "Сохранено. Новые правила уже действуют",
       });
@@ -611,7 +637,12 @@ export function createBackend(opts: MockOptions = {}): MockBackend {
       const to = childById(req.toChildId);
       if (!from || !to) return fail("Ребёнок не найден");
       void now;
-      return okReply({ limits: normalizeLimits(from.limits), intervals: from.schedule ?? [], message: "Правила скопированы. Проверьте и сохраните" });
+      return okReply({
+        limits: limitsWithGames(from.limits),
+        intervals: from.schedule ?? [],
+        endMode: from.endMode ?? "lock",
+        message: "Правила скопированы. Проверьте и сохраните",
+      });
     },
 
     GetBonus: (req) => {

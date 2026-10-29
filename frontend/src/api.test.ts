@@ -141,3 +141,36 @@ describe("вход и сессия", () => {
     expect((await api.sessionState()).active).toBe(false);
   });
 });
+
+describe("лимиты игр и режим «Когда время вышло» (M3)", () => {
+  // Ловит: день без полей игр уходит в программу как «игры нельзя» (gamesMin 0, gamesUnlimited
+  // false по умолчанию в Go) или заданный лимит игр перезаписывается «без лимита».
+  it("withGames ставит «без отдельного лимита» только там, где полей нет", () => {
+    expect(
+      api.withGames([
+        { weekday: 1, totalMin: 60, unlimited: false },
+        { weekday: 2, totalMin: 60, unlimited: false, gamesMin: 30, gamesUnlimited: false },
+        { weekday: 3, totalMin: 60, unlimited: false, gamesMin: 0, gamesUnlimited: false },
+      ]),
+    ).toEqual([
+      { weekday: 1, totalMin: 60, unlimited: false, gamesMin: 0, gamesUnlimited: true },
+      { weekday: 2, totalMin: 60, unlimited: false, gamesMin: 30, gamesUnlimited: false },
+      { weekday: 3, totalMin: 60, unlimited: false, gamesMin: 0, gamesUnlimited: false },
+    ]);
+  });
+
+  // Ловит: подменная программа теряет лимит игр и режим при сохранении (T6 строит экраны на ней).
+  it("подмена хранит игры и режим, только режим не трогает лимиты", async () => {
+    const mock = installBackend({ sessionActive: true });
+    const limits = (await api.getChildRules(1)).limits.map((l) =>
+      l.weekday === 1 ? { ...l, gamesMin: 45, gamesUnlimited: false } : l,
+    );
+    const saved = await api.saveLimits(1, limits, "study_only");
+    expect(saved.rules.endMode).toBe("study_only");
+    expect(saved.rules.limits[0]).toMatchObject({ gamesMin: 45, gamesUnlimited: false });
+    const modeOnly = await api.saveLimits(1, [], "lock");
+    expect(modeOnly.rules.endMode).toBe("lock");
+    expect(modeOnly.rules.limits[0]).toMatchObject({ gamesMin: 45, gamesUnlimited: false });
+    expect(mock.calls.filter((c) => c.command === "SaveLimits").map((c) => c.payload.endMode)).toEqual(["study_only", "lock"]);
+  });
+});

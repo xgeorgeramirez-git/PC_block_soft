@@ -185,8 +185,8 @@ describe("ChildLimits: одна панель сохранения (L-44)", () =>
     const sent = mock.calls.find((c) => c.command === "SaveLimits")?.payload;
     expect(sent.childId).toBe(1);
     expect(sent.limits).toHaveLength(7);
-    expect(sent.limits[0]).toEqual({ weekday: 1, totalMin: 90, unlimited: false });
-    expect(sent.limits[6]).toEqual({ weekday: 7, totalMin: 0, unlimited: true });
+    expect(sent.limits[0]).toEqual({ weekday: 1, totalMin: 90, unlimited: false, gamesMin: 0, gamesUnlimited: true });
+    expect(sent.limits[6]).toEqual({ weekday: 7, totalMin: 0, unlimited: true, gamesMin: 0, gamesUnlimited: true });
     expect(screen.queryByText("Есть несохранённые изменения")).toBeNull();
     expect(mock.state.children[0].limits[0].totalMin).toBe(90);
   });

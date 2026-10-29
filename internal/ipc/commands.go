@@ -109,14 +109,25 @@ const (
 	FieldChildren    = "children"
 	FieldMinutes     = "minutes"
 	FieldState       = "state"
-	FieldReason      = "reason" // причина начисления копилки (FR-22)
-	FieldStart       = "start"  // начало запретного интервала (R7)
-	FieldEnd         = "end"    // конец запретного интервала (R7)
-	FieldCode        = "code"   // промокод (R26, D-50)
+	FieldReason      = "reason"  // причина начисления копилки (FR-22)
+	FieldStart       = "start"   // начало запретного интервала (R7)
+	FieldEnd         = "end"     // конец запретного интервала (R7)
+	FieldCode        = "code"    // промокод (R26, D-50)
+	FieldEndMode     = "endMode" // режим «Когда время вышло» (R8, FR-18)
 )
 
 // LimitField — имя поля лимита дня недели (1 = пн … 7 = вс) для ошибок SaveLimits и Setup.
 func LimitField(weekday int) string { return "limits." + itoa(weekday) }
+
+// GamesField — имя поля лимита игр дня недели (1 = пн … 7 = вс) для ошибок SaveLimits и Setup (R5, FR-16).
+func GamesField(weekday int) string { return "games." + itoa(weekday) }
+
+// Режимы «Когда время вышло» (R8, D-9) в ChildRules.EndMode, SaveLimitsRequest.EndMode и
+// ChildStatus.EndMode: те же ключи, что core.EndMode.String и children.end_mode.
+const (
+	EndModeLock      = "lock"       // экран блокировки
+	EndModeStudyOnly = "study_only" // оставить только учёбу
+)
 
 // Empty — нагрузка команд без данных; уходит как «{}».
 type Empty struct{}
@@ -229,10 +240,15 @@ type ListAccountsReply struct {
 
 // WeekdayLimit — лимит одного дня недели. Weekday 1 = пн … 7 = вс; 0 минут — в этот день
 // пользоваться нельзя (R4); Unlimited — без лимита (тогда TotalMin = 0 и не читается).
+// GamesMin — лимит игр (R5, FR-16): 0 — игры в этот день нельзя; GamesUnlimited — игры без
+// отдельного лимита (ограничены только общим, тогда GamesMin = 0 и не читается). Лимит игр может
+// быть больше общего: тогда раньше кончится общий.
 type WeekdayLimit struct {
-	Weekday   int  `json:"weekday"`
-	TotalMin  int  `json:"totalMin"`
-	Unlimited bool `json:"unlimited"`
+	Weekday        int  `json:"weekday"`
+	TotalMin       int  `json:"totalMin"`
+	Unlimited      bool `json:"unlimited"`
+	GamesMin       int  `json:"gamesMin"`
+	GamesUnlimited bool `json:"gamesUnlimited"`
 }
 
 // SetupChild — ребёнок при первоначальной настройке.
@@ -318,17 +334,21 @@ type ChildRequest struct {
 	ChildID int64 `json:"childId"`
 }
 
-// ChildRules — недельные лимиты ребёнка.
+// ChildRules — недельные лимиты ребёнка и режим «Когда время вышло».
 type ChildRules struct {
 	ChildID int64          `json:"childId"`
 	Name    string         `json:"name"`
-	Limits  []WeekdayLimit `json:"limits"` // семь дней, пн … вс
+	Limits  []WeekdayLimit `json:"limits"`  // семь дней, пн … вс
+	EndMode string         `json:"endMode"` // EndModeLock или EndModeStudyOnly (R8, FR-18)
 }
 
-// SaveLimitsRequest — сохранить недельные лимиты одного ребёнка. Ошибки по полям: LimitField(n).
+// SaveLimitsRequest — сохранить недельные лимиты одного ребёнка и (необязательно) режим «Когда
+// время вышло». EndMode пусто — режим не меняется; Limits пусто при непустом EndMode — меняется
+// только режим. Ошибки по полям: LimitField(n), GamesField(n), FieldEndMode.
 type SaveLimitsRequest struct {
 	ChildID int64          `json:"childId"`
 	Limits  []WeekdayLimit `json:"limits"`
+	EndMode string         `json:"endMode,omitempty"`
 }
 
 // SaveLimitsReply — ответ SaveLimits: правила уже действуют (FR-19).

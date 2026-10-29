@@ -210,13 +210,13 @@ describe("Wizard: шаг 3, время", () => {
     expect(sent.children[0].sid).toBe("S-1-5-21-111-222-333-1001");
     expect(sent.children[0].name).toBe("Миша");
     expect(sent.children[0].limits).toEqual([
-      { weekday: 1, totalMin: 120, unlimited: false },
-      { weekday: 2, totalMin: 120, unlimited: false },
-      { weekday: 3, totalMin: 120, unlimited: false },
-      { weekday: 4, totalMin: 120, unlimited: false },
-      { weekday: 5, totalMin: 120, unlimited: false },
-      { weekday: 6, totalMin: 240, unlimited: false },
-      { weekday: 7, totalMin: 0, unlimited: true },
+      { weekday: 1, totalMin: 120, unlimited: false, gamesMin: 0, gamesUnlimited: true },
+      { weekday: 2, totalMin: 120, unlimited: false, gamesMin: 0, gamesUnlimited: true },
+      { weekday: 3, totalMin: 120, unlimited: false, gamesMin: 0, gamesUnlimited: true },
+      { weekday: 4, totalMin: 120, unlimited: false, gamesMin: 0, gamesUnlimited: true },
+      { weekday: 5, totalMin: 120, unlimited: false, gamesMin: 0, gamesUnlimited: true },
+      { weekday: 6, totalMin: 240, unlimited: false, gamesMin: 0, gamesUnlimited: true },
+      { weekday: 7, totalMin: 0, unlimited: true, gamesMin: 0, gamesUnlimited: true },
     ]);
     expect(mock.state.configured).toBe(true);
     expect(screen.queryByText(/Шаг \d из 3/)).toBeNull();

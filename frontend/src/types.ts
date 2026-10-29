@@ -75,12 +75,21 @@ export interface ListAccountsReply {
   accounts: Account[];
 }
 
-/** Лимит дня недели: 1 = пн … 7 = вс; 0 минут - нельзя; unlimited - без лимита. */
+/**
+ * Лимит дня недели: 1 = пн … 7 = вс; 0 минут - нельзя; unlimited - без лимита. gamesMin - лимит
+ * игр (R5): 0 - игры нельзя; gamesUnlimited - игры без отдельного лимита. Поля игр необязательны,
+ * пока экраны лимитов их не показывают: обёртки saveLimits и setup подставляют «без отдельного лимита».
+ */
 export interface WeekdayLimit {
   weekday: number;
   totalMin: number;
   unlimited: boolean;
+  gamesMin?: number;
+  gamesUnlimited?: boolean;
 }
+
+/** «Когда время вышло» (R8, FR-18): экран блокировки или «Оставить только учёбу». */
+export type EndMode = "lock" | "study_only";
 
 export interface SetupChild {
   sid: string;
@@ -206,11 +215,14 @@ export interface ChildRules {
   childId: number;
   name: string;
   limits: WeekdayLimit[];
+  endMode: EndMode;
 }
 
+/** endMode пусто - режим не меняется; limits пусто при endMode - меняется только режим. */
 export interface SaveLimitsRequest {
   childId: number;
   limits: WeekdayLimit[];
+  endMode?: EndMode;
 }
 
 export interface SaveLimitsReply {
@@ -419,6 +431,7 @@ export interface CopyRulesRequest {
 export interface CopyRulesReply {
   limits: WeekdayLimit[];
   intervals: Interval[];
+  endMode: EndMode;
   message: string;
 }
 

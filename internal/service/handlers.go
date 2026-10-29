@@ -139,8 +139,8 @@ func (s *Service) hListAccounts(c *callCtx) ipc.Reply {
 	return ipc.OK(out)
 }
 
-// weekFromLimits проверяет семь дней лимитов и собирает массив для ядра. При ошибке
-// возвращает поле формы и текст у поля (L-121).
+// weekFromLimits проверяет семь дней лимитов (общий и игр) и собирает массив для ядра. При
+// ошибке возвращает поле формы и текст у поля (L-121).
 func weekFromLimits(ls []ipc.WeekdayLimit) (week [7]core.DayLimit, field, text string) {
 	seen := [7]bool{}
 	for _, l := range ls {
@@ -159,6 +159,17 @@ func weekFromLimits(ls []ipc.WeekdayLimit) (week [7]core.DayLimit, field, text s
 		seen[l.Weekday-1] = true
 		if !l.Unlimited {
 			week[l.Weekday-1] = core.LimitOf(l.TotalMin)
+		}
+		if !l.GamesUnlimited {
+			// Лимит игр (R5, FR-16): не ограничен общим — если больше, раньше кончится общий.
+			switch g := ipc.GamesField(l.Weekday); {
+			case l.GamesMin < 0:
+				return week, g, textLimitNegative
+			case l.GamesMin > 1440:
+				return week, g, textLimitTooBig
+			}
+			games := l.GamesMin
+			week[l.Weekday-1].GamesMin = &games
 		}
 	}
 	for _, ok := range seen {
@@ -389,18 +400,41 @@ func (s *Service) hSaveLimits(c *callCtx) ipc.Reply {
 	if cs == nil {
 		return ipc.Fail(textNoSuchChild)
 	}
-	week, field, text := weekFromLimits(req.Limits)
-	if field != "" {
-		return ipc.FailField(text, field)
+	if req.EndMode != "" && req.EndMode != ipc.EndModeLock && req.EndMode != ipc.EndModeStudyOnly {
+		return ipc.FailField(textEndModeBad, ipc.FieldEndMode)
 	}
-	if err := s.cfg.Store.SetDayLimits(cs.child.ID, week); err != nil {
-		s.logRate("limits", "лимиты не записаны: %v", err)
-		return ipc.Fail(textSaveFailed)
+	// Только режим «Когда время вышло» (вкладка FR-18): лимиты не присланы и не меняются.
+	saveLimits := len(req.Limits) > 0 || req.EndMode == ""
+	var week [7]core.DayLimit
+	if saveLimits {
+		var field, text string
+		if week, field, text = weekFromLimits(req.Limits); field != "" {
+			return ipc.FailField(text, field)
+		}
 	}
-	// FR-19: правила действуют сразу, ближайший ответ стражу уже несёт новое решение.
+	modeChanged := req.EndMode != "" && req.EndMode != cs.rules.EndMode.String()
+	if saveLimits {
+		if err := s.cfg.Store.SetDayLimits(cs.child.ID, week); err != nil {
+			s.logRate("limits", "лимиты не записаны: %v", err)
+			return ipc.Fail(textSaveFailed)
+		}
+	}
+	if modeChanged {
+		if err := s.cfg.Store.SetEndMode(cs.child.ID, req.EndMode); err != nil {
+			s.logRate("endmode", "режим «Когда время вышло» не записан: %v", err)
+			return ipc.Fail(textSaveFailed)
+		}
+	}
+	// FR-19: правила действуют сразу, ближайший ответ стражу уже несёт новое решение. Правила
+	// берутся из базы целиком (RM3-9): лимиты, игры, расписание и режим.
 	cs.rulesAt = c.real
 	s.applyRules(cs, s.readRules(cs.child.ID))
-	s.journal.Write(cs.child.ID, "settings_changed", map[string]any{"text": "изменены лимиты времени"})
+	if saveLimits {
+		s.journal.Write(cs.child.ID, "settings_changed", map[string]any{"text": "изменены лимиты времени"})
+	}
+	if modeChanged {
+		s.journal.Write(cs.child.ID, "settings_changed", map[string]any{"text": "изменён режим, когда время вышло"})
+	}
 	return ipc.OK(ipc.SaveLimitsReply{Rules: rulesView(cs), Card: s.cardOf(cs), Message: textSaved})
 }
 

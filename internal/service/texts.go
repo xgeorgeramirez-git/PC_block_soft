@@ -39,6 +39,7 @@ const (
 	textLimitTooBig   = "Не больше 24 ч"
 	textLimitNegative = "Не меньше 0 мин"
 	textLimitsCount   = "Нужны лимиты на все семь дней"
+	textEndModeBad    = "Выберите, что делать, когда время вышло"
 	textNoChildren    = "Выберите хотя бы одну детскую учётку"
 	textNoAccount     = "Такой учётки нет на этом компьютере"
 	textAdminAccount  = "Учётку администратора нельзя сделать детской. Сначала сделайте её обычной"

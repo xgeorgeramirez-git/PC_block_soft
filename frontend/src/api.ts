@@ -28,6 +28,7 @@ import type {
   UninstallCheckReply,
   WeekdayLimit,
   WindowMode,
+  EndMode,
   AskMoreReply,
   CopyRulesReply,
   GetBonusReply,
@@ -125,8 +126,16 @@ export async function listAccounts(): Promise<Account[]> {
   return r.accounts ?? [];
 }
 
+/**
+ * Лимиты для программы: у дня без полей игр - «игры без отдельного лимита» (R5). Иначе служба
+ * прочитала бы отсутствие поля как «игры нельзя» (gamesMin 0).
+ */
+export function withGames(limits: WeekdayLimit[]): WeekdayLimit[] {
+  return limits.map((l) => ({ gamesMin: 0, gamesUnlimited: true, ...l }));
+}
+
 export async function setup(password: string, children: SetupChild[]): Promise<void> {
-  await call("Setup", { password, children });
+  await call("Setup", { password, children: children.map((c) => ({ ...c, limits: withGames(c.limits) })) });
 }
 
 export async function resetPassword(newPassword: string): Promise<void> {
@@ -167,10 +176,15 @@ export async function getChildRules(childId: number): Promise<ChildRules> {
   return { ...r, limits: r.limits ?? [] };
 }
 
-export async function saveLimits(childId: number, limits: WeekdayLimit[]): Promise<SaveLimitsReply> {
+/**
+ * Сохранить лимиты (общий и игр) и, если задан, режим «Когда время вышло» (FR-16, FR-18).
+ * Пустые limits вместе с endMode меняют только режим.
+ */
+export async function saveLimits(childId: number, limits: WeekdayLimit[], endMode?: EndMode): Promise<SaveLimitsReply> {
   const r = await call<object, SaveLimitsReply & { rules: { limits?: WeekdayLimit[] | null } }>("SaveLimits", {
     childId,
-    limits,
+    limits: withGames(limits),
+    ...(endMode ? { endMode } : {}),
   });
   return { ...r, rules: { ...r.rules, limits: r.rules.limits ?? [] } };
 }
