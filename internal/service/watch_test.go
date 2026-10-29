@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"sort"
 	"testing"
 	"time"
 
@@ -152,5 +153,102 @@ func TestWatchKillOutsideServiceLock(t *testing.T) {
 	<-done
 	if got := w.killedPaths(); len(got) != 1 {
 		t.Errorf("завершено %v, want SuperGame", got)
+	}
+}
+
+// startAll запускает в сеансе ребёнка по процессу каждой программы набора и возвращает их по путям.
+func startAll(w *fakeWatcher, paths ...string) map[string]ProcInfo {
+	out := map[string]ProcInfo{}
+	for _, p := range paths {
+		out[p] = w.start(childSession, p)
+	}
+	return out
+}
+
+// sortedStrings — копия по возрастанию (для сравнения наборов).
+func sortedStrings(in []string) []string {
+	out := append([]string{}, in...)
+	sort.Strings(out)
+	return out
+}
+
+// Ловит (R5, R8, R12, R13): наблюдатель закрывает не то: незнакомая или запрещённая программа
+// работает, игра при исчерпанных играх не закрыта, в режиме «только учёба» остались игры и
+// прочее, учёба или система закрыты, под экраном блокировки закрыто что-то кроме игр, при лимите
+// игр закрыта учёба во втором окне (Review Focus 7). Решение — настоящее ядро на поддельных часах.
+func TestWatchVerdicts(t *testing.T) {
+	all := []string{pathSuperGame, pathMinecraft, pathGeoGebra, pathBrave, pathChrome, pathNotepad, pathPCBlock, pathWebView}
+	cases := []struct {
+		name  string
+		rules hopt
+		want  []string
+	}{
+		{"обычный день: незнакомая и запрещённая", withRules(120, -1, "lock"), []string{pathSuperGame, pathChrome}},
+		{"игры кончились: ещё и игра", withRules(120, 0, "lock"), []string{pathSuperGame, pathMinecraft, pathChrome}},
+		{"только учёба: всё, кроме учёбы и системы", withRules(0, -1, "study_only"), []string{pathSuperGame, pathMinecraft, pathBrave, pathChrome}},
+		{"экран блокировки: только игры (и незнакомое, запрещённое)", withRules(0, -1, "lock"), []string{pathSuperGame, pathMinecraft, pathChrome}},
+	}
+	for _, k := range cases {
+		t.Run(k.name, func(t *testing.T) {
+			w := newWatcher()
+			h := watchHarness(t, w, k.rules)
+			h.setCategory(pathGeoGebra, "study")
+			h.setCategory(pathChrome, "blocked")
+			procs := startAll(w, all...)
+			h.watch()
+			if got, want := sortedStrings(w.killedPaths()), sortedStrings(k.want); jsonOf(t, got) != jsonOf(t, want) {
+				t.Errorf("закрыты %v, want %v", got, want)
+			}
+			for _, p := range []string{pathGeoGebra, pathNotepad, pathPCBlock, pathWebView} {
+				if !w.alive(procs[p]) {
+					t.Errorf("закрыта %s: учёбу и систему наблюдатель не трогает", p)
+				}
+			}
+			pend, _ := h.store.ListPending()
+			if len(pend) != 1 || pend[0].Path != pathSuperGame || pend[0].Attempts != 1 || pend[0].Name != "supergame" {
+				t.Errorf("«Ждут решения»: %+v, want SuperGame с одной попыткой", pend)
+			}
+			if n := len(h.store.eventsOf(evProgramForbiddenTry)); n != 1 {
+				t.Errorf("событий program_forbidden_try %d, want 1", n)
+			}
+			// Повторный проход по тем же (уже закрытым) не закрывает ничего нового.
+			h.watch()
+			if n := len(w.killedPaths()); n != len(k.want) {
+				t.Errorf("после второго прохода закрыто %d, want %d", n, len(k.want))
+			}
+		})
+	}
+}
+
+// Ловит (R5, R8, Review Focus 6): включение запрета не закрывает уже запущенное — игра,
+// открытая до исчерпания лимита игр, работает дальше; «Запретить» запущенной сейчас программы
+// не закрывает её; смена категории действует только на новые процессы.
+func TestWatchClosesRunningWhenRuleTurnsOn(t *testing.T) {
+	w := newWatcher()
+	h := watchHarness(t, w)
+	game := w.start(childSession, pathMinecraft)
+	brave := w.start(childSession, pathBrave)
+	h.watch()
+	if !w.alive(game) || !w.alive(brave) {
+		t.Fatal("в обычный день закрыта игра или браузер")
+	}
+	tok := h.login(adminPeer())
+	id := h.childID(childSID)
+	limits := sevenDays(120)
+	for i := range limits {
+		limits[i].GamesUnlimited, limits[i].GamesMin = false, 0
+	}
+	h.ok(adminPeer(), tok, ipc.CmdSaveLimits, ipc.SaveLimitsRequest{ChildID: id, Limits: limits}, nil)
+	h.watch()
+	if w.alive(game) || !w.alive(brave) {
+		t.Fatalf("лимит игр 0: игра жива %v, браузер жив %v; want закрыта только игра", w.alive(game), w.alive(brave))
+	}
+	if ev := h.store.eventsOf(evProgramClosedGames); len(ev) != 1 || ev[0].ChildID != id {
+		t.Errorf("событие закрытия игры: %+v", ev)
+	}
+	h.ok(adminPeer(), tok, ipc.CmdSetProgramsCategory, ipc.SetProgramsCategoryRequest{Paths: []string{pathBrave}, Category: "blocked"}, nil)
+	h.watch()
+	if w.alive(brave) {
+		t.Error("«Запретить» запущенной программы: браузер жив")
 	}
 }
