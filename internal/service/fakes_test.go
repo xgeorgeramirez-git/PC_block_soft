@@ -287,6 +287,9 @@ func (f *fakeStore) RestorePending(p PendingProgram) error {
 		return nil
 	}
 	cur.Attempts += p.Attempts
+	if cur.WasCategory == "" { // как storage: прежняя категория не теряется
+		cur.WasCategory = p.WasCategory
+	}
 	if p.FirstAttemptAt < cur.FirstAttemptAt {
 		cur.FirstAttemptAt, cur.FirstChildID = p.FirstAttemptAt, p.FirstChildID
 	}

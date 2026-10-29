@@ -349,24 +349,6 @@ func TestGamesRuleText(t *testing.T) {
 	}
 }
 
-// Ловит (TODO T3b): команды программ M3 отвечают как настоящие, хотя обработчиков ещё нет, или
-// заглушка отвечает отказом по правам. T3b заменяет заглушки и этот тест.
-func TestM3ProgramCommandsAreStubs(t *testing.T) {
-	h := newHarness(t, configured(), withChild(childSID, "Миша", 120))
-	h.start()
-	tok := h.login(adminPeer())
-	for _, cmd := range []string{ipc.CmdListPrograms, ipc.CmdDecideProgram, ipc.CmdSetProgramsCategory, ipc.CmdUndoProgram} {
-		if rep := h.fail(adminPeer(), tok, cmd, nil); rep.Error != textNotReady {
-			t.Errorf("%s: %q, want заглушку %q", cmd, rep.Error, textNotReady)
-		}
-	}
-	h2 := newHarness(t)
-	h2.start()
-	if rep := h2.fail(elevatedPeer(), "", ipc.CmdScanPrograms, nil); rep.Error != textNotReady {
-		t.Errorf("ScanPrograms: %q, want заглушку", rep.Error)
-	}
-}
-
 // Ловит: OpenWindow принимает неизвестный экран окна (RM3-4: допустим только «programs»).
 func TestOpenWindowScreen(t *testing.T) {
 	h := newHarness(t, configured(), withChild(childSID, "Миша", 120))

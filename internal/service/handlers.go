@@ -227,6 +227,14 @@ func (s *Service) hSetup(c *callCtx) ipc.Reply {
 		}
 		plans = append(plans, plan{ch.SID, name, week})
 	}
+	progs, denial := s.setupPrograms(req.Programs, c.real.UnixMilli())
+	switch denial {
+	case "":
+	case ipc.TextBadRequest:
+		return bad()
+	default:
+		return ipc.FailField(denial, fieldPrograms)
+	}
 	hash, err := s.cfg.Hasher.Hash(req.Password)
 	if err != nil {
 		return ipc.FailField(err.Error(), ipc.FieldPassword)
@@ -243,11 +251,17 @@ func (s *Service) hSetup(c *callCtx) ipc.Reply {
 			return ipc.Fail(textSaveFailed)
 		}
 	}
+	// Программы мастера (FR-2) — тоже до пароля: оборвавшаяся настройка проходится заново.
+	if err := s.writeSetupPrograms(progs); err != nil {
+		s.logRate("setup", "программы мастера не записаны: %v", err)
+		return ipc.Fail(textSaveFailed)
+	}
 	if err := s.cfg.Store.SetAuth(Auth{Hash: hash, ChangedAtMs: c.real.UnixMilli()}); err != nil {
 		s.logRate("setup", "пароль родителя не записан: %v", err)
 		return ipc.Fail(textSaveFailed)
 	}
 	s.loadChildren(c.real)
+	s.afterSetupPrograms(c)
 	for _, p := range plans {
 		s.applyPolicy(p.sid, true)
 	}

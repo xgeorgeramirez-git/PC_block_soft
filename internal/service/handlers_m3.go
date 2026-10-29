@@ -1,0 +1,451 @@
+package service
+
+import (
+	"fmt"
+	"sort"
+	"strings"
+
+	"pcblock/internal/core"
+	"pcblock/internal/ipc"
+	"pcblock/internal/programs"
+)
+
+// Команды «Программ» (веха M3: R12, R13, FR-2, FR-20, RM3-1, RM3-10, RM3-12). Права проверены в
+// Handle (parentToken; ScanPrograms — повышенный администратор до настройки).
+
+// Виды событий журнала о программах (R22). program_decided и program_undone пишут обработчики
+// родителя, остальные — наблюдатель (T4a). Нарушение из них только program_forbidden_try (R13).
+const (
+	evProgramDecided         = "program_decided"
+	evProgramUndone          = "program_undone"
+	evProgramPending         = "program_pending"
+	evProgramForbiddenTry    = "program_forbidden_try"
+	evProgramClosedGames     = "program_closed_games"
+	evProgramClosedStudyOnly = "program_closed_study_only"
+)
+
+const (
+	maxProgramsPerChange = 200 // путей в одной массовой смене категории (FR-20)
+	maxScanPrograms      = 300 // строк в шаге мастера «Программы» (FR-2)
+	maxSetupPrograms     = 500 // программ в SetupRequest.Programs
+	decidedPlateShowS    = 10  // секунд показа плашки о решении родителя
+	fieldCategory        = "category"
+	fieldPrograms        = "programs"
+)
+
+// parentCategories — категории, которые родитель может выбрать (FR-20): «system» не выбирается.
+var parentCategories = map[string]bool{
+	programs.CatGames: true, programs.CatStudy: true, programs.CatOther: true, programs.CatBlocked: true,
+}
+
+// categoryWord — категория в сообщении «SuperGame: игра» (8.3.4).
+var categoryWord = map[string]string{
+	programs.CatGames: "игра", programs.CatStudy: "учёба", programs.CatOther: "прочее", programs.CatBlocked: "запрещена",
+}
+
+// categoryTitle — название категории в журнале: «к категории «Игры»».
+var categoryTitle = map[string]string{
+	programs.CatGames: "Игры", programs.CatStudy: "Учёба", programs.CatOther: "Прочее", programs.CatBlocked: "Запрещено",
+}
+
+// decidedPlateText — плашка ребёнку о решении родителя (8.2.4 п.4, RM3-4): на «ты».
+func decidedPlateText(cat, name string) string {
+	switch cat {
+	case programs.CatGames:
+		return "Родитель разрешил «" + name + "»: это игра. Запусти её снова"
+	case programs.CatStudy:
+		return "Родитель разрешил «" + name + "»: это учёба. Запусти её снова"
+	case programs.CatOther:
+		return "Родитель разрешил «" + name + "»: это обычная программа. Запусти её снова"
+	}
+	return "Родитель запретил «" + name + "»"
+}
+
+func publisherOrStub(p string) string {
+	if p == "" {
+		return textNoPublisher
+	}
+	return p
+}
+
+// --- список -------------------------------------------------------------------------------
+
+func (s *Service) hListPrograms(c *callCtx) ipc.Reply {
+	view, ok := s.programsView()
+	if !ok {
+		return ipc.Fail(textRetry)
+	}
+	return ipc.OK(view)
+}
+
+// programsView собирает «Программы» (FR-20): ждущие решения (новые сверху), все программы,
+// кроме «системных», по имени с временем всех детей за 7 местных дней, дети для подписей.
+// ok = false: список не прочитан (в ответе пустые списки).
+func (s *Service) programsView() (ipc.ProgramsReply, bool) {
+	out := ipc.ProgramsReply{Pending: []ipc.PendingProgramDTO{}, Programs: []ipc.ProgramDTO{}, Children: []ipc.ChildName{}}
+	for _, id := range s.childOrder() {
+		out.Children = append(out.Children, ipc.ChildName{ChildID: id, Name: s.children[id].child.Name})
+	}
+	pend, err := s.cfg.Store.ListPending()
+	if err != nil {
+		s.logRate("pending", "не удалось прочитать «Ждут решения»: %v", err)
+		return out, false
+	}
+	list, err := s.cfg.Store.ListPrograms()
+	if err != nil {
+		s.logRate("programs", "не удалось прочитать список программ: %v", err)
+		return out, false
+	}
+	from := core.DayOf(s.cfg.Clock.Now().In(s.cfg.Loc).AddDate(0, 0, -6))
+	secs, err := s.cfg.Store.ProgramSeconds(from)
+	if err != nil {
+		s.logRate("usage", "не удалось прочитать время по программам: %v", err)
+		secs = map[string]int{}
+	}
+	sort.SliceStable(pend, func(i, j int) bool {
+		if pend[i].LastAttemptAt != pend[j].LastAttemptAt {
+			return pend[i].LastAttemptAt > pend[j].LastAttemptAt
+		}
+		return pend[i].Path < pend[j].Path
+	})
+	for _, p := range pend {
+		dto := ipc.PendingProgramDTO{
+			Path: p.Path, Name: programName(p.Name, p.Path), Publisher: publisherOrStub(p.Publisher), Description: programs.ClipName(p.Description),
+			Attempts: p.Attempts, LastAttemptAt: p.LastAttemptAt, WasCategory: p.WasCategory, ByChild: []ipc.PendingChildDTO{},
+		}
+		for _, ch := range p.Children {
+			dto.ByChild = append(dto.ByChild, ipc.PendingChildDTO{ChildID: ch.ChildID, Name: s.names[ch.ChildID], Attempts: ch.Attempts})
+		}
+		out.Pending = append(out.Pending, dto)
+	}
+	for _, p := range list {
+		if p.Category == programs.CatSystem {
+			continue
+		}
+		out.Programs = append(out.Programs, ipc.ProgramDTO{
+			Path: p.Path, Name: programName(p.Name, p.Path), Publisher: publisherOrStub(p.Publisher),
+			Category: p.Category, Source: p.Source, WeekS: secs[p.Path],
+		})
+	}
+	sort.SliceStable(out.Programs, func(i, j int) bool {
+		a, b := strings.ToLower(out.Programs[i].Name), strings.ToLower(out.Programs[j].Name)
+		if a != b {
+			return a < b
+		}
+		return out.Programs[i].Path < out.Programs[j].Path
+	})
+	return out, true
+}
+
+// --- решения ------------------------------------------------------------------------------
+
+func (s *Service) hDecideProgram(c *callCtx) ipc.Reply {
+	var req ipc.DecideProgramRequest
+	if c.msg.Into(&req) != nil {
+		return bad()
+	}
+	if !parentCategories[req.Category] {
+		return ipc.FailField(textCategoryBad, fieldCategory)
+	}
+	path := programs.Normalize(req.Path)
+	if path == "" {
+		return ipc.Fail(textNoProgram)
+	}
+	at := c.real.UnixMilli()
+	pend, waiting, err := s.cfg.Store.ResolvePending(path)
+	if err != nil {
+		s.logRate("decide", "решение по программе не записано: %v", err)
+		return ipc.Fail(textSaveFailed)
+	}
+	prev, existed, err := s.cfg.Store.GetProgram(path)
+	if err != nil {
+		s.restorePendingAfterFailure(waiting, pend)
+		s.logRate("decide", "решение по программе не записано: %v", err)
+		return ipc.Fail(textSaveFailed)
+	}
+	rec := &progUndoRec{}
+	var name string
+	switch {
+	case waiting:
+		p := s.decidedProgram(path, pend.Name, pend.Publisher, req.Category, at)
+		if p.Publisher == "" && existed {
+			p.Publisher = prev.Publisher
+		}
+		if err := s.cfg.Store.UpsertProgram(p); err != nil {
+			s.restorePendingAfterFailure(true, pend)
+			s.logRate("decide", "решение по программе не записано: %v", err)
+			return ipc.Fail(textSaveFailed)
+		}
+		rec.pending = []PendingProgram{pend}
+		if existed {
+			rec.programs = []Program{prev}
+		} else {
+			rec.added = []string{path}
+		}
+		name = p.Name
+	case existed:
+		changed, err := s.cfg.Store.SetProgramsCategory([]string{path}, req.Category, at)
+		if err != nil {
+			s.logRate("decide", "решение по программе не записано: %v", err)
+			return ipc.Fail(textSaveFailed)
+		}
+		rec.programs = changed
+		name = programName(prev.Name, path)
+	default:
+		return ipc.Fail(textNoProgram)
+	}
+	s.reloadPrograms()
+	s.journal.Write(0, evProgramDecided, map[string]any{"name": name, "path": path, "category": req.Category, "count": 1})
+	if waiting {
+		s.decidedPlates(pend, req.Category, name)
+	}
+	s.rememberProgramsUndo(rec, c)
+	view, _ := s.programsView()
+	return ipc.OK(ipc.DecideProgramReply{
+		Message: name + ": " + categoryWord[req.Category], UndoID: rec.id, UndoUntilMs: rec.until.UnixMilli(), Programs: view,
+	})
+}
+
+// decidedProgram — запись решения родителя по пути: источник «родитель», корень приложения;
+// вне доверенных каталогов — отпечаток файла (RM3-12), издатель из файла, если не известен.
+// Имя берётся из «Ждут решения» (служба записала его из пути и файла), иначе из пути.
+func (s *Service) decidedProgram(path, name, publisher, category string, at int64) Program {
+	roots := s.classifier.Roots()
+	p := Program{
+		Path: path, Name: programName(name, path), Publisher: programs.ClipName(publisher),
+		Category: category, Source: ProgramSourceParent, AppRoot: roots.AppRoot(path), DecidedAt: at,
+	}
+	if !roots.IsTrusted(path) {
+		pub, _, fp := s.cfg.FileMeta(path)
+		p.Fingerprint = fp
+		if p.Publisher == "" {
+			p.Publisher = programs.ClipName(pub)
+		}
+		if fp == "" {
+			s.logRate("fingerprint", "отпечаток файла %s не прочитан: подмена файла не будет замечена", path)
+		}
+	}
+	return p
+}
+
+// restorePendingAfterFailure возвращает снятую «Ждут решения», если решение не записалось.
+func (s *Service) restorePendingAfterFailure(waiting bool, p PendingProgram) {
+	if !waiting {
+		return
+	}
+	if err := s.cfg.Store.RestorePending(p); err != nil {
+		s.logRate("decide", "«Ждут решения» не возвращена после сбоя: %v", err)
+	}
+}
+
+// decidedPlates показывает плашку о решении детям, которые запускали программу и чей сеанс
+// сейчас на экране (8.2.4 п.4): через очередь команд стража, как noticeGuards.
+func (s *Service) decidedPlates(p PendingProgram, category, name string) {
+	tried := map[int64]bool{p.FirstChildID: p.FirstChildID != 0}
+	for _, ch := range p.Children {
+		tried[ch.ChildID] = true
+	}
+	plate := ipc.BlockedPlate{Kind: ipc.BlockedDecided, Text: decidedPlateText(category, name), ShowS: decidedPlateShowS, Path: p.Path}
+	for _, id := range s.sessionOrder() {
+		ss := s.sessions[id]
+		if ss.childID == 0 || !tried[ss.childID] || ss.offScreen() {
+			continue
+		}
+		pl := plate
+		s.guardCmd[id] = append(s.guardCmd[id], ipc.GuardCommand{Kind: ipc.GuardCmdBlocked, Plate: &pl})
+	}
+}
+
+// rememberProgramsUndo делает операцию последней отменяемой: номер и срок 10 с по настоящим часам.
+func (s *Service) rememberProgramsUndo(rec *progUndoRec, c *callCtx) {
+	rec.id = s.cfg.Rand()
+	rec.until = c.real.Add(undoLife)
+	s.progUndo = rec
+}
+
+func (s *Service) hSetProgramsCategory(c *callCtx) ipc.Reply {
+	var req ipc.SetProgramsCategoryRequest
+	if c.msg.Into(&req) != nil {
+		return bad()
+	}
+	if !parentCategories[req.Category] {
+		return ipc.FailField(textCategoryBad, fieldCategory)
+	}
+	if len(req.Paths) > maxProgramsPerChange {
+		return ipc.Fail(textTooManyPrograms)
+	}
+	paths := make([]string, 0, len(req.Paths))
+	seen := map[string]bool{}
+	known := 0
+	for _, raw := range req.Paths {
+		p := programs.Normalize(raw)
+		if p == "" || seen[p] {
+			continue
+		}
+		seen[p] = true
+		paths = append(paths, p)
+		_, ok, err := s.cfg.Store.GetProgram(p)
+		if err != nil {
+			s.logRate("decide", "список программ не прочитан: %v", err)
+			return ipc.Fail(textRetry)
+		}
+		if ok {
+			known++
+		}
+	}
+	if known == 0 {
+		return ipc.Fail(textNoProgram)
+	}
+	changed, err := s.cfg.Store.SetProgramsCategory(paths, req.Category, c.real.UnixMilli())
+	if err != nil {
+		s.logRate("decide", "смена категории программ не записана: %v", err)
+		return ipc.Fail(textSaveFailed)
+	}
+	s.reloadPrograms()
+	if len(changed) > 0 {
+		d := map[string]any{"category": req.Category, "count": len(changed)}
+		if len(changed) == 1 {
+			d["name"], d["path"] = programName(changed[0].Name, changed[0].Path), changed[0].Path
+		}
+		s.journal.Write(0, evProgramDecided, d)
+	}
+	rec := &progUndoRec{programs: changed}
+	s.rememberProgramsUndo(rec, c)
+	view, _ := s.programsView()
+	return ipc.OK(ipc.DecideProgramReply{
+		Message: fmt.Sprintf(textProgramsChanged, len(changed)), UndoID: rec.id, UndoUntilMs: rec.until.UnixMilli(), Programs: view,
+	})
+}
+
+func (s *Service) hUndoProgram(c *callCtx) ipc.Reply {
+	var req ipc.UndoProgramRequest
+	if c.msg.Into(&req) != nil {
+		return bad()
+	}
+	rec := s.progUndo
+	if rec == nil || rec.id == "" || rec.id != req.UndoID || !c.real.Before(rec.until) {
+		return ipc.Fail(textUndoGone)
+	}
+	s.progUndo = nil
+	failed := false
+	for _, p := range rec.programs {
+		if err := s.cfg.Store.RestoreProgram(p); err != nil {
+			s.logRate("undo", "программа %s не возвращена: %v", p.Path, err)
+			failed = true
+		}
+	}
+	for _, path := range rec.added {
+		if err := s.cfg.Store.DeleteProgram(path); err != nil {
+			s.logRate("undo", "программа %s не убрана из списка: %v", path, err)
+			failed = true
+		}
+	}
+	for _, p := range rec.pending {
+		if err := s.cfg.Store.RestorePending(p); err != nil {
+			s.logRate("undo", "программа %s не возвращена в «Ждут решения»: %v", p.Path, err)
+			failed = true
+		}
+	}
+	s.reloadPrograms()
+	if failed {
+		return ipc.Fail(textSaveFailed)
+	}
+	s.journal.Write(0, evProgramUndone, map[string]any{})
+	view, _ := s.programsView()
+	return ipc.OK(ipc.UndoProgramReply{Message: textProgramUndone, Programs: view})
+}
+
+// --- мастер ---------------------------------------------------------------------------------
+
+// hScanPrograms — программы компьютера для шага мастера «Программы» (FR-2) с предложенной
+// категорией: игры вперёд, затем браузеры из каталога, затем остальные; не больше 300.
+func (s *Service) hScanPrograms(c *callCtx) ipc.Reply {
+	out := ipc.ScanProgramsReply{Programs: []ipc.ScanProgramDTO{}}
+	if s.cfg.Scanner == nil {
+		return ipc.OK(out)
+	}
+	found, err := s.cfg.Scanner.Scan()
+	if err != nil {
+		s.logRate("scan", "программы компьютера не найдены: %v", err)
+		return ipc.Fail(textScanFailed)
+	}
+	rank := map[string]int{}
+	for _, p := range s.snapshotPrograms(found) {
+		dto := ipc.ScanProgramDTO{Path: p.Path, Name: p.Name, Publisher: p.Publisher, SuggestedCategory: p.Category}
+		if dto.Publisher == "" {
+			pub, _, _ := s.cfg.FileMeta(p.Path)
+			dto.Publisher = programs.ClipName(pub)
+		}
+		dto.Publisher = publisherOrStub(dto.Publisher)
+		switch {
+		case p.Category == programs.CatGames:
+			rank[p.Path] = 0
+		case p.Source == ProgramSourceCatalog:
+			rank[p.Path] = 1
+		default:
+			rank[p.Path] = 2
+		}
+		out.Programs = append(out.Programs, dto)
+	}
+	sort.SliceStable(out.Programs, func(i, j int) bool {
+		a, b := out.Programs[i], out.Programs[j]
+		if rank[a.Path] != rank[b.Path] {
+			return rank[a.Path] < rank[b.Path]
+		}
+		if x, y := strings.ToLower(a.Name), strings.ToLower(b.Name); x != y {
+			return x < y
+		}
+		return a.Path < b.Path
+	})
+	if len(out.Programs) > maxScanPrograms {
+		out.Programs = out.Programs[:maxScanPrograms]
+	}
+	return ipc.OK(out)
+}
+
+// setupPrograms проверяет выбор мастера (до записи чего-либо): категории родителя, не больше
+// maxSetupPrograms; непригодные пути и повторы пропускаются. Возвращает записи и текст отказа.
+func (s *Service) setupPrograms(list []ipc.SetupProgram, at int64) ([]Program, string) {
+	if len(list) > maxSetupPrograms {
+		return nil, ipc.TextBadRequest
+	}
+	out := make([]Program, 0, len(list))
+	seen := map[string]bool{}
+	roots := s.classifier.Roots()
+	for _, sp := range list {
+		if !parentCategories[sp.Category] {
+			return nil, textCategoryBad
+		}
+		p := programs.Normalize(sp.Path)
+		if p == "" || seen[p] || roots.IsSystem(p) {
+			continue
+		}
+		seen[p] = true
+		pub, name, _ := s.cfg.FileMeta(p)
+		if cur, ok, err := s.cfg.Store.GetProgram(p); err == nil && ok {
+			// Снимок при старте уже записал программу: имя и издатель из него.
+			name, pub = cur.Name, cur.Publisher
+		}
+		out = append(out, s.decidedProgram(p, name, pub, sp.Category, at))
+	}
+	return out, ""
+}
+
+// writeSetupPrograms записывает выбор мастера и делает снимок остальных программ (RM3-10: тот
+// же снимок и флаг). Сбой снимка мастер не останавливает: повтор в Housekeep.
+func (s *Service) writeSetupPrograms(list []Program) error {
+	for _, p := range list {
+		if err := s.cfg.Store.UpsertProgram(p); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// afterSetupPrograms — снимок остальных программ и загрузка списка после мастера.
+func (s *Service) afterSetupPrograms(c *callCtx) {
+	s.progTryAt = c.real
+	if s.seedPrograms() {
+		s.progReady = s.reloadPrograms()
+	}
+}
