@@ -63,6 +63,9 @@ func (s *Service) hOpenWindow(c *callCtx) ipc.Reply {
 	if _, ok := windowFlag(req.Kind); !ok {
 		return ipc.Fail(textWindowKind)
 	}
+	if req.Screen != "" && req.Screen != ipc.ScreenPrograms {
+		return bad() // экран окна родителя (RM3-4); передачу окну делает T5
+	}
 	ss := s.sessions[c.peer.SessionID]
 	if c.viaBind {
 		if ss == nil {
@@ -898,6 +901,9 @@ func (s *Service) hGuardPoll(c *callCtx) ipc.Reply {
 	cs := s.children[ss.childID]
 	if cs == nil {
 		return ipc.OK(ipc.GuardPollReply{Status: ipc.ChildStatusNotChild(), Warnings: []ipc.GuardWarning{}, Commands: []ipc.GuardCommand{}})
+	}
+	if len([]rune(req.Sample.ForegroundPath)) > ipc.MaxForegroundPathLen {
+		req.Sample.ForegroundPath = "" // мусор от стража: путь не определён
 	}
 	cs.sample, cs.sampleAt, cs.sampleSess, cs.haveSample = req.Sample, c.real, session, true
 	ss.resetLockBySample(req.Sample)

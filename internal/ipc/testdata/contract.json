@@ -350,6 +350,84 @@
       "field": "code"
     }
   },
+  "DecideProgram": {
+    "request": {
+      "path": "c:\\users\\миша\\downloads\\supergame.exe",
+      "category": "games"
+    },
+    "reply": {
+      "ok": true,
+      "payload": {
+        "message": "SuperGame: игра",
+        "undoId": "p-3",
+        "undoUntilMs": 1760000010000,
+        "programs": {
+          "pending": [
+            {
+              "path": "c:\\users\\миша\\downloads\\supergame.exe",
+              "name": "SuperGame",
+              "publisher": "Без подписи издателя",
+              "description": "Super Game",
+              "attempts": 4,
+              "lastAttemptAt": 1759996400000,
+              "wasCategory": "games",
+              "byChild": [
+                {
+                  "childId": 1,
+                  "name": "Миша",
+                  "attempts": 3
+                },
+                {
+                  "childId": 2,
+                  "name": "Даша",
+                  "attempts": 1
+                }
+              ]
+            }
+          ],
+          "programs": [
+            {
+              "path": "c:\\program files\\bravesoftware\\brave-browser\\application\\brave.exe",
+              "name": "Brave",
+              "publisher": "Brave Software, Inc.",
+              "category": "other",
+              "source": "snapshot",
+              "weekS": 5400
+            },
+            {
+              "path": "c:\\program files\\minecraft launcher\\minecraftlauncher.exe",
+              "name": "Minecraft Launcher",
+              "publisher": "Mojang",
+              "category": "games",
+              "source": "catalog",
+              "weekS": 0
+            }
+          ],
+          "children": [
+            {
+              "childId": 1,
+              "name": "Миша"
+            },
+            {
+              "childId": 2,
+              "name": "Даша"
+            }
+          ]
+        }
+      }
+    }
+  },
+  "DecideProgram#invalid": {
+    "request": {
+      "path": "c:\\x.exe",
+      "category": "system"
+    },
+    "reply": {
+      "ok": false,
+      "error": "Выберите: игра, учёба, прочее или запретить",
+      "field": "category"
+    }
+  },
   "ExtendSession": {
     "reply": {
       "ok": true,
@@ -809,7 +887,8 @@
         "sessionActive": true,
         "lastInputAgoMs": 1200,
         "fullscreen": true,
-        "foreground": "games"
+        "foreground": "games",
+        "foregroundPath": ""
       },
       "events": [
         {
@@ -894,6 +973,73 @@
       }
     }
   },
+  "GuardPoll#blocked": {
+    "request": {
+      "sample": {
+        "atMs": 1760000000000,
+        "tzOffsetMin": 0,
+        "sessionActive": true,
+        "lastInputAgoMs": 0,
+        "fullscreen": false,
+        "foreground": "games",
+        "foregroundPath": "c:\\users\\миша\\downloads\\supergame.exe"
+      },
+      "events": []
+    },
+    "reply": {
+      "ok": true,
+      "payload": {
+        "status": {
+          "name": "Миша",
+          "status": "ok",
+          "statusText": "Можно",
+          "label": "85",
+          "tooltip": "Осталось 1 ч 25 мин\nИгры: 20 мин",
+          "summary": "Сегодня осталось 1 ч 25 мин из 2 ч",
+          "day": "2026-10-19",
+          "remainingS": 5100,
+          "limitS": 7200,
+          "usedS": 2100,
+          "unlimited": false,
+          "lock": "none",
+          "reason": "",
+          "detail": "",
+          "until": "",
+          "pauseUntil": "",
+          "used": "Сегодня: 35 мин из 2 ч",
+          "bonusBalance": 0,
+          "forbiddenNote": "",
+          "gamesRemainingS": 1200,
+          "gamesLimitS": 3600,
+          "gamesUnlimited": false,
+          "endMode": "lock",
+          "closeGames": false,
+          "studyOnly": false
+        },
+        "warnings": [
+          {
+            "threshold": 5,
+            "text": "Сохрани игру: через 5 минут время на игры закончится",
+            "sound": true,
+            "event": "games",
+            "eventS": 300
+          }
+        ],
+        "commands": [
+          {
+            "kind": "blocked",
+            "plate": {
+              "kind": "unknown",
+              "text": "Программа «SuperGame» ждёт разрешения родителя",
+              "showS": 10,
+              "path": "c:\\users\\миша\\downloads\\supergame.exe",
+              "canAsk": true
+            }
+          }
+        ]
+      }
+    }
+  },
   "GuardPoll#empty": {
     "request": {
       "sample": {
@@ -902,7 +1048,8 @@
         "sessionActive": false,
         "lastInputAgoMs": 0,
         "fullscreen": false,
-        "foreground": "other"
+        "foreground": "other",
+        "foregroundPath": ""
       },
       "events": []
     },
@@ -1111,6 +1258,74 @@
       "ok": true,
       "payload": {
         "events": []
+      }
+    }
+  },
+  "ListPrograms": {
+    "reply": {
+      "ok": true,
+      "payload": {
+        "pending": [
+          {
+            "path": "c:\\users\\миша\\downloads\\supergame.exe",
+            "name": "SuperGame",
+            "publisher": "Без подписи издателя",
+            "description": "Super Game",
+            "attempts": 4,
+            "lastAttemptAt": 1759996400000,
+            "wasCategory": "games",
+            "byChild": [
+              {
+                "childId": 1,
+                "name": "Миша",
+                "attempts": 3
+              },
+              {
+                "childId": 2,
+                "name": "Даша",
+                "attempts": 1
+              }
+            ]
+          }
+        ],
+        "programs": [
+          {
+            "path": "c:\\program files\\bravesoftware\\brave-browser\\application\\brave.exe",
+            "name": "Brave",
+            "publisher": "Brave Software, Inc.",
+            "category": "other",
+            "source": "snapshot",
+            "weekS": 5400
+          },
+          {
+            "path": "c:\\program files\\minecraft launcher\\minecraftlauncher.exe",
+            "name": "Minecraft Launcher",
+            "publisher": "Mojang",
+            "category": "games",
+            "source": "catalog",
+            "weekS": 0
+          }
+        ],
+        "children": [
+          {
+            "childId": 1,
+            "name": "Миша"
+          },
+          {
+            "childId": 2,
+            "name": "Даша"
+          }
+        ]
+      }
+    }
+  },
+  "ListPrograms#empty": {
+    "reply": {
+      "ok": true,
+      "payload": {
+        "pending": [],
+        "programs": [],
+        "children": []
       }
     }
   },
@@ -1330,6 +1545,28 @@
   "OpenWindow": {
     "request": {
       "kind": "parent"
+    },
+    "reply": {
+      "ok": true,
+      "payload": {
+        "opened": true
+      }
+    }
+  },
+  "OpenWindow#badScreen": {
+    "request": {
+      "kind": "parent",
+      "screen": "nope"
+    },
+    "reply": {
+      "ok": false,
+      "error": "Не удалось разобрать запрос. Попробуйте ещё раз"
+    }
+  },
+  "OpenWindow#programs": {
+    "request": {
+      "kind": "parent",
+      "screen": "programs"
     },
     "reply": {
       "ok": true,
@@ -2049,6 +2286,35 @@
       "field": "end"
     }
   },
+  "ScanPrograms": {
+    "reply": {
+      "ok": true,
+      "payload": {
+        "programs": [
+          {
+            "path": "c:\\program files\\minecraft launcher\\minecraftlauncher.exe",
+            "name": "Minecraft Launcher",
+            "publisher": "Mojang",
+            "suggestedCategory": "games"
+          },
+          {
+            "path": "c:\\program files\\bravesoftware\\brave-browser\\application\\brave.exe",
+            "name": "Brave",
+            "publisher": "Brave Software, Inc.",
+            "suggestedCategory": "other"
+          }
+        ]
+      }
+    }
+  },
+  "ScanPrograms#empty": {
+    "reply": {
+      "ok": true,
+      "payload": {
+        "programs": []
+      }
+    }
+  },
   "SessionState": {
     "reply": {
       "ok": true,
@@ -2181,6 +2447,75 @@
       }
     }
   },
+  "SetProgramsCategory": {
+    "request": {
+      "paths": [
+        "c:\\program files\\bravesoftware\\brave-browser\\application\\brave.exe"
+      ],
+      "category": "study"
+    },
+    "reply": {
+      "ok": true,
+      "payload": {
+        "message": "Изменено программ: 1",
+        "undoId": "p-4",
+        "undoUntilMs": 1760000010000,
+        "programs": {
+          "pending": [
+            {
+              "path": "c:\\users\\миша\\downloads\\supergame.exe",
+              "name": "SuperGame",
+              "publisher": "Без подписи издателя",
+              "description": "Super Game",
+              "attempts": 4,
+              "lastAttemptAt": 1759996400000,
+              "wasCategory": "games",
+              "byChild": [
+                {
+                  "childId": 1,
+                  "name": "Миша",
+                  "attempts": 3
+                },
+                {
+                  "childId": 2,
+                  "name": "Даша",
+                  "attempts": 1
+                }
+              ]
+            }
+          ],
+          "programs": [
+            {
+              "path": "c:\\program files\\bravesoftware\\brave-browser\\application\\brave.exe",
+              "name": "Brave",
+              "publisher": "Brave Software, Inc.",
+              "category": "other",
+              "source": "snapshot",
+              "weekS": 5400
+            },
+            {
+              "path": "c:\\program files\\minecraft launcher\\minecraftlauncher.exe",
+              "name": "Minecraft Launcher",
+              "publisher": "Mojang",
+              "category": "games",
+              "source": "catalog",
+              "weekS": 0
+            }
+          ],
+          "children": [
+            {
+              "childId": 1,
+              "name": "Миша"
+            },
+            {
+              "childId": 2,
+              "name": "Даша"
+            }
+          ]
+        }
+      }
+    }
+  },
   "Setup": {
     "request": {
       "password": "секрет-123",
@@ -2239,6 +2574,12 @@
               "gamesUnlimited": true
             }
           ]
+        }
+      ],
+      "programs": [
+        {
+          "path": "c:\\program files\\minecraft launcher\\minecraftlauncher.exe",
+          "category": "games"
         }
       ]
     },
@@ -2423,6 +2764,70 @@
           "pendingPrograms": 0
         },
         "message": "Добавленное время отменено"
+      }
+    }
+  },
+  "UndoProgram": {
+    "request": {
+      "undoId": "p-4"
+    },
+    "reply": {
+      "ok": true,
+      "payload": {
+        "message": "Решение отменено",
+        "programs": {
+          "pending": [
+            {
+              "path": "c:\\users\\миша\\downloads\\supergame.exe",
+              "name": "SuperGame",
+              "publisher": "Без подписи издателя",
+              "description": "Super Game",
+              "attempts": 4,
+              "lastAttemptAt": 1759996400000,
+              "wasCategory": "games",
+              "byChild": [
+                {
+                  "childId": 1,
+                  "name": "Миша",
+                  "attempts": 3
+                },
+                {
+                  "childId": 2,
+                  "name": "Даша",
+                  "attempts": 1
+                }
+              ]
+            }
+          ],
+          "programs": [
+            {
+              "path": "c:\\program files\\bravesoftware\\brave-browser\\application\\brave.exe",
+              "name": "Brave",
+              "publisher": "Brave Software, Inc.",
+              "category": "other",
+              "source": "snapshot",
+              "weekS": 5400
+            },
+            {
+              "path": "c:\\program files\\minecraft launcher\\minecraftlauncher.exe",
+              "name": "Minecraft Launcher",
+              "publisher": "Mojang",
+              "category": "games",
+              "source": "catalog",
+              "weekS": 0
+            }
+          ],
+          "children": [
+            {
+              "childId": 1,
+              "name": "Миша"
+            },
+            {
+              "childId": 2,
+              "name": "Даша"
+            }
+          ]
+        }
       }
     }
   },

@@ -99,6 +99,7 @@ var AllCommands = []string{
 	CmdGuardPoll, CmdGuardLogoff, CmdGuardShutdown, CmdGuardSwitchUser, CmdGuardClosing,
 	CmdTrayClosing,
 	CmdTestGuard, CmdTestClock, CmdTestSession, CmdGuardState,
+	CmdListPrograms, CmdDecideProgram, CmdSetProgramsCategory, CmdUndoProgram, CmdScanPrograms, // M3 (commands_m3.go)
 }
 
 // Имена полей, к которым служба привязывает ошибку (Reply.Field, L-121).
@@ -159,6 +160,9 @@ const (
 // токен сессии идёт в Msg.Token: служба передаёт сессию окну.
 type OpenWindowRequest struct {
 	Kind string `json:"kind"` // WindowParent, WindowMyStats или WindowFirstRun
+	// Screen — экран окна родителя, на котором оно откроется (RM3-4): ScreenPrograms; «» — главный.
+	// Другое значение — отказ TextBadRequest.
+	Screen string `json:"screen,omitempty"`
 }
 
 // OpenWindowReply — ответ OpenWindow.
@@ -271,6 +275,9 @@ type SetupChild struct {
 type SetupRequest struct {
 	Password string       `json:"password"`
 	Children []SetupChild `json:"children"`
+	// Programs — категории программ компьютера, выбранные на шаге «Программы» (FR-2, ScanPrograms);
+	// пусто — снимок службы с категориями по умолчанию (RM3-10).
+	Programs []SetupProgram `json:"programs,omitempty"`
 }
 
 // ResetPasswordRequest — сброс пароля (только повышенный администратор, R20).
@@ -530,6 +537,9 @@ type SensorSample struct {
 	LastInputAgoMs int64  `json:"lastInputAgoMs"`
 	Fullscreen     bool   `json:"fullscreen"`
 	Foreground     string `json:"foreground"` // CatName*
+	// ForegroundPath — путь exe программы на переднем плане (R3, M3); «» — не определён. Длиннее
+	// MaxForegroundPathLen символов служба отбрасывает.
+	ForegroundPath string `json:"foregroundPath"`
 }
 
 // Виды событий стража в GuardPollRequest.Events.
@@ -590,6 +600,7 @@ const (
 	GuardCmdHideLock = "hideLock" // спрятать экран блокировки: открыта родительская сессия (Ruling 19)
 	GuardCmdNotice   = "notice"   // показать короткое сообщение (Text), например «Добавлено 30 минут»
 	GuardCmdTest     = "test"     // действие TestGuard, только в тестовом режиме (Ruling 5)
+	// GuardCmdBlocked = "blocked" (commands_m3.go): плашка о закрытой программе (Plate, FR-13).
 )
 
 // Действия TestGuard (Ruling 5): страж выполняет их через настоящие сообщения своих окон.
@@ -616,6 +627,8 @@ type GuardCommand struct {
 	Kind string           `json:"kind"` // GuardCmd*
 	Text string           `json:"text,omitempty"`
 	Test *TestGuardAction `json:"test,omitempty"`
+	// Plate — плашка о закрытой программе для GuardCmdBlocked (FR-13, M3).
+	Plate *BlockedPlate `json:"plate,omitempty"`
 }
 
 // GuardPollReply — ответ GuardPoll: решение для экрана, новые предупреждения, команды стражу.

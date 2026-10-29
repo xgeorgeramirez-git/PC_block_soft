@@ -116,6 +116,12 @@ func wantAllowed(cmd, kind, tok string, test, configured bool) bool {
 	case ipc.CmdSpendBonus:
 		// «Взять из копилки»: ребёнок своего сеанса без пароля (childSelf, FR-11).
 		return kind == "child" || kind == "guard"
+	case ipc.CmdListPrograms, ipc.CmdDecideProgram, ipc.CmdSetProgramsCategory, ipc.CmdUndoProgram:
+		// «Программы» (FR-20): только родитель своим токеном; ребёнок не читает и не меняет.
+		return user && own
+	case ipc.CmdScanPrograms:
+		// Шаг мастера «Программы» (FR-2): как ListAccounts до настройки, после настройки — никому.
+		return kind == "elev" && !configured
 	}
 	return false
 }

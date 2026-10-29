@@ -1,6 +1,7 @@
 package service
 
 import (
+	"strings"
 	"testing"
 
 	"pcblock/internal/core"
@@ -345,5 +346,55 @@ func TestGamesRuleText(t *testing.T) {
 		if got := gamesRuleText(c.r); got != c.want {
 			t.Errorf("gamesRuleText = %q, want %q", got, c.want)
 		}
+	}
+}
+
+// Ловит (TODO T3b): команды программ M3 отвечают как настоящие, хотя обработчиков ещё нет, или
+// заглушка отвечает отказом по правам. T3b заменяет заглушки и этот тест.
+func TestM3ProgramCommandsAreStubs(t *testing.T) {
+	h := newHarness(t, configured(), withChild(childSID, "Миша", 120))
+	h.start()
+	tok := h.login(adminPeer())
+	for _, cmd := range []string{ipc.CmdListPrograms, ipc.CmdDecideProgram, ipc.CmdSetProgramsCategory, ipc.CmdUndoProgram} {
+		if rep := h.fail(adminPeer(), tok, cmd, nil); rep.Error != textNotReady {
+			t.Errorf("%s: %q, want заглушку %q", cmd, rep.Error, textNotReady)
+		}
+	}
+	h2 := newHarness(t)
+	h2.start()
+	if rep := h2.fail(elevatedPeer(), "", ipc.CmdScanPrograms, nil); rep.Error != textNotReady {
+		t.Errorf("ScanPrograms: %q, want заглушку", rep.Error)
+	}
+}
+
+// Ловит: OpenWindow принимает неизвестный экран окна (RM3-4: допустим только «programs»).
+func TestOpenWindowScreen(t *testing.T) {
+	h := newHarness(t, configured(), withChild(childSID, "Миша", 120))
+	h.start()
+	h.childLogsIn()
+	if rep := h.fail(childPeer(), "", ipc.CmdOpenWindow, ipc.OpenWindowRequest{Kind: ipc.WindowParent, Screen: "settings"}); rep.Error != ipc.TextBadRequest {
+		t.Errorf("неизвестный экран: %q, want %q", rep.Error, ipc.TextBadRequest)
+	}
+	h.ok(childPeer(), "", ipc.CmdOpenWindow, ipc.OpenWindowRequest{Kind: ipc.WindowParent, Screen: ipc.ScreenPrograms}, nil)
+}
+
+// Ловит: путь программы на переднем плане длиннее 520 символов (мусор или атака на память
+// службы) принимается в снимок; нормальный путь теряется.
+func TestGuardPollForegroundPathLimit(t *testing.T) {
+	h := newHarness(t, configured(), withChild(childSID, "Миша", 120))
+	h.start()
+	h.childLogsIn()
+	cs := h.svc.children[h.childID(childSID)]
+	ok := `c:\users\миша\downloads\` + strings.Repeat("я", ipc.MaxForegroundPathLen-24-4) + ".exe"
+	s := activeSample
+	s.ForegroundPath = ok
+	h.poll(s)
+	if cs.sample.ForegroundPath != ok {
+		t.Errorf("путь %d символов потерян", len([]rune(ok)))
+	}
+	s.ForegroundPath = ok + "x"
+	h.poll(s)
+	if cs.sample.ForegroundPath != "" {
+		t.Errorf("путь %d символов принят, want «не определён»", len([]rune(s.ForegroundPath)))
 	}
 }

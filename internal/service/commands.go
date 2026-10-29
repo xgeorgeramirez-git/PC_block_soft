@@ -270,8 +270,19 @@ func init() {
 		ipc.CmdTestClock:   {testMode(admins()), (*Service).hTestClock},
 		ipc.CmdTestSession: {testMode(admins()), (*Service).hTestSession},
 		ipc.CmdGuardState:  {testMode(kinds(kindGuard, kindAdmin, kindElev)), (*Service).hGuardState},
+
+		// M3: программы (FR-20) — только родитель; снимок для мастера (FR-2) — только до настройки.
+		// TODO(T3b): заменить заглушки hNotReady настоящими обработчиками.
+		ipc.CmdListPrograms:        {parentToken(false), (*Service).hNotReady},
+		ipc.CmdDecideProgram:       {parentToken(true), (*Service).hNotReady},
+		ipc.CmdSetProgramsCategory: {parentToken(true), (*Service).hNotReady},
+		ipc.CmdUndoProgram:         {parentToken(true), (*Service).hNotReady},
+		ipc.CmdScanPrograms:        {and(elevated(), unconfiguredCheck()), (*Service).hNotReady},
 	}
 }
+
+// hNotReady — заглушка команд, контракт которых уже есть, а обработчики делает следующая задача.
+func (s *Service) hNotReady(*callCtx) ipc.Reply { return ipc.Fail(textNotReady) }
 
 // unconfiguredCheck разрешает вызов, пока программа не настроена (мастер до пароля).
 func unconfiguredCheck() check {

@@ -107,6 +107,24 @@ func withPending(c TodayCard, n int) TodayCard {
 	return c
 }
 
+// programsReply — «Программы»: одна ждёт решения (Миша 3 попытки, Даша 1), две в списке.
+func programsReply() ProgramsReply {
+	return ProgramsReply{
+		Pending: []PendingProgramDTO{{
+			Path: `c:\users\миша\downloads\supergame.exe`, Name: "SuperGame", Publisher: "Без подписи издателя", Description: "Super Game",
+			Attempts: 4, LastAttemptAt: t0 - 3_600_000, WasCategory: ProgramCatGames,
+			ByChild: []PendingChildDTO{{ChildID: 1, Name: "Миша", Attempts: 3}, {ChildID: 2, Name: "Даша", Attempts: 1}},
+		}},
+		Programs: []ProgramDTO{
+			{Path: `c:\program files\bravesoftware\brave-browser\application\brave.exe`, Name: "Brave", Publisher: "Brave Software, Inc.",
+				Category: ProgramCatOther, Source: ProgramSourceSnapshot, WeekS: 5400},
+			{Path: `c:\program files\minecraft launcher\minecraftlauncher.exe`, Name: "Minecraft Launcher", Publisher: "Mojang",
+				Category: ProgramCatGames, Source: ProgramSourceCatalog, WeekS: 0},
+		},
+		Children: []ChildName{{ChildID: 1, Name: "Миша"}, {ChildID: 2, Name: "Даша"}},
+	}
+}
+
 func childRules() ChildRules {
 	return ChildRules{ChildID: 1, Name: "Миша", Limits: weekLimits(), EndMode: EndModeLock}
 }
@@ -119,6 +137,8 @@ func examples() map[string]example {
 		"GetChildStatus#notChild":  ok(nil, ChildStatusNotChild()),
 		"GetChildStatus#studyOnly": ok(nil, studyOnlyStatus()),
 		CmdOpenWindow:              ok(OpenWindowRequest{Kind: WindowParent}, OpenWindowReply{Opened: true}),
+		"OpenWindow#programs":      ok(OpenWindowRequest{Kind: WindowParent, Screen: ScreenPrograms}, OpenWindowReply{Opened: true}),
+		"OpenWindow#badScreen":     fail(OpenWindowRequest{Kind: WindowParent, Screen: "nope"}, TextBadRequest, "", nil),
 		CmdWindowClosing:           ok(WindowClosingRequest{Kind: WindowMyStats}, Empty{}),
 
 		CmdListAccounts: ok(nil, ListAccountsReply{Accounts: []Account{
@@ -130,6 +150,7 @@ func examples() map[string]example {
 		CmdSetup: ok(SetupRequest{
 			Password: "секрет-123",
 			Children: []SetupChild{{SID: "S-1-5-21-111-222-333-1001", Name: "Миша", Limits: weekLimits()}},
+			Programs: []SetupProgram{{Path: `c:\program files\minecraft launcher\minecraftlauncher.exe`, Category: ProgramCatGames}},
 		}, Empty{}),
 		"Setup#invalid":   fail(SetupRequest{Password: "123"}, "Не меньше 6 символов", FieldPassword, nil),
 		CmdResetPassword:  ok(ResetPasswordRequest{NewPassword: "новый-секрет"}, Empty{}),
@@ -300,7 +321,15 @@ func examples() map[string]example {
 				{Kind: GuardCmdTest, Test: &TestGuardAction{Action: TestType, Target: "password", Text: "секрет-123"}},
 			},
 		}),
-		"GuardPoll#empty":  ok(GuardPollRequest{Sample: SampleFromCore(core.SessionSample{AtMs: t0})}, GuardPollReply{Status: okStatus()}),
+		"GuardPoll#empty": ok(GuardPollRequest{Sample: SampleFromCore(core.SessionSample{AtMs: t0})}, GuardPollReply{Status: okStatus()}),
+		"GuardPoll#blocked": ok(GuardPollRequest{Sample: SensorSample{AtMs: t0, SessionActive: true, Foreground: CatNameGames,
+			ForegroundPath: `c:\users\миша\downloads\supergame.exe`}}, GuardPollReply{
+			Status: okStatus(), Warnings: []GuardWarning{NewGuardWarningFor(5, core.WarnGames, 300)},
+			Commands: []GuardCommand{{Kind: GuardCmdBlocked, Plate: &BlockedPlate{
+				Kind: BlockedUnknown, Text: "Программа «SuperGame» ждёт разрешения родителя", ShowS: 10,
+				Path: `c:\users\миша\downloads\supergame.exe`, CanAsk: true,
+			}}},
+		}),
 		CmdGuardLogoff:     ok(nil, Empty{}),
 		CmdGuardShutdown:   ok(nil, Empty{}),
 		CmdGuardSwitchUser: ok(nil, Empty{}),
@@ -320,6 +349,20 @@ func examples() map[string]example {
 			Exits:     []string{ExitSwitchUser},
 		}),
 		"GuardState#empty": ok(nil, GuardStateReply{}),
+
+		// M3: программы.
+		CmdListPrograms:         ok(nil, programsReply()),
+		"ListPrograms#empty":    ok(nil, ProgramsReply{Pending: []PendingProgramDTO{}, Programs: []ProgramDTO{}, Children: []ChildName{}}),
+		CmdDecideProgram:        ok(DecideProgramRequest{Path: `c:\users\миша\downloads\supergame.exe`, Category: ProgramCatGames}, DecideProgramReply{Message: "SuperGame: игра", UndoID: "p-3", UndoUntilMs: t0 + 10_000, Programs: programsReply()}),
+		"DecideProgram#invalid": fail(DecideProgramRequest{Path: `c:\x.exe`, Category: ProgramCatSystem}, "Выберите: игра, учёба, прочее или запретить", "category", nil),
+		CmdSetProgramsCategory: ok(SetProgramsCategoryRequest{Paths: []string{`c:\program files\bravesoftware\brave-browser\application\brave.exe`}, Category: ProgramCatStudy},
+			DecideProgramReply{Message: "Изменено программ: 1", UndoID: "p-4", UndoUntilMs: t0 + 10_000, Programs: programsReply()}),
+		CmdUndoProgram: ok(UndoProgramRequest{UndoID: "p-4"}, UndoProgramReply{Message: "Решение отменено", Programs: programsReply()}),
+		CmdScanPrograms: ok(nil, ScanProgramsReply{Programs: []ScanProgramDTO{
+			{Path: `c:\program files\minecraft launcher\minecraftlauncher.exe`, Name: "Minecraft Launcher", Publisher: "Mojang", SuggestedCategory: ProgramCatGames},
+			{Path: `c:\program files\bravesoftware\brave-browser\application\brave.exe`, Name: "Brave", Publisher: "Brave Software, Inc.", SuggestedCategory: ProgramCatOther},
+		}}),
+		"ScanPrograms#empty": ok(nil, ScanProgramsReply{Programs: []ScanProgramDTO{}}),
 	}
 }
 
@@ -376,8 +419,8 @@ func TestContractHasEveryCommand(t *testing.T) {
 			t.Errorf("пример для %s есть, а в AllCommands её нет", c)
 		}
 	}
-	if len(AllCommands) != 57 {
-		t.Errorf("команд %d, ждали 57 (46 из M1/M2/0.2.1 без команд Помощника, 9 из фидбек-раунда 0.2.2: OpenLogs, SetNoForbidden, ClearBonus, ReduceBonus, CreatePromo, ListPromos, RedeemPromo, GetBonusRate, SetBonusRate, GuardClosing из раунда 0.2.3 и тестовая TestSession из 0.2.5)", len(AllCommands))
+	if len(AllCommands) != 62 {
+		t.Errorf("команд %d, ждали 62 (46 из M1/M2/0.2.1 без команд Помощника, 9 из фидбек-раунда 0.2.2: OpenLogs, SetNoForbidden, ClearBonus, ReduceBonus, CreatePromo, ListPromos, RedeemPromo, GetBonusRate, SetBonusRate, GuardClosing из раунда 0.2.3, тестовая TestSession из 0.2.5 и 5 программ M3: ListPrograms, DecideProgram, SetProgramsCategory, UndoProgram, ScanPrograms)", len(AllCommands))
 	}
 }
 

@@ -21,6 +21,10 @@ import type {
   TodayCard,
   WeekdayLimit,
   EndMode,
+  PendingProgramDTO,
+  ProgramCategory,
+  ProgramDTO,
+  ProgramsReply,
 } from "../types";
 
 export const DEFAULT_PASSWORD = "секрет-123";
@@ -100,6 +104,9 @@ export interface MockOptions {
   linkDown?: boolean;
   /** Промокоды на старте (R26). */
   promos?: MockPromo[];
+  /** «Программы» на старте (FR-20); по умолчанию - как в примере контракта ListPrograms. */
+  programs?: ProgramDTO[];
+  pending?: PendingProgramDTO[];
 }
 
 export interface MockState {
@@ -139,6 +146,12 @@ export interface MockState {
   bonusRate: number;
   /** Сколько раз просили открыть папку логов (FR-25, D-48). */
   openLogsCount: number;
+  /** Все программы (FR-20). */
+  programs: ProgramDTO[];
+  /** «Ждут решения» (R12), новые сверху. */
+  pending: PendingProgramDTO[];
+  /** «Отменить» решений по программам: снимок списков до решения. */
+  programUndo: Map<string, { programs: ProgramDTO[]; pending: PendingProgramDTO[]; undoUntilMs: number }>;
 }
 
 export type Override = Reply | "reject" | "garbage" | ((request: any) => Reply | Promise<Reply>);
@@ -372,7 +385,7 @@ function statusCore(child: MockChild, nowMs: number): ChildStatus {
   };
 }
 
-function cardOf(child: MockChild, nowMs: number): TodayCard {
+function cardOf(child: MockChild, nowMs: number, pendingPrograms = 0): TodayCard {
   return {
     childId: child.childId,
     sid: child.sid,
@@ -383,7 +396,7 @@ function cardOf(child: MockChild, nowMs: number): TodayCard {
     canClearBlock: false,
     noForbiddenToday: Boolean(child.noForbiddenToday),
     gamesText: gamesTextOf(child, nowMs),
-    pendingPrograms: 0,
+    pendingPrograms,
   };
 }
 
@@ -470,6 +483,10 @@ const PARENT_COMMANDS = new Set([
   "GetBonusRate",
   "SetBonusRate",
   "OpenLogs",
+  "ListPrograms",
+  "DecideProgram",
+  "SetProgramsCategory",
+  "UndoProgram",
 ]);
 
 /** Нормализация промокода как в ядре (R26): без пробелов по краям и без учёта регистра. */
@@ -509,8 +526,18 @@ function makeState(opts: MockOptions): MockState {
     promos: opts.promos ?? [],
     bonusRate: 5,
     openLogsCount: 0,
+    programs: (opts.programs ?? exampleProgramsReply().programs).map((p) => ({ ...p })),
+    pending: (opts.pending ?? exampleProgramsReply().pending).map((p) => ({ ...p, byChild: [...p.byChild] })),
+    programUndo: new Map(),
   };
 }
+
+/** «Программы» из примера контракта (копия). */
+function exampleProgramsReply(): ProgramsReply {
+  return JSON.parse(JSON.stringify(examples.ListPrograms.reply.payload)) as ProgramsReply;
+}
+
+const PROGRAM_CATEGORY_WORD: Record<string, string> = { games: "игра", study: "учёба", other: "прочее", blocked: "запрещена" };
 
 export function createBackend(opts: MockOptions = {}): MockBackend {
   const state = makeState(opts);
@@ -535,6 +562,22 @@ export function createBackend(opts: MockOptions = {}): MockBackend {
     });
   };
   const childById = (id: number) => state.children.find((c) => c.childId === id);
+  const card = (child: MockChild, now: number) => cardOf(child, now, state.pending.length);
+  const programsReply = (): ProgramsReply => ({
+    pending: state.pending.map((p) => ({ ...p, byChild: [...p.byChild] })),
+    programs: [...state.programs].sort((a, b) => a.name.localeCompare(b.name)),
+    children: state.children.map((c) => ({ childId: c.childId, name: c.name })),
+  });
+  const rememberUndo = (now: number) => {
+    const undoId = `p-${state.nextExtraId++}`;
+    state.programUndo.set(undoId, {
+      programs: state.programs.map((p) => ({ ...p })),
+      pending: state.pending.map((p) => ({ ...p, byChild: [...p.byChild] })),
+      undoUntilMs: now + UNDO_WINDOW_MS,
+    });
+    return { undoId, undoUntilMs: now + UNDO_WINDOW_MS };
+  };
+  const parentCategory = (c: unknown): c is ProgramCategory => typeof c === "string" && c in PROGRAM_CATEGORY_WORD;
 
   // Неверный пароль: считаем попытки, после серии закрываем ввод на паузу (R19).
   const deny = (now: number): Reply => {
@@ -652,7 +695,7 @@ export function createBackend(opts: MockOptions = {}): MockBackend {
     },
 
     GetToday: (_req, now) =>
-      okReply({ children: state.children.map((c) => cardOf(c, now)), notices: [...state.notices] }),
+      okReply({ children: state.children.map((c) => card(c, now)), notices: [...state.notices] }),
 
     GetChildRules: (req) => {
       const child = childById(req.childId);
@@ -679,7 +722,7 @@ export function createBackend(opts: MockOptions = {}): MockBackend {
       }
       return okReply({
         rules: { childId: child.childId, name: child.name, limits: limitsWithGames(child.limits), endMode: child.endMode ?? "lock" },
-        card: cardOf(child, now),
+        card: card(child, now),
         message: "Сохранено. Новые правила уже действуют",
       });
     },
@@ -698,7 +741,7 @@ export function createBackend(opts: MockOptions = {}): MockBackend {
       }
       child.schedule = (req.intervals ?? []) as Interval[];
       addEvent(now, child, "settings", `${child.name}: запретные часы изменены`);
-      return okReply({ intervals: child.schedule, card: cardOf(child, now), message: "Сохранено. Новые правила уже действуют" });
+      return okReply({ intervals: child.schedule, card: card(child, now), message: "Сохранено. Новые правила уже действуют" });
     },
 
     CopyRules: (req, now) => {
@@ -753,12 +796,12 @@ export function createBackend(opts: MockOptions = {}): MockBackend {
       if (!child) return fail("Ребёнок не найден");
       child.pauseUntil = "18:30";
       addEvent(now, child, "pause", `${child.name}: пауза`);
-      return okReply({ card: cardOf(child, now), message: "Пауза до 18:30" });
+      return okReply({ card: card(child, now), message: "Пауза до 18:30" });
     },
 
     PauseAll: (_req, now) => {
       for (const c of state.children) c.pauseUntil = "18:30";
-      return okReply({ children: state.children.map((c) => cardOf(c, now)), message: "Пауза для всех детей на 1 ч" });
+      return okReply({ children: state.children.map((c) => card(c, now)), message: "Пауза для всех детей на 1 ч" });
     },
 
     AddExtra: (req, now) => {
@@ -773,7 +816,7 @@ export function createBackend(opts: MockOptions = {}): MockBackend {
       state.extras.push(extra);
       addEvent(now, child, "extra_time", `${child.name}: доп. время +${m} мин`);
       return okReply({
-        card: cardOf(child, now),
+        card: card(child, now),
         message: `Добавлено ${m} ${minutesWord(m)}`,
         extraId: extra.id,
         undoUntilMs: extra.undoUntilMs,
@@ -792,11 +835,11 @@ export function createBackend(opts: MockOptions = {}): MockBackend {
       const newExtra = Math.max(child.extraMin - m, floor);
       const removed = child.extraMin - newExtra;
       child.extraMin = newExtra;
-      if (removed === 0) return okReply({ card: cardOf(child, now), message: "Убирать нечего" });
+      if (removed === 0) return okReply({ card: card(child, now), message: "Убирать нечего" });
       const extra = { id: `e-${state.nextExtraId++}`, childId: child.childId, delta: -removed, undoUntilMs: now + UNDO_WINDOW_MS };
       state.extras.push(extra);
       addEvent(now, child, "extra_time", `${child.name}: доп. время −${removed} мин`);
-      return okReply({ card: cardOf(child, now), message: `Убрано ${removed} ${minutesWord(removed)}`, extraId: extra.id, undoUntilMs: extra.undoUntilMs });
+      return okReply({ card: card(child, now), message: `Убрано ${removed} ${minutesWord(removed)}`, extraId: extra.id, undoUntilMs: extra.undoUntilMs });
     },
 
     // Обнулить доп. время (R10, D-43, «Убрать доп. время»).
@@ -805,11 +848,11 @@ export function createBackend(opts: MockOptions = {}): MockBackend {
       if (!child) return fail("Ребёнок не найден");
       const removed = child.extraMin;
       child.extraMin = 0;
-      if (removed === 0) return okReply({ card: cardOf(child, now), message: "Доп. времени нет" });
+      if (removed === 0) return okReply({ card: card(child, now), message: "Доп. времени нет" });
       const extra = { id: `e-${state.nextExtraId++}`, childId: child.childId, delta: -removed, undoUntilMs: now + UNDO_WINDOW_MS };
       state.extras.push(extra);
       addEvent(now, child, "extra_time", `${child.name}: доп. время убрано`);
-      return okReply({ card: cardOf(child, now), message: "Доп. время убрано", extraId: extra.id, undoUntilMs: extra.undoUntilMs });
+      return okReply({ card: card(child, now), message: "Доп. время убрано", extraId: extra.id, undoUntilMs: extra.undoUntilMs });
     },
 
     UndoExtra: (req, now) => {
@@ -819,14 +862,14 @@ export function createBackend(opts: MockOptions = {}): MockBackend {
       if (now > extra.undoUntilMs) return fail("Отменить уже нельзя: прошло больше 10 секунд");
       child.extraMin -= extra.delta;
       state.extras = state.extras.filter((e) => e !== extra);
-      return okReply({ card: cardOf(child, now), message: "Изменение доп. времени отменено" });
+      return okReply({ card: card(child, now), message: "Изменение доп. времени отменено" });
     },
 
     ClearBlock: (req, now) => {
       const child = childById(req.childId);
       if (!child) return fail("Ребёнок не найден");
       child.blocked = false;
-      return okReply({ card: cardOf(child, now), message: "Блокировка снята" });
+      return okReply({ card: card(child, now), message: "Блокировка снята" });
     },
 
     ParentStats: (req, now) => {
@@ -896,7 +939,7 @@ export function createBackend(opts: MockOptions = {}): MockBackend {
       child.noForbiddenToday = Boolean(req.on);
       addEvent(now, child, "no_forbidden", `${child.name}: запретные часы сегодня ${req.on ? "сняты" : "снова действуют"}`);
       return okReply({
-        card: cardOf(child, now),
+        card: card(child, now),
         message: req.on ? "Сегодня запретные часы не действуют" : "Запретные часы снова действуют сегодня",
       });
     },
@@ -957,7 +1000,7 @@ export function createBackend(opts: MockOptions = {}): MockBackend {
       promo.usedByChild = child.childId;
       child.extraMin += promo.minutes;
       addEvent(now, child, "promo_redeem", `${child.name}: промокод «${promo.codeDisplay}» +${promo.minutes} мин`);
-      return okReply({ card: cardOf(child, now), addedMin: promo.minutes, message: `Добавлено ${promo.minutes} ${minutesWord(promo.minutes)}` });
+      return okReply({ card: card(child, now), addedMin: promo.minutes, message: `Добавлено ${promo.minutes} ${minutesWord(promo.minutes)}` });
     },
 
     // --- Окно ребёнка (D-53): «Попросить ещё», «Взять из копилки», «Настройки для родителя» ---
@@ -974,7 +1017,7 @@ export function createBackend(opts: MockOptions = {}): MockBackend {
       state.attemptsLeft = state.attemptsMax;
       child.extraMin += req.minutes;
       addEvent(now, child, "extra_time", `${child.name}: доп. время +${req.minutes} мин`);
-      return okReply({ card: cardOf(child, now), message: `Добавлено ${req.minutes} ${minutesWord(req.minutes)}` });
+      return okReply({ card: card(child, now), message: `Добавлено ${req.minutes} ${minutesWord(req.minutes)}` });
     },
 
     SpendBonus: (req, now) => {
@@ -997,18 +1040,60 @@ export function createBackend(opts: MockOptions = {}): MockBackend {
         ...(child.bonusLedger ?? []),
       ];
       addEvent(now, child, "bonus_spend", `${child.name}: из копилки -${m} мин`);
-      return okReply({ card: cardOf(child, now), message: `Взято из копилки ${m} мин`, balanceAfter: after });
+      return okReply({ card: card(child, now), message: `Взято из копилки ${m} мин`, balanceAfter: after });
     },
 
     OpenWindow: (req) => {
       if (!["parent", "mystats", "firstrun"].includes(req.kind)) return fail("Не получилось открыть окно. Попробуй ещё раз");
-      state.openedWindows.push(req.kind);
+      if (req.screen !== undefined && req.screen !== "programs") return fail(examples["OpenWindow#badScreen"].reply.error ?? "");
+      state.openedWindows.push(req.screen ? `${req.kind}:${req.screen}` : req.kind);
       return okReply({ opened: true });
     },
 
     OpenLogs: () => {
       state.openLogsCount += 1;
       return okReply({ path: MOCK_LOGS_PATH, message: "Открываю папку с логами" });
+    },
+
+    // --- M3: программы (FR-20) -----------------------------------------------------
+
+    ListPrograms: () => okReply(programsReply()),
+
+    DecideProgram: (req, now) => {
+      if (!parentCategory(req.category)) return fail("Выберите: игра, учёба, прочее или запретить", "category");
+      const p = state.pending.find((x) => x.path === req.path);
+      if (!p) return fail("Программа уже не ждёт решения");
+      const undo = rememberUndo(now);
+      state.pending = state.pending.filter((x) => x !== p);
+      state.programs = state.programs.filter((x) => x.path !== p.path);
+      state.programs.push({ path: p.path, name: p.name, publisher: p.publisher, category: req.category, source: "parent", weekS: 0 });
+      addEvent(now, undefined, "program_decided", `${p.name}: ${PROGRAM_CATEGORY_WORD[req.category]}`);
+      return okReply({ message: `${p.name}: ${PROGRAM_CATEGORY_WORD[req.category]}`, ...undo, programs: programsReply() });
+    },
+
+    SetProgramsCategory: (req, now) => {
+      if (!parentCategory(req.category)) return fail("Выберите: игра, учёба, прочее или запретить", "category");
+      const paths = new Set<string>(req.paths ?? []);
+      const undo = rememberUndo(now);
+      let n = 0;
+      for (const p of state.programs) {
+        if (paths.has(p.path) && (p.category !== req.category || p.source !== "parent")) {
+          p.category = req.category;
+          p.source = "parent";
+          n += 1;
+        }
+      }
+      return okReply({ message: `Изменено программ: ${n}`, ...undo, programs: programsReply() });
+    },
+
+    UndoProgram: (req, now) => {
+      const rec = state.programUndo.get(req.undoId);
+      if (!rec) return fail("Отменить уже нельзя");
+      if (now > rec.undoUntilMs) return fail("Отменить уже нельзя: прошло больше 10 секунд");
+      state.programUndo.delete(req.undoId);
+      state.programs = rec.programs;
+      state.pending = rec.pending;
+      return okReply({ message: "Решение отменено", programs: programsReply() });
     },
 
     GetBonusRate: () => okReply({ minutes: state.bonusRate }),

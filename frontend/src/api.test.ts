@@ -174,3 +174,28 @@ describe("лимиты игр и режим «Когда время вышло»
     expect(mock.calls.filter((c) => c.command === "SaveLimits").map((c) => c.payload.endMode)).toEqual(["study_only", "lock"]);
   });
 });
+
+describe("«Программы» в подменной программе (M3, FR-20)", () => {
+  // Ловит: подмена не умеет решать и отменять (T6 строит экран на ней), карточка «Сегодня» не
+  // считает «Ждут решения», ребёнок без сессии родителя читает программы.
+  it("решение, смена категории и «Отменить»", async () => {
+    const mock = installBackend({ sessionActive: true });
+    const before = await api.listPrograms();
+    expect(before.pending).toHaveLength(1);
+    expect((await api.getToday()).children[0].pendingPrograms).toBe(1);
+    const path = before.pending[0].path;
+    const decided = await api.decideProgram(path, "games");
+    expect(decided.message).toBe("SuperGame: игра");
+    expect(decided.programs.pending).toEqual([]);
+    expect(decided.programs.programs.find((p) => p.path === path)).toMatchObject({ category: "games", source: "parent" });
+    expect((await api.getToday()).children[0].pendingPrograms).toBe(0);
+    const undone = await api.undoProgram(decided.undoId);
+    expect(undone.programs.pending.map((p) => p.path)).toEqual([path]);
+    const brave = before.programs.find((p) => p.name === "Brave")!;
+    const mass = await api.setProgramsCategory([brave.path], "study");
+    expect(mass.programs.programs.find((p) => p.path === brave.path)?.category).toBe("study");
+    await expect(api.decideProgram(path, "system")).rejects.toMatchObject({ field: "category" });
+    mock.state.sessionActive = false;
+    await expect(api.listPrograms()).rejects.toBeInstanceOf(CallError);
+  });
+});

@@ -50,6 +50,13 @@ import type {
   OpenWindowReply,
   WindowKind,
   BonusRateReply,
+  DecideProgramReply,
+  ProgramCategory,
+  ProgramsReply,
+  ScanProgramsReply,
+  SetupProgram,
+  UndoProgramReply,
+  WindowScreen,
 } from "./types";
 
 function bridge(): PCBlockApp {
@@ -134,8 +141,12 @@ export function withGames(limits: WeekdayLimit[]): WeekdayLimit[] {
   return limits.map((l) => ({ gamesMin: 0, gamesUnlimited: true, ...l }));
 }
 
-export async function setup(password: string, children: SetupChild[]): Promise<void> {
-  await call("Setup", { password, children: children.map((c) => ({ ...c, limits: withGames(c.limits) })) });
+export async function setup(password: string, children: SetupChild[], programs?: SetupProgram[]): Promise<void> {
+  await call("Setup", {
+    password,
+    children: children.map((c) => ({ ...c, limits: withGames(c.limits) })),
+    ...(programs?.length ? { programs } : {}),
+  });
 }
 
 export async function resetPassword(newPassword: string): Promise<void> {
@@ -370,8 +381,8 @@ export function redeemPromo(childId: number, code: string): Promise<RedeemPromoR
 }
 
 /** Просит службу открыть окно (Ruling 19): из окна ребёнка - «Настройки для родителя» (D-53). */
-export function openWindow(kind: WindowKind): Promise<OpenWindowReply> {
-  return call("OpenWindow", { kind });
+export function openWindow(kind: WindowKind, screen?: WindowScreen): Promise<OpenWindowReply> {
+  return call("OpenWindow", screen ? { kind, screen } : { kind });
 }
 
 /** Открыть папку с логами в проводнике (FR-25, D-48). */
@@ -387,4 +398,44 @@ export function getBonusRate(): Promise<BonusRateReply> {
 /** Задать настройку автобонуса N (R25, D-49). */
 export function setBonusRate(minutes: number): Promise<BonusRateReply> {
   return call("SetBonusRate", { minutes });
+}
+
+// --- M3: программы (FR-20, FR-2) -------------------------------------------
+
+/** Пустые списки «Программ» приходят как null: приводим к []. */
+function programsOf(r: Partial<ProgramsReply> | undefined | null): ProgramsReply {
+  return {
+    pending: (r?.pending ?? []).map((p) => ({ ...p, byChild: p.byChild ?? [] })),
+    programs: r?.programs ?? [],
+    children: r?.children ?? [],
+  };
+}
+
+/** «Программы»: ждут решения и все программы со временем за неделю. */
+export async function listPrograms(): Promise<ProgramsReply> {
+  return programsOf(await call<object, Partial<ProgramsReply>>("ListPrograms"));
+}
+
+/** Решение по ждущей программе: «Игра», «Учёба», «Прочее» или «Запретить». */
+export async function decideProgram(path: string, category: ProgramCategory): Promise<DecideProgramReply> {
+  const r = await call<object, DecideProgramReply>("DecideProgram", { path, category });
+  return { ...r, programs: programsOf(r.programs) };
+}
+
+/** Смена категории отмеченных программ (массовое изменение). */
+export async function setProgramsCategory(paths: string[], category: ProgramCategory): Promise<DecideProgramReply> {
+  const r = await call<object, DecideProgramReply>("SetProgramsCategory", { paths, category });
+  return { ...r, programs: programsOf(r.programs) };
+}
+
+/** «Отменить» решения по программам (10 с). */
+export async function undoProgram(undoId: string): Promise<UndoProgramReply> {
+  const r = await call<object, UndoProgramReply>("UndoProgram", { undoId });
+  return { ...r, programs: programsOf(r.programs) };
+}
+
+/** Шаг мастера «Программы»: программы компьютера с предложенной категорией. */
+export async function scanPrograms(): Promise<ScanProgramsReply> {
+  const r = await call<object, Partial<ScanProgramsReply>>("ScanPrograms");
+  return { programs: r.programs ?? [] };
 }

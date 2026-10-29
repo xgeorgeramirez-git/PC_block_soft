@@ -111,6 +111,8 @@ export interface SetupChild {
 export interface SetupRequest {
   password: string;
   children: SetupChild[];
+  /** Категории с шага «Программы» (FR-2); нет - категории по умолчанию. */
+  programs?: SetupProgram[];
 }
 
 export interface ResetPasswordRequest {
@@ -473,4 +475,93 @@ export interface SpendBonusReply {
   card: TodayCard;
   message: string;
   balanceAfter: number;
+}
+
+// --- M3: программы (FR-20, FR-2) -------------------------------------------
+
+/** Категория программы; «system» родителю как выбор не показывается. */
+export type ProgramCategory = "games" | "study" | "other" | "blocked" | "system";
+export type ProgramSource = "catalog" | "snapshot" | "parent";
+
+/** Экран окна родителя для OpenWindow (RM3-4). */
+export type WindowScreen = "programs";
+
+export interface ChildName {
+  childId: number;
+  name: string;
+}
+
+export interface PendingChildDTO {
+  childId: number;
+  name: string;
+  attempts: number;
+}
+
+/** Строка «Ждут решения»: «SuperGame - Загрузки - 3 попытки - вчера 18:40». */
+export interface PendingProgramDTO {
+  path: string;
+  name: string;
+  publisher: string;
+  description: string;
+  attempts: number;
+  /** Последняя попытка, UTC мс. */
+  lastAttemptAt: number;
+  /** «раньше: Игра» при смене файла; "" - нет. */
+  wasCategory: string;
+  byChild: PendingChildDTO[];
+}
+
+export interface ProgramDTO {
+  path: string;
+  name: string;
+  publisher: string;
+  category: ProgramCategory;
+  source: ProgramSource;
+  /** Время всех детей за 7 дней, с. */
+  weekS: number;
+}
+
+export interface ProgramsReply {
+  pending: PendingProgramDTO[];
+  programs: ProgramDTO[];
+  children: ChildName[];
+}
+
+export interface DecideProgramRequest {
+  path: string;
+  category: ProgramCategory;
+}
+
+export interface SetProgramsCategoryRequest {
+  paths: string[];
+  category: ProgramCategory;
+}
+
+export interface DecideProgramReply {
+  message: string;
+  undoId: string;
+  undoUntilMs: number;
+  programs: ProgramsReply;
+}
+
+export interface UndoProgramReply {
+  message: string;
+  programs: ProgramsReply;
+}
+
+export interface ScanProgramDTO {
+  path: string;
+  name: string;
+  publisher: string;
+  suggestedCategory: ProgramCategory;
+}
+
+export interface ScanProgramsReply {
+  programs: ScanProgramDTO[];
+}
+
+/** Категория программы, выбранная в мастере (SetupRequest.programs). */
+export interface SetupProgram {
+  path: string;
+  category: ProgramCategory;
 }
