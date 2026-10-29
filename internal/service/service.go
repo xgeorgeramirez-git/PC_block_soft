@@ -133,9 +133,10 @@ type childState struct {
 	haveSample    bool
 	warns         []pendingWarning
 	undo          *undoRec
-	bonusUndo     *undoRec  // отмена последнего начисления копилки на 10 с (FR-22)
-	lastBypass    string    // последняя записанная попытка обхода (дедуп журнала, D-41)
-	lastBypassAt  time.Time // когда записана; страж повторяет сообщение каждую секунду
+	bonusUndo     *undoRec             // отмена последнего начисления копилки на 10 с (FR-22)
+	lastBypass    string               // последняя записанная попытка обхода (дедуп журнала, D-41)
+	lastBypassAt  time.Time            // когда записана; страж повторяет сообщение каждую секунду
+	usage         map[progUsageKey]int // учёт по программам с прошлого сохранения (RM3-6); пишется в saveState
 }
 
 // Service — служба PCBlock без привязки к Windows: логика на портах (doc.go).
@@ -177,6 +178,7 @@ type Service struct {
 	// ограничитель повторов журнала и плашек (под s.mu).
 	watch   watchState
 	watchAt map[string]time.Time
+	fpSeen  map[string]string // отпечатки файлов, которые прочитал наблюдатель: путь → отпечаток (для категории секунды)
 
 	bypassWait []pendingBypass // гибель стража, значка или окна, о которой ещё не решено, обход ли это (FB-1)
 	logoffs    []logoffMark    // недавние выходы из учёток: гибель рядом с ними в отключённом сеансе ребёнка не обход (FB-5)
@@ -446,10 +448,37 @@ func (s *Service) saveState(cs *childState, st core.DayState) {
 	if st.Day == "" {
 		return
 	}
-	if err := s.cfg.Store.SaveDayState(cs.child.ID, st); err != nil {
-		s.logRate(fmt.Sprint("save", cs.child.ID), "состояние дня %s у %s не сохранено: %v", st.Day, cs.child.Name, err)
+	if len(cs.usage) == 0 {
+		if err := s.cfg.Store.SaveDayState(cs.child.ID, st); err != nil {
+			s.logRate(fmt.Sprint("save", cs.child.ID), "состояние дня %s у %s не сохранено: %v", st.Day, cs.child.Name, err)
+		}
+		return
 	}
+	// Учёт по программам — той же транзакцией (RM3-6). Каждая порция несёт свой день: сброс после
+	// полуночи не переносит вчерашние секунды в сегодня (PL-15). Ошибка — накопитель остаётся.
+	rows := make([]UsageRow, 0, len(cs.usage))
+	for k, sec := range cs.usage {
+		rows = append(rows, UsageRow{Day: k.day, Category: k.cat, Kind: usageKindProgram, Subject: k.path, Seconds: sec})
+	}
+	sort.Slice(rows, func(i, j int) bool {
+		a, b := rows[i], rows[j]
+		if a.Day != b.Day {
+			return a.Day < b.Day
+		}
+		if a.Category != b.Category {
+			return a.Category < b.Category
+		}
+		return a.Subject < b.Subject
+	})
+	if err := s.cfg.Store.SaveDayAndUsage(cs.child.ID, st, rows); err != nil {
+		s.logRate(fmt.Sprint("save", cs.child.ID), "состояние дня %s и учёт программ у %s не сохранены: %v", st.Day, cs.child.Name, err)
+		return
+	}
+	cs.usage = nil
 }
+
+// usageKindProgram — вид предмета учёта usage_daily: программа (путь exe).
+const usageKindProgram = "program"
 
 // afterDecision разбирает решение ядра: закрытый день, события, предупреждение.
 func (s *Service) afterDecision(cs *childState, d core.Decision, extra map[string]any) {

@@ -128,9 +128,14 @@ func (s *Service) Watch(real time.Time) {
 			}
 		}
 	}
+	fps := map[string]string{}
 	for k, e := range s.watch.procs {
 		if e.seen != gen {
 			delete(s.watch.procs, k)
+			continue
+		}
+		if e.fpRead {
+			fps[e.norm] = e.fp
 		}
 	}
 	for i := range acts {
@@ -147,6 +152,7 @@ func (s *Service) Watch(real time.Time) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.real = real
+	s.fpSeen = fps // категория секунды переднего плана сверяет тот же отпечаток (RM3-12)
 	s.applyWatch(acts, notes, unreadable, real)
 }
 
