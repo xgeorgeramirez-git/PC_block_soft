@@ -78,6 +78,8 @@ export interface MockPromo {
 
 export interface MockOptions {
   mode?: string;
+  /** Экран окна родителя по ключу --screen (App.StartScreen, RM3-4); по умолчанию пусто. */
+  startScreen?: string;
   version?: string;
   testMode?: boolean;
   /** Пароль родителя уже задан, мастер пройден. */
@@ -111,6 +113,7 @@ export interface MockOptions {
 
 export interface MockState {
   mode: string;
+  startScreen: string;
   version: string;
   testMode: boolean;
   configured: boolean;
@@ -498,6 +501,7 @@ function makeState(opts: MockOptions): MockState {
   const attempts = opts.attempts ?? 5;
   return {
     mode: opts.mode ?? "window",
+    startScreen: opts.startScreen ?? "",
     version: opts.version ?? DEFAULT_VERSION,
     testMode: opts.testMode ?? false,
     configured,
@@ -1183,6 +1187,7 @@ export function installBackend(opts: MockOptions = {}, target: Window = window):
       App: {
         Call: (command, payload) => backend.call(command, payload),
         Mode: () => Promise.resolve(backend.state.mode),
+        StartScreen: () => Promise.resolve(backend.state.startScreen),
         Version: () => Promise.resolve(backend.state.version),
         Finish: (code) => {
           backend.state.finishCode = code;

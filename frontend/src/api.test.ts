@@ -129,6 +129,26 @@ describe("вход и сессия", () => {
     expect(await api.version()).toBe("1.2.3");
   });
 
+  it("startScreen отдаёт экран окна родителя из ключа --screen (RM3-4)", async () => {
+    installBackend({ mode: "parent", startScreen: "programs" });
+    expect(await api.startScreen()).toBe("programs");
+    installBackend({ mode: "parent" });
+    expect(await api.startScreen()).toBe("");
+    installBackend({ mode: "parent", startScreen: "settings" });
+    expect(await api.startScreen()).toBe("");
+  });
+
+  it("startScreen без моста или без метода - главный экран, не ошибка", async () => {
+    delete window.go;
+    expect(await api.startScreen()).toBe("");
+    window.go = { ui: { App: { Call: () => Promise.resolve("{}"), Mode: () => Promise.resolve("parent"), Version: () => Promise.resolve("0") } } };
+    expect(await api.startScreen()).toBe("");
+    window.go = {
+      ui: { App: { Call: () => Promise.resolve("{}"), Mode: () => Promise.resolve("parent"), Version: () => Promise.resolve("0"), StartScreen: () => Promise.reject(new Error("x")) } },
+    };
+    expect(await api.startScreen()).toBe("");
+  });
+
   it("mode и version без моста - ошибка связи", async () => {
     await expect(api.mode()).rejects.toMatchObject({ link: true });
     await expect(api.version()).rejects.toMatchObject({ link: true });

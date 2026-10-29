@@ -61,3 +61,30 @@ func TestFinishSetsExitCode(t *testing.T) {
 		}
 	}
 }
+
+// Ловит (RM3-4): окно родителя, открытое «Попросить сейчас» (--screen=programs), не знает своего
+// экрана; другие окна или окно без ключа отдают экран.
+func TestStartScreen(t *testing.T) {
+	for _, args := range []struct {
+		argv []string
+		want string
+	}{
+		{[]string{"--parent", "--screen=programs"}, "programs"},
+		{[]string{"--parent"}, ""},
+		{[]string{"--mystats"}, ""},
+		{nil, ""},
+	} {
+		mode, opts, err := launch.Parse(args.argv)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := NewApp(mode, opts).StartScreen(); got != args.want {
+			t.Errorf("%q: StartScreen() = %q, ждали %q", args.argv, got, args.want)
+		}
+	}
+	a := newTestApp(launch.ModeMyStats, ipc.OK(ipc.Empty{}))
+	a.opts = launch.Options{"screen": "programs"}
+	if got := a.StartScreen(); got != "" {
+		t.Errorf("«Моя статистика» с экраном: %q", got)
+	}
+}

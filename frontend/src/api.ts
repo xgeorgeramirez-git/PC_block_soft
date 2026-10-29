@@ -2,7 +2,8 @@
 // так их проще тестировать с подменой (__mocks__/backend.ts) и так сбои моста превращаются
 // в простые слова в одном месте (lib/errors.ts, урок L-112).
 //
-// Мост даёт три метода: Call(команда, JSON запроса) -> JSON ответа, Mode(), Version().
+// Мост даёт методы Call(команда, JSON запроса) -> JSON ответа, Mode(), StartScreen(), Version()
+// и Finish(код).
 // Типы запросов и ответов - types.ts (зеркало internal/ipc/commands.go). Массивы в ответах
 // приводятся к пустым спискам: Go отдаёт nil-срез как null (урок L-22).
 import { CallError, linkError, replyError } from "./lib/errors";
@@ -113,6 +114,24 @@ async function viaBridge(method: "Mode" | "Version"): Promise<string> {
 /** Режим окна по ключу запуска (internal/launch). */
 export async function mode(): Promise<WindowMode> {
   return (await viaBridge("Mode")) as WindowMode;
+}
+
+/**
+ * Экран, на котором открыто окно родителя (ключ --screen, RM3-4): «programs» после «Попросить
+ * сейчас» на плашке; "" — главный экран. Старый мост без метода и неизвестное значение дают "".
+ */
+export async function startScreen(): Promise<WindowScreen | ""> {
+  const app = window.go?.ui?.App;
+  if (!app?.StartScreen) {
+    return "";
+  }
+  let raw: string;
+  try {
+    raw = String(await app.StartScreen());
+  } catch {
+    return "";
+  }
+  return raw === "programs" ? raw : "";
 }
 
 /** Версия программы для показа в окне. */
