@@ -349,6 +349,11 @@ func examples() map[string]example {
 			Exits:     []string{ExitSwitchUser},
 		}),
 		"GuardState#empty": ok(nil, GuardStateReply{}),
+		"GuardState#blocked": ok(nil, GuardStateReply{
+			Plate: "Программа «SuperGame» ждёт разрешения родителя", PlateKind: BlockedUnknown,
+			Buttons: []string{"askNow", "plateClose"}, ForegroundPath: `c:\users\миша\downloads\supergame.exe`,
+		}),
+		"TestGuard#foreground": ok(TestGuardRequest{Action: TestGuardAction{Action: TestForeground, Text: `c:\users\runneradmin\appdata\local\temp\pcb\game.exe`}}, Empty{}),
 
 		// M3: программы.
 		CmdListPrograms:         ok(nil, programsReply()),

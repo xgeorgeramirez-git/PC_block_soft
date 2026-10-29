@@ -1120,6 +1120,7 @@
         "lockShown": true,
         "lockKind": "timeUp",
         "plate": "",
+        "plateKind": "",
         "buttons": [
           "parentPassword",
           "shutdown",
@@ -1134,7 +1135,33 @@
         ],
         "exits": [
           "switchUser"
-        ]
+        ],
+        "foregroundPath": ""
+      }
+    }
+  },
+  "GuardState#blocked": {
+    "reply": {
+      "ok": true,
+      "payload": {
+        "warnings": [],
+        "sounds": [],
+        "ui": {
+          "tickMs": 0,
+          "ticks": 0,
+          "panic": ""
+        },
+        "lockShown": false,
+        "lockKind": "",
+        "plate": "Программа «SuperGame» ждёт разрешения родителя",
+        "plateKind": "unknown",
+        "buttons": [
+          "askNow",
+          "plateClose"
+        ],
+        "fields": [],
+        "exits": [],
+        "foregroundPath": "c:\\users\\миша\\downloads\\supergame.exe"
       }
     }
   },
@@ -1152,9 +1179,11 @@
         "lockShown": false,
         "lockKind": "",
         "plate": "",
+        "plateKind": "",
         "buttons": [],
         "fields": [],
-        "exits": []
+        "exits": [],
+        "foregroundPath": ""
       }
     }
   },
@@ -2680,6 +2709,18 @@
       "action": {
         "action": "click",
         "target": "parentPassword"
+      }
+    },
+    "reply": {
+      "ok": true,
+      "payload": {}
+    }
+  },
+  "TestGuard#foreground": {
+    "request": {
+      "action": {
+        "action": "foreground",
+        "text": "c:\\users\\runneradmin\\appdata\\local\\temp\\pcb\\game.exe"
       }
     },
     "reply": {

@@ -57,7 +57,7 @@ const (
 type BlockedPlate struct {
 	Kind   string `json:"kind"`   // Blocked*
 	Text   string `json:"text"`   // «Программа «SuperGame» ждёт разрешения родителя»
-	ShowS  int    `json:"showS"`  // секунд показа; 0 — пока ребёнок не закроет
+	ShowS  int    `json:"showS"`  // секунд показа; 0 — срок стража (8 с, у BlockedDecided 10 с)
 	Path   string `json:"path"`   // путь exe; «» — не про одну программу
 	CanAsk bool   `json:"canAsk"` // кнопка «Попросить сейчас»
 }

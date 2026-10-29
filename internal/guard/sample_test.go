@@ -2,6 +2,7 @@ package guard
 
 import (
 	"math"
+	"strings"
 	"testing"
 	"time"
 
@@ -33,10 +34,12 @@ func TestScaleIdle(t *testing.T) {
 func TestBuildSampleFillsFieldsAndKeepsNothingElse(t *testing.T) {
 	loc := time.FixedZone("MSK", 3*3600)
 	now := time.Date(2026, 10, 19, 15, 0, 7, 0, loc)
-	s := BuildSample(now, RawSensors{IdleMs: 4200, Fullscreen: true}, 1)
+	game := `C:\Users\Миша\Downloads\SuperGame.exe`
+	s := BuildSample(now, RawSensors{IdleMs: 4200, Fullscreen: true, ForegroundPath: game}, 1)
+	// Категорию по пути определяет служба (RM3-1): страж шлёт путь как есть и «Прочее».
 	want := ipc.SensorSample{
 		AtMs: now.UnixMilli(), TzOffsetMin: 180, SessionActive: true,
-		LastInputAgoMs: 4200, Fullscreen: true, Foreground: ipc.CatNameOther,
+		LastInputAgoMs: 4200, Fullscreen: true, Foreground: ipc.CatNameOther, ForegroundPath: game,
 	}
 	if s != want {
 		t.Fatalf("снимок:\n%+v\nждали\n%+v", s, want)
@@ -50,6 +53,40 @@ func TestBuildSampleFillsFieldsAndKeepsNothingElse(t *testing.T) {
 	}
 	if got := BuildSample(now, RawSensors{IdleMs: 3000}, 20).LastInputAgoMs; got != 60000 {
 		t.Fatalf("простой в тестовом режиме: %d, ждали 60000", got)
+	}
+}
+
+// Ловит (R23, RM3-1, PL-9): путь длиннее предела канала уходит службе (служба его отбросит,
+// но страж не должен слать лишнее), окна PC Block и самого стража считаются программой ребёнка.
+func TestForegroundPathFor(t *testing.T) {
+	const own, dir = 4242, `C:\Program Files\PC Block`
+	long := `C:\` + strings.Repeat("я", 517) // 520 символов
+	cases := []struct {
+		name string
+		path string
+		pid  uint32
+		want string
+	}{
+		{"программа ребёнка", `C:\Users\Миша\Downloads\SuperGame.exe`, 100, `C:\Users\Миша\Downloads\SuperGame.exe`},
+		{"окно самого стража", `C:\Windows\Temp\guard.exe`, own, ""},
+		{"значок PC Block", `C:\Program Files\PC Block\PCBlock.exe`, 200, ""},
+		{"регистр каталога установки", `c:\program files\pc block\PCBlock.exe`, 200, ""},
+		{"соседний каталог с тем же началом", `C:\Program Files\PC Block Games\x.exe`, 200, `C:\Program Files\PC Block Games\x.exe`},
+		{"путь не прочитан", "", 200, ""},
+		{"нет процесса", `C:\x.exe`, 0, ""},
+		{"ровно 520 символов", long, 200, long},
+		{"521 символ", long + "z", 200, ""},
+	}
+	for _, c := range cases {
+		if got := ForegroundPathFor(c.path, c.pid, own, dir); got != c.want {
+			t.Errorf("%s: %q, ждали %q", c.name, got, c.want)
+		}
+	}
+	if got := ForegroundPathFor(`C:\Program Files\PC Block\PCBlock.exe`, 200, own, dir+`\`); got != "" {
+		t.Errorf("каталог установки с разделителем в конце: %q", got)
+	}
+	if got := ForegroundPathFor(`C:\a.exe`, 200, own, ""); got != `C:\a.exe` {
+		t.Errorf("каталог установки не известен: %q", got)
 	}
 }
 

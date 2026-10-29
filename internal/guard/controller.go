@@ -66,6 +66,11 @@ type Controller struct {
 	tests     []ipc.TestGuardAction
 	fields    map[string]string
 	sentState []byte
+	// fgSet/fgPath — подмена пути переднего плана действием TestForeground (только тестовый
+	// режим, RM3-8); lastFg — путь из последнего отправленного снимка (GuardState).
+	fgSet  bool
+	fgPath string
+	lastFg string
 
 	closingMu   sync.Mutex
 	closingDone bool // GuardClosing в этом конце сеанса уже отправлен (или попытка не удалась)
@@ -290,6 +295,12 @@ func (c *Controller) PollOnce() PollResult {
 	c.ensureHello()
 	now := c.now()
 	req := ipc.GuardPollRequest{Sample: c.read(now), Events: c.takeEvents()}
+	c.mu.Lock()
+	if c.fgSet && c.testMode {
+		req.Sample.ForegroundPath = c.fgPath
+	}
+	c.lastFg = req.Sample.ForegroundPath
+	c.mu.Unlock()
 	var rep ipc.GuardPollReply
 	if err := ipc.Call(c.call, ipc.CmdGuardPoll, "", req, &rep); err != nil {
 		c.requeue(req.Events)
@@ -336,7 +347,12 @@ func (c *Controller) PollOnce() PollResult {
 		c.addEventLocked(ipc.GuardEvent{Kind: EvKindOffline, AtMs: now.UnixMilli(), Threshold: secs, Detail: text})
 	}
 	for _, t := range cmds.Tests {
-		if c.testMode {
+		switch {
+		case !c.testMode:
+		case t.Action == ipc.TestForeground:
+			// Подмена переднего плана — дело контроллера, не окна: действует со следующего снимка.
+			c.fgSet, c.fgPath = t.Text != "", t.Text
+		default:
 			c.tests = append(c.tests, t)
 		}
 	}
@@ -745,6 +761,7 @@ func (c *Controller) PushState() {
 	}
 	st := StateFromView(c.last, c.lastLock, c.shown, c.sounds, c.fields)
 	st.UI = c.ui
+	st.ForegroundPath = c.lastFg
 	c.mu.Unlock()
 	if p, ok := lastPanic.Load().(string); ok {
 		st.UI.Panic = p

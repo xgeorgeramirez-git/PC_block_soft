@@ -613,6 +613,10 @@ const (
 	// TestEndSession: страж проходит тот же путь, что при конце сеанса Windows (WM_ENDSESSION):
 	// сообщает службе GuardClosing и завершается. Приёмка проверяет, что это не обход (FB-1).
 	TestEndSession = "endSession"
+	// TestForeground: страж подменяет SensorSample.ForegroundPath путём Text во всех следующих
+	// снимках, пока не придёт новое действие foreground (M3, приёмка S12…S15); пустой Text
+	// возвращает настоящее чтение переднего плана.
+	TestForeground = "foreground"
 )
 
 // TestGuardAction — одно действие стражу.
@@ -713,13 +717,26 @@ type GuardStateReply struct {
 	LockShown bool           `json:"lockShown"` // экран блокировки показан
 	LockKind  string         `json:"lockKind"`  // Lock*
 	Plate     string         `json:"plate"`     // текст видимой плашки или табло предупреждения; пусто — плашки нет
+	PlateKind string         `json:"plateKind"` // вид видимой плашки: Plate* или Blocked*; пусто — плашки нет
 	Buttons   []string       `json:"buttons"`   // видимые кнопки (Button*)
 	Fields    []GuardField   `json:"fields"`    // поля ввода и их текст
 	// Exits — выходы, о которых страж просил службу в тестовом режиме (Exit*), по порядку.
 	// В тестовом режиме служба их не выполняет, а записывает: раннер CI нельзя выключить или
 	// отключить. Заполняет служба при чтении; то, что прислал страж, отбрасывается.
 	Exits []string `json:"exits"`
+	// ForegroundPath — путь переднего плана, который страж отправил службе последним снимком
+	// (M3; подмена TestForeground тоже видна здесь); «» — не определён.
+	ForegroundPath string `json:"foregroundPath"`
 }
+
+// Виды плашек стража для GuardStateReply.PlateKind, кроме плашек о закрытых программах (их вид —
+// BlockedPlate.Kind).
+const (
+	PlateBoard     = "board"     // табло за 30, 15 и 5 мин
+	PlateOneMinute = "oneMinute" // плашка 1 мин с отсчётом
+	PlateAdded     = "added"     // «Добавлено N минут»
+	PlateNotice    = "notice"    // короткое сообщение стража (команда службе не прошла)
+)
 
 // Выходы с экрана блокировки для GuardStateReply.Exits (тестовый режим).
 const (

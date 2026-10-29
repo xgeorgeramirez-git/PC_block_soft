@@ -4,6 +4,7 @@ package guard
 
 import (
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 	"unsafe"
@@ -43,11 +44,45 @@ func TestReadSensorsIsSane(t *testing.T) {
 		t.Fatalf("время простоя отрицательное: %d", s.LastInputAgoMs)
 	}
 	if s.Foreground != ipc.CatNameOther {
-		t.Fatalf("категория переднего плана %q, в M1 всегда %q", s.Foreground, ipc.CatNameOther)
+		t.Fatalf("категория переднего плана %q, ждали %q: категорию по пути определяет служба", s.Foreground, ipc.CatNameOther)
+	}
+	if n := len([]rune(s.ForegroundPath)); n > ipc.MaxForegroundPathLen {
+		t.Fatalf("путь переднего плана длиннее %d символов: %d", ipc.MaxForegroundPathLen, n)
 	}
 	fast := ReadSensors(now, 10)
 	if fast.LastInputAgoMs < s.LastInputAgoMs {
 		t.Fatalf("при ускорении простой не может стать меньше: %d < %d", fast.LastInputAgoMs, s.LastInputAgoMs)
+	}
+}
+
+var procGetShellWindow = user32.NewProc("GetShellWindow")
+
+// Ловит (R3, R23, PL-9): путь программы окна не читается или читается с 8.3-именами, окно самого
+// стража уходит службе как программа ребёнка, нет окна — не пусто.
+func TestForegroundPathOfWindows(t *testing.T) {
+	if got := foregroundPath(0); got != "" {
+		t.Fatalf("нет окна: %q", got)
+	}
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	p, err := newPlateWindow()
+	if err != nil {
+		t.Skipf("окно создать нельзя (нет рабочего стола): %v", err)
+	}
+	defer func() {
+		p.close()
+		pump(20 * time.Millisecond)
+	}()
+	if got := foregroundPath(p.hwnd); got != "" {
+		t.Fatalf("окно самого стража ушло службе: %q", got)
+	}
+	shell, _, _ := procGetShellWindow.Call()
+	if shell == 0 {
+		t.Skip("нет окна рабочего стола (explorer не запущен)")
+	}
+	got := foregroundPath(shell)
+	if !strings.HasSuffix(strings.ToLower(got), `\explorer.exe`) || strings.Contains(got, "~") {
+		t.Fatalf("путь окна рабочего стола: %q", got)
 	}
 }
 
