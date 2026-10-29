@@ -97,6 +97,9 @@ type Config struct {
 	Scanner  Scanner
 	FileMeta FileMeta
 	Roots    programs.Roots
+	// Watcher — процессы сеансов для наблюдателя (R12, R13, R5, R8, NFR-6): закрывает незнакомое,
+	// запрещённое и то, что сейчас нельзя. nil: наблюдение выключено, ничего не закрывается.
+	Watcher ProcessWatcher
 }
 
 // pendingWarning — предупреждение, ещё не доставленное стражу.
@@ -169,6 +172,11 @@ type Service struct {
 	progTryAt  time.Time
 	progUndo   *progUndoRec
 	scan       *scanFlight // идущее сканирование программ (вне s.mu, Д-2); nil — не идёт
+
+	// Наблюдатель процессов (M3, watch.go): память о процессах (своя блокировка, не s.mu) и
+	// ограничитель повторов журнала и плашек (под s.mu).
+	watch   watchState
+	watchAt map[string]time.Time
 
 	bypassWait []pendingBypass // гибель стража, значка или окна, о которой ещё не решено, обход ли это (FB-1)
 	logoffs    []logoffMark    // недавние выходы из учёток: гибель рядом с ними в отключённом сеансе ребёнка не обход (FB-5)

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"pcblock/internal/core"
+	"pcblock/internal/programs"
 )
 
 // Тестовый режим (ТЗ 10.8, Ruling 4): ключ реестра HKLM\SOFTWARE\PCBlock\TestMode, писать в
@@ -22,6 +23,7 @@ const (
 	valClockRealStart = "ClockRealStart"
 	valTestChildSID   = "TestChildSID"
 	valLockAutoSwitch = "LockAutoSwitchS"
+	valWatchDir       = "WatchDir"
 
 	// MaxClockSpeed — наибольшее ускорение: период тика не короче миллисекунды.
 	MaxClockSpeed = 1000
@@ -32,7 +34,7 @@ const (
 )
 
 // TestModeValueNames — значения ключа, которые читает служба.
-var TestModeValueNames = []string{valDataDir, valClockSpeed, valClockStart, valClockRealStart, valTestChildSID, valLockAutoSwitch}
+var TestModeValueNames = []string{valDataDir, valClockSpeed, valClockStart, valClockRealStart, valTestChildSID, valLockAutoSwitch, valWatchDir}
 
 // TestMode — значения тестового режима.
 type TestMode struct {
@@ -45,6 +47,10 @@ type TestMode struct {
 	// LockAutoSwitchS — срок автоматической смены пользователя на экране блокировки в секундах
 	// (1 до 900); 0: обычные 15 минут. Приёмка не ждёт 15 минут настоящих часов.
 	LockAutoSwitchS int
+	// WatchDir — папка тестовых программ (RM3-8), нормализованная programs.Normalize: в тестовом
+	// режиме наблюдатель трогает только процессы, чей путь внутри неё (иначе он завершил бы
+	// раннер). Пусто — наблюдатель в тестовом режиме ничего не закрывает.
+	WatchDir string
 }
 
 // momentLayouts — допустимые записи момента: с поясом или местное время без пояса.
@@ -116,6 +122,13 @@ func ParseTestMode(values map[string]string, loc *time.Location) (TestMode, erro
 			return TestMode{}, fmt.Errorf("Тестовый режим: %s должно быть целым числом от 1 до %d, а не %q", valLockAutoSwitch, MaxLockAutoSwitchS, s)
 		}
 		tm.LockAutoSwitchS = n
+	}
+	if s := strings.TrimSpace(values[valWatchDir]); s != "" {
+		dir := programs.Normalize(s)
+		if dir == "" || strings.HasSuffix(dir, `\`) {
+			return TestMode{}, fmt.Errorf("Тестовый режим: %s должен быть полным путём к папке вида C:\\Temp\\pcb-programs, а не %q", valWatchDir, s)
+		}
+		tm.WatchDir = dir
 	}
 	return tm, nil
 }

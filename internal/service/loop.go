@@ -194,8 +194,14 @@ func (cs *childState) expireWarnings(real time.Time) {
 // TickInterval возвращает настоящий период тика: секунда часов ядра (Ruling 4).
 func (s *Service) TickInterval() time.Duration { return s.cfg.Test.TickInterval() }
 
-// RunLoop крутит тики и обслуживание, пока не отменён ctx. Тик идёт раз в секунду часов ядра, обслуживание раз в настоящую секунду.
+// RunLoop крутит тики и обслуживание, пока не отменён ctx. Тик идёт раз в секунду часов ядра,
+// обслуживание раз в настоящую секунду. Наблюдатель процессов — в своей горутине на своём тикере
+// по настоящим часам (RunWatch, RM3-11): долгий Kill не задерживает тик, а ускорение часов не
+// меняет период опроса. RunLoop возвращается, когда остановлены оба.
 func (s *Service) RunLoop(ctx context.Context) {
+	watchDone := make(chan struct{})
+	go func() { defer close(watchDone); s.RunWatch(ctx) }()
+	defer func() { <-watchDone }()
 	tick := time.NewTicker(s.TickInterval())
 	house := time.NewTicker(time.Second)
 	defer tick.Stop()

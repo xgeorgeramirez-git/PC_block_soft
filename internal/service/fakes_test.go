@@ -1085,3 +1085,162 @@ func (m *fakeMeta) askedPaths() []string {
 	defer m.mu.Unlock()
 	return append([]string{}, m.asked...)
 }
+
+// --- процессы сеансов для наблюдателя (M3) ----------------------------------------------
+
+// fakeWatcher — процессы по сеансам, журнал завершений, ошибки списка, «защищённые» процессы,
+// которые Kill не берёт, и задержка Kill (проверка, что канал не ждёт завершения).
+type fakeWatcher struct {
+	mu        sync.Mutex
+	procs     []ProcInfo       // все живые процессы; List отдаёт по сеансу (или всё из listAll)
+	listAll   map[uint32]bool  // List этого сеанса возвращает процессы всех сеансов (адаптер ошибся)
+	listErr   map[uint32]error // ошибка List по сеансу
+	protected map[uint32]bool  // PID, которые Kill не завершает
+	killGate  chan struct{}    // не nil: Kill ждёт, пока его закроют
+	killIn    chan struct{}    // сигнал о входе в Kill
+	lists     map[uint32]int   // вызовы List по сеансу
+	killed    []ProcInfo       // завершённые
+	tries     int              // вызовы Kill
+	listAt    []time.Time      // моменты вызовов List (настоящие часы)
+	killAt    map[uint32]time.Time
+	nextPID   uint32
+}
+
+func newWatcher() *fakeWatcher {
+	return &fakeWatcher{listAll: map[uint32]bool{}, listErr: map[uint32]error{}, protected: map[uint32]bool{},
+		lists: map[uint32]int{}, killAt: map[uint32]time.Time{}, nextPID: 5000}
+}
+
+func (w *fakeWatcher) List(session uint32) ([]ProcInfo, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.lists[session]++
+	w.listAt = append(w.listAt, time.Now())
+	if err := w.listErr[session]; err != nil {
+		return nil, err
+	}
+	out := []ProcInfo{}
+	for _, p := range w.procs {
+		if p.SessionID == session || w.listAll[session] {
+			out = append(out, p)
+		}
+	}
+	return out, nil
+}
+
+func (w *fakeWatcher) Kill(p ProcInfo) bool {
+	w.mu.Lock()
+	gate, in := w.killGate, w.killIn
+	w.tries++
+	w.mu.Unlock()
+	if in != nil {
+		select {
+		case in <- struct{}{}:
+		default:
+		}
+	}
+	if gate != nil {
+		<-gate
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.protected[p.PID] {
+		return false
+	}
+	for i, q := range w.procs {
+		if q.PID == p.PID && q.Stamp == p.Stamp {
+			w.procs = append(w.procs[:i], w.procs[i+1:]...)
+			w.killed = append(w.killed, q)
+			w.killAt[q.PID] = time.Now()
+			return true
+		}
+	}
+	return false
+}
+
+// start запускает процесс с путём path в сеансе session и возвращает его.
+func (w *fakeWatcher) start(session uint32, path string) ProcInfo {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.nextPID++
+	p := ProcInfo{PID: w.nextPID, Stamp: uint64(w.nextPID) * 7, SessionID: session, Path: path, PathOK: path != ""}
+	w.procs = append(w.procs, p)
+	return p
+}
+
+// add добавляет процесс как есть (свой PID, Stamp, нечитаемый путь).
+func (w *fakeWatcher) add(p ProcInfo) {
+	w.mu.Lock()
+	w.procs = append(w.procs, p)
+	w.mu.Unlock()
+}
+
+// exit — процесс завершился сам.
+func (w *fakeWatcher) exit(p ProcInfo) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	for i, q := range w.procs {
+		if q.PID == p.PID && q.Stamp == p.Stamp {
+			w.procs = append(w.procs[:i], w.procs[i+1:]...)
+			return
+		}
+	}
+}
+
+// alive сообщает, что процесс ещё работает.
+func (w *fakeWatcher) alive(p ProcInfo) bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	for _, q := range w.procs {
+		if q.PID == p.PID && q.Stamp == p.Stamp {
+			return true
+		}
+	}
+	return false
+}
+
+// killedPaths — пути завершённых процессов по порядку.
+func (w *fakeWatcher) killedPaths() []string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	out := []string{}
+	for _, p := range w.killed {
+		out = append(out, p.Path)
+	}
+	return out
+}
+
+// listCalls — вызовы List по сеансам.
+func (w *fakeWatcher) listCalls() map[uint32]int {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	out := map[uint32]int{}
+	for k, v := range w.lists {
+		out[k] = v
+	}
+	return out
+}
+
+// listCount — все вызовы List.
+func (w *fakeWatcher) listCount() int {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return len(w.listAt)
+}
+
+// holdKill включает задержку Kill до releaseKill.
+func (w *fakeWatcher) holdKill() {
+	w.mu.Lock()
+	w.killGate, w.killIn = make(chan struct{}), make(chan struct{}, 8)
+	w.mu.Unlock()
+}
+
+func (w *fakeWatcher) releaseKill() {
+	w.mu.Lock()
+	g := w.killGate
+	w.killGate = nil
+	w.mu.Unlock()
+	if g != nil {
+		close(g)
+	}
+}

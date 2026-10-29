@@ -177,6 +177,27 @@ type Scanner interface {
 // отпечаток «размер:время изменения unix» (RM3-12). Не прочиталось — пустые строки.
 type FileMeta func(path string) (publisher, description, fingerprint string)
 
+// ProcInfo — процесс сеанса для наблюдателя (M3: R12, R13, NFR-6, RM3-11). Пара (PID, Stamp)
+// не повторяется, в отличие от PID: Stamp — момент создания процесса. Path — полный путь exe
+// (адаптер разворачивает 8.3-имена и junction); PathOK = false — путь не прочитан (защищённый
+// процесс, отказ в доступе): такой процесс наблюдатель не трогает (PL-9).
+type ProcInfo struct {
+	PID       uint32
+	Stamp     uint64
+	SessionID uint32
+	Path      string
+	PathOK    bool
+}
+
+// ProcessWatcher — процессы сеансов Windows для наблюдателя (Windows-реализация в winhost: Toolhelp32,
+// ProcessIdToSessionId, QueryFullProcessImageName, TerminateProcess). Служба зовёт его вне s.mu.
+type ProcessWatcher interface {
+	// List возвращает процессы сеанса sessionID; нечитаемый путь — PathOK=false.
+	List(sessionID uint32) ([]ProcInfo, error)
+	// Kill завершает процесс, если PID и Stamp всё ещё совпадают (ручка открыта при проверке); true — завершён.
+	Kill(p ProcInfo) bool
+}
+
 // StoreOpener открывает базу и сохраняет копию испорченной. Open при порче файла
 // возвращает ошибку, для которой errors.Is(err, ErrStoreCorrupt).
 type StoreOpener interface {
