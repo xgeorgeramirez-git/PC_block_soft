@@ -77,6 +77,20 @@ func publisherKey(p string) string { return strings.ToLower(strings.TrimSpace(p)
 // запрет, затем игры, прочее, учёба (учёба даёт больше всего прав).
 var profileRank = map[string]int{CatStudy: 1, CatOther: 2, CatGames: 3, CatBlocked: 4}
 
+// bestProfileRule — категория решения в профиле для exe издателя publisher (пустой — нет).
+func bestProfileRule(rules []profileRule, publisher string) string {
+	best, pub := "", publisherKey(publisher)
+	if pub == "" {
+		return ""
+	}
+	for _, r := range rules {
+		if r.publisher == pub && profileRank[r.category] > profileRank[best] {
+			best = r.category
+		}
+	}
+	return best
+}
+
 // profileKey — ключ решений в профиле для нормализованного пути: корень без имени профиля и имя
 // файла; ok = false — путь не в корне приложения профиля.
 func (c *Classifier) profileKey(p string) (string, bool) {
@@ -147,8 +161,8 @@ func (c *Classifier) Reload(entries []Entry) {
 }
 
 // NeedsPublisher сообщает, что для пути нужно прочитать издателя exe и передать его в Classify:
-// путь в корне приложения профиля, его нет в списке, а в этом корне есть решение с тем же именем
-// файла и издателем (RM3-13). Остальным путям издатель не нужен: опрос не замедляется.
+// путь в корне приложения профиля, его нет в списке (или есть с отпечатком: обновление на
+// месте), а в этом корне есть решение с тем же именем файла и издателем (RM3-13). Остальным путям издатель не нужен: опрос не замедляется.
 func (c *Classifier) NeedsPublisher(path string) bool {
 	p := Normalize(path)
 	key, ok := c.profileKey(p)
@@ -157,8 +171,8 @@ func (c *Classifier) NeedsPublisher(path string) bool {
 	}
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	if _, known := c.exact[p]; known {
-		return false
+	if e, known := c.exact[p]; known && e.Fingerprint == "" {
+		return false // точный путь без отпечатка: решение действует и без издателя
 	}
 	return len(c.profile[key]) > 0
 }
@@ -176,7 +190,8 @@ func (c *Classifier) NeedsFingerprint(path string) bool {
 //  1. пустой или непригодный путь — «система» (PL-9: «не знаю» = «не трогать»);
 //  2. класс «система» (папка Windows, PC Block, WebView2, пакеты компонентов Windows);
 //  3. точный путь в списке: категория программы; для записи с отпечатком при другом или
-//     непрочитанном отпечатке (fingerprint "") — «незнакомая» с прежней категорией (RM3-12, Д-1:
+//     непрочитанном отпечатке (fingerprint "") — «незнакомая» с прежней категорией, кроме корня
+//     профиля, где файл обновился на месте с тем же издателем (RM3-13) (RM3-12, Д-1:
 //     иначе ребёнок закроет системе доступ к свойствам своего файла и подменит exe). Это закрытие
 //     одной программы, а не блокировка компьютера (R18 не нарушается);
 //  4. корень приложения в профиле пользователя (RM3-13): категория решения с тем же именем файла
@@ -204,18 +219,17 @@ func (c *Classifier) Classify(path, fingerprint, publisher string) Result {
 			name = ClipName(e.Name)
 		}
 		if e.Fingerprint != "" && fingerprint != e.Fingerprint {
+			// В корне профиля файл мог обновиться на месте: решение действует, если совпали имя
+			// файла и непустой издатель (сам этот путь — тоже кандидат). Вне профиля — подмена.
+			if best := bestProfileRule(rules, publisher); inProfile && best != "" {
+				return verdictOf(best, false, name)
+			}
 			return Result{Verdict: VerdictUnknown, Name: name, WasCategory: e.Category}
 		}
 		return verdictOf(e.Category, true, name)
 	}
 	if inProfile {
-		best, pub := "", publisherKey(publisher)
-		for _, r := range rules {
-			if pub != "" && r.publisher == pub && profileRank[r.category] > profileRank[best] {
-				best = r.category
-			}
-		}
-		if best != "" {
+		if best := bestProfileRule(rules, publisher); best != "" {
 			return verdictOf(best, false, name)
 		}
 		return Result{Verdict: VerdictUnknown, Name: name}

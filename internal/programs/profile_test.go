@@ -109,8 +109,18 @@ func TestClassifyProfileApps(t *testing.T) {
 			Result{Verdict: VerdictUnknown, Name: "robloxplayerbeta"}},
 		{"точный путь Roblox с отпечатком", local + `roblox\versions\version-111\robloxplayerbeta.exe`, "10:1", "Roblox Corporation",
 			Result{Verdict: VerdictAllow, Category: "games", Known: true, Name: "Roblox"}},
-		{"точный путь Roblox подменён", local + `roblox\versions\version-111\robloxplayerbeta.exe`, "99:9", "Roblox Corporation",
+		{"Roblox обновился на месте: новый отпечаток, тот же издатель", local + `roblox\versions\version-111\robloxplayerbeta.exe`, "99:9", "Roblox Corporation",
+			Result{Verdict: VerdictAllow, Category: "games", Name: "Roblox"}},
+		{"точный путь Roblox подменён: другой издатель", local + `roblox\versions\version-111\robloxplayerbeta.exe`, "99:9", "Evil",
 			Result{Verdict: VerdictUnknown, Name: "Roblox", WasCategory: "games"}},
+		{"Discord обновился на месте: новый отпечаток, тот же издатель", local + `discord\app-1.0.9001\discord.exe`, "21:3", "Discord Inc.",
+			Result{Verdict: VerdictAllow, Category: "other", Name: "Discord"}},
+		{"Discord на месте, другой издатель", local + `discord\app-1.0.9001\discord.exe`, "21:3", "Epic Games",
+			Result{Verdict: VerdictUnknown, Name: "Discord", WasCategory: "other"}},
+		{"Discord на месте, свойства не прочитаны (Д-1)", local + `discord\app-1.0.9001\discord.exe`, "", "",
+			Result{Verdict: VerdictUnknown, Name: "Discord", WasCategory: "other"}},
+		{"Загрузки: новый отпечаток, тот же издатель", `c:\users\миша\downloads\supergame.exe`, "2:2", "Super",
+			Result{Verdict: VerdictUnknown, Name: "SuperGame", WasCategory: "games"}},
 		{"новая версия Discord", local + `discord\app-1.0.9002\discord.exe`, "", "Discord Inc.",
 			Result{Verdict: VerdictAllow, Category: "other", Name: "discord"}},
 		{"игра, переименованная в discord.exe, без издателя", local + `discord\app-1.0.9002\discord.exe`, "", "",
@@ -158,10 +168,11 @@ func TestNeedsPublisher(t *testing.T) {
 	}{
 		{`c:\users\коля\appdata\local\roblox\versions\version-222\robloxplayerbeta.exe`, true},
 		{`c:\users\миша\appdata\local\discord\app-1.0.9002\discord.exe`, true},
-		{`c:\users\миша\appdata\local\roblox\versions\version-111\robloxplayerbeta.exe`, false}, // точный путь
-		{`c:\users\миша\appdata\local\roblox\versions\version-222\game.exe`, false},             // имени нет в решениях
-		{`c:\users\миша\appdata\local\nopub\v2\nopub.exe`, false},                               // решение без издателя
-		{`c:\users\миша\appdata\local\spotify\spotify.exe`, false},                              // в корне решений нет
+		{`c:\users\миша\appdata\local\roblox\versions\version-111\robloxplayerbeta.exe`, true}, // точный путь с отпечатком: обновление на месте
+		{`c:\users\миша\appdata\local\programs\cursor\cursor.exe`, false},                      // точный путь без отпечатка
+		{`c:\users\миша\appdata\local\roblox\versions\version-222\game.exe`, false},            // имени нет в решениях
+		{`c:\users\миша\appdata\local\nopub\v2\nopub.exe`, false},                              // решение без издателя
+		{`c:\users\миша\appdata\local\spotify\spotify.exe`, false},                             // в корне решений нет
 		{`c:\users\миша\downloads\supergame.exe`, false},
 		{`c:\program files\brave software\brave.exe`, false},
 	}
