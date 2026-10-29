@@ -53,8 +53,7 @@ type Controller struct {
 	soundQ    chan int         // номера записей журнала звуков для исполнителя звука; nil — исполнитель не запущен
 	speed     int              // ускорение часов ядра, сообщённое окном; модели передаётся только в тестовом режиме
 	ui        ipc.GuardUI      // диагностика потока окон
-	curThr    int              // порог плашки, которая показана сейчас; 0 — плашки нет или она не про порог
-	seenPlate int              // ID последней плашки, о которой уже известно
+	seenPlate int              // наибольший ID плашки, о которой уже известно (ID растут; вернувшаяся плашка не новая)
 	lockWas   bool
 	lastLock  string
 	last      View
@@ -151,6 +150,7 @@ func (c *Controller) TestMode() bool {
 type Commands struct {
 	HideLock      bool                  // родительская сессия открыта: экран спрятать (Ruling 19)
 	NoticeMinutes []int                 // «Добавлено N минут»: плашка на 5 с
+	Blocked       []ipc.BlockedPlate    // плашки о закрытых программах (FR-13), по порядку
 	Tests         []ipc.TestGuardAction // действия TestGuard (только тестовый режим)
 }
 
@@ -168,6 +168,10 @@ func ClassifyCommands(cmds []ipc.GuardCommand) Commands {
 		case ipc.GuardCmdTest:
 			if c.Test != nil {
 				out.Tests = append(out.Tests, *c.Test)
+			}
+		case ipc.GuardCmdBlocked:
+			if c.Plate != nil {
+				out.Blocked = append(out.Blocked, *c.Plate)
 			}
 		}
 	}
@@ -200,6 +204,8 @@ func DecisionFromStatus(s ipc.ChildStatus) core.Decision {
 		Day: s.Day, Reason: s.Reason, Detail: s.Detail, Until: s.Until, Used: s.Used,
 		PauseUntil: s.PauseUntil, RemainingS: s.RemainingS, LimitS: s.LimitS, UsedS: s.UsedS,
 		BonusBalance: s.BonusBalance, Unlimited: s.Unlimited, Events: []core.Event{},
+		GamesRemainingS: s.GamesRemainingS, GamesLimitS: s.GamesLimitS, GamesUnlimited: s.GamesUnlimited,
+		CloseGames: s.CloseGames, StudyOnly: s.StudyOnly,
 	}
 	switch s.Lock {
 	case ipc.LockTimeUp:
@@ -318,6 +324,9 @@ func (c *Controller) PollOnce() PollResult {
 	for _, minutes := range cmds.NoticeMinutes {
 		c.model.OnExtraAdded(now, minutes)
 	}
+	for _, pl := range cmds.Blocked {
+		c.model.OnBlocked(now, pl)
+	}
 	v := c.model.View(now)
 	// Журнал показанного, звук и вид для GuardState берутся из одного кадра: горутина опроса
 	// отправляет GuardState сразу после PollOnce, раньше, чем поток окон перерисуется по wake.
@@ -327,10 +336,9 @@ func (c *Controller) PollOnce() PollResult {
 	c.mu.Lock()
 	c.lastLock = rep.Status.Lock
 	c.last = v
-	if v.Warning != nil && v.Warning.ID != c.seenPlate {
-		c.seenPlate, c.curThr = v.Warning.ID, 0
+	if v.Warning != nil && v.Warning.ID > c.seenPlate {
+		c.seenPlate = v.Warning.ID
 		if t := v.Warning.Threshold; t != 0 && len(cmds.NoticeMinutes) == 0 {
-			c.curThr = t
 			c.addEventLocked(ipc.GuardEvent{Kind: ipc.GuardEvWarningShown, AtMs: now.UnixMilli(), Threshold: t})
 			c.shown = append(c.shown, ipc.ShownWarning{AtMs: now.UnixMilli(), Threshold: t, Text: v.Warning.Text})
 			if len(c.shown) > maxShownLog {
@@ -500,6 +508,21 @@ func (c *Controller) Notice() string {
 	return c.notice
 }
 
+// fail показывает отказ команды: у кнопки плашки — плашкой (текст службы или «Не получилось.
+// Попробуй ещё раз», ребёнку на «ты»), у экрана блокировки — под заголовком экрана.
+func (c *Controller) fail(act Action, err error, fallback string) {
+	if !act.Plate {
+		c.setNotice(failureText(err, fallback))
+		return
+	}
+	text := textPlateFailed
+	var re *ipc.ReplyError
+	if errors.As(err, &re) && re.Text != "" {
+		text = re.Text
+	}
+	c.model.OnPlateNotice(c.now(), text)
+}
+
 func (c *Controller) setNotice(text string) {
 	c.mu.Lock()
 	c.notice, c.noticeEnd = text, c.now().Add(noticeLife)
@@ -512,7 +535,7 @@ func actsOnService(b Button) bool {
 	switch b {
 	case ButtonSubmitPassword, ButtonAdd15, ButtonAdd30, ButtonAdd60, ButtonClearBlock,
 		ButtonOpenSettings, ButtonConfirmLogoff, ButtonConfirmShutdown, ButtonSwitchUser,
-		ButtonSpendBonus, ButtonSubmitPromo:
+		ButtonSpendBonus, ButtonSubmitPromo, ButtonAskNow, ButtonPlateSpendBonus, ButtonPlateAskMore:
 		return true
 	}
 	return false
@@ -530,15 +553,20 @@ func (c *Controller) Press(b Button, password string) Action {
 	}
 	c.mu.Unlock()
 	now := c.now()
+	// Подтверждение крестиком — только у табло, видимого в момент нажатия (не у плашки о
+	// программе поверх него и не у закрытого раньше).
+	ackThr := 0
+	if w := c.model.View(now).Warning; b == ButtonWarningClose && w != nil && w.Board != nil {
+		ackThr = w.Threshold
+	}
 	act := c.model.Press(now, b, password)
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if name := TargetName(b); name != "" {
 		c.addEventLocked(ipc.GuardEvent{Kind: ipc.GuardEvButton, AtMs: now.UnixMilli(), Button: name})
 	}
-	if b == ButtonWarningClose && c.curThr != 0 {
-		c.addEventLocked(ipc.GuardEvent{Kind: ipc.GuardEvWarningAck, AtMs: now.UnixMilli(), Threshold: c.curThr})
-		c.curThr = 0
+	if ackThr != 0 {
+		c.addEventLocked(ipc.GuardEvent{Kind: ipc.GuardEvWarningAck, AtMs: now.UnixMilli(), Threshold: ackThr})
 	}
 	if act.Kind != ActNone {
 		c.busy = true
@@ -580,10 +608,21 @@ func (c *Controller) Run(act Action) {
 		// Трата из копилки без пароля (FR-11); childId 0 — служба берёт ребёнка этого сеанса.
 		var rep ipc.SpendBonusReply
 		if err := ipc.Call(c.call, ipc.CmdSpendBonus, "", ipc.SpendBonusRequest{Minutes: act.Minutes}, &rep); err != nil {
-			c.setNotice(failureText(err, textNoticeRetry))
+			c.fail(act, err, textNoticeRetry)
 			return
 		}
 		c.model.OnExtraAdded(c.now(), act.Minutes)
+	case ActOpenPrograms:
+		// «Попросить сейчас» (RM3-4): окно родителя на «Программах», пароль спросит окно. Токена нет.
+		req := ipc.OpenWindowRequest{Kind: ipc.WindowParent, Screen: ipc.ScreenPrograms}
+		if err := ipc.Call(c.call, ipc.CmdOpenWindow, "", req, nil); err != nil {
+			c.fail(act, err, textPlateFailed)
+		}
+	case ActOpenMyStats:
+		// «Попросить ещё» на плашке 1 мин: как значок, «Моя статистика» (RM3-5).
+		if err := ipc.Call(c.call, ipc.CmdOpenWindow, "", ipc.OpenWindowRequest{Kind: ipc.WindowMyStats}, nil); err != nil {
+			c.fail(act, err, textPlateFailed)
+		}
 	case ActRedeemPromo:
 		// Промокод без пароля (R26); childId 0 — служба берёт ребёнка этого сеанса.
 		var rep ipc.RedeemPromoReply
@@ -740,7 +779,7 @@ func StateFromView(v View, lockKind string, shown []ipc.ShownWarning, sounds []i
 	add(v.Choices)
 	if v.Warning != nil {
 		add(v.Warning.Buttons)
-		st.Plate = v.Warning.Text
+		st.Plate, st.PlateKind = v.Warning.Text, v.Warning.Kind
 	}
 	switch v.Panel {
 	case PanelPassword:
