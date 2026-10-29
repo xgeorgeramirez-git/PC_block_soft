@@ -181,6 +181,7 @@ type Service struct {
 	watch   watchState
 	watchAt map[string]time.Time
 	fpSeen  map[string]string // отпечатки файлов, которые прочитал наблюдатель: путь → отпечаток (для категории секунды)
+	pubSeen map[string]string // издатели файлов в профиле, которые прочитал наблюдатель (RM3-13)
 
 	bypassWait []pendingBypass // гибель стража, значка или окна, о которой ещё не решено, обход ли это (FB-1)
 	logoffs    []logoffMark    // недавние выходы из учёток: гибель рядом с ними в отключённом сеансе ребёнка не обход (FB-5)

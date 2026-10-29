@@ -16,6 +16,8 @@ var svcRoots = programs.Roots{
 	ProgramFiles:    `c:\program files`,
 	ProgramFilesX86: `c:\program files (x86)`,
 	InstallDir:      `c:\program files\pcblock`,
+	ProgramData:     `c:\programdata`,
+	UserProfiles:    `c:\users`,
 }
 
 // Пути программ в тестах.
@@ -90,7 +92,7 @@ func TestSeedProgramsOnFirstStart(t *testing.T) {
 	}
 	h.svc.mu.Lock()
 	ready := h.svc.programsReady()
-	upd := h.svc.classifier.Classify(pathBraveUpd, "")
+	upd := h.svc.classifier.Classify(pathBraveUpd, "", "")
 	h.svc.mu.Unlock()
 	if !ready {
 		t.Error("после снимка programsReady = false")
@@ -123,7 +125,7 @@ func TestSeedProgramsOnceAndKeepsDecisions(t *testing.T) {
 	if !h2.svc.programsReady() {
 		t.Error("второй старт: programsReady = false")
 	}
-	if r := h2.svc.classifier.Classify(pathBraveUpd, ""); r.Category != "games" {
+	if r := h2.svc.classifier.Classify(pathBraveUpd, "", ""); r.Category != "games" {
 		t.Errorf("второй старт: список не загружен в классификатор: %+v", r)
 	}
 }
@@ -217,7 +219,7 @@ func TestSeedProgramsStorePackages(t *testing.T) {
 	}
 	h.svc.mu.Lock()
 	defer h.svc.mu.Unlock()
-	if r := h.svc.classifier.Classify(wa+`microsoft.windowscalculator_11.2502.0.0_x64__8wekyb3d8bbwe\calculatorapp.exe`, ""); r.Verdict != programs.VerdictAllow {
+	if r := h.svc.classifier.Classify(wa+`microsoft.windowscalculator_11.2502.0.0_x64__8wekyb3d8bbwe\calculatorapp.exe`, "", ""); r.Verdict != programs.VerdictAllow {
 		t.Errorf("калькулятор новой версии: %+v, want разрешён", r)
 	}
 }

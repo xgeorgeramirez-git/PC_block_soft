@@ -59,7 +59,7 @@ func (h *progHarness) decide(path, cat string) ipc.DecideProgramReply {
 func (h *progHarness) classify(path, fp string) programs.Result {
 	h.svc.mu.Lock()
 	defer h.svc.mu.Unlock()
-	return h.svc.classifier.Classify(path, fp)
+	return h.svc.classifier.Classify(path, fp, "")
 }
 
 // plates забирает плашки о программах из очереди стража сеанса.
@@ -387,7 +387,7 @@ func TestDecideWhileClassifying(t *testing.T) {
 			case <-stop:
 				return
 			default:
-				cl.Classify(pathBraveUpd, "")
+				cl.Classify(pathBraveUpd, "", "")
 			}
 		}
 	}()
@@ -396,7 +396,7 @@ func TestDecideWhileClassifying(t *testing.T) {
 	}
 	close(stop)
 	wg.Wait()
-	if r := cl.Classify(pathBraveUpd, ""); r.Category != "other" {
+	if r := cl.Classify(pathBraveUpd, "", ""); r.Category != "other" {
 		t.Errorf("после решений: %+v", r)
 	}
 }
@@ -483,7 +483,7 @@ func TestSetupPrograms(t *testing.T) {
 	}
 	h.svc.mu.Lock()
 	ready := h.svc.programsReady()
-	r := h.svc.classifier.Classify(pathBraveUpd, "")
+	r := h.svc.classifier.Classify(pathBraveUpd, "", "")
 	h.svc.mu.Unlock()
 	if h.store.settings["programs.seeded"] != "1" || !ready || r.Verdict != programs.VerdictForbidden {
 		t.Errorf("после мастера: флаг %q, готово %v, обновление Brave %+v", h.store.settings["programs.seeded"], ready, r)

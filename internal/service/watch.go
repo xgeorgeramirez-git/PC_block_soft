@@ -40,6 +40,8 @@ type watchEntry struct {
 	norm    string // programs.Normalize(path)
 	fp      string
 	fpRead  bool
+	pub     string // издатель файла (RM3-13): читается, только если решение в профиле его ждёт
+	pubRead bool
 	closed  bool // Kill уже удался: записи сделаны, повторный Kill без записей
 	seen    uint64
 }
@@ -128,7 +130,7 @@ func (s *Service) Watch(real time.Time) {
 			}
 		}
 	}
-	fps := map[string]string{}
+	fps, pubs := map[string]string{}, map[string]string{}
 	for k, e := range s.watch.procs {
 		if e.seen != gen {
 			delete(s.watch.procs, k)
@@ -136,6 +138,9 @@ func (s *Service) Watch(real time.Time) {
 		}
 		if e.fpRead {
 			fps[e.norm] = e.fp
+		}
+		if e.pubRead {
+			pubs[e.norm] = e.pub
 		}
 	}
 	for i := range acts {
@@ -152,7 +157,8 @@ func (s *Service) Watch(real time.Time) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.real = real
-	s.fpSeen = fps // категория секунды переднего плана сверяет тот же отпечаток (RM3-12)
+	s.fpSeen = fps   // категория секунды переднего плана сверяет тот же отпечаток (RM3-12)
+	s.pubSeen = pubs // и того же издателя (RM3-13)
 	s.applyWatch(acts, notes, unreadable, real)
 }
 
@@ -244,11 +250,16 @@ func (s *Service) watchDecide(t *watchTarget, p ProcInfo, gen uint64) (*watchAct
 		return nil, skipNone // тестовый режим: только папка тестовых программ (RM3-8)
 	}
 	c := s.classifier
-	if !e.fpRead && !c.Roots().IsTrusted(e.norm) && c.NeedsFingerprint(e.norm) {
-		_, _, e.fp = s.cfg.FileMeta(e.norm)
-		e.fpRead = true
+	needFP := !e.fpRead && !c.Roots().IsTrusted(e.norm) && c.NeedsFingerprint(e.norm)
+	needPub := !e.pubRead && c.NeedsPublisher(e.norm)
+	if needFP || needPub {
+		// Одно чтение свойств на процесс: отпечаток (RM3-12) и издатель (RM3-13) вместе.
+		var pub string
+		pub, _, e.fp = s.cfg.FileMeta(e.norm)
+		e.pub = programs.ClipName(pub)
+		e.fpRead, e.pubRead = true, true
 	}
-	res := c.Classify(e.path, e.fp)
+	res := c.Classify(e.path, e.fp, e.pub)
 	if res.Verdict == programs.VerdictSystem {
 		return nil, skipNone
 	}

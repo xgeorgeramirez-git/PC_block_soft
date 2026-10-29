@@ -77,6 +77,8 @@ type Roots struct {
 	ProgramFiles    string // %ProgramFiles%: «c:\program files»
 	ProgramFilesX86 string // %ProgramFiles(x86)%: «c:\program files (x86)»
 	InstallDir      string // каталог установки PC Block: служба, страж, значок, окна
+	ProgramData     string // %ProgramData%: «c:\programdata» (компоненты Защитника Windows, RM3-13)
+	UserProfiles    string // папка профилей (KnownFolder UserProfiles): «c:\users» (RM3-13)
 }
 
 // under сообщает, что нормализованный путь p лежит внутри root (строго глубже, по границе
@@ -121,8 +123,20 @@ func (r Roots) IsSystem(path string) bool {
 	if pkg, ok := r.storePackage(p); ok && pkg.publisher == windowsPackagePublisher {
 		return true
 	}
+	if r.ProgramData != "" {
+		pd := strings.TrimSuffix(r.ProgramData, `\`)
+		for _, d := range defenderDirs {
+			if under(p, pd+`\`+d) {
+				return true
+			}
+		}
+	}
 	return false
 }
+
+// defenderDirs — папки Защитника Windows внутри %ProgramData% (RM3-13): его платформа обновляется
+// в папки версий, ребёнок туда писать не может.
+var defenderDirs = []string{`microsoft\windows defender`, `microsoft\windows defender advanced threat protection`}
 
 // windowsPackagePublisher — код издателя пакетов компонентов Windows (MicrosoftWindows.*): их
 // ставит и обновляет сама Windows, ребёнок такой пакет поставить не может.
@@ -205,7 +219,43 @@ func (r Roots) AppRoot(path string) string {
 		}
 		return base + `\` + parts[0]
 	}
-	return ""
+	return r.ProfileRoot(p)
+}
+
+// ProfileRoot возвращает корень приложения в профиле пользователя (RM3-13) по форме пути
+// «<UserProfiles>\<имя>\appdata\local|roaming\…»: первая папка под Local и Roaming, вторая под
+// Local\Programs и под Microsoft («…\local\microsoft\onedrive»). Local\Packages (данные Store),
+// Local\Temp, LocalLow, файл прямо в этих папках и путь вне AppData — «».
+func (r Roots) ProfileRoot(path string) string {
+	rel := r.profileRel(Normalize(path))
+	if rel == "" {
+		return ""
+	}
+	return strings.TrimSuffix(r.UserProfiles, `\`) + `\` + rel
+}
+
+// profileRel — корень приложения в профиле относительно папки профилей, с именем профиля
+// («миша\appdata\local\discord»); «» — не в корне приложения профиля. p нормализован.
+func (r Roots) profileRel(p string) string {
+	if !under(p, r.UserProfiles) {
+		return ""
+	}
+	base := strings.TrimSuffix(r.UserProfiles, `\`)
+	parts := strings.Split(p[len(base)+1:], `\`) // имя, appdata, local|roaming, папка, …, файл
+	if len(parts) < 5 || parts[1] != "appdata" || (parts[2] != "local" && parts[2] != "roaming") {
+		return ""
+	}
+	n := 4 // частей пути в корне
+	switch first := parts[3]; {
+	case parts[2] == "local" && (first == "packages" || first == "temp"):
+		return ""
+	case (parts[2] == "local" && first == "programs") || first == "microsoft":
+		n = 5
+	}
+	if len(parts) <= n {
+		return ""
+	}
+	return strings.Join(parts[:n], `\`)
 }
 
 // NameFromPath — имя программы для плашки и журнала из пути: имя файла без «.exe», обрезанное до

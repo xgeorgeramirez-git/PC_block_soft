@@ -92,7 +92,7 @@ func dryRun(list []service.ProcInfo, c *programs.Classifier, watchDir string, sa
 			r.Unreadable++
 			continue
 		}
-		res := c.Classify(norm, "")
+		res := c.Classify(norm, "", "")
 		switch res.Verdict {
 		case programs.VerdictSystem:
 			r.System++

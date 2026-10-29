@@ -124,7 +124,7 @@ func (s *Service) sampleFor(cs *childState) (core.SessionSample, string) {
 // путь exe через классификатор, слова стража не учитываются (кроме «Видео и соцсети» — сайты M4).
 // Разрешённая программа — её категория; система, незнакомая, запрещённая, пустой или нечитаемый
 // путь — «Прочее» (PL-7/8): незнакомая не успевает засчитаться игрой. Отпечаток файла — тот, что
-// видел наблюдатель (fpSeen): подменённый файл не засчитывается по старому решению. Путь для
+// видел наблюдатель (fpSeen), издатель тоже (pubSeen, RM3-13): подменённый файл не засчитывается по старому решению. Путь для
 // учёта — нормализованный, у системы «».
 func (s *Service) foregroundOf(sm ipc.SensorSample) (core.Category, string) {
 	if sm.Foreground == ipc.CatNameVideoSocial {
@@ -134,7 +134,7 @@ func (s *Service) foregroundOf(sm ipc.SensorSample) (core.Category, string) {
 	if norm == "" {
 		return core.CatOther, ""
 	}
-	res := s.classifier.Classify(norm, s.fpSeen[norm])
+	res := s.classifier.Classify(norm, s.fpSeen[norm], s.pubSeen[norm])
 	switch res.Verdict {
 	case programs.VerdictSystem:
 		return core.CatOther, ""

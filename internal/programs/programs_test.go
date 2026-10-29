@@ -12,6 +12,8 @@ var testRoots = Roots{
 	ProgramFiles:    `c:\program files`,
 	ProgramFilesX86: `c:\program files (x86)`,
 	InstallDir:      `c:\program files\pcblock`,
+	ProgramData:     `c:\programdata`,
+	UserProfiles:    `c:\users`,
 }
 
 // Ловит: нормализатор оставляет регистр, прямые слеши, «..», двойные разделители, хвостовой «\»
@@ -303,7 +305,7 @@ func TestClassify(t *testing.T) {
 			Result{Verdict: VerdictUnknown, Name: "newapp"}},
 	}
 	for _, k := range cases {
-		if got := c.Classify(k.path, k.fp); got != k.want {
+		if got := c.Classify(k.path, k.fp, ""); got != k.want {
 			t.Errorf("%s: Classify(%q, %q) = %+v, want %+v", k.name, k.path, k.fp, got, k.want)
 		}
 	}
@@ -343,7 +345,7 @@ func TestClassifyStoreApps(t *testing.T) {
 			Result{Verdict: VerdictUnknown, Name: "minecraft.windows"}},
 	}
 	for _, k := range cases {
-		if got := c.Classify(k.path, ""); got != k.want {
+		if got := c.Classify(k.path, "", ""); got != k.want {
 			t.Errorf("%s: Classify(%q) = %+v, want %+v", k.name, k.path, got, k.want)
 		}
 	}
@@ -384,16 +386,16 @@ func TestNameFromPath(t *testing.T) {
 func TestClassifierReload(t *testing.T) {
 	c := newTestClassifier()
 	game := `c:\program files (x86)\steam\steamapps\common\game\game.exe`
-	if got := c.Classify(game, ""); got.Category != "games" {
+	if got := c.Classify(game, "", ""); got.Category != "games" {
 		t.Fatalf("до Reload: %+v", got)
 	}
 	c.Reload([]Entry{{Path: `c:\program files (x86)\steam\steam.exe`, Name: "Steam", Category: "blocked"}})
-	if got := c.Classify(game, ""); got.Verdict != VerdictForbidden {
+	if got := c.Classify(game, "", ""); got.Verdict != VerdictForbidden {
 		t.Errorf("после запрета Steam: %+v, want Forbidden", got)
 	}
 	c.Reload(nil)
 	// steam.exe ушёл из списка; game.exe не в каталоге и не в корне известной программы.
-	if got := c.Classify(game, ""); got.Verdict != VerdictUnknown {
+	if got := c.Classify(game, "", ""); got.Verdict != VerdictUnknown {
 		t.Errorf("после пустого Reload: %+v, want Unknown", got)
 	}
 	if c.NeedsFingerprint(`c:\users\миша\downloads\supergame.exe`) {
@@ -417,7 +419,7 @@ func TestClassifierConcurrent(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for j := 0; j < 200; j++ {
-				c.Classify(`c:\program files (x86)\steam\steamapps\common\game\game.exe`, "")
+				c.Classify(`c:\program files (x86)\steam\steamapps\common\game\game.exe`, "", "")
 			}
 		}()
 		go func() {

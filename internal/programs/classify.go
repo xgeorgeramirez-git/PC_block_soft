@@ -1,6 +1,9 @@
 package programs
 
-import "sync"
+import (
+	"strings"
+	"sync"
+)
 
 // Verdict — что делать с программой (RM3-1). Нулевое значение — «система»: не трогать.
 type Verdict int
@@ -33,6 +36,7 @@ type Entry struct {
 	Name        string // имя для людей
 	Category    string // Cat*
 	Fingerprint string // «размер:время изменения» (RM3-12); пусто — сверять не нужно
+	Publisher   string // издатель (CompanyName) решения в профиле: по нему решение переходит на новые версии (RM3-13)
 }
 
 // Result — итог классификации.
@@ -54,11 +58,39 @@ type Classifier struct {
 	mu      sync.RWMutex
 	exact   map[string]Entry  // по нормализованному пути
 	rootCat map[string]string // корень приложения → наследуемая категория
+	// profile — решения в профилях (RM3-13): «корень без имени профиля|имя файла» → издатели и
+	// категории. Корень без имени профиля: решение действует для всех детей (R12).
+	profile map[string][]profileRule
+}
+
+// profileRule — решение родителя в профиле: exe с тем же именем файла и тем же издателем внутри
+// того же корня получает категорию решения.
+type profileRule struct {
+	publisher string // нормализованный издатель (publisherKey)
+	category  string
+}
+
+// publisherKey — издатель для сравнения: без пробелов по краям, без учёта регистра.
+func publisherKey(p string) string { return strings.ToLower(strings.TrimSpace(p)) }
+
+// profileRank — какая категория побеждает, если у одного имени и издателя несколько решений:
+// запрет, затем игры, прочее, учёба (учёба даёт больше всего прав).
+var profileRank = map[string]int{CatStudy: 1, CatOther: 2, CatGames: 3, CatBlocked: 4}
+
+// profileKey — ключ решений в профиле для нормализованного пути: корень без имени профиля и имя
+// файла; ok = false — путь не в корне приложения профиля.
+func (c *Classifier) profileKey(p string) (string, bool) {
+	rel := c.roots.profileRel(p)
+	if rel == "" {
+		return "", false
+	}
+	rel = rel[strings.Index(rel, `\`)+1:] // без имени профиля
+	return rel + "|" + p[strings.LastIndex(p, `\`)+1:], true
 }
 
 // NewClassifier создаёт классификатор с пустым списком программ.
 func NewClassifier(roots Roots, cat Catalog) *Classifier {
-	return &Classifier{roots: roots, cat: cat, exact: map[string]Entry{}, rootCat: map[string]string{}}
+	return &Classifier{roots: roots, cat: cat, exact: map[string]Entry{}, rootCat: map[string]string{}, profile: map[string][]profileRule{}}
 }
 
 // Roots возвращает корни классификатора.
@@ -78,6 +110,7 @@ var inheritRank = map[string]int{CatOther: 1, CatStudy: 1, CatGames: 2, CatBlock
 func (c *Classifier) Reload(entries []Entry) {
 	exact := make(map[string]Entry, len(entries))
 	rank := map[string]int{}
+	profile := map[string][]profileRule{}
 	for _, e := range entries {
 		p := Normalize(e.Path)
 		if p == "" {
@@ -85,6 +118,13 @@ func (c *Classifier) Reload(entries []Entry) {
 		}
 		e.Path = p
 		exact[p] = e
+		if key, ok := c.profileKey(p); ok {
+			// В профиле решение наследуется только по имени файла и издателю (RM3-13).
+			if pub := publisherKey(e.Publisher); pub != "" && profileRank[e.Category] > 0 {
+				profile[key] = append(profile[key], profileRule{publisher: pub, category: e.Category})
+			}
+			continue
+		}
 		root := c.roots.AppRoot(p)
 		if r := inheritRank[e.Category]; root != "" && r > rank[root] {
 			rank[root] = r
@@ -102,8 +142,25 @@ func (c *Classifier) Reload(entries []Entry) {
 		}
 	}
 	c.mu.Lock()
-	c.exact, c.rootCat = exact, rootCat
+	c.exact, c.rootCat, c.profile = exact, rootCat, profile
 	c.mu.Unlock()
+}
+
+// NeedsPublisher сообщает, что для пути нужно прочитать издателя exe и передать его в Classify:
+// путь в корне приложения профиля, его нет в списке, а в этом корне есть решение с тем же именем
+// файла и издателем (RM3-13). Остальным путям издатель не нужен: опрос не замедляется.
+func (c *Classifier) NeedsPublisher(path string) bool {
+	p := Normalize(path)
+	key, ok := c.profileKey(p)
+	if !ok {
+		return false
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if _, known := c.exact[p]; known {
+		return false
+	}
+	return len(c.profile[key]) > 0
 }
 
 // NeedsFingerprint сообщает, что для пути в списке сохранён отпечаток файла: наблюдателю нужно
@@ -122,10 +179,12 @@ func (c *Classifier) NeedsFingerprint(path string) bool {
 //     непрочитанном отпечатке (fingerprint "") — «незнакомая» с прежней категорией (RM3-12, Д-1:
 //     иначе ребёнок закроет системе доступ к свойствам своего файла и подменит exe). Это закрытие
 //     одной программы, а не блокировка компьютера (R18 не нарушается);
-//  4. корень приложения известной программы: наследуемая категория корня;
+//  4. корень приложения в профиле пользователя (RM3-13): категория решения с тем же именем файла
+//     и тем же издателем (publisher; пустой — не наследуется), иначе «незнакомая»;
+//     корень приложения в Program Files: наследуемая категория корня;
 //  5. каталог по имени файла (в WindowsApps и по имени пакета) — только в доверенных каталогах;
 //  6. иначе «незнакомая».
-func (c *Classifier) Classify(path, fingerprint string) Result {
+func (c *Classifier) Classify(path, fingerprint, publisher string) Result {
 	p := Normalize(path)
 	if p == "" {
 		return Result{Verdict: VerdictSystem}
@@ -134,9 +193,11 @@ func (c *Classifier) Classify(path, fingerprint string) Result {
 	if c.roots.IsSystem(p) {
 		return Result{Verdict: VerdictSystem, Name: name}
 	}
+	pkey, inProfile := c.profileKey(p)
 	c.mu.RLock()
 	e, known := c.exact[p]
 	rootCat, inRoot := c.rootCat[c.roots.AppRoot(p)]
+	rules := c.profile[pkey]
 	c.mu.RUnlock()
 	if known {
 		if e.Name != "" {
@@ -146,6 +207,18 @@ func (c *Classifier) Classify(path, fingerprint string) Result {
 			return Result{Verdict: VerdictUnknown, Name: name, WasCategory: e.Category}
 		}
 		return verdictOf(e.Category, true, name)
+	}
+	if inProfile {
+		best, pub := "", publisherKey(publisher)
+		for _, r := range rules {
+			if pub != "" && r.publisher == pub && profileRank[r.category] > profileRank[best] {
+				best = r.category
+			}
+		}
+		if best != "" {
+			return verdictOf(best, false, name)
+		}
+		return Result{Verdict: VerdictUnknown, Name: name}
 	}
 	if inRoot {
 		return verdictOf(rootCat, false, name)
