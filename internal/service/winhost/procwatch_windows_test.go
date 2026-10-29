@@ -458,6 +458,15 @@ func TestMachineFoldersRoots(t *testing.T) {
 	if want := expectedPath(t, filepath.Dir(self)); r.InstallDir != want {
 		t.Errorf("InstallDir %q; ждали %q", r.InstallDir, want)
 	}
+	if pd := expectedPath(t, os.Getenv("ProgramData")); r.ProgramData == "" || r.ProgramData != pd {
+		t.Errorf("ProgramData %q; ждали %q", r.ProgramData, pd)
+	}
+	if up := expectedPath(t, filepath.Dir(os.Getenv("USERPROFILE"))); r.UserProfiles == "" || r.UserProfiles != up {
+		t.Errorf("UserProfiles %q; ждали %q (папка над USERPROFILE)", r.UserProfiles, up)
+	}
+	if !r.IsSystem(filepath.Join(os.Getenv("ProgramData"), "Microsoft", "Windows Defender", "Platform", "4.18.1-0", "MsMpEng.exe")) {
+		t.Error("Защитник Windows не система при настоящих корнях")
+	}
 	if !r.IsSystem(filepath.Join(os.Getenv("SystemRoot"), "System32", "svchost.exe")) {
 		t.Error("svchost.exe не система при настоящих корнях")
 	}

@@ -23,6 +23,8 @@ type machineFolders struct {
 	programFiles    string // «C:\Program Files»
 	programFilesX86 string // «C:\Program Files (x86)»
 	installDir      string // папка PCBlock.exe
+	programData     string // «C:\ProgramData» (Защитник Windows, RM3-13)
+	userProfiles    string // «C:\Users» (корни приложений в профилях детей, RM3-13)
 }
 
 // readMachineFolders читает папки (SHGetKnownFolderPath; не прочиталось — переменная окружения).
@@ -38,6 +40,11 @@ func readMachineFolders() machineFolders {
 		windows:         known(windows.FOLDERID_Windows, "SystemRoot"),
 		programFiles:    known(windows.FOLDERID_ProgramFiles, "ProgramFiles"),
 		programFilesX86: known(windows.FOLDERID_ProgramFilesX86, "ProgramFiles(x86)"),
+		programData:     known(windows.FOLDERID_ProgramData, "ProgramData"),
+		userProfiles:    known(windows.FOLDERID_UserProfiles, ""),
+	}
+	if f.userProfiles == "" && os.Getenv("SystemDrive") != "" {
+		f.userProfiles = canonicalDir(os.Getenv("SystemDrive") + `\Users`)
 	}
 	if exe, err := exePath(); err == nil {
 		f.installDir = canonicalDir(filepath.Dir(exe))
@@ -66,6 +73,8 @@ func (f machineFolders) roots() programs.Roots {
 		ProgramFiles:    programs.Normalize(f.programFiles),
 		ProgramFilesX86: programs.Normalize(f.programFilesX86),
 		InstallDir:      programs.Normalize(f.installDir),
+		ProgramData:     programs.Normalize(f.programData),
+		UserProfiles:    programs.Normalize(f.userProfiles),
 	}
 }
 
