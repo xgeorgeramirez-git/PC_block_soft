@@ -538,6 +538,12 @@ function exampleProgramsReply(): ProgramsReply {
 }
 
 const PROGRAM_CATEGORY_WORD: Record<string, string> = { games: "игра", study: "учёба", other: "прочее", blocked: "запрещена" };
+const PROGRAM_CATEGORY_TITLE: Record<string, string> = { games: "Игры", study: "Учёба", other: "Прочее" };
+
+/** Строка журнала о решении родителя, как у службы (R22): «Вы отнесли «X» к категории «Игры»». */
+function programDecidedText(name: string, category: string): string {
+  return category === "blocked" ? `Вы запретили «${name}»` : `Вы отнесли «${name}» к категории «${PROGRAM_CATEGORY_TITLE[category]}»`;
+}
 
 export function createBackend(opts: MockOptions = {}): MockBackend {
   const state = makeState(opts);
@@ -570,6 +576,7 @@ export function createBackend(opts: MockOptions = {}): MockBackend {
   });
   const rememberUndo = (now: number) => {
     const undoId = `p-${state.nextExtraId++}`;
+    state.programUndo.clear(); // как служба: отменить можно только последнюю операцию
     state.programUndo.set(undoId, {
       programs: state.programs.map((p) => ({ ...p })),
       pending: state.pending.map((p) => ({ ...p, byChild: [...p.byChild] })),
@@ -1061,19 +1068,30 @@ export function createBackend(opts: MockOptions = {}): MockBackend {
 
     DecideProgram: (req, now) => {
       if (!parentCategory(req.category)) return fail("Выберите: игра, учёба, прочее или запретить", "category");
-      const p = state.pending.find((x) => x.path === req.path);
-      if (!p) return fail("Программа уже не ждёт решения");
+      const path = (req.path ?? "").toLowerCase();
+      const p = state.pending.find((x) => x.path === path);
+      const known = state.programs.find((x) => x.path === path);
+      // Как служба: ждущая программа или уже в списке, иначе отказ.
+      if (!p && !known) return fail("Такой программы нет в списке");
       const undo = rememberUndo(now);
-      state.pending = state.pending.filter((x) => x !== p);
-      state.programs = state.programs.filter((x) => x.path !== p.path);
-      state.programs.push({ path: p.path, name: p.name, publisher: p.publisher, category: req.category, source: "parent", weekS: 0 });
-      addEvent(now, undefined, "program_decided", `${p.name}: ${PROGRAM_CATEGORY_WORD[req.category]}`);
-      return okReply({ message: `${p.name}: ${PROGRAM_CATEGORY_WORD[req.category]}`, ...undo, programs: programsReply() });
+      const name = p?.name ?? known?.name ?? "";
+      if (p) {
+        state.pending = state.pending.filter((x) => x !== p);
+        state.programs = state.programs.filter((x) => x.path !== p.path);
+        state.programs.push({ path: p.path, name: p.name, publisher: p.publisher, category: req.category, source: "parent", weekS: 0 });
+      } else if (known) {
+        known.category = req.category;
+        known.source = "parent";
+      }
+      addEvent(now, undefined, "program_decided", programDecidedText(name, req.category));
+      return okReply({ message: `${name}: ${PROGRAM_CATEGORY_WORD[req.category]}`, ...undo, programs: programsReply() });
     },
 
     SetProgramsCategory: (req, now) => {
       if (!parentCategory(req.category)) return fail("Выберите: игра, учёба, прочее или запретить", "category");
-      const paths = new Set<string>(req.paths ?? []);
+      const paths = new Set<string>((req.paths ?? []).map((x: string) => x.toLowerCase()));
+      if (paths.size > 200) return fail("Можно изменить не больше 200 программ за раз");
+      if (!state.programs.some((p) => paths.has(p.path))) return fail("Такой программы нет в списке");
       const undo = rememberUndo(now);
       let n = 0;
       for (const p of state.programs) {
@@ -1089,8 +1107,9 @@ export function createBackend(opts: MockOptions = {}): MockBackend {
     UndoProgram: (req, now) => {
       const rec = state.programUndo.get(req.undoId);
       if (!rec) return fail("Отменить уже нельзя");
-      if (now > rec.undoUntilMs) return fail("Отменить уже нельзя: прошло больше 10 секунд");
+      if (now >= rec.undoUntilMs) return fail("Отменить уже нельзя");
       state.programUndo.delete(req.undoId);
+      addEvent(now, undefined, "program_undone", "Решение по программам отменено");
       state.programs = rec.programs;
       state.pending = rec.pending;
       return okReply({ message: "Решение отменено", programs: programsReply() });
