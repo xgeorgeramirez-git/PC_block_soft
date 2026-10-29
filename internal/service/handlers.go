@@ -399,7 +399,7 @@ func (s *Service) hSaveLimits(c *callCtx) ipc.Reply {
 	}
 	// FR-19: правила действуют сразу, ближайший ответ стражу уже несёт новое решение.
 	cs.rulesAt = c.real
-	s.applyRules(cs, core.Rules{Week: week})
+	s.applyRules(cs, s.readRules(cs.child.ID))
 	s.journal.Write(cs.child.ID, "settings_changed", map[string]any{"text": "изменены лимиты времени"})
 	return ipc.OK(ipc.SaveLimitsReply{Rules: rulesView(cs), Card: s.cardOf(cs), Message: textSaved})
 }

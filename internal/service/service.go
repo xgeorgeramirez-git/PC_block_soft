@@ -349,7 +349,9 @@ func (s *Service) addChild(c Child, real time.Time) *childState {
 	return cs
 }
 
-// readRules читает недельные лимиты ребёнка; не прочитались: безопасный режим (R18).
+// readRules читает правила ребёнка целиком: лимиты (общий и игр), расписание и режим «Когда
+// время вышло». Любой путь, который применяет правила, берёт их отсюда (RM3-9: частичная сборка
+// Rules теряет соседние поля). Не прочиталось хоть что-то: безопасный режим (R18).
 func (s *Service) readRules(id int64) core.Rules {
 	week, err := s.cfg.Store.GetDayLimits(id)
 	if err != nil {
@@ -361,7 +363,12 @@ func (s *Service) readRules(id int64) core.Rules {
 		s.logRate(fmt.Sprint("sched", id), "не удалось прочитать расписание ребёнка %d, ограничения не применяются: %v", id, err)
 		return core.Rules{Broken: true}
 	}
-	return core.Rules{Week: week, Schedule: sched}
+	mode, err := s.cfg.Store.GetEndMode(id)
+	if err != nil {
+		s.logRate(fmt.Sprint("endmode", id), "не удалось прочитать режим «Когда время вышло» ребёнка %d, ограничения не применяются: %v", id, err)
+		return core.Rules{Broken: true}
+	}
+	return core.Rules{Week: week, Schedule: sched, EndMode: core.EndModeFromString(mode)}
 }
 
 // exempt сообщает, что для учётки сняты запрет A2 и правило R1 (тестовый режим, ТЗ 10.8).
