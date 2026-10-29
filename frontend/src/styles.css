@@ -1064,6 +1064,43 @@ html:has(.shell-child) body {
   margin-bottom: var(--space-2);
 }
 
+/* Шаг мастера «Программы» (FR-2): список прокручивается внутри, кнопки шага всегда под ним. */
+.wizard-programs {
+  max-height: 360px;
+  margin-bottom: var(--space-2);
+  overflow-y: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+}
+
+.wizard-scanning {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.wizard-spinner {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--line);
+  border-top-color: var(--primary);
+  border-radius: 50%;
+  animation: wizard-spin 0.9s linear infinite;
+}
+
+@keyframes wizard-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wizard-spinner {
+    animation: none;
+  }
+}
+
 .account-list {
   margin: 0 0 var(--space-4);
   padding: 0;
