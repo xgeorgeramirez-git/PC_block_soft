@@ -676,19 +676,19 @@ func TestAuthRoundTripMatchesAttemptsPolicy(t *testing.T) {
 // значение путается с «нет настройки», русский текст портится, пустой ключ принимается.
 func TestSettings(t *testing.T) {
 	s := openTemp(t)
-	if v, ok, err := s.GetSetting("helper"); v != "" || ok || err != nil {
+	if v, ok, err := s.GetSetting("diag.verbose"); v != "" || ok || err != nil {
 		t.Fatalf("GetSetting без записи = %q, %v, %v; want \"\", false, nil", v, ok, err)
 	}
-	if err := s.SetSetting("helper", `{"подсказки":"вкл"}`); err != nil {
+	if err := s.SetSetting("diag.verbose", `{"подробно":"да"}`); err != nil {
 		t.Fatal(err)
 	}
-	if v, ok, err := s.GetSetting("helper"); v != `{"подсказки":"вкл"}` || !ok || err != nil {
+	if v, ok, err := s.GetSetting("diag.verbose"); v != `{"подробно":"да"}` || !ok || err != nil {
 		t.Fatalf("GetSetting = %q, %v, %v", v, ok, err)
 	}
-	if err := s.SetSetting("helper", ""); err != nil {
+	if err := s.SetSetting("diag.verbose", ""); err != nil {
 		t.Fatal(err)
 	}
-	if v, ok, err := s.GetSetting("helper"); v != "" || !ok || err != nil {
+	if v, ok, err := s.GetSetting("diag.verbose"); v != "" || !ok || err != nil {
 		t.Fatalf("пустое значение: %q, %v, %v; want \"\", true, nil", v, ok, err)
 	}
 	if n := rawNull(t, s, `SELECT count(*) FROM settings`); n.Int64 != 1 {

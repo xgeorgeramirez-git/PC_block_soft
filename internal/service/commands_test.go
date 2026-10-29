@@ -97,8 +97,6 @@ func wantAllowed(cmd, kind, tok string, test, configured bool) bool {
 	case ipc.CmdRedeemPromo:
 		// Ребёнок своего сеанса вводит промокод (childSelf): экран блокировки и «Бонусы» (R26, D-50).
 		return kind == "child" || kind == "guard"
-	case ipc.CmdGetHelperState, ipc.CmdSaveHelperState:
-		return (user && own) || kind == "child"
 	case ipc.CmdGuardPoll, ipc.CmdGuardLogoff, ipc.CmdGuardShutdown, ipc.CmdGuardSwitchUser, ipc.CmdGuardClosing:
 		return kind == "guard"
 	case ipc.CmdTestGuard, ipc.CmdTestClock, ipc.CmdTestSession:

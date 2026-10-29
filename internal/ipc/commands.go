@@ -1,7 +1,5 @@
 package ipc
 
-import "encoding/json"
-
 // Имена команд M1. Права на каждую команду проверяет служба по Peer и родительской сессии
 // (таблица в internal/service); канал только доставляет вызов.
 const (
@@ -34,11 +32,6 @@ const (
 	CmdChangePassword = "ChangePassword"
 	CmdSetChildren    = "SetChildren"
 	CmdParentStats    = "ParentStats" // статистика выбранного ребёнка за сегодня для родителя (FR-23, D-44)
-
-	// Состояние Помощника: профиль родителя (из родительской сессии) или ребёнка
-	// (из его сеанса); какой именно, решает служба по тому, кто спрашивает.
-	CmdGetHelperState  = "GetHelperState"
-	CmdSaveHelperState = "SaveHelperState"
 
 	// Диагностика: подробные логи (FR-25, D-42).
 	CmdGetDiag  = "GetDiag"  // прочитать, включены ли подробные логи
@@ -98,7 +91,7 @@ var AllCommands = []string{
 	CmdListAccounts, CmdSetup, CmdResetPassword, CmdUninstallCheck,
 	CmdLogin, CmdExtendSession, CmdLogout, CmdSessionState, CmdGetToday, CmdGetChildRules,
 	CmdSaveLimits, CmdAddExtra, CmdReduceExtra, CmdClearExtra, CmdUndoExtra, CmdClearBlock, CmdListEvents, CmdChangePassword,
-	CmdSetChildren, CmdParentStats, CmdGetHelperState, CmdSaveHelperState, CmdGetDiag, CmdSetDiag, CmdOpenLogs,
+	CmdSetChildren, CmdParentStats, CmdGetDiag, CmdSetDiag, CmdOpenLogs,
 	CmdSetNoForbidden, CmdClearBonus, CmdReduceBonus, CmdCreatePromo, CmdListPromos, CmdGetBonusRate, CmdSetBonusRate,
 	CmdGetSchedule, CmdSaveSchedule, CmdPause, CmdPauseAll,
 	CmdGrantBonus, CmdUndoBonus, CmdGetBonus, CmdCopyRules,
@@ -469,23 +462,6 @@ type ChildInfo struct {
 // SetChildrenReply — ответ SetChildren: список детей после изменения.
 type SetChildrenReply struct {
 	Children []ChildInfo `json:"children"`
-}
-
-// HelperState — состояние Помощника профиля (ТЗ 8.4 п.7). Содержимое определяет каталог
-// Помощника (internal/guidance), канал его не разбирает; пустое состояние — «{}».
-type HelperState struct {
-	State json.RawMessage `json:"state"`
-}
-
-// MarshalJSON не пускает в ответ null вместо объекта.
-func (h HelperState) MarshalJSON() ([]byte, error) {
-	state := h.State
-	if len(state) == 0 {
-		state = json.RawMessage(`{}`)
-	}
-	return json.Marshal(struct {
-		State json.RawMessage `json:"state"`
-	}{state})
 }
 
 // --- Ребёнок о себе -----------------------------------------------------------------

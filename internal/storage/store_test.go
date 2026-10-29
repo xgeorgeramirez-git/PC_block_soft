@@ -192,17 +192,19 @@ func TestOpenTwiceKeepsDataAndMigrationOnce(t *testing.T) {
 		t.Fatalf("второе Open: %v", err)
 	}
 	defer s2.Close()
-	if n := rawNull(t, s2, `SELECT count(*) FROM schema_migrations`); n.Int64 != 2 {
-		t.Errorf("строк schema_migrations = %d, want 2", n.Int64)
+	if n := rawNull(t, s2, `SELECT count(*) FROM schema_migrations`); n.Int64 != 3 {
+		t.Errorf("строк schema_migrations = %d, want 3", n.Int64)
 	}
-	if v := rawNull(t, s2, `SELECT max(version) FROM schema_migrations`); v.Int64 != 2 {
-		t.Errorf("последняя миграция = %d, want 2", v.Int64)
+	if v := rawNull(t, s2, `SELECT max(version) FROM schema_migrations`); v.Int64 != 3 {
+		t.Errorf("последняя миграция = %d, want 3", v.Int64)
 	}
 	if at := rawNull(t, s2, `SELECT applied_at FROM schema_migrations WHERE version = 1`); at.Int64 != 1_000 {
 		t.Errorf("applied_at миграции 1 = %d, want 1000 (момент первого применения)", at.Int64)
 	}
-	if at := rawNull(t, s2, `SELECT applied_at FROM schema_migrations WHERE version = 2`); at.Int64 != 1_000 {
-		t.Errorf("applied_at миграции 2 = %d, want 1000 (обе применяются при первом открытии, не повторно)", at.Int64)
+	for _, v := range []int{2, 3} {
+		if at := rawNull(t, s2, `SELECT applied_at FROM schema_migrations WHERE version = ?`, v); at.Int64 != 1_000 {
+			t.Errorf("applied_at миграции %d = %d, want 1000 (все применяются при первом открытии, не повторно)", v, at.Int64)
+		}
 	}
 	kids, err := s2.ListChildren()
 	if err != nil {

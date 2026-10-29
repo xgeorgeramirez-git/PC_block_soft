@@ -229,11 +229,9 @@ func init() {
 		ipc.CmdSetChildren:    {parentToken(true), (*Service).hSetChildren},
 		ipc.CmdParentStats:    {parentToken(false), (*Service).hParentStats},
 
-		ipc.CmdGetHelperState:  {or(parentToken(false), users()), (*Service).hGetHelperState},
-		ipc.CmdSaveHelperState: {or(parentToken(true), users()), (*Service).hSaveHelperState},
-		ipc.CmdGetDiag:         {parentToken(false), (*Service).hGetDiag},
-		ipc.CmdSetDiag:         {parentToken(true), (*Service).hSetDiag},
-		ipc.CmdOpenLogs:        {parentToken(false), (*Service).hOpenLogs},
+		ipc.CmdGetDiag:  {parentToken(false), (*Service).hGetDiag},
+		ipc.CmdSetDiag:  {parentToken(true), (*Service).hSetDiag},
+		ipc.CmdOpenLogs: {parentToken(false), (*Service).hOpenLogs},
 
 		ipc.CmdSetNoForbidden: {parentToken(true), (*Service).hSetNoForbidden},
 		ipc.CmdClearBonus:     {parentToken(true), (*Service).hClearBonus},

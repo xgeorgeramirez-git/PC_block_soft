@@ -30,12 +30,10 @@ const (
 
 // Ключи настроек в хранилище.
 const (
-	settingDBNotice          = "notice.db_recovered"
-	settingFirstRunPrefix    = "firstrun.seen."
-	settingHelperParent      = "helper.parent"
-	settingHelperChildPrefix = "helper.child."
-	settingVerboseLogs       = "diag.verbose"      // «Подробные логи для диагностики» (FR-25, D-42)
-	settingBonusRate         = "bonus.rate_per_10" // автобонус N: минут за каждые 10 мин остатка (R25, D-49)
+	settingDBNotice       = "notice.db_recovered"
+	settingFirstRunPrefix = "firstrun.seen."
+	settingVerboseLogs    = "diag.verbose"      // «Подробные логи для диагностики» (FR-25, D-42)
+	settingBonusRate      = "bonus.rate_per_10" // автобонус N: минут за каждые 10 мин остатка (R25, D-49)
 )
 
 // SessionEvent — событие сеанса Windows, которое диспетчер служб передаёт службе.

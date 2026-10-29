@@ -1,7 +1,6 @@
 package service
 
 import (
-	"encoding/json"
 	"path/filepath"
 	"strings"
 	"time"
@@ -13,9 +12,6 @@ import (
 
 // Обработчики команд. Права уже проверены в Handle (commands.go): здесь разбор запроса и
 // действие. Блокировка s.mu снята с вызывающего, обработчик её держит.
-
-// maxHelperState — предел размера состояния Помощника: канал и база не для картинок.
-const maxHelperState = 64 << 10
 
 func bad() ipc.Reply { return ipc.Fail(ipc.TextBadRequest) }
 
@@ -737,60 +733,6 @@ func (s *Service) hSetChildren(c *callCtx) ipc.Reply {
 		out.Children = append(out.Children, ipc.ChildInfo{ChildID: id, SID: cs.child.SID, Name: cs.child.Name})
 	}
 	return ipc.OK(out)
-}
-
-// --- Помощник ----------------------------------------------------------------------------------
-
-// helperKey возвращает ключ состояния Помощника: профиль родителя (из родительской сессии)
-// или профиль ребёнка (из его сеанса); ни того ни другого нет: отказ.
-func (s *Service) helperKey(c *callCtx) (string, bool) {
-	if c.parent != nil {
-		return settingHelperParent, true
-	}
-	if id := s.childIDOf(c.peer); id != 0 && !c.peer.System {
-		return settingHelperChildPrefix + itoa(int(id)), true
-	}
-	return "", false
-}
-
-func (s *Service) hGetHelperState(c *callCtx) ipc.Reply {
-	key, ok := s.helperKey(c)
-	if !ok {
-		return ipc.Fail(textNeedParent)
-	}
-	v, found, err := s.cfg.Store.GetSetting(key)
-	if err != nil {
-		s.logRate("helper", "состояние Помощника не прочитано: %v", err)
-		return ipc.Fail(textRetry)
-	}
-	if !found || !json.Valid([]byte(v)) {
-		return ipc.OK(ipc.HelperState{})
-	}
-	return ipc.OK(ipc.HelperState{State: json.RawMessage(v)})
-}
-
-func (s *Service) hSaveHelperState(c *callCtx) ipc.Reply {
-	key, ok := s.helperKey(c)
-	if !ok {
-		return ipc.Fail(textNeedParent)
-	}
-	var req ipc.HelperState
-	if c.msg.Into(&req) != nil || len(req.State) > maxHelperState {
-		return bad()
-	}
-	state := strings.TrimSpace(string(req.State))
-	if state == "" {
-		state = "{}"
-	}
-	var obj map[string]json.RawMessage
-	if json.Unmarshal([]byte(state), &obj) != nil {
-		return bad()
-	}
-	if err := s.cfg.Store.SetSetting(key, state); err != nil {
-		s.logRate("helper", "состояние Помощника не записано: %v", err)
-		return ipc.Fail(textSaveFailed)
-	}
-	return ipc.OK(ipc.Empty{})
 }
 
 // --- ребёнок о себе -------------------------------------------------------------------------------

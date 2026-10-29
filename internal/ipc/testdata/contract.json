@@ -480,28 +480,6 @@
       }
     }
   },
-  "GetHelperState": {
-    "reply": {
-      "ok": true,
-      "payload": {
-        "state": {
-          "enabled": true,
-          "seen": [
-            "H-M1-01"
-          ],
-          "snoozed": {}
-        }
-      }
-    }
-  },
-  "GetHelperState#empty": {
-    "reply": {
-      "ok": true,
-      "payload": {
-        "state": {}
-      }
-    }
-  },
   "GetSchedule": {
     "request": {
       "childId": 1
@@ -1490,22 +1468,6 @@
   "ResetPassword": {
     "request": {
       "newPassword": "новый-секрет"
-    },
-    "reply": {
-      "ok": true,
-      "payload": {}
-    }
-  },
-  "SaveHelperState": {
-    "request": {
-      "state": {
-        "enabled": true,
-        "seen": [
-          "H-M1-01",
-          "H-M1-02"
-        ],
-        "snoozed": {}
-      }
     },
     "reply": {
       "ok": true,

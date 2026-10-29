@@ -197,10 +197,7 @@ func examples() map[string]example {
 			{ChildID: 1, SID: "S-1-5-21-111-222-333-1001", Name: "Михаил"},
 			{ChildID: 4, SID: "S-1-5-21-111-222-333-1002", Name: "Даша"},
 		}}),
-		"SetChildren#empty":    ok(SetChildrenRequest{}, SetChildrenReply{}),
-		CmdGetHelperState:      ok(nil, HelperState{State: json.RawMessage(`{"enabled":true,"seen":["H-M1-01"],"snoozed":{}}`)}),
-		"GetHelperState#empty": ok(nil, HelperState{}),
-		CmdSaveHelperState:     ok(HelperState{State: json.RawMessage(`{"enabled":true,"seen":["H-M1-01","H-M1-02"],"snoozed":{}}`)}, Empty{}),
+		"SetChildren#empty": ok(SetChildrenRequest{}, SetChildrenReply{}),
 
 		// M2: расписание, пауза, копилка.
 		CmdGetSchedule: ok(GetScheduleRequest{ChildID: 1}, GetScheduleReply{ChildID: 1, Intervals: []Interval{
@@ -353,8 +350,23 @@ func TestContractHasEveryCommand(t *testing.T) {
 			t.Errorf("пример для %s есть, а в AllCommands её нет", c)
 		}
 	}
-	if len(AllCommands) != 59 {
-		t.Errorf("команд %d, ждали 59 (48 из M1/M2/0.2.1, 9 из фидбек-раунда 0.2.2: OpenLogs, SetNoForbidden, ClearBonus, ReduceBonus, CreatePromo, ListPromos, RedeemPromo, GetBonusRate, SetBonusRate, GuardClosing из раунда 0.2.3 и тестовая TestSession из 0.2.5)", len(AllCommands))
+	if len(AllCommands) != 57 {
+		t.Errorf("команд %d, ждали 57 (46 из M1/M2/0.2.1 без команд Помощника, 9 из фидбек-раунда 0.2.2: OpenLogs, SetNoForbidden, ClearBonus, ReduceBonus, CreatePromo, ListPromos, RedeemPromo, GetBonusRate, SetBonusRate, GuardClosing из раунда 0.2.3 и тестовая TestSession из 0.2.5)", len(AllCommands))
+	}
+}
+
+// Ловит: команды удалённого Помощника (D-56) остались в канале или в примерах контракта.
+func TestNoHelperCommands(t *testing.T) {
+	gone := map[string]bool{"GetHelperState": true, "SaveHelperState": true}
+	for _, c := range AllCommands {
+		if gone[c] {
+			t.Errorf("команда %s осталась в AllCommands", c)
+		}
+	}
+	for key := range examples() {
+		if gone[commandOf(key)] {
+			t.Errorf("пример %s остался в контракте", key)
+		}
 	}
 }
 
@@ -465,11 +477,5 @@ func TestContractKeysAreSorted(t *testing.T) {
 	}
 	if len(keys) < len(AllCommands) {
 		t.Fatalf("записей %d меньше команд %d", len(keys), len(AllCommands))
-	}
-}
-
-func TestHelperStateEmptyIsObject(t *testing.T) {
-	if got := string(OK(HelperState{}).Payload); got != `{"state":{}}` {
-		t.Fatalf("пустое состояние Помощника: %s", got)
 	}
 }
