@@ -210,7 +210,7 @@ func TestOpenTwiceKeepsDataAndMigrationOnce(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []Child{{ID: id, SID: "S-1-5-21-1", Name: "Миша", CreatedAtMs: 1_000}}
+	want := []Child{{ID: id, SID: "S-1-5-21-1", Name: "Миша", EndMode: "lock", CreatedAtMs: 1_000}}
 	if !reflect.DeepEqual(kids, want) {
 		t.Fatalf("ListChildren после перезапуска = %+v, want %+v", kids, want)
 	}
@@ -382,6 +382,8 @@ func TestMethodsReturnErrorsWhenStoreClosed(t *testing.T) {
 		"SetAuth":      func() error { return s.SetAuth(Auth{Hash: "h"}) },
 		"GetSetting":   func() error { _, _, err := s.GetSetting("k"); return err },
 		"SetSetting":   func() error { return s.SetSetting("k", "v") },
+		"SetEndMode":   func() error { return s.SetEndMode(id, "lock") },
+		"GetEndMode":   func() error { _, err := s.GetEndMode(id); return err },
 	}
 	for name, call := range calls {
 		if err := call(); err == nil {
