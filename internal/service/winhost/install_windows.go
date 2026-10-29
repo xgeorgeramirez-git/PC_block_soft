@@ -300,21 +300,6 @@ func killLeftovers(exe string) (int, error) {
 	return killed, nil
 }
 
-// imagePath возвращает полный путь к файлу программы процесса.
-func imagePath(pid uint32) (string, bool) {
-	h, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, pid)
-	if err != nil {
-		return "", false
-	}
-	defer windows.CloseHandle(h)
-	buf := make([]uint16, 1024)
-	size := uint32(len(buf))
-	if err := windows.QueryFullProcessImageName(h, 0, &buf[0], &size); err != nil {
-		return "", false
-	}
-	return windows.UTF16ToString(buf[:size]), true
-}
-
 // waitState ждёт, пока служба придёт в состояние want.
 func waitState(s *mgr.Service, want svc.State, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
