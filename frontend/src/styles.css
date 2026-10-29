@@ -941,7 +941,8 @@ html:has(.shell-child) body {
   cursor: pointer;
 }
 
-.tab[aria-selected="true"] {
+.tab[aria-selected="true"],
+.tab[aria-pressed="true"] {
   background: var(--primary);
   border-color: var(--primary);
   color: var(--primary-text);
@@ -1096,6 +1097,250 @@ html:has(.shell-child) body {
   flex: none;
   min-width: 112px;
   color: var(--text-muted);
+}
+
+/* --- Программы (FR-20, 8.3.4) --------------------------------------------------------- */
+
+/* Блоки страницы: между ними 16 px, как у остальных панелей. */
+.programs-block {
+  margin-bottom: var(--space-4);
+  padding: var(--space-6);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-panel);
+}
+
+.programs-lead {
+  margin-bottom: var(--space-2);
+  color: var(--text-muted);
+}
+
+/* Сообщение о решении с «Отменить»: в потоке страницы, рядом с тем, что нажали. */
+.programs-feedback {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  margin: 0 0 var(--space-4);
+  padding: var(--space-2) var(--space-4);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--text-muted);
+  border-radius: var(--radius-control);
+}
+
+.programs-feedback.field-error {
+  border-left-color: var(--status-danger);
+}
+
+.pending-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.pending-item {
+  display: flex;
+  gap: var(--space-3);
+  padding: var(--space-4) 0;
+  border-top: 1px solid var(--line);
+}
+
+.pending-item:last-child {
+  padding-bottom: 0;
+}
+
+.program-icon {
+  flex: none;
+  color: var(--text-muted);
+}
+
+.pending-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.program-name {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.program-meta {
+  color: var(--text-muted);
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+
+.pending-was {
+  margin-top: var(--space-1);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+/* Кнопки решения одной высоты и с равными промежутками. */
+.pending-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+
+.pending-actions .btn {
+  min-width: 104px;
+}
+
+/* Путь: обрезанный виден всегда, полный читает диктор; по фокусу клавиатурой полный виден. */
+.program-path {
+  display: inline-block;
+  max-width: 100%;
+  border-radius: 2px;
+}
+
+.program-path .path-full {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.program-path:focus .path-short {
+  display: none;
+}
+
+.program-path:focus .path-full {
+  position: static;
+  width: auto;
+  height: auto;
+  margin: 0;
+  overflow: visible;
+  clip: auto;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.programs-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-4);
+  margin-bottom: var(--space-4);
+}
+
+.programs-search {
+  flex: 1 1 260px;
+  margin-bottom: 0;
+}
+
+.programs-filter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.programs-filter .tab {
+  padding: var(--space-2) var(--space-3);
+}
+
+.programs-empty .panel-text {
+  margin-bottom: var(--space-3);
+}
+
+.bulk-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-4);
+  min-height: 40px;
+  margin-bottom: var(--space-2);
+}
+
+.bulk-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.bulk-count {
+  font-weight: 600;
+}
+
+.bulk-select {
+  width: auto;
+}
+
+.bulk-error {
+  margin-top: 0;
+}
+
+.programs-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.programs-table th,
+.programs-table td {
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  vertical-align: top;
+}
+
+.programs-table thead th {
+  color: var(--text-muted);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.programs-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.programs-table .col-check {
+  width: 44px;
+}
+
+.programs-table .col-check input {
+  width: 18px;
+  height: 18px;
+  margin: var(--space-1) 0 0;
+}
+
+.programs-table .col-category {
+  width: 168px;
+}
+
+.programs-table .col-week {
+  width: 120px;
+  white-space: nowrap;
+}
+
+.sort-button {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 0;
+  background: none;
+  border: 0;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.sort-mark {
+  min-width: 1ch;
+}
+
+.program-saving {
+  display: block;
+  margin-top: var(--space-1);
+  color: var(--text-muted);
+  font-size: 13px;
 }
 
 /* --- Диалог ----------------------------------------------------------------------------- */
