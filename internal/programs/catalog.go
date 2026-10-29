@@ -18,10 +18,13 @@ const (
 type Catalog struct {
 	Games    map[string]string
 	Browsers map[string]string
+	// GameFamilies — игры Microsoft Store по имени пакета без версии и издателя
+	// («microsoft.minecraftuwp»): действует только в %ProgramFiles%\WindowsApps (Д-3).
+	GameFamilies map[string]string
 }
 
 // DefaultCatalog — каталог программы.
-var DefaultCatalog = Catalog{Games: catalogGames, Browsers: catalogBrowsers}
+var DefaultCatalog = Catalog{Games: catalogGames, Browsers: catalogBrowsers, GameFamilies: catalogGameFamilies}
 
 // Lookup ищет программу по имени файла (или по пути: берётся имя файла; регистр не важен).
 // Игра — CatGames; браузер — CatOther (в M3 сайты не различаются, RM3-2). Нет в каталоге — "", false.
@@ -35,6 +38,15 @@ func (c Catalog) Lookup(name string) (category string, ok bool) {
 	}
 	if _, ok := c.Browsers[base]; ok {
 		return CatOther, true
+	}
+	return "", false
+}
+
+// LookupFamily ищет игру Microsoft Store по имени пакета (без версии и издателя, регистр не
+// важен). Нет в каталоге — "", false.
+func (c Catalog) LookupFamily(pkgName string) (category string, ok bool) {
+	if _, ok := c.GameFamilies[strings.ToLower(pkgName)]; ok && pkgName != "" {
+		return CatGames, true
 	}
 	return "", false
 }
@@ -61,6 +73,17 @@ var catalogBrowsers = map[string]string{
 	"vivaldi.exe":  "Vivaldi",
 	"iexplore.exe": "Internet Explorer",
 	"browser.exe":  "Яндекс Браузер",
+}
+
+// catalogGameFamilies — игры Microsoft Store по имени пакета (Д-3); имена exe внутри пакетов
+// дополнительно узнаются по catalogGames (minecraft.windows.exe).
+var catalogGameFamilies = map[string]string{
+	"microsoft.minecraftuwp":                 "Minecraft for Windows",
+	"microsoft.minecraftjavaedition":         "Minecraft Launcher",
+	"microsoft.minecraftwindowsbeta":         "Minecraft Preview",
+	"robloxcorporation.roblox":               "Roblox",
+	"roblox":                                 "Roblox",
+	"microsoft.microsoftsolitairecollection": "Microsoft Solitaire Collection",
 }
 
 // catalogGames — известные игры и игровые лаунчеры. javaw.exe сюда не входит: Java запускает не

@@ -82,7 +82,6 @@ func (s *Service) seedPrograms() bool {
 // по каталогу (источник catalog) или «Прочее» (snapshot).
 func (s *Service) snapshotPrograms(found []FoundProgram) []Program {
 	roots := s.classifier.Roots()
-	cat := s.classifier.Catalog()
 	out := make([]Program, 0, len(found))
 	seen := map[string]bool{}
 	for _, f := range found {
@@ -95,7 +94,7 @@ func (s *Service) snapshotPrograms(found []FoundProgram) []Program {
 			Path: p, Name: programName(f.Name, f.Path), Publisher: programs.ClipName(f.Publisher),
 			Category: programs.CatOther, Source: ProgramSourceSnapshot, AppRoot: roots.AppRoot(p),
 		}
-		if c, ok := cat.Lookup(p); ok {
+		if c, ok := s.classifier.CatalogCategory(p); ok { // по имени exe и по пакету Store (Д-3)
 			pr.Category, pr.Source = c, ProgramSourceCatalog
 		}
 		out = append(out, pr)

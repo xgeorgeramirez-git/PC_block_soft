@@ -100,9 +100,11 @@ func (r Roots) IsTrusted(path string) bool {
 	return under(p, r.SystemRoot) || under(p, r.ProgramFiles) || under(p, r.ProgramFilesX86)
 }
 
-// IsSystem сообщает, что программа из класса «система» (RM3-1 п.1): папка Windows, каталог
-// установки PC Block, WindowsApps и WebView2 внутри Program Files. Такие процессы наблюдатель
-// не трогает никогда, их секунды идут как «Прочее».
+// IsSystem сообщает, что программа из класса «система» (RM3-1 п.1): папка Windows (в том числе
+// SystemApps оболочки), каталог установки PC Block, WebView2 внутри Program Files и пакеты
+// компонентов Windows в WindowsApps (издатель windowsPackagePublisher). Остальные приложения
+// Microsoft Store — не система (Д-3): ребёнок ставит их сам. Такие процессы наблюдатель не
+// трогает никогда, их секунды идут как «Прочее».
 func (r Roots) IsSystem(path string) bool {
 	p := Normalize(path)
 	if under(p, r.SystemRoot) || under(p, r.InstallDir) {
@@ -112,11 +114,58 @@ func (r Roots) IsSystem(path string) bool {
 		if pf == "" {
 			continue
 		}
-		if under(p, pf+`\windowsapps`) || under(p, pf+`\microsoft\edgewebview`) {
+		if under(p, pf+`\microsoft\edgewebview`) {
 			return true
 		}
 	}
+	if pkg, ok := r.storePackage(p); ok && pkg.publisher == windowsPackagePublisher {
+		return true
+	}
 	return false
+}
+
+// windowsPackagePublisher — код издателя пакетов компонентов Windows (MicrosoftWindows.*): их
+// ставит и обновляет сама Windows, ребёнок такой пакет поставить не может.
+const windowsPackagePublisher = "cw5n1h2txyewy"
+
+// storeDir — папка пакетов Microsoft Store внутри %ProgramFiles%.
+const storeDir = `windowsapps`
+
+// storePkg — пакет Microsoft Store по имени папки «имя_версия_архитектура_ресурс_издатель».
+type storePkg struct {
+	dir       string // имя папки пакета как есть
+	name      string // имя пакета без версии («microsoft.minecraftuwp»); «» — папка не по образцу
+	publisher string // код издателя («8wekyb3d8bbwe»)
+}
+
+// family — семейство пакета «имя__издатель»: не зависит от версии и архитектуры (Д-3). Папка
+// не по образцу — её имя как есть.
+func (k storePkg) family() string {
+	if k.name == "" {
+		return k.dir
+	}
+	return k.name + "__" + k.publisher
+}
+
+// storePackage разбирает нормализованный путь внутри <ProgramFiles>\WindowsApps\<пакет>\…;
+// ok = false — путь не в пакете Store (или прямо в WindowsApps).
+func (r Roots) storePackage(p string) (storePkg, bool) {
+	if r.ProgramFiles == "" {
+		return storePkg{}, false
+	}
+	base := strings.TrimSuffix(r.ProgramFiles, `\`) + `\` + storeDir
+	if !under(p, base) {
+		return storePkg{}, false
+	}
+	parts := strings.Split(p[len(base)+1:], `\`)
+	if len(parts) < 2 {
+		return storePkg{}, false
+	}
+	k := storePkg{dir: parts[0]}
+	if f := strings.Split(parts[0], "_"); len(f) == 5 && f[0] != "" && f[4] != "" {
+		k.name, k.publisher = f[0], f[4]
+	}
+	return k, true
 }
 
 // containerDirs — папки Program Files, в которых лежат разные приложения одного издателя или
@@ -126,9 +175,19 @@ var containerDirs = map[string]bool{"microsoft": true, "common files": true}
 
 // AppRoot возвращает корень приложения (RM3-1 п.3): первую папку внутри Program Files или Program
 // Files (x86) («c:\program files\brave software»; в общих папках Microsoft и Common Files —
-// вторую). Файл прямо в Program Files, сама папка и путь вне них — «».
+// вторую; в WindowsApps — семейство пакета без версии «…\windowsapps\имя__издатель», Д-3). Файл
+// прямо в Program Files, сама папка и путь вне них — «».
 func (r Roots) AppRoot(path string) string {
 	p := Normalize(path)
+	if r.ProgramFiles != "" {
+		store := strings.TrimSuffix(r.ProgramFiles, `\`) + `\` + storeDir
+		if pkg, ok := r.storePackage(p); ok {
+			return store + `\` + pkg.family()
+		}
+		if under(p, store) {
+			return "" // файл прямо в WindowsApps: не приложение
+		}
+	}
 	for _, pf := range []string{r.ProgramFiles, r.ProgramFilesX86} {
 		if !under(p, pf) {
 			continue

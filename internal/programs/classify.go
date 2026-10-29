@@ -117,12 +117,13 @@ func (c *Classifier) NeedsFingerprint(path string) bool {
 
 // Classify определяет вердикт для пути exe строго в порядке RM3-1:
 //  1. пустой или непригодный путь — «система» (PL-9: «не знаю» = «не трогать»);
-//  2. класс «система» (папка Windows, PC Block, WindowsApps, WebView2);
-//  3. точный путь в списке: категория программы; для записи с отпечатком при другом отпечатке —
-//     «незнакомая» с прежней категорией (RM3-12). fingerprint "" — отпечаток не прочитан: решение
-//     остаётся (ошибка чтения не закрывает программу);
+//  2. класс «система» (папка Windows, PC Block, WebView2, пакеты компонентов Windows);
+//  3. точный путь в списке: категория программы; для записи с отпечатком при другом или
+//     непрочитанном отпечатке (fingerprint "") — «незнакомая» с прежней категорией (RM3-12, Д-1:
+//     иначе ребёнок закроет системе доступ к свойствам своего файла и подменит exe). Это закрытие
+//     одной программы, а не блокировка компьютера (R18 не нарушается);
 //  4. корень приложения известной программы: наследуемая категория корня;
-//  5. каталог по имени файла — только в доверенных каталогах;
+//  5. каталог по имени файла (в WindowsApps и по имени пакета) — только в доверенных каталогах;
 //  6. иначе «незнакомая».
 func (c *Classifier) Classify(path, fingerprint string) Result {
 	p := Normalize(path)
@@ -141,7 +142,7 @@ func (c *Classifier) Classify(path, fingerprint string) Result {
 		if e.Name != "" {
 			name = ClipName(e.Name)
 		}
-		if e.Fingerprint != "" && fingerprint != "" && fingerprint != e.Fingerprint {
+		if e.Fingerprint != "" && fingerprint != e.Fingerprint {
 			return Result{Verdict: VerdictUnknown, Name: name, WasCategory: e.Category}
 		}
 		return verdictOf(e.Category, true, name)
@@ -149,12 +150,27 @@ func (c *Classifier) Classify(path, fingerprint string) Result {
 	if inRoot {
 		return verdictOf(rootCat, false, name)
 	}
-	if c.roots.IsTrusted(p) {
-		if cat, ok := c.cat.Lookup(p); ok {
-			return Result{Verdict: VerdictAllow, Category: cat, Name: name}
-		}
+	if cat, ok := c.CatalogCategory(p); ok {
+		return Result{Verdict: VerdictAllow, Category: cat, Name: name}
 	}
 	return Result{Verdict: VerdictUnknown, Name: name}
+}
+
+// CatalogCategory — категория по встроенному каталогу (RM3-1 п.4): только для путей в доверенных
+// каталогах; по имени файла, а в WindowsApps ещё и по имени пакета Store (Д-3). Снимок и
+// классификатор узнают каталог одинаково.
+func (c *Classifier) CatalogCategory(path string) (string, bool) {
+	p := Normalize(path)
+	if !c.roots.IsTrusted(p) {
+		return "", false
+	}
+	if cat, ok := c.cat.Lookup(p); ok {
+		return cat, true
+	}
+	if pkg, ok := c.roots.storePackage(p); ok {
+		return c.cat.LookupFamily(pkg.name)
+	}
+	return "", false
 }
 
 // verdictOf превращает категорию в вердикт. Непонятная категория — «система»: не трогать.

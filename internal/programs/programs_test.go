@@ -99,8 +99,13 @@ func TestRootsIsSystem(t *testing.T) {
 		{`c:\program files\pcblock\pcblock.exe`, true},
 		{`c:\program files\pcblock\guard\pcblock-guard.exe`, true},
 		{`c:\program files\pcblockx\x.exe`, false},
-		{`c:\program files\windowsapps\microsoft.windowscalculator_1\calc.exe`, true},
-		{`c:\program files (x86)\windowsapps\x\x.exe`, true},
+		// Д-3: приложения Microsoft Store ребёнок ставит сам, поэтому WindowsApps не «система»;
+		// «система» в нём только пакеты компонентов Windows (издатель cw5n1h2txyewy).
+		{`c:\program files\windowsapps\microsoft.windowscalculator_11.2405.2.0_x64__8wekyb3d8bbwe\calculatorapp.exe`, false},
+		{`c:\program files\windowsapps\microsoftwindows.client.webexperience_524.33200.0.0_x64__cw5n1h2txyewy\widgets.exe`, true},
+		{`c:\program files\windowsapps\fake_1.0.0.0_x64__cw5n1h2txyewyx\x.exe`, false},
+		{`c:\program files (x86)\windowsapps\x\x.exe`, false},
+		{`c:\windows\systemapps\microsoft.windows.startmenuexperiencehost_cw5n1h2txyewy\startmenuexperiencehost.exe`, true},
 		{`c:\users\kid\windowsapps\game.exe`, false},
 		{`c:\users\kid\appdata\local\microsoft\windowsapps\game.exe`, false},
 		{`c:\program files (x86)\microsoft\edgewebview\application\1.2.3\msedgewebview2.exe`, true},
@@ -133,6 +138,16 @@ func TestRootsAppRoot(t *testing.T) {
 		{`c:\program files\common files\vendor\tool.exe`, `c:\program files\common files\vendor`},
 		{`c:\program files\microsoft\x.exe`, ``},
 		{`c:\program files games\x\x.exe`, ``},
+		// Д-3: корень приложения Store — семейство пакета без версии (обновление не «незнакомое»).
+		{`c:\program files\windowsapps\microsoft.windowscalculator_11.2405.2.0_x64__8wekyb3d8bbwe\calculatorapp.exe`,
+			`c:\program files\windowsapps\microsoft.windowscalculator__8wekyb3d8bbwe`},
+		{`c:\program files\windowsapps\microsoft.minecraftuwp_1.21.0.0_x64__8wekyb3d8bbwe\data\minecraft.windows.exe`,
+			`c:\program files\windowsapps\microsoft.minecraftuwp__8wekyb3d8bbwe`},
+		{`c:\program files\windowsapps\microsoft.bundle_1.0.0.0_neutral_~_8wekyb3d8bbwe\x.exe`,
+			`c:\program files\windowsapps\microsoft.bundle__8wekyb3d8bbwe`},
+		{`c:\program files\windowsapps\strangefolder\x.exe`, `c:\program files\windowsapps\strangefolder`},
+		{`c:\program files\windowsapps\x.exe`, ``},
+		{`c:\users\kid\windowsapps\pkg_1_x64__p\x.exe`, ``},
 		{`c:\windows\system32\notepad.exe`, ``},
 		{`c:\users\kid\downloads\x\x.exe`, ``},
 		{``, ``},
@@ -257,8 +272,10 @@ func TestClassify(t *testing.T) {
 			Result{Verdict: VerdictAllow, Category: "games", Known: true, Name: "SuperGame"}},
 		{"подмена файла: отпечаток другой", `c:\users\миша\downloads\supergame.exe`, "2048:1700000500",
 			Result{Verdict: VerdictUnknown, Name: "SuperGame", WasCategory: "games"}},
-		{"отпечаток не прочитан: решение остаётся", `c:\users\миша\downloads\supergame.exe`, "",
-			Result{Verdict: VerdictAllow, Category: "games", Known: true, Name: "SuperGame"}},
+		// Д-1: ребёнок закрыл SYSTEM доступ к свойствам своего файла и подменил exe; нечитаемый
+		// отпечаток у решения с отпечатком — снова «ждёт решения», прежняя категория сохраняется.
+		{"отпечаток не прочитан: снова ждёт решения", `c:\users\миша\downloads\supergame.exe`, "",
+			Result{Verdict: VerdictUnknown, Name: "SuperGame", WasCategory: "games"}},
 		{"решение без отпечатка", `c:\users\миша\downloads\homework.exe`, "5:6",
 			Result{Verdict: VerdictAllow, Category: "study", Known: true, Name: "Homework"}},
 		{"путь с .. ведёт в Загрузки", `c:\program files\brave software\..\..\users\kid\downloads\chrome.exe`, "",
@@ -289,6 +306,52 @@ func TestClassify(t *testing.T) {
 		if got := c.Classify(k.path, k.fp); got != k.want {
 			t.Errorf("%s: Classify(%q, %q) = %+v, want %+v", k.name, k.path, k.fp, got, k.want)
 		}
+	}
+}
+
+// Ловит (Д-3): приложение Microsoft Store с новой версией становится «незнакомым» (корень по
+// папке с версией), игра из Store не узнаётся каталогом (ни по имени exe, ни по семейству
+// пакета) и никогда не закрывается, новый пакет после снимка не «ждёт решения», папка
+// «windowsapps» у ребёнка считается доверенной.
+func TestClassifyStoreApps(t *testing.T) {
+	const wa = `c:\program files\windowsapps\`
+	c := NewClassifier(testRoots, DefaultCatalog)
+	c.Reload([]Entry{
+		{Path: wa + `microsoft.windowscalculator_11.2405.2.0_x64__8wekyb3d8bbwe\calculatorapp.exe`, Name: "Калькулятор", Category: "other"},
+	})
+	cases := []struct {
+		name, path string
+		want       Result
+	}{
+		{"калькулятор из снимка", wa + `microsoft.windowscalculator_11.2405.2.0_x64__8wekyb3d8bbwe\calculatorapp.exe`,
+			Result{Verdict: VerdictAllow, Category: "other", Known: true, Name: "Калькулятор"}},
+		{"калькулятор новой версии: тот же корень", wa + `microsoft.windowscalculator_11.2502.0.0_x64__8wekyb3d8bbwe\calculatorapp.exe`,
+			Result{Verdict: VerdictAllow, Category: "other", Name: "calculatorapp"}},
+		{"Minecraft из Store: игра по имени exe", wa + `microsoft.minecraftuwp_1.21.0.0_x64__8wekyb3d8bbwe\minecraft.windows.exe`,
+			Result{Verdict: VerdictAllow, Category: "games", Name: "minecraft.windows"}},
+		{"Minecraft Java из Store: игра по семейству", wa + `microsoft.minecraftjavaedition_1.0.0.0_x64__8wekyb3d8bbwe\launcher\gamelauncher.exe`,
+			Result{Verdict: VerdictAllow, Category: "games", Name: "gamelauncher"}},
+		{"Roblox из Store: игра по семейству", wa + `robloxcorporation.roblox_2.600.0.0_x86__55nm5eh3cm0pr\windows10universal.exe`,
+			Result{Verdict: VerdictAllow, Category: "games", Name: "windows10universal"}},
+		{"неизвестный пакет после снимка", wa + `vendor.newapp_1.0.0.0_x64__abcdefghijklm\newapp.exe`,
+			Result{Verdict: VerdictUnknown, Name: "newapp"}},
+		{"компонент Windows в WindowsApps", wa + `microsoftwindows.client.webexperience_524.33200.0.0_x64__cw5n1h2txyewy\widgets.exe`,
+			Result{Verdict: VerdictSystem, Name: "widgets"}},
+		{"windowsapps в папке ребёнка", `c:\users\kid\windowsapps\x.exe`,
+			Result{Verdict: VerdictUnknown, Name: "x"}},
+		{"игра из каталога в windowsapps ребёнка", `c:\users\kid\windowsapps\microsoft.minecraftuwp_1_x64__8wekyb3d8bbwe\minecraft.windows.exe`,
+			Result{Verdict: VerdictUnknown, Name: "minecraft.windows"}},
+	}
+	for _, k := range cases {
+		if got := c.Classify(k.path, ""); got != k.want {
+			t.Errorf("%s: Classify(%q) = %+v, want %+v", k.name, k.path, got, k.want)
+		}
+	}
+	if cat, ok := c.CatalogCategory(wa + `microsoft.minecraftjavaedition_1.0.0.0_x64__8wekyb3d8bbwe\x.exe`); cat != "games" || !ok {
+		t.Errorf("CatalogCategory(Minecraft Java из Store) = %q, %v; want games, true", cat, ok)
+	}
+	if _, ok := c.CatalogCategory(`c:\users\kid\downloads\steam.exe`); ok {
+		t.Error("CatalogCategory вне доверенных каталогов: ok = true")
 	}
 }
 

@@ -190,3 +190,31 @@ func TestProgramsNotReadyWithoutScannerOrList(t *testing.T) {
 	}
 	h2.svc.mu.Unlock()
 }
+
+// Ловит (Д-3): пакеты Microsoft Store в снимке не попадают в список (их считают «системой»), игра
+// из Store по семейству пакета становится «Прочим», корень приложения хранится с версией.
+func TestSeedProgramsStorePackages(t *testing.T) {
+	const wa = `c:\program files\windowsapps\`
+	calc := wa + `microsoft.windowscalculator_11.2405.2.0_x64__8wekyb3d8bbwe\calculatorapp.exe`
+	java := wa + `microsoft.minecraftjavaedition_1.0.0.0_x64__8wekyb3d8bbwe\minecraft.exe.launcher.exe`
+	widgets := wa + `microsoftwindows.client.webexperience_524.33200.0.0_x64__cw5n1h2txyewy\widgets.exe`
+	sc := &fakeScanner{list: []FoundProgram{{Path: calc, Name: "Калькулятор"}, {Path: java, Name: "Minecraft"}, {Path: widgets, Name: "Виджеты"}}}
+	h := newHarness(t, configured(), withChild(childSID, "Миша", 120), withPrograms(sc))
+	h.start()
+	got := map[string]string{}
+	for _, p := range h.store.programs {
+		got[p.Path] = p.Category + "|" + p.Source + "|" + p.AppRoot
+	}
+	want := map[string]string{
+		calc: "other|snapshot|" + wa + `microsoft.windowscalculator__8wekyb3d8bbwe`,
+		java: "games|catalog|" + wa + `microsoft.minecraftjavaedition__8wekyb3d8bbwe`,
+	}
+	if jsonOf(t, got) != jsonOf(t, want) {
+		t.Errorf("снимок пакетов Store:\n got %v\nwant %v", got, want)
+	}
+	h.svc.mu.Lock()
+	defer h.svc.mu.Unlock()
+	if r := h.svc.classifier.Classify(wa+`microsoft.windowscalculator_11.2502.0.0_x64__8wekyb3d8bbwe\calculatorapp.exe`, ""); r.Verdict != programs.VerdictAllow {
+		t.Errorf("калькулятор новой версии: %+v, want разрешён", r)
+	}
+}
