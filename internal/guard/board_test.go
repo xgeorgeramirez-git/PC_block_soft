@@ -369,6 +369,9 @@ func TestPushStateCarriesUIDiag(t *testing.T) {
 	r.ctl.PollOnce()
 	r.ctl.NoteUITick(t0.Add(time.Second))
 	r.ctl.NoteUITick(t0.Add(2 * time.Second))
+	// lastPanic общая на процесс: после теста вернуть пустую, иначе «проба» увидят другие тесты
+	// пакета (TestBoardThenOneMinuteRealWindows на Windows проверяет, что паник нет).
+	t.Cleanup(func() { lastPanic.Store("") })
 	safely(func() { panic("проба") })
 	r.ctl.PushState()
 	st := lastPushed(t, r)
