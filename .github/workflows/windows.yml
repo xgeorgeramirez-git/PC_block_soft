@@ -94,6 +94,18 @@ jobs:
           exec > >(tee -a "$RUNNER_TEMP/ci.log") 2>&1
           go test -count=1 -tags desktop,production $(go list ./... | grep -v -E '^pcblock$')
 
+      # Сухой прогон наблюдателя процессов (RM3-8): тест TestWatcherDryRun пишет итог пометкой
+      # ::notice в файл; здесь она выводится, чтобы попасть в пометки сборки и при зелёных тестах.
+      - name: Сухой прогон наблюдателя (пометка)
+        if: always()
+        run: |
+          f="$RUNNER_TEMP/pcb-watch-dryrun.txt"
+          if [ -s "$f" ]; then
+            cat "$f"
+          else
+            echo "::warning title=Сухой прогон наблюдателя::итог не записан: тест TestWatcherDryRun не дошёл до конца"
+          fi
+
       - name: Ошибки — в пометки сборки (их видно без журнала)
         if: failure()
         run: bash tools/annotate-errors.sh "$RUNNER_TEMP/ci.log" "Сборка Windows"
