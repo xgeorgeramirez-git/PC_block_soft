@@ -22,6 +22,14 @@
 //   - policy_windows.go: политика Диспетчера задач DisableTaskMgr (FR-29, Ruling 20), при
 //     незагруженном профиле через RegLoadKey;
 //   - adapters_windows.go: Store над internal/storage и Hasher над auth/pwhash;
+//   - procwatch_windows.go, procinfo_windows.go: ProcessWatcher наблюдателя программ (M3):
+//     процессы сеанса через Toolhelp32 и ProcessIdToSessionId, путь exe с развёрнутыми 8.3-именами
+//     и junction, завершение по номеру, моменту создания и пути через одну ручку; procpath.go —
+//     разбор путей без Windows;
+//   - scan.go, scan_windows.go: Scanner — снимок программ Program Files и пакетов Microsoft Store
+//     (RM3-10), корни компьютера из KnownFolders; filemeta.go, filemeta_windows.go: FileMeta —
+//     издатель и описание из ресурса версии, отпечаток файла; dryrun.go — сухой прогон
+//     наблюдателя для приёмки (RM3-8, не боевой путь);
 //   - testtools_windows.go: служебные ключи приёмки --test-setup, --test-ipc, --test-runas
 //     (Ruling 23: результат пишется в файл --out, у программы нет стандартного вывода);
 //   - common.go, result.go: значения без Windows (дескриптор папки данных, пути, JSON результата
