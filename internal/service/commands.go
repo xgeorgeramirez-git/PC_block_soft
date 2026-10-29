@@ -203,7 +203,7 @@ func init() {
 	commandRules = map[string]rule{
 		ipc.CmdHello:          {anyone(), (*Service).hHello},
 		ipc.CmdGetChildStatus: {users(), (*Service).hGetChildStatus},
-		ipc.CmdOpenWindow:     {or(users(), bound()), (*Service).hOpenWindow},
+		ipc.CmdOpenWindow:     {or(users(), bound(), kinds(kindGuard)), (*Service).hOpenWindow},
 		ipc.CmdWindowClosing:  {users(), (*Service).hWindowClosing},
 
 		ipc.CmdListAccounts:   {or(and(elevated(), unconfiguredCheck()), parentToken(false)), (*Service).hListAccounts},

@@ -36,7 +36,7 @@ var allModes = []struct {
 var flagParams = []string{"silent", "delete-data", "elevated"}
 
 // Параметры со значением вида --key=value.
-var valueParams = []string{"out", "session", "handover", "password", "new-password", "payload", "user", "exe"}
+var valueParams = []string{"out", "session", "handover", "password", "new-password", "payload", "user", "exe", "screen"}
 
 // Какому режиму какой параметр положен (расшифровка плана M1: Ruling 2 и 23, S25, T9, T10, T16).
 var paramModes = map[string][]string{
@@ -51,6 +51,7 @@ var paramModes = map[string][]string{
 	"payload":      {"--test-ipc"},
 	"user":         {"--test-setup", "--test-runas"},
 	"exe":          {"--test-runas"},
+	"screen":       {"--parent"},
 }
 
 // Ловит (Ruling 22): запуск без ключей, каким программу запускает генератор биндингов Wails,
@@ -121,6 +122,7 @@ func TestParseEveryParameter(t *testing.T) {
 		{[]string{"--guard", "--session=2"}, ModeGuard, Options{"session": "2"}},
 		{[]string{"--tray", "--session=3"}, ModeTray, Options{"session": "3"}},
 		{[]string{"--parent", "--handover=7f3a"}, ModeParent, Options{"handover": "7f3a"}},
+		{[]string{"--parent", "--screen=programs", "--handover=7f3a"}, ModeParent, Options{"screen": "programs", "handover": "7f3a"}},
 		{[]string{"--test-setup", "--password=Secret1", "--user=runner", "--out=o.json"}, ModeTestSetup,
 			Options{"password": "Secret1", "user": "runner", "out": "o.json"}},
 		{[]string{"--reset-password", "--new-password=Новый-Пароль-1"}, ModeResetPassword, Options{"new-password": "Новый-Пароль-1"}},
@@ -229,6 +231,9 @@ func TestParseParameterMatrix(t *testing.T) {
 			allowed[f] = true
 		}
 		arg := "--" + param + "=x"
+		if param == "screen" {
+			arg = "--screen=programs" // значение из списка экранов: здесь проверяется только режим
+		}
 		for _, flag := range flagParams {
 			if param == flag {
 				arg = "--" + param
@@ -360,7 +365,7 @@ func FuzzParse(f *testing.F) {
 		"", "--service", "--guard\x00--session=1", "--test-ipc\x00--payload={\"cmd\":\"Hello\"}\x00--out=r.json",
 		"--x", "foo", "--", "--=", "-service", "--Service", "--silent=0", "--remove-service\x00--silent\x00--delete-data",
 		"--out", "--out=a\x00--out=b", "\x00\x00", "--parent\x00--handover=" + strings.Repeat("a", 300),
-		"--service\x00--guard", "--password===", "\xff\xfe", "--test-runas\x00--user=u\x00--password=p\x00--exe=x y",
+		"--service\x00--guard", "--password===", "--parent\x00--screen=programs", "--parent\x00--screen=Programs", "\xff\xfe", "--test-runas\x00--user=u\x00--password=p\x00--exe=x y",
 	} {
 		f.Add(seed)
 	}
@@ -407,4 +412,36 @@ func FuzzParse(f *testing.F) {
 			}
 		}
 	})
+}
+
+// Ловит (RM3-4): окно родителя открывается на экране, которого нет, ключ --screen принимается у
+// другого режима или без значения; ScreenArg собирает ключ для неизвестного экрана.
+func TestScreenParameter(t *testing.T) {
+	if mode, opts, err := Parse([]string{"--parent", "--screen=programs"}); err != nil || mode != ModeParent || opts["screen"] != "programs" {
+		t.Fatalf("экран «Программы»: %v %#v %v", mode, opts, err)
+	}
+	for _, args := range [][]string{
+		{"--parent", "--screen=settings"}, {"--parent", "--screen="}, {"--parent", "--screen=Programs"},
+		{"--parent", "--screen"}, {"--mystats", "--screen=programs"}, {"--screen=programs"},
+	} {
+		mode, opts, err := Parse(args)
+		if err == nil || mode != ModeWindow || opts != nil {
+			t.Errorf("Parse(%q): %v %#v %v, ждали ошибку", args, mode, opts, err)
+		}
+	}
+	if _, _, err := Parse([]string{"--parent", "--screen=settings"}); err == nil || err.Error() != "Неизвестный ключ запуска: --screen=settings" {
+		t.Errorf("текст ошибки: %v", err)
+	}
+	if got := ScreenArg("programs"); got != "--screen=programs" {
+		t.Errorf("ScreenArg(programs) = %q", got)
+	}
+	for _, s := range []string{"", "settings", "programs "} {
+		if got := ScreenArg(s); got != "" {
+			t.Errorf("ScreenArg(%q) = %q, ждали пусто", s, got)
+		}
+	}
+	// Собранный ключ разбирается обратно.
+	if _, opts, err := Parse([]string{"--parent", ScreenArg("programs")}); err != nil || opts["screen"] != "programs" {
+		t.Errorf("ScreenArg не разбирается: %#v %v", opts, err)
+	}
 }

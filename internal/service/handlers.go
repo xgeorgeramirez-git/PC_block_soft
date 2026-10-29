@@ -63,20 +63,17 @@ func (s *Service) hOpenWindow(c *callCtx) ipc.Reply {
 	if _, ok := windowFlag(req.Kind); !ok {
 		return ipc.Fail(textWindowKind)
 	}
-	if req.Screen != "" && req.Screen != ipc.ScreenPrograms {
-		return bad() // экран окна родителя (RM3-4); передачу окну делает T5
+	if req.Screen != "" && (req.Screen != ipc.ScreenPrograms || req.Kind != ipc.WindowParent) {
+		return bad() // экран бывает только у окна родителя (RM3-4)
 	}
 	ss := s.sessions[c.peer.SessionID]
-	if c.viaBind {
+	if c.viaBind && req.Kind == ipc.WindowParent {
 		if ss == nil {
 			return ipc.Fail(textRetry)
 		}
 		// Страж просит окно родителя после верного пароля: окно получает родительскую сессию.
-		if req.Kind != ipc.WindowParent {
-			return ipc.Fail(textDenyKind)
-		}
 		s.spendBind(c.peer.SessionID)
-		opened, err := s.openWindow(ss, ipc.WindowParent, true, c.real)
+		opened, err := s.openWindow(ss, ipc.WindowParent, req.Screen, true, c.real)
 		if err != nil {
 			s.logRate("openwin", "окно родителя не открыто: %v", err)
 			return ipc.Fail(textRetry)
@@ -84,6 +81,15 @@ func (s *Service) hOpenWindow(c *callCtx) ipc.Reply {
 		return ipc.OK(ipc.OpenWindowReply{Opened: opened})
 	}
 	cs := s.childBySID(c.peer.SID)
+	if c.kind == kindGuard {
+		// Страж без пароля (кнопки плашек): окно родителя без сессии — пароль спросит окно
+		// («Попросить сейчас», RM3-4) — и «Моя статистика» ребёнка своего сеанса («Попросить ещё»
+		// на плашке 1 мин, RM3-5). Окно первого входа открывает значок, не страж.
+		if req.Kind == ipc.WindowFirstRun || ss == nil || ss.childID == 0 {
+			return ipc.Fail(textDenyKind)
+		}
+		cs = s.children[ss.childID]
+	}
 	if req.Kind != ipc.WindowParent && cs == nil {
 		return ipc.Fail(textNotAChild)
 	}
@@ -93,7 +99,7 @@ func (s *Service) hOpenWindow(c *callCtx) ipc.Reply {
 	if req.Kind == ipc.WindowFirstRun && s.firstRunSeen(cs) {
 		return ipc.OK(ipc.OpenWindowReply{Opened: false})
 	}
-	opened, err := s.openWindow(ss, req.Kind, false, c.real)
+	opened, err := s.openWindow(ss, req.Kind, req.Screen, false, c.real)
 	if err != nil {
 		s.logRate("openwin", "окно %s не открыто: %v", req.Kind, err)
 		return ipc.Fail(textRetry)

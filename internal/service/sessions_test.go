@@ -448,17 +448,64 @@ func TestGuardClearBlockNeedsBinding(t *testing.T) {
 	}
 }
 
+// Ловит (RM3-4, RM3-5, Review Focus 6): страж без пароля открывает окно родителя с родительской
+// сессией (токеном) или не может открыть его вовсе; экран «Программы» не доходит до окна ключом
+// запуска; «Моя статистика» со стража (плашка 1 мин) не открывается или открывается вне сеанса
+// ребёнка; окно первого входа открывается стражем; всё это пишется в журнал обходом.
+func TestGuardOpensWindowsWithoutPassword(t *testing.T) {
+	h := newHarness(t, withChild(childSID, "Миша", 120), configured())
+	h.start()
+	h.childLogsIn()
+	var ow ipc.OpenWindowReply
+	h.ok(guardPeer(), "", ipc.CmdOpenWindow, ipc.OpenWindowRequest{Kind: ipc.WindowParent, Screen: ipc.ScreenPrograms}, &ow)
+	wins := h.launcher.launched(ProcWindow, childSession)
+	if !ow.Opened || len(wins) != 1 || strings.Join(wins[0].args, " ") != "--parent --screen=programs" {
+		t.Fatalf("окно родителя на «Программах»: %+v, запуски %+v", ow, wins)
+	}
+	if rep := h.poll(activeSample); len(rep.Commands) != 0 {
+		t.Fatalf("окно без пароля спрятало экран (родительской сессии нет): %+v", rep.Commands)
+	}
+	h.ok(guardPeer(), "", ipc.CmdOpenWindow, ipc.OpenWindowRequest{Kind: ipc.WindowMyStats}, &ow)
+	wins = h.launcher.launched(ProcWindow, childSession)
+	if !ow.Opened || len(wins) != 2 || strings.Join(wins[1].args, " ") != "--mystats" {
+		t.Fatalf("«Моя статистика» со стража: %+v, запуски %+v", ow, wins)
+	}
+	if rep := h.fail(guardPeer(), "", ipc.CmdOpenWindow, ipc.OpenWindowRequest{Kind: ipc.WindowFirstRun}); rep.Error != textDenyKind {
+		t.Fatalf("окно первого входа со стража: %q", rep.Error)
+	}
+	if rep := h.fail(guardPeer(), "", ipc.CmdOpenWindow, ipc.OpenWindowRequest{Kind: ipc.WindowParent, Screen: "settings"}); rep.Error != ipc.TextBadRequest {
+		t.Fatalf("неизвестный экран: %q", rep.Error)
+	}
+	if rep := h.fail(systemOtherPeer(), "", ipc.CmdOpenWindow, ipc.OpenWindowRequest{Kind: ipc.WindowParent}); rep.Error == "" {
+		t.Fatal("система вне сеанса ребёнка открыла окно")
+	}
+	if rep := h.fail(guardPeer(), "", ipc.CmdOpenWindow, ipc.OpenWindowRequest{Kind: ipc.WindowMyStats, Screen: ipc.ScreenPrograms}); rep.Error != ipc.TextBadRequest {
+		t.Fatalf("экран у «Моей статистики»: %q", rep.Error)
+	}
+	// После пароля на экране блокировки: «Моя статистика» привязку не тратит, «Программы»
+	// открываются с сессией.
+	h.ok(ipc.Peer{PID: wins[0].proc.pid, SessionID: childSession, SID: childSID}, "", ipc.CmdWindowClosing, ipc.WindowClosingRequest{Kind: ipc.WindowParent}, nil)
+	h.ok(ipc.Peer{PID: wins[1].proc.pid, SessionID: childSession, SID: childSID}, "", ipc.CmdWindowClosing, ipc.WindowClosingRequest{Kind: ipc.WindowMyStats}, nil)
+	h.guardLogin(goodPassword)
+	h.ok(guardPeer(), "", ipc.CmdOpenWindow, ipc.OpenWindowRequest{Kind: ipc.WindowMyStats}, &ow)
+	h.ok(guardPeer(), "", ipc.CmdOpenWindow, ipc.OpenWindowRequest{Kind: ipc.WindowParent, Screen: ipc.ScreenPrograms}, &ow)
+	wins = h.launcher.launched(ProcWindow, childSession)
+	last := strings.Join(wins[len(wins)-1].args, " ")
+	if !strings.HasPrefix(last, "--parent --screen=programs --handover=tok-") {
+		t.Fatalf("окно после пароля: %q", last)
+	}
+	h.hk(1)
+	if n := h.bypassCount(); n != 0 {
+		t.Fatalf("записей обхода: %d", n)
+	}
+}
+
 // Ловит: окно родителя со стража открывается без пароля, без передачи сессии, или страж
 // продолжает показывать экран поверх окна; конец сессии не возвращает экран.
 func TestGuardOpensParentWindowWithHandover(t *testing.T) {
 	h := newHarness(t, withChild(childSID, "Миша", 120), configured())
 	h.start()
 	h.childLogsIn()
-	if rep := h.fail(guardPeer(), "", ipc.CmdOpenWindow, ipc.OpenWindowRequest{Kind: ipc.WindowParent}); rep.Error == "" {
-		t.Fatal("без пароля окно открылось")
-	}
-	h.guardLogin(goodPassword)
-	h.fail(guardPeer(), "", ipc.CmdOpenWindow, ipc.OpenWindowRequest{Kind: ipc.WindowMyStats}) // со стража только окно родителя
 	h.guardLogin(goodPassword)
 	var ow ipc.OpenWindowReply
 	h.ok(guardPeer(), "", ipc.CmdOpenWindow, ipc.OpenWindowRequest{Kind: ipc.WindowParent}, &ow)

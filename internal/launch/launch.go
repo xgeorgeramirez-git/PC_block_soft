@@ -134,6 +134,32 @@ var params = map[string]paramInfo{
 	"user": {modes: []Mode{ModeTestSetup, ModeTestRunAs}},
 	// Программа и её ключи, которые --test-runas запускает от имени другой учётки.
 	"exe": {modes: []Mode{ModeTestRunAs}},
+	// Экран, на котором открывается окно родителя (RM3-4: «Попросить сейчас» → «Программы»);
+	// значение только из Screens.
+	"screen": {modes: []Mode{ModeParent}},
+}
+
+// Screens — экраны окна родителя для --screen (те же имена, что ipc.Screen*). Другое значение
+// ключа — ошибка разбора: окно не открывает экран, которого не знает.
+var Screens = []string{"programs"}
+
+// validScreen: значение --screen из списка Screens.
+func validScreen(v string) bool {
+	for _, s := range Screens {
+		if s == v {
+			return true
+		}
+	}
+	return false
+}
+
+// ScreenArg — ключ запуска окна родителя на экране screen («--screen=programs»); пусто для
+// пустого и неизвестного экрана (окно откроется на главном).
+func ScreenArg(screen string) string {
+	if !validScreen(screen) {
+		return ""
+	}
+	return "--screen=" + screen
 }
 
 func (p paramInfo) allowedFor(m Mode) bool {
@@ -211,6 +237,9 @@ func Parse(args []string) (Mode, Options, error) {
 		}
 		if _, dup := opts[key]; dup {
 			return fail("Ключ %s указан дважды", name)
+		}
+		if key == "screen" && !validScreen(value) {
+			return fail("Неизвестный ключ запуска: %s", arg)
 		}
 		opts[key] = value
 		order = append(order, key)

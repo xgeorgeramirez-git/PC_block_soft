@@ -77,7 +77,11 @@ func wantAllowed(cmd, kind, tok string, test, configured bool) bool {
 	switch cmd {
 	case ipc.CmdHello:
 		return true
-	case ipc.CmdGetChildStatus, ipc.CmdWindowClosing, ipc.CmdOpenWindow, ipc.CmdLogout, ipc.CmdSessionState,
+	case ipc.CmdOpenWindow:
+		// Окна пользователя; страж своего сеанса — окно родителя (пароль спросит окно, RM3-4) и
+		// «Моя статистика» (плашка 1 мин, RM3-5).
+		return user || kind == "guard"
+	case ipc.CmdGetChildStatus, ipc.CmdWindowClosing, ipc.CmdLogout, ipc.CmdSessionState,
 		ipc.CmdExtendSession, ipc.CmdMyToday, ipc.CmdFirstRunSeen, ipc.CmdTrayClosing:
 		return user
 	case ipc.CmdLogin:
