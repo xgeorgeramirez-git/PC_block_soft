@@ -234,18 +234,23 @@ func lookOf(main, enabled, pressed bool) buttonLook {
 // drawButton рисует кнопку по DRAWITEMSTRUCT: подложка цвета родителя (back), скруглённый
 // прямоугольник, подпись по центру, рамка фокуса при выборе с клавиатуры.
 func drawButton(di *drawItemStruct, label string, font uintptr, look buttonLook, radius int32, back uintptr) {
-	rc := di.rcItem
-	procFillRect.Call(di.hdc, uintptr(unsafe.Pointer(&rc)), back)
-	roundBox(di.hdc, rect{rc.left + 1, rc.top + 1, rc.right - 1, rc.bottom - 1}, look.fill, look.line, look.lineW, radius)
-	old, _, _ := procSelectObject.Call(di.hdc, font)
-	procSetBkMode.Call(di.hdc, transparent)
-	procSetTextColor.Call(di.hdc, look.text)
-	procDrawText.Call(di.hdc, uintptr(unsafe.Pointer(utf16(label))), ^uintptr(0),
+	drawButtonRect(di.hdc, di.rcItem, label, font, look, radius, back, di.itemState&odsFocus != 0)
+}
+
+// drawButtonRect рисует кнопку в прямоугольнике rc контекста hdc: тот же вид, что у кнопок экрана
+// блокировки; им же рисует свои кнопки плашка (у неё кнопки — области окна, не дочерние окна).
+func drawButtonRect(hdc uintptr, rc rect, label string, font uintptr, look buttonLook, radius int32, back uintptr, focus bool) {
+	procFillRect.Call(hdc, uintptr(unsafe.Pointer(&rc)), back)
+	roundBox(hdc, rect{rc.left + 1, rc.top + 1, rc.right - 1, rc.bottom - 1}, look.fill, look.line, look.lineW, radius)
+	old, _, _ := procSelectObject.Call(hdc, font)
+	procSetBkMode.Call(hdc, transparent)
+	procSetTextColor.Call(hdc, look.text)
+	procDrawText.Call(hdc, uintptr(unsafe.Pointer(utf16(label))), ^uintptr(0),
 		uintptr(unsafe.Pointer(&rc)), dtCenter|dtVCenter|dtSingleLine|dtNoPrefix)
-	procSelectObject.Call(di.hdc, old)
-	if di.itemState&odsFocus != 0 {
-		focus := rect{rc.left + 5, rc.top + 5, rc.right - 5, rc.bottom - 5}
-		procDrawFocusRect.Call(di.hdc, uintptr(unsafe.Pointer(&focus)))
+	procSelectObject.Call(hdc, old)
+	if focus {
+		f := rect{rc.left + 5, rc.top + 5, rc.right - 5, rc.bottom - 5}
+		procDrawFocusRect.Call(hdc, uintptr(unsafe.Pointer(&f)))
 	}
 }
 

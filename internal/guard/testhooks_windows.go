@@ -30,6 +30,13 @@ func (a *app) runTestAction(t ipc.TestGuardAction) {
 			}
 			return
 		}
+		if isPlateButton(b) {
+			// Кнопки текстовой плашки: щелчок мыши в её окне (RM3-4, RM3-5).
+			if a.plate != nil {
+				a.plate.click(b)
+			}
+			return
+		}
 		var h uintptr
 		if a.ui != nil && a.lock != nil && a.lock.Visible() {
 			h = a.ui.buttonHandle(b)

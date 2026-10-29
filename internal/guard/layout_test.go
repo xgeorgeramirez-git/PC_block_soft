@@ -76,3 +76,55 @@ func TestFlowTopKeepsMarginWhenColumnIsTall(t *testing.T) {
 		t.Fatalf("столбец 320 в экране 720: верх %d, ждали 160", got)
 	}
 }
+
+// Ловит: на плашке с кнопками (плашка 1 мин, «ждёт разрешения») крестик, текст и кнопки налезают
+// друг на друга или выходят за окно при масштабах 100…200 %; попадание мимо кнопки нажимает её.
+func TestPlateLayoutNoOverlap(t *testing.T) {
+	overlap := func(a, b Rect) bool {
+		return a.Left < b.Right && b.Left < a.Right && a.Top < b.Bottom && b.Top < a.Bottom
+	}
+	inside := func(r Rect, w, h int32) bool { return r.Left >= 0 && r.Top >= 0 && r.Right <= w && r.Bottom <= h }
+	for _, dpi := range []int{96, 120, 144, 192} {
+		for _, c := range []struct {
+			n     int
+			close bool
+		}{{0, false}, {0, true}, {1, false}, {2, false}, {1, true}} {
+			for _, textH := range []int32{Scaled(16, dpi), Scaled(60, dpi)} {
+				l := NewPlateLayout(dpi, textH, c.n, c.close)
+				if l.W != Scaled(400, dpi) || len(l.Buttons) != c.n {
+					t.Fatalf("dpi %d %+v: %+v", dpi, c, l)
+				}
+				all := append([]Rect{l.Text}, l.Buttons...)
+				if c.close {
+					all = append(all, l.Close)
+				}
+				for i, a := range all {
+					if !inside(a, l.W, l.H) || a.Right <= a.Left || a.Bottom <= a.Top {
+						t.Errorf("dpi %d %+v: блок %d вне окна %dx%d: %+v", dpi, c, i, l.W, l.H, a)
+					}
+					for j := i + 1; j < len(all); j++ {
+						if overlap(a, all[j]) {
+							t.Errorf("dpi %d %+v: блоки %d и %d налезают: %+v %+v", dpi, c, i, j, a, all[j])
+						}
+					}
+				}
+				if l.Text.Right-l.Text.Left != PlateTextWidth(dpi, c.close) {
+					t.Errorf("dpi %d: ширина текста %d, окно мерило %d", dpi, l.Text.Right-l.Text.Left, PlateTextWidth(dpi, c.close))
+				}
+				for i, b := range l.Buttons {
+					if got := l.Hit((b.Left+b.Right)/2, (b.Top+b.Bottom)/2); got != i {
+						t.Errorf("центр кнопки %d: %d", i, got)
+					}
+				}
+				if c.close {
+					if got := l.Hit((l.Close.Left+l.Close.Right)/2, (l.Close.Top+l.Close.Bottom)/2); got != -1 {
+						t.Errorf("центр крестика: %d", got)
+					}
+				}
+				if got := l.Hit(1, 1); got != -2 {
+					t.Errorf("угол окна: %d", got)
+				}
+			}
+		}
+	}
+}

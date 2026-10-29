@@ -76,3 +76,13 @@ func ButtonByTarget(name string) (Button, bool) {
 	}
 	return ButtonNone, false
 }
+
+// isPlateButton: кнопка текстовой плашки (не экрана блокировки и не табло): её нажимает щелчок в
+// окне плашки.
+func isPlateButton(b Button) bool {
+	switch b {
+	case ButtonAskNow, ButtonPlateClose, ButtonPlateSpendBonus, ButtonPlateAskMore:
+		return true
+	}
+	return false
+}
