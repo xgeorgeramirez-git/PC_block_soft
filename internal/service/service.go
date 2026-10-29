@@ -11,6 +11,7 @@ import (
 
 	"pcblock/internal/core"
 	"pcblock/internal/ipc"
+	"pcblock/internal/programs"
 )
 
 // Сроки службы. Всё, что про людей и процессы, считается по настоящим часам; учёт по часам ядра.
@@ -89,6 +90,13 @@ type Config struct {
 	// (служба работает в служебном сеансе и свой проводник никому бы не показала): FR-25, D-48,
 	// «Открыть папку с логами». nil: ничего не делает (тесты; в тестовом режиме не вызывается).
 	OpenFolder func(sessionID uint32, path string) error
+	// Программы (M3, RM3-1, RM3-10): сканер Program Files для снимка и мастера, свойства файлов и
+	// корни компьютера (нормализованные programs.Normalize). Scanner nil: снимка нет, список
+	// программ не готов, наблюдатель ничего не закрывает. FileMeta nil: издатель и отпечаток не
+	// известны.
+	Scanner  Scanner
+	FileMeta FileMeta
+	Roots    programs.Roots
 }
 
 // pendingWarning — предупреждение, ещё не доставленное стражу.
@@ -154,6 +162,13 @@ type Service struct {
 	verbose     bool // «Подробные логи для диагностики» включены (FR-25, D-42)
 	errAt       map[string]time.Time
 
+	// Программы (M3): классификатор в памяти (RM3-11), готов ли список (снимок сделан и прочитан,
+	// RM3-10), когда пробовали в последний раз, последняя операция для «Отменить».
+	classifier *programs.Classifier
+	progReady  bool
+	progTryAt  time.Time
+	progUndo   *progUndoRec
+
 	bypassWait []pendingBypass // гибель стража, значка или окна, о которой ещё не решено, обход ли это (FB-1)
 	logoffs    []logoffMark    // недавние выходы из учёток: гибель рядом с ними в отключённом сеансе ребёнка не обход (FB-5)
 }
@@ -194,12 +209,16 @@ func New(cfg Config) (*Service, error) {
 	if cfg.OpenFolder == nil {
 		cfg.OpenFolder = func(uint32, string) error { return nil }
 	}
+	if cfg.FileMeta == nil {
+		cfg.FileMeta = func(string) (string, string, string) { return "", "", "" }
+	}
 	s := &Service{
 		cfg: cfg, journal: cfg.Journal,
 		children: map[int64]*childState{}, sessions: map[uint32]*sessState{},
 		parents: map[string]*parentSession{}, binds: map[uint32]*guardBind{},
 		guardCmd: map[uint32][]ipc.GuardCommand{}, guardUI: map[uint32]*guardView{},
 		errAt: map[string]time.Time{}, names: map[int64]string{},
+		classifier: programs.NewClassifier(cfg.Roots, programs.DefaultCatalog),
 	}
 	if s.journal == nil {
 		s.journal = StoreJournal{Store: cfg.Store, Clock: cfg.Clock, Loc: cfg.Loc, Logf: cfg.Logf}
@@ -247,6 +266,7 @@ func (s *Service) Start(real time.Time) error {
 		s.startRecovered()
 	}
 	s.loadChildren(real)
+	s.ensurePrograms(real)
 	if v, ok, err := s.cfg.Store.GetSetting(settingVerboseLogs); err == nil && ok && v == "1" {
 		s.verbose = true
 		s.cfg.Logf("Подробные логи для диагностики включены (FR-25, D-42)")

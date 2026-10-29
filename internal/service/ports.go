@@ -158,6 +158,25 @@ type Store interface {
 	Close() error
 }
 
+// FoundProgram — программа, найденная сканером в Program Files (снимок RM3-10, мастер FR-2).
+// Name — описание из файла или имя файла; Publisher — CompanyName (RM3-3), пусто — не известен.
+type FoundProgram struct {
+	Path      string
+	Name      string
+	Publisher string
+}
+
+// Scanner — снимок программ компьютера: главные exe корней приложений Program Files и известные
+// игры по каталогу (Windows-реализация в winhost). Ошибка — снимок не сделан: служба не считает
+// компьютер пустым и ничего не закрывает (RM3-10, R18).
+type Scanner interface {
+	Scan() ([]FoundProgram, error)
+}
+
+// FileMeta читает свойства файла exe: издатель (CompanyName), описание (FileDescription) и
+// отпечаток «размер:время изменения unix» (RM3-12). Не прочиталось — пустые строки.
+type FileMeta func(path string) (publisher, description, fingerprint string)
+
 // StoreOpener открывает базу и сохраняет копию испорченной. Open при порче файла
 // возвращает ошибку, для которой errors.Is(err, ErrStoreCorrupt).
 type StoreOpener interface {

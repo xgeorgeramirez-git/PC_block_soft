@@ -38,6 +38,7 @@ type fakeStore struct {
 	failAuth     bool // GetAuth возвращает ошибку
 	failSchedule bool // GetSchedule возвращает ошибку
 	failEndMode  bool // GetEndMode возвращает ошибку
+	failPrograms bool // ListPrograms возвращает ошибку
 
 	endModes map[int64]string           // режим «Когда время вышло» (M3); нет записи — "lock"
 	programs map[string]Program         // программы по пути (M3)
@@ -147,6 +148,9 @@ func (f *fakeStore) GetProgram(path string) (Program, bool, error) {
 func (f *fakeStore) ListPrograms() ([]Program, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.failPrograms {
+		return nil, errFake
+	}
 	out := make([]Program, 0, len(f.programs))
 	for _, p := range f.programs {
 		out = append(out, p)
@@ -980,4 +984,59 @@ func containsAll(s string, subs ...string) bool {
 		}
 	}
 	return true
+}
+
+// --- сканер программ и свойства файлов (M3) ---------------------------------------------
+
+// fakeScanner — снимок Program Files: список, ошибка и число вызовов.
+type fakeScanner struct {
+	mu    sync.Mutex
+	list  []FoundProgram
+	err   error
+	calls int
+}
+
+func (sc *fakeScanner) Scan() ([]FoundProgram, error) {
+	sc.mu.Lock()
+	defer sc.mu.Unlock()
+	sc.calls++
+	if sc.err != nil {
+		return nil, sc.err
+	}
+	return append([]FoundProgram{}, sc.list...), nil
+}
+
+func (sc *fakeScanner) callCount() int {
+	sc.mu.Lock()
+	defer sc.mu.Unlock()
+	return sc.calls
+}
+
+// fakeMeta — свойства файлов по пути (издатель, описание, отпечаток) и журнал запросов.
+type fakeMeta struct {
+	mu    sync.Mutex
+	files map[string][3]string
+	asked []string
+}
+
+func newMeta() *fakeMeta { return &fakeMeta{files: map[string][3]string{}} }
+
+func (m *fakeMeta) set(path, publisher, description, fingerprint string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.files[path] = [3]string{publisher, description, fingerprint}
+}
+
+func (m *fakeMeta) meta(path string) (string, string, string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.asked = append(m.asked, path)
+	f := m.files[path]
+	return f[0], f[1], f[2]
+}
+
+func (m *fakeMeta) askedPaths() []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return append([]string{}, m.asked...)
 }
