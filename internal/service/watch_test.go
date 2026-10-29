@@ -2,7 +2,9 @@ package service
 
 import (
 	"context"
+	"errors"
 	"sort"
+	"strings"
 	"testing"
 	"time"
 
@@ -250,5 +252,201 @@ func TestWatchClosesRunningWhenRuleTurnsOn(t *testing.T) {
 	h.watch()
 	if w.alive(brave) {
 		t.Error("«Запретить» запущенной программы: браузер жив")
+	}
+}
+
+// Ловит (PL-13, Review Focus 3 и 8): наблюдатель закрывает компоненты PC Block — по пути каталога
+// установки, по решению родителя «Запретить» на pcblock.exe или когда страж запущен не из каталога
+// установки (сборка разработчика): гибель окон и стража записалась бы «обходом защиты».
+func TestWatchNeverTouchesPCBlock(t *testing.T) {
+	w := newWatcher()
+	h := watchHarness(t, w, withRules(0, -1, "study_only"))
+	if err := h.store.UpsertProgram(Program{Path: pathPCBlock, Name: "PC Block", Category: "blocked", Source: "parent"}); err != nil {
+		t.Fatal(err)
+	}
+	h.svc.mu.Lock()
+	h.svc.reloadPrograms()
+	guardPID := h.svc.sessions[childSession].guard.pid
+	trayPID := h.svc.sessions[childSession].tray.pid
+	h.svc.mu.Unlock()
+	keep := []ProcInfo{
+		w.start(childSession, pathPCBlock), w.start(childSession, pathPCGuard), w.start(childSession, pathWebView),
+		w.start(childSession, pathNotepad),
+	}
+	own := []ProcInfo{
+		{PID: guardPID, Stamp: 1, SessionID: childSession, Path: pathDevBuild, PathOK: true},
+		{PID: trayPID, Stamp: 2, SessionID: childSession, Path: pathDevBuild, PathOK: true},
+	}
+	for _, p := range own {
+		w.add(p)
+	}
+	h.watch()
+	for _, p := range append(keep, own...) {
+		if !w.alive(p) {
+			t.Errorf("закрыт %s (PID %d): компоненты PC Block и система не трогаются", p.Path, p.PID)
+		}
+	}
+	h.run(int(bypassGrace/time.Second)+2, activeSample)
+	if ev := h.store.eventsOf(core.EvBypass); len(ev) != 0 {
+		t.Errorf("записи «обход защиты»: %+v", ev)
+	}
+}
+
+// Ловит (PL-9, Review Focus 2 и 3): «не знаю» закрывается: нечитаемый путь (отказ в доступе),
+// пустой путь, процесс чужого сеанса в ответе адаптера, процесс в сеансе родителя (R19), ошибка
+// списка процессов; нечитаемое не пишется в журнал работы.
+func TestWatchUnknownIsUntouched(t *testing.T) {
+	w := newWatcher()
+	h := watchHarness(t, w)
+	h.launcher.setSessions(
+		SessionInfo{ID: 1, User: `PC\Анна`, SID: parentSID},
+		SessionInfo{ID: childSession, User: `PC\Миша`, SID: childSID},
+	)
+	h.svc.OnSession(SessionLogon, 1, h.real.Now())
+	keep := []ProcInfo{
+		{PID: 7001, Stamp: 1, SessionID: childSession, Path: pathSuperGame, PathOK: false},
+		{PID: 7002, Stamp: 1, SessionID: childSession, Path: "", PathOK: true},
+		{PID: 7003, Stamp: 1, SessionID: childSession, Path: `relative\game.exe`, PathOK: true},
+		{PID: 7004, Stamp: 1, SessionID: 9, Path: pathSuperGame, PathOK: true},
+	}
+	for _, p := range keep {
+		w.add(p)
+	}
+	w.mu.Lock()
+	w.listAll[childSession] = true // адаптер ошибся и вернул процесс сеанса 9
+	w.mu.Unlock()
+	parentGame := w.start(1, pathSuperGame)
+	h.watch()
+	for _, p := range append(keep, parentGame) {
+		if !w.alive(p) {
+			t.Errorf("закрыт процесс %+v: «не знаю» = «не трогать»", p)
+		}
+	}
+	if calls := w.listCalls(); calls[1] != 0 || calls[childSession] != 1 {
+		t.Errorf("опрос сеансов %v, want только сеанс ребёнка", calls)
+	}
+	if !strings.Contains(h.logText(), "путь не прочитан") {
+		t.Errorf("нечитаемые пути не записаны в журнал работы:\n%s", h.logText())
+	}
+	if n := len(h.store.events); n != 0 {
+		t.Errorf("в журнале родителя %d событий, want 0: %v", n, h.store.eventKinds())
+	}
+
+	w.mu.Lock()
+	w.listAll[childSession] = false
+	w.listErr[childSession] = errors.New("отказано в доступе")
+	w.mu.Unlock()
+	game := w.start(childSession, pathSuperGame)
+	h.real.Advance(time.Second)
+	h.watch()
+	if !w.alive(game) || !strings.Contains(h.logText(), "отказано в доступе") {
+		t.Errorf("ошибка списка: игра жива %v, журнал работы:\n%s", w.alive(game), h.logText())
+	}
+}
+
+// Ловит (R1, R11, R18, RM3-10): наблюдатель закрывает программы у ребёнка-администратора, во время
+// паузы, в безопасном режиме (правила не прочитаны) или пока список программ не готов.
+func TestWatchHoldsOff(t *testing.T) {
+	cases := []struct {
+		name  string
+		setup func(h *harness)
+		opts  []hopt
+	}{
+		{"администратор", nil, []hopt{func(h *harness) { h.admins.set(childSID, true) }}},
+		{"безопасный режим", nil, []hopt{func(h *harness) { h.store.failLimits = true }}},
+		{"пауза", func(h *harness) {
+			tok := h.login(adminPeer())
+			h.ok(adminPeer(), tok, ipc.CmdPause, ipc.PauseRequest{ChildID: h.childID(childSID), Preset: ipc.PauseHour1}, nil)
+		}, nil},
+	}
+	for _, k := range cases {
+		t.Run(k.name, func(t *testing.T) {
+			w := newWatcher()
+			h := watchHarness(t, w, append([]hopt{withRules(0, 0, "study_only")}, k.opts...)...)
+			if k.setup != nil {
+				k.setup(h)
+			}
+			procs := startAll(w, pathSuperGame, pathMinecraft, pathBrave)
+			h.watch()
+			for p, pi := range procs {
+				if !w.alive(pi) {
+					t.Errorf("закрыт %s", p)
+				}
+			}
+			if n := w.listCount(); n != 0 {
+				t.Errorf("сеанс опрошен %d раз, want 0", n)
+			}
+		})
+	}
+}
+
+// Ловит (RM3-10, Review Focus 8): обновление 0.2.5 → 0.3.0: снимок программ ещё не сделан (сканер
+// не ответил), а наблюдатель уже закрывает всё «незнакомое», включая Brave и его помощников.
+// После снимка Brave и вспомогательные процессы не «незнакомые», незнакомая — закрыта.
+func TestWatchFirstStartAfterUpdate(t *testing.T) {
+	sc := typicalScan()
+	sc.err = errors.New("сканер не ответил")
+	w := newWatcher()
+	h := newHarness(t, configured(), withChild(childSID, "Миша", 120), withPrograms(sc), withWatcher(w))
+	h.start()
+	h.childLogsIn()
+	procs := startAll(w, pathBrave, pathBraveUpd, pathSuperGame)
+	h.watch()
+	if n := len(w.killedPaths()); n != 0 || w.listCount() != 0 {
+		t.Fatalf("до снимка: закрыто %d, опросов %d; want 0, 0", n, w.listCount())
+	}
+	sc.mu.Lock()
+	sc.err = nil
+	sc.mu.Unlock()
+	h.real.Advance(programsRetryEvery)
+	h.svc.Housekeep(h.real.Now())
+	h.watch()
+	if !w.alive(procs[pathBrave]) || !w.alive(procs[pathBraveUpd]) || w.alive(procs[pathSuperGame]) {
+		t.Errorf("после снимка: закрыты %v, want только SuperGame", w.killedPaths())
+	}
+}
+
+// Ловит (RM3-11): кэш пути по одному PID: Windows повторно отдала номер завершившегося Brave
+// новой незнакомой программе, а наблюдатель помнит «Brave» и не закрывает её.
+func TestWatchPIDReuse(t *testing.T) {
+	w := newWatcher()
+	h := watchHarness(t, w)
+	brave := ProcInfo{PID: 7100, Stamp: 1, SessionID: childSession, Path: pathBrave, PathOK: true}
+	w.add(brave)
+	h.watch()
+	w.exit(brave)
+	game := ProcInfo{PID: 7100, Stamp: 2, SessionID: childSession, Path: pathSuperGame, PathOK: true}
+	w.add(game)
+	h.watch()
+	if w.alive(game) {
+		t.Error("новая программа с тем же PID не закрыта: кэш по одному PID")
+	}
+}
+
+// Ловит: защищённый процесс (Kill не удался) записывается «Ждут решения» и плашкой, хотя
+// программа работает; повторной попытки закрыть нет; сбой не попадает в журнал работы.
+func TestWatchKillRefused(t *testing.T) {
+	w := newWatcher()
+	h := watchHarness(t, w)
+	game := w.start(childSession, pathSuperGame)
+	w.mu.Lock()
+	w.protected[game.PID] = true
+	w.mu.Unlock()
+	h.watch()
+	if !w.alive(game) || !strings.Contains(h.logText(), "не удалось закрыть") {
+		t.Fatalf("защищённый процесс: жив %v, журнал работы:\n%s", w.alive(game), h.logText())
+	}
+	if pend, _ := h.store.ListPending(); len(pend) != 0 {
+		t.Errorf("незакрытая программа в «Ждут решения»: %+v", pend)
+	}
+	w.mu.Lock()
+	delete(w.protected, game.PID)
+	w.mu.Unlock()
+	h.watch()
+	if w.alive(game) {
+		t.Error("второй проход не закрыл программу")
+	}
+	if pend, _ := h.store.ListPending(); len(pend) != 1 || pend[0].Attempts != 1 {
+		t.Errorf("после закрытия «Ждут решения»: %+v, want одна попытка", pend)
 	}
 }
