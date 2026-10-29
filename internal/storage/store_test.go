@@ -64,8 +64,9 @@ func TestOpenCreatesFullSchema(t *testing.T) {
 		"children":           {"id", "windows_sid", "display_name", "end_mode", "adult_filter", "bypass_detail", "removed_at", "created_at"},
 		"day_limits":         {"child_id", "weekday", "total_min", "games_min", "video_min"},
 		"schedule_intervals": {"id", "child_id", "weekday", "start_min", "end_min"},
-		"programs":           {"id", "exe_path", "display_name", "category", "source", "decided_at"},
-		"pending_programs":   {"id", "exe_path", "display_name", "first_child_id", "first_attempt_at", "attempts"},
+		"programs":           {"id", "exe_path", "display_name", "category", "source", "decided_at", "publisher", "fingerprint", "app_root"},
+		"pending_programs":   {"id", "exe_path", "display_name", "first_child_id", "first_attempt_at", "attempts", "publisher", "description", "last_attempt_at", "was_category"},
+		"pending_attempts":   {"exe_path", "child_id", "attempts", "last_attempt_at"},
 		"site_rules":         {"id", "domain", "kind"},
 		"usage_daily":        {"child_id", "day", "category", "subject_kind", "subject", "seconds"},
 		"day_state":          {"child_id", "day", "total_s", "games_s", "video_s", "study_s", "extra_min", "pause_until", "bonus_granted", "no_forbidden"},
@@ -128,6 +129,17 @@ func TestSchemaConstraints(t *testing.T) {
 		{"weekday 8", `INSERT INTO day_limits (child_id, weekday, total_min) VALUES (` + itoa(id) + `, 8, 10)`},
 		{"лимит 1441 мин", `INSERT INTO day_limits (child_id, weekday, total_min) VALUES (` + itoa(id) + `, 1, 1441)`},
 		{"копилка 601", `INSERT INTO bonus_ledger (child_id, at, delta_min, reason, balance_after) VALUES (` + itoa(id) + `, 1, 1, 'x', 601)`},
+		{"категория программы вне списка", `INSERT INTO programs (exe_path, display_name, category, source) VALUES ('c:\a.exe', 'a', 'video', 'parent')`},
+		{"попытка без ждущей программы", `INSERT INTO pending_attempts (exe_path, child_id, attempts, last_attempt_at) VALUES ('c:\нет.exe', ` + itoa(id) + `, 1, 1)`},
+		{"попытка несуществующего ребёнка", `INSERT INTO pending_attempts (exe_path, child_id, attempts, last_attempt_at) VALUES ('c:\p.exe', 999, 1, 1)`},
+		{"повтор попытки ребёнка", `INSERT INTO pending_attempts (exe_path, child_id, attempts, last_attempt_at) VALUES ('c:\p.exe', ` + itoa(id) + `, 1, 1)`},
+		{"учёт «Системного»", `INSERT INTO usage_daily (child_id, day, category, subject_kind, subject, seconds) VALUES (` + itoa(id) + `, '2026-10-19', 'system', 'program', 'c:\a.exe', 1)`},
+	}
+	if _, err := s.db.Exec(`INSERT INTO pending_programs (exe_path, display_name, first_attempt_at) VALUES ('c:\p.exe', 'p', 1)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.Exec(`INSERT INTO pending_attempts (exe_path, child_id, attempts, last_attempt_at) VALUES ('c:\p.exe', ?, 1, 1)`, id); err != nil {
+		t.Fatalf("первая попытка ребёнка: %v", err)
 	}
 	for _, tc := range bad {
 		if _, err := s.db.Exec(tc.query); err == nil {
@@ -192,16 +204,16 @@ func TestOpenTwiceKeepsDataAndMigrationOnce(t *testing.T) {
 		t.Fatalf("второе Open: %v", err)
 	}
 	defer s2.Close()
-	if n := rawNull(t, s2, `SELECT count(*) FROM schema_migrations`); n.Int64 != 3 {
-		t.Errorf("строк schema_migrations = %d, want 3", n.Int64)
+	if n := rawNull(t, s2, `SELECT count(*) FROM schema_migrations`); n.Int64 != 4 {
+		t.Errorf("строк schema_migrations = %d, want 4", n.Int64)
 	}
-	if v := rawNull(t, s2, `SELECT max(version) FROM schema_migrations`); v.Int64 != 3 {
-		t.Errorf("последняя миграция = %d, want 3", v.Int64)
+	if v := rawNull(t, s2, `SELECT max(version) FROM schema_migrations`); v.Int64 != 4 {
+		t.Errorf("последняя миграция = %d, want 4", v.Int64)
 	}
 	if at := rawNull(t, s2, `SELECT applied_at FROM schema_migrations WHERE version = 1`); at.Int64 != 1_000 {
 		t.Errorf("applied_at миграции 1 = %d, want 1000 (момент первого применения)", at.Int64)
 	}
-	for _, v := range []int{2, 3} {
+	for _, v := range []int{2, 3, 4} {
 		if at := rawNull(t, s2, `SELECT applied_at FROM schema_migrations WHERE version = ?`, v); at.Int64 != 1_000 {
 			t.Errorf("applied_at миграции %d = %d, want 1000 (все применяются при первом открытии, не повторно)", v, at.Int64)
 		}
