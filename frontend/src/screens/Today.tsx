@@ -18,6 +18,8 @@ interface Props {
   onOpenChildren?: () => void;
   /** Кнопка «Статистика» на карточке ребёнка (FR-23, D-44). */
   onOpenStats?: (childId: number) => void;
+  /** Ссылка «Ждут решения: N» (8.3.2 п.5). */
+  onOpenPrograms?: () => void;
 }
 
 interface Feedback {
@@ -31,7 +33,7 @@ interface Feedback {
 const EXTRA_BUTTONS = [15, 30, 60];
 
 /** Главная «Сегодня» (FR-15, сценарий 8.3.2): карточки детей и быстрые действия. */
-export default function Today({ onOpenJournal, onOpenSettings, onOpenChildren, onOpenStats }: Props) {
+export default function Today({ onOpenJournal, onOpenSettings, onOpenChildren, onOpenStats, onOpenPrograms }: Props) {
   const [cards, setCards] = useState<TodayCard[] | null>(null);
   const [notices, setNotices] = useState<string[]>([]);
   const [violations, setViolations] = useState<number | null>(null);
@@ -70,6 +72,9 @@ export default function Today({ onOpenJournal, onOpenSettings, onOpenChildren, o
       window.removeEventListener("focus", onFocus);
     };
   }, [load]);
+
+  // Счётчик один на всех детей: решение по программе общее (R12).
+  const pendingPrograms = Math.max(0, ...(cards ?? []).map((c) => c.pendingPrograms ?? 0));
 
   const replaceCard = (card: TodayCard) =>
     setCards((prev) => (prev ?? []).map((c) => (c.childId === card.childId ? card : c)));
@@ -169,11 +174,18 @@ export default function Today({ onOpenJournal, onOpenSettings, onOpenChildren, o
         <p className="panel-text">Загружаю данные</p>
       ) : (
         <>
-          {violations !== null ? (
+          {violations !== null || pendingPrograms > 0 ? (
             <p className="today-links">
-              <button type="button" className="btn btn-small" onClick={() => onOpenJournal?.({ violations: true })}>
-                {`Нарушения сегодня: ${violations}`}
-              </button>
+              {pendingPrograms > 0 ? (
+                <button type="button" className="btn btn-small" onClick={() => onOpenPrograms?.()}>
+                  {`Ждут решения: ${pendingPrograms}`}
+                </button>
+              ) : null}
+              {violations !== null ? (
+                <button type="button" className="btn btn-small" onClick={() => onOpenJournal?.({ violations: true })}>
+                  {`Нарушения сегодня: ${violations}`}
+                </button>
+              ) : null}
             </p>
           ) : null}
 

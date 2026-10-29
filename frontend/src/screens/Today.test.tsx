@@ -351,6 +351,26 @@ describe("Today: общее", () => {
     expect(await screen.findByRole("button", { name: "Нарушения сегодня: 0" })).toBeTruthy();
   });
 
+  // 8.3.2 п.5: ссылка «Ждут решения: N» ведёт на «Программы»; число то же, что у службы.
+  it("ссылка «Ждут решения: N» стоит первой и открывает «Программы»", async () => {
+    mock = installBackend({ sessionActive: true });
+    const openPrograms = vi.fn<() => void>();
+    const user = userEvent.setup({ advanceTimers: (ms) => vi.advanceTimersByTime(ms) });
+    render(<Today onOpenPrograms={openPrograms} onOpenJournal={vi.fn()} />);
+    const link = await screen.findByRole("button", { name: "Ждут решения: 1" });
+    await screen.findByRole("button", { name: "Нарушения сегодня: 0" });
+    expect(link.parentElement?.firstElementChild).toBe(link);
+    await user.click(link);
+    expect(openPrograms).toHaveBeenCalledTimes(1);
+  });
+
+  it("никто не ждёт решения: ссылки «Ждут решения» нет", async () => {
+    mock = installBackend({ sessionActive: true, pending: [] });
+    render(<Today />);
+    await screen.findByRole("button", { name: "Нарушения сегодня: 0" });
+    expect(screen.queryByRole("button", { name: /Ждут решения/ })).toBeNull();
+  });
+
   it("если журнал не прочитался, ссылки нет, а карточки на месте", async () => {
     mock = installBackend({ sessionActive: true });
     mock.override("ListEvents", "reject");

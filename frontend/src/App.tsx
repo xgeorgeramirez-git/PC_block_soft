@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { finish, hello, login, logout, mode as readMode, sessionState, version as readVersion } from "./api";
+import { finish, hello, login, logout, mode as readMode, sessionState, startScreen, version as readVersion } from "./api";
 import Notice from "./components/Notice";
 import { SaveBarSlotContext } from "./components/SaveBar";
 import { UnsavedGuardProvider, useAttemptNavigation } from "./guard";
@@ -12,6 +12,7 @@ import Journal from "./screens/Journal";
 import LoginDialog from "./screens/LoginDialog";
 import MyStats from "./screens/MyStats";
 import ParentStats from "./screens/ParentStats";
+import Programs from "./screens/Programs";
 import ResetPassword from "./screens/ResetPassword";
 import Bonus from "./screens/Bonus";
 import Settings from "./screens/Settings";
@@ -19,6 +20,7 @@ import Today from "./screens/Today";
 import UninstallGate from "./screens/UninstallGate";
 import Wizard from "./screens/Wizard";
 import { useSessionWatcher } from "./useSessionWatcher";
+import type { ProgramFilter } from "./lib/programs";
 
 type Phase = "wizard" | "login" | "parent";
 
@@ -26,7 +28,7 @@ type Boot =
   | { kind: "loading" }
   | { kind: "failed"; text: string }
   | { kind: "simple"; mode: "reset-password" | "uninstall-gate" | "mystats" | "firstrun" }
-  | { kind: "ready"; phase: Phase };
+  | { kind: "ready"; phase: Phase; screen: Screen };
 
 const SIMPLE_MODES = ["reset-password", "uninstall-gate", "mystats", "firstrun"] as const;
 
@@ -39,16 +41,18 @@ async function bootstrap(): Promise<Boot> {
   }
   const state = await hello();
   if (!state.configured) {
-    return { kind: "ready", phase: "wizard" };
+    return { kind: "ready", phase: "wizard", screen: "today" };
   }
+  // «Попросить сейчас» на плашке (RM3-4): после пароля окно сразу на «Программах».
+  const screen: Screen = (await startScreen()) === "programs" ? "programs" : "today";
   if (mode === "parent") {
     // Окно открыто из родительской сессии (страж после верного пароля): вход не нужен.
     const session = await sessionState().catch(() => ({ active: false }));
     if (session.active) {
-      return { kind: "ready", phase: "parent" };
+      return { kind: "ready", phase: "parent", screen };
     }
   }
-  return { kind: "ready", phase: "login" };
+  return { kind: "ready", phase: "login", screen };
 }
 
 type VersionState = { kind: "loading" } | { kind: "ready"; value: string } | { kind: "failed" };
@@ -88,6 +92,8 @@ function Topbar({ onLogout, childWindow = false }: { onLogout?: () => void; chil
 export default function App() {
   const [boot, setBoot] = useState<Boot>({ kind: "loading" });
   const [phase, setPhase] = useState<Phase | null>(null);
+  // Первый экран окна родителя; после «Выйти» и нового входа снова «Сегодня».
+  const [firstScreen, setFirstScreen] = useState<Screen>("today");
 
   const start = useCallback(async () => {
     setBoot({ kind: "loading" });
@@ -95,6 +101,7 @@ export default function App() {
       const next = await bootstrap();
       setBoot(next);
       setPhase(next.kind === "ready" ? next.phase : null);
+      setFirstScreen(next.kind === "ready" ? next.screen : "today");
     } catch (e) {
       setBoot({ kind: "failed", text: errorText(e) });
     }
@@ -137,7 +144,9 @@ export default function App() {
   } else if (phase === "parent") {
     return (
       <ParentRoot
+        initialScreen={firstScreen}
         onLoggedOut={() => {
+          setFirstScreen("today");
           setPhase("login");
         }}
       />
@@ -180,32 +189,34 @@ function SimpleScreen({ mode }: { mode: "reset-password" | "uninstall-gate" | "m
   }
 }
 
-type Screen = "today" | "children" | "bonus" | "stats" | "journal" | "settings" | "whatsnew";
+type Screen = "today" | "children" | "programs" | "bonus" | "stats" | "journal" | "settings" | "whatsnew";
 
 /** Основные разделы меню; «Что нового» стоит отдельно внизу (ТЗ 8.3.2 п.2). */
 const MENU: { id: Screen; label: string }[] = [
   { id: "today", label: "Сегодня" },
   { id: "children", label: "Дети" },
+  { id: "programs", label: "Программы" },
   { id: "bonus", label: "Копилка" },
   { id: "stats", label: "Статистика" },
   { id: "journal", label: "Журнал" },
   { id: "settings", label: "Настройки" },
 ];
 
-type Go = (next: Screen, opts?: { violations?: boolean; childId?: number }) => void;
+type Go = (next: Screen, opts?: { violations?: boolean; childId?: number; filter?: ProgramFilter }) => void;
 
 /** Окно родителя целиком: переходы между разделами идут через охрану несохранённых правок. */
-function ParentRoot({ onLoggedOut }: { onLoggedOut: () => void }) {
+function ParentRoot({ initialScreen, onLoggedOut }: { initialScreen: Screen; onLoggedOut: () => void }) {
   return (
     <UnsavedGuardProvider>
-      <ParentWindow onLoggedOut={onLoggedOut} />
+      <ParentWindow initialScreen={initialScreen} onLoggedOut={onLoggedOut} />
     </UnsavedGuardProvider>
   );
 }
 
 /** Окно родителя: меню слева, раздел справа, родительская сессия под присмотром (R19). */
-function ParentWindow({ onLoggedOut }: { onLoggedOut: () => void }) {
-  const [screen, setScreen] = useState<Screen>("today");
+function ParentWindow({ initialScreen, onLoggedOut }: { initialScreen: Screen; onLoggedOut: () => void }) {
+  const [screen, setScreen] = useState<Screen>(initialScreen);
+  const [programsFilter, setProgramsFilter] = useState<ProgramFilter>("all");
   const [violationsOnly, setViolationsOnly] = useState(false);
   const [childToOpen, setChildToOpen] = useState<number | undefined>(undefined);
   const [saveSlot, setSaveSlot] = useState<HTMLElement | null>(null);
@@ -216,6 +227,7 @@ function ParentWindow({ onLoggedOut }: { onLoggedOut: () => void }) {
     attempt(() => {
       setViolationsOnly(Boolean(opts.violations));
       setChildToOpen(opts.childId);
+      setProgramsFilter(opts.filter ?? "all");
       setScreen(next);
     });
 
@@ -274,11 +286,13 @@ function ParentWindow({ onLoggedOut }: { onLoggedOut: () => void }) {
                   onOpenSettings={() => go("settings")}
                   onOpenChildren={() => go("children")}
                   onOpenStats={(childId) => go("stats", { childId })}
+                  onOpenPrograms={() => go("programs")}
                 />
               ) : null}
               {screen === "children" ? (
                 <Children onOpenSettings={() => go("settings")} />
               ) : null}
+              {screen === "programs" ? <Programs key={programsFilter} initialFilter={programsFilter} /> : null}
               {screen === "bonus" ? <Bonus /> : null}
               {screen === "stats" ? <ParentStats key={childToOpen} initialChildId={childToOpen} /> : null}
               {screen === "journal" ? <Journal key={String(violationsOnly)} violationsOnly={violationsOnly} /> : null}
