@@ -62,6 +62,6 @@ if ($failed.Count -gt 0) {
 if ($Only.Count -gt 0) {
   Write-Host "::notice title=Приёмка M1::$($passed -join ', '): PASS (выборочный прогон)"
 } else {
-  Write-Host "::notice title=Приёмка::S1...S13, S25...S27, S34, LE1, LE2, FB1, FB5, S33: PASS"
+  Write-Host "::notice title=Приёмка::S1...S13, S25...S27, S34, S35, LE1, LE2, FB1, FB5, S33: PASS"
 }
 exit 0
