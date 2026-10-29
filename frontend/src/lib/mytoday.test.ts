@@ -35,6 +35,12 @@ function status(over: Partial<ChildStatus> = {}): ChildStatus {
     bonusBalance: 0,
     forbiddenNote: "",
     used: "Сегодня: 35 мин из 2 ч",
+    gamesRemainingS: 0,
+    gamesLimitS: 0,
+    gamesUnlimited: true,
+    endMode: "lock",
+    closeGames: false,
+    studyOnly: false,
     ...over,
   };
 }

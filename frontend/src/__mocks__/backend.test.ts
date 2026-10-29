@@ -270,8 +270,10 @@ describe("ребёнок о себе: MyToday, FirstRunSeen, Finish", () => {
       ["пт", "2 ч"],
       ["сб", "4 ч"],
       ["вс", "Без лимита"],
+      ["", "Игры: пн до 1 ч, ср нельзя, сб до 2 ч"],
+      ["", "Когда время вышло: экран блокировки"],
     ]);
-    expect(mine.rules.map((r) => r.weekday)).toEqual([1, 2, 3, 4, 5, 6, 7]);
+    expect(mine.rules.map((r) => r.weekday)).toEqual([1, 2, 3, 4, 5, 6, 7, 0, 0]);
   });
 
   it("MyToday: другой ребёнок видит только себя", async () => {
@@ -288,7 +290,7 @@ describe("ребёнок о себе: MyToday, FirstRunSeen, Finish", () => {
     const limits = [1, 2, 3, 4, 5, 6, 7].map((weekday) => ({ weekday, totalMin: 0, unlimited: false }));
     installBackend({ children: [mockChild({ limits })] });
     const mine = await api.myToday();
-    expect(mine.rules.every((r) => r.text === "Нельзя")).toBe(true);
+    expect(mine.rules.filter((r) => r.weekday > 0).every((r) => r.text === "Нельзя")).toBe(true);
     expect(mine.today).toContain("Можно снова: завтра");
   });
 

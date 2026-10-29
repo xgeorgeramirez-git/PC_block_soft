@@ -154,6 +154,8 @@ describe("MyStats: Мои правила", () => {
       "Пятница2 ч",
       "Суббота4 ч",
       "ВоскресеньеБез лимита",
+      "Игры: пн до 1 ч, ср нельзя, сб до 2 ч",
+      "Когда время вышло: экран блокировки",
     ]);
     expect(rows[0].getAttribute("aria-current")).toBe("date");
     expect(rows.filter((r) => r.getAttribute("aria-current") === "date")).toHaveLength(1);

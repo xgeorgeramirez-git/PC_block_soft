@@ -59,6 +59,8 @@ export interface MockChild {
   forbiddenUntil?: string;
   /** «Когда время вышло» (R8, FR-18); по умолчанию экран блокировки. */
   endMode?: EndMode;
+  /** Игры за сегодня, секунды (R5); входят и в usedS. */
+  gamesUsedS?: number;
 }
 
 /** Промокод в подменной программе (R26, D-50). */
@@ -233,7 +235,34 @@ function forbiddenNoteOf(child: MockChild, nowMs: number): string {
 
 /** Статус ребёнка: слова и числа собираются в одном месте, как это делает служба. */
 export function statusOf(child: MockChild, nowMs: number): ChildStatus {
+  const st = statusCore(child, nowMs);
+  // «Оставить только учёбу» (R8): время вышло, а экрана блокировки нет.
+  if (st.studyOnly) {
+    const text = st.lock === "forbidden" ? "Сейчас нельзя пользоваться компьютером. Доступна только учёба" : "Время вышло. Сейчас доступна только учёба";
+    return { ...st, lock: "none", tooltip: text, summary: text, closeGames: true };
+  }
+  return st;
+}
+
+/** Остаток и лимит игр, как их считает ядро (R5): нет лимита игр - всё по нулям. */
+function gamesOf(child: MockChild, nowMs: number) {
+  const limit = todayLimit(child, nowMs);
+  const raw = limitsWithGames(child.limits)[limit.weekday - 1];
+  if (raw.gamesUnlimited) {
+    return { gamesRemainingS: 0, gamesLimitS: 0, gamesUnlimited: true };
+  }
+  const gamesLimitS = Math.max(0, ((raw.gamesMin ?? 0) + child.extraMin) * 60);
+  return { gamesRemainingS: Math.max(0, gamesLimitS - (child.gamesUsedS ?? 0)), gamesLimitS, gamesUnlimited: false };
+}
+
+function statusCore(child: MockChild, nowMs: number): ChildStatus {
+  const games = gamesOf(child, nowMs);
+  const endMode: EndMode = child.endMode ?? "lock";
   const base = {
+    ...games,
+    endMode,
+    closeGames: !games.gamesUnlimited && games.gamesRemainingS === 0,
+    studyOnly: false,
     name: child.name,
     day: isoDay(nowMs),
     usedS: child.usedS,
@@ -258,6 +287,10 @@ export function statusOf(child: MockChild, nowMs: number): ChildStatus {
       unlimited: true,
       lock: "none",
       used: "",
+      gamesRemainingS: 0,
+      gamesLimitS: 0,
+      gamesUnlimited: true,
+      closeGames: false,
     };
   }
   const limit = todayLimit(child, nowMs);
@@ -283,6 +316,8 @@ export function statusOf(child: MockChild, nowMs: number): ChildStatus {
       reason,
       until: child.forbiddenUntil,
       used: usedText,
+      closeGames: true,
+      studyOnly: endMode === "study_only",
     };
   }
 
@@ -318,6 +353,8 @@ export function statusOf(child: MockChild, nowMs: number): ChildStatus {
       pauseUntil: "",
       bonusBalance: 0,
       forbiddenNote: "",
+      closeGames: true,
+      studyOnly: endMode === "study_only",
     };
   }
   const left = formatDuration(remainingS);
@@ -327,7 +364,9 @@ export function statusOf(child: MockChild, nowMs: number): ChildStatus {
     status: low ? "low" : "ok",
     statusText: low ? `Осталось ${left}` : "Можно",
     label: String(Math.floor(remainingS / 60)),
-    tooltip: `Осталось ${left}`,
+    tooltip: games.gamesUnlimited
+      ? `Осталось ${left}`
+      : `Осталось ${left}\nИгры: ${formatDuration(Math.ceil(games.gamesRemainingS / 60) * 60)}`,
     summary: `Сегодня осталось ${left} из ${formatLimit(limitMin)}`,
     lock: "none",
   };
@@ -343,16 +382,46 @@ function cardOf(child: MockChild, nowMs: number): TodayCard {
     bonusBalance: child.bonusBalance ?? 0,
     canClearBlock: false,
     noForbiddenToday: Boolean(child.noForbiddenToday),
+    gamesText: gamesTextOf(child, nowMs),
+    pendingPrograms: 0,
   };
+}
+
+/** «Игры 40 мин из 1 ч» (8.3.2 п.3), как ipc.GamesCardText; без лимита игр - пусто. */
+function gamesTextOf(child: MockChild, nowMs: number): string {
+  const g = gamesOf(child, nowMs);
+  if (g.gamesUnlimited) return "";
+  return `Игры ${formatDuration(child.gamesUsedS ?? 0)} из ${formatLimit(g.gamesLimitS / 60)}`;
 }
 
 /** «Мои правила» текстом, как их собирает служба: «2 ч», «Без лимита», «Нельзя». */
 function myRules(child: MockChild): MyRule[] {
-  return normalizeLimits(child.limits).map((l) => ({
+  const days: MyRule[] = normalizeLimits(child.limits).map((l) => ({
     weekday: l.weekday,
     day: weekdayShort(l.weekday),
     text: l.unlimited ? "Без лимита" : l.totalMin === 0 ? "Нельзя" : formatLimit(l.totalMin),
   }));
+  // Общие правила после дней (R21), как у службы: лимит игр и «Когда время вышло».
+  const games = gamesRuleText(limitsWithGames(child.limits));
+  if (games) days.push({ weekday: 0, day: "", text: games });
+  days.push({
+    weekday: 0,
+    day: "",
+    text: child.endMode === "study_only" ? "Когда время вышло: остаётся только учёба" : "Когда время вышло: экран блокировки",
+  });
+  return days;
+}
+
+/** «Игры: до 1 ч в день» / «Игры: пн до 1 ч, ср нельзя» (как gamesRuleText службы). */
+function gamesRuleText(limits: WeekdayLimit[]): string {
+  const word = (min: number) => (min === 0 ? "нельзя" : `до ${formatLimit(min)}`);
+  const limited = limits.filter((l) => !l.gamesUnlimited);
+  if (!limited.length) return "";
+  const first = limited[0].gamesMin ?? 0;
+  if (limited.length === 7 && limited.every((l) => (l.gamesMin ?? 0) === first)) {
+    return first === 0 ? "Игры: нельзя" : `Игры: ${word(first)} в день`;
+  }
+  return `Игры: ${limited.map((l) => `${weekdayShort(l.weekday)} ${word(l.gamesMin ?? 0)}`).join(", ")}`;
 }
 
 /** Ответ MyToday ребёнка: строки «Сегодня» и правила. Не ребёнок - пустые списки (не null). */

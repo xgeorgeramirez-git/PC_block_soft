@@ -219,6 +219,14 @@ type ChildStatus struct {
 	Used          string `json:"used"`          // «Сегодня: 2 ч 00 мин из 2 ч»
 	BonusBalance  int    `json:"bonusBalance"`  // баланс копилки, мин (M2, для мини-панели ребёнка)
 	ForbiddenNote string `json:"forbiddenNote"` // «Сегодня нельзя с 21:00 до 07:00»; «» — нет ближайшего интервала
+
+	// Игры и режим окончания (M3: R5, R8) — из того же core.Decision.
+	GamesRemainingS int    `json:"gamesRemainingS"` // остаток игр, с; 0 без лимита игр
+	GamesLimitS     int    `json:"gamesLimitS"`     // лимит игр дня с доп. временем, с; 0 без лимита игр
+	GamesUnlimited  bool   `json:"gamesUnlimited"`  // отдельного лимита игр нет (или правила не прочитаны)
+	EndMode         string `json:"endMode"`         // EndModeLock или EndModeStudyOnly (правило ребёнка, R8)
+	CloseGames      bool   `json:"closeGames"`      // игры закрыты: лимит игр исчерпан или экран блокировки
+	StudyOnly       bool   `json:"studyOnly"`       // действует «только учёба»: экрана нет, открыта только учёба
 }
 
 // --- Мастер и администратор --------------------------------------------------
@@ -320,6 +328,8 @@ type TodayCard struct {
 	BonusBalance     int         `json:"bonusBalance"`     // баланс копилки, мин (M2)
 	CanClearBlock    bool        `json:"canClearBlock"`    // есть блокировка за обход, кнопка «Снять блокировку»
 	NoForbiddenToday bool        `json:"noForbiddenToday"` // запретные часы сняты на сегодня (R24, D-51): показать «Вернуть»
+	GamesText        string      `json:"gamesText"`        // «Игры 40 мин из 1 ч» (8.3.2 п.3); «» — отдельного лимита игр нет
+	PendingPrograms  int         `json:"pendingPrograms"`  // сколько программ ждут решения: ссылка «Ждут решения: N» (8.3.2 п.5)
 }
 
 // GetTodayReply — ответ GetToday. Notices — важные сообщения при входе, например
@@ -486,11 +496,12 @@ type SetChildrenReply struct {
 
 // --- Ребёнок о себе -----------------------------------------------------------------
 
-// MyRule — строка «Моих правил»: день недели и лимит текстом.
+// MyRule — строка «Моих правил»: день недели и лимит текстом. Строки после семи дней — общие
+// правила (Weekday 0, Day пусто): лимит игр «Игры: до 1 ч в день» и «Когда время вышло: …» (R21).
 type MyRule struct {
-	Weekday int    `json:"weekday"` // 1 = пн … 7 = вс
-	Day     string `json:"day"`     // «пн»
-	Text    string `json:"text"`    // «2 ч», «Без лимита», «Нельзя»
+	Weekday int    `json:"weekday"` // 1 = пн … 7 = вс; 0 — правило не про день
+	Day     string `json:"day"`     // «пн»; «» у общих правил
+	Text    string `json:"text"`    // «2 ч», «Без лимита», «Нельзя», «Игры: до 1 ч в день»
 }
 
 // MyTodayReply — ответ MyToday: «Сегодня» и «Мои правила» текстом, только чтение.
@@ -571,6 +582,7 @@ const (
 	WarnEventLimit     = "limit"
 	WarnEventForbidden = "forbidden"
 	WarnEventPause     = "pause"
+	WarnEventGames     = "games" // исчерпание лимита игр (R5): остаток игр службы, как у лимита
 )
 
 // Виды команд стражу в GuardPollReply.Commands.

@@ -819,7 +819,53 @@ func (s *Service) myTodayOf(cs *childState) ipc.MyTodayReply {
 		}
 		out.Rules = append(out.Rules, ipc.MyRule{Weekday: i + 1, Day: weekdayShort[i], Text: text})
 	}
+	// Общие правила (R21): лимит игр и что будет, когда время вышло.
+	if text := gamesRuleText(cs.rules); text != "" {
+		out.Rules = append(out.Rules, ipc.MyRule{Text: text})
+	}
+	out.Rules = append(out.Rules, ipc.MyRule{Text: endModeRuleText(cs.rules.EndMode)})
 	return out
+}
+
+// gamesRuleText — строка «Моих правил» о лимите игр (R5, R21): одинаковый каждый день — «Игры: до
+// 1 ч в день» («Игры: нельзя»), иначе по дням с лимитом — «Игры: пн до 1 ч, ср нельзя». Лимита
+// игр нет ни в один день — пусто.
+func gamesRuleText(r core.Rules) string {
+	word := func(min int) string {
+		if min == 0 {
+			return "нельзя"
+		}
+		return "до " + core.FormatLimit(min)
+	}
+	same, parts := true, []string{}
+	for i := 0; i < 7; i++ {
+		g := r.Week[i].GamesMin
+		if g == nil {
+			same = false
+			continue
+		}
+		if first := r.Week[0].GamesMin; first == nil || *first != *g {
+			same = false
+		}
+		parts = append(parts, weekdayShort[i]+" "+word(*g))
+	}
+	switch {
+	case len(parts) == 0:
+		return ""
+	case same && *r.Week[0].GamesMin == 0:
+		return "Игры: нельзя"
+	case same:
+		return "Игры: " + word(*r.Week[0].GamesMin) + " в день"
+	}
+	return "Игры: " + strings.Join(parts, ", ")
+}
+
+// endModeRuleText — строка «Моих правил» о режиме «Когда время вышло» (R8, R21).
+func endModeRuleText(m core.EndMode) string {
+	if m == core.EndStudyOnly {
+		return "Когда время вышло: остаётся только учёба"
+	}
+	return "Когда время вышло: экран блокировки"
 }
 
 func (s *Service) firstRunSeen(cs *childState) bool {

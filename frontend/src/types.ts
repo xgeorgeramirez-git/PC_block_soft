@@ -60,6 +60,17 @@ export interface ChildStatus {
   used: string;
   bonusBalance: number;
   forbiddenNote: string;
+  /** Остаток игр, с (R5); 0 без лимита игр. */
+  gamesRemainingS: number;
+  /** Лимит игр дня с доп. временем, с; 0 без лимита игр. */
+  gamesLimitS: number;
+  gamesUnlimited: boolean;
+  /** Правило ребёнка «Когда время вышло» (R8). */
+  endMode: EndMode;
+  /** Игры закрыты: лимит игр исчерпан или экран блокировки. */
+  closeGames: boolean;
+  /** Действует «Оставить только учёбу»: экрана блокировки нет, открыта только учёба. */
+  studyOnly: boolean;
 }
 
 export interface Account {
@@ -146,6 +157,10 @@ export interface TodayCard {
   bonusBalance: number;
   canClearBlock: boolean;
   noForbiddenToday: boolean;
+  /** «Игры 40 мин из 1 ч» (8.3.2 п.3); "" - отдельного лимита игр нет. */
+  gamesText: string;
+  /** Сколько программ ждут решения: ссылка «Ждут решения: N» (8.3.2 п.5). */
+  pendingPrograms: number;
 }
 
 // Фидбек-раунд 0.2.2.
@@ -311,13 +326,16 @@ export interface SetChildrenReply {
   children: ChildInfo[];
 }
 
-/** Строка «Моих правил»: день недели и лимит текстом (internal/ipc.MyRule). */
+/**
+ * Строка «Моих правил»: день недели и лимит текстом (internal/ipc.MyRule). После семи дней -
+ * общие правила с weekday 0 и пустым day: «Игры: до 1 ч в день», «Когда время вышло: …» (R21).
+ */
 export interface MyRule {
-  /** 1 = пн … 7 = вс. */
+  /** 1 = пн … 7 = вс; 0 - правило не про день. */
   weekday: number;
-  /** «пн». */
+  /** «пн»; "" у общих правил. */
   day: string;
-  /** «2 ч», «Без лимита», «Нельзя». */
+  /** «2 ч», «Без лимита», «Нельзя», «Игры: до 1 ч в день». */
   text: string;
 }
 

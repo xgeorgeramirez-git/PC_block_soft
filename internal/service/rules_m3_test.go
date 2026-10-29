@@ -224,3 +224,126 @@ func TestSetupStoresGamesLimits(t *testing.T) {
 		t.Errorf("вс игры %v, want 90", week[6].GamesMin)
 	}
 }
+
+// withGames задаёт ребёнку лимит игр games минут на каждый день (до Start).
+func withGames(sid string, games int) hopt {
+	return func(h *harness) {
+		id := h.childID(sid)
+		week := h.store.limits[id]
+		for i := range week {
+			g := games
+			week[i].GamesMin = &g
+		}
+		h.store.SetDayLimits(id, week)
+	}
+}
+
+// Ловит: игры не доходят до карточки «Сегодня» (8.3.2 п.3), подсказки значка (8.2.1 п.2) и
+// «Моей статистики» одними цифрами (Review Focus 5); строка игр есть без лимита игр; число
+// «Ждут решения» не из хранилища.
+func TestGamesInStatusCardAndMyToday(t *testing.T) {
+	h := newHarness(t, configured(), withChild(childSID, "Миша", 120), withGames(childSID, 60), withChild(otherSID, "Даша", 120))
+	misha := h.childID(childSID)
+	h.store.days[dayKey(misha, "2026-10-19")] = core.DayState{Day: "2026-10-19", TotalS: 1200, GamesS: 1200}
+	h.store.AddPendingAttempt(PendingProgram{Path: `c:\a.exe`, Name: "A"}, misha, 1)
+	h.store.AddPendingAttempt(PendingProgram{Path: `c:\b.exe`, Name: "B"}, misha, 2)
+	h.start()
+	tok := h.login(adminPeer())
+	var today ipc.GetTodayReply
+	h.ok(adminPeer(), tok, ipc.CmdGetToday, nil, &today)
+	if len(today.Children) != 2 {
+		t.Fatalf("карточек %d", len(today.Children))
+	}
+	m, d := today.Children[0], today.Children[1]
+	if m.GamesText != "Игры 20 мин из 1 ч" || m.PendingPrograms != 2 {
+		t.Errorf("карточка Миши: игры %q, ждут %d; want «Игры 20 мин из 1 ч», 2", m.GamesText, m.PendingPrograms)
+	}
+	if d.GamesText != "" || d.PendingPrograms != 2 {
+		t.Errorf("карточка Даши: игры %q, ждут %d; want пусто, 2", d.GamesText, d.PendingPrograms)
+	}
+	st := h.status()
+	if st.GamesRemainingS != 2400 || st.GamesLimitS != 3600 || st.GamesUnlimited || st.Tooltip != "Осталось 1 ч 40 мин\nИгры: 40 мин" {
+		t.Errorf("статус значка: %+v", st)
+	}
+	if m.Status.GamesRemainingS != st.GamesRemainingS || m.Status.Tooltip != st.Tooltip {
+		t.Errorf("карточка и значок расходятся: %d/%q и %d/%q", m.Status.GamesRemainingS, m.Status.Tooltip, st.GamesRemainingS, st.Tooltip)
+	}
+	var my ipc.MyTodayReply
+	h.ok(childPeer(), "", ipc.CmdMyToday, nil, &my)
+	if my.Status.GamesRemainingS != 2400 {
+		t.Errorf("«Моя статистика»: остаток игр %d", my.Status.GamesRemainingS)
+	}
+	tail := my.Rules[7:]
+	if jsonOf(t, tail) != jsonOf(t, []ipc.MyRule{{Text: "Игры: до 1 ч в день"}, {Text: "Когда время вышло: экран блокировки"}}) {
+		t.Errorf("общие правила %s", jsonOf(t, tail))
+	}
+}
+
+// Ловит: «Мои правила» (R21) не говорят о режиме «Оставить только учёбу» и о разных лимитах игр
+// по дням; у ребёнка без лимита игр появляется строка игр.
+func TestMyRulesGamesByDayAndStudyOnly(t *testing.T) {
+	h := newHarness(t, configured(), withChild(childSID, "Миша", 120), withChild(otherSID, "Даша", 120))
+	misha := h.childID(childSID)
+	week := h.store.limits[misha]
+	g60, g0 := 60, 0
+	week[0].GamesMin, week[2].GamesMin, week[5].GamesMin = &g60, &g0, &g60
+	h.store.SetDayLimits(misha, week)
+	h.store.SetEndMode(misha, "study_only")
+	h.start()
+	if st := h.status(); st.EndMode != ipc.EndModeStudyOnly {
+		t.Errorf("режим в статусе %q, want study_only", st.EndMode)
+	}
+	tok := h.login(adminPeer())
+	var my ipc.MyTodayReply
+	h.ok(adminPeer(), tok, ipc.CmdParentStats, ipc.ParentStatsRequest{ChildID: misha}, &my)
+	want := []ipc.MyRule{{Text: "Игры: пн до 1 ч, ср нельзя, сб до 1 ч"}, {Text: "Когда время вышло: остаётся только учёба"}}
+	if jsonOf(t, my.Rules[7:]) != jsonOf(t, want) {
+		t.Errorf("общие правила Миши %s, want %s", jsonOf(t, my.Rules[7:]), jsonOf(t, want))
+	}
+	// Все дни с лимитом игр, но разным: по дням, не «в день».
+	for i := range week {
+		g := 30
+		if i >= 5 {
+			g = 90
+		}
+		week[i].GamesMin = &g
+	}
+	h.store.SetDayLimits(misha, week)
+	h.ok(adminPeer(), tok, ipc.CmdSaveSchedule, ipc.SaveScheduleRequest{ChildID: misha, Intervals: []ipc.Interval{}}, nil)
+	h.ok(adminPeer(), tok, ipc.CmdParentStats, ipc.ParentStatsRequest{ChildID: misha}, &my)
+	if got := my.Rules[7].Text; got != "Игры: пн до 30 мин, вт до 30 мин, ср до 30 мин, чт до 30 мин, пт до 30 мин, сб до 1 ч 30 мин, вс до 1 ч 30 мин" {
+		t.Errorf("разные лимиты игр: %q", got)
+	}
+	h.ok(adminPeer(), tok, ipc.CmdParentStats, ipc.ParentStatsRequest{ChildID: h.childID(otherSID)}, &my)
+	if jsonOf(t, my.Rules[7:]) != jsonOf(t, []ipc.MyRule{{Text: "Когда время вышло: экран блокировки"}}) {
+		t.Errorf("общие правила Даши %s", jsonOf(t, my.Rules[7:]))
+	}
+}
+
+// Ловит: строка игр «Моих правил» путает «нельзя» и «до N», пропускает дни или говорит «в день»,
+// когда игры ограничены не каждый день.
+func TestGamesRuleText(t *testing.T) {
+	week := func(gs ...*int) core.Rules {
+		var r core.Rules
+		for i, g := range gs {
+			r.Week[i].GamesMin = g
+		}
+		return r
+	}
+	z, h1, h2 := 0, 60, 120
+	cases := []struct {
+		r    core.Rules
+		want string
+	}{
+		{core.Rules{}, ""},
+		{week(&z, &z, &z, &z, &z, &z, &z), "Игры: нельзя"},
+		{week(&h1, &h1, &h1, &h1, &h1, &h1, &h1), "Игры: до 1 ч в день"},
+		{week(&h1, &h1, &h1, &h1, &h1, &h1, nil), "Игры: пн до 1 ч, вт до 1 ч, ср до 1 ч, чт до 1 ч, пт до 1 ч, сб до 1 ч"},
+		{week(nil, nil, nil, nil, nil, &z, &h2), "Игры: сб нельзя, вс до 2 ч"},
+	}
+	for _, c := range cases {
+		if got := gamesRuleText(c.r); got != c.want {
+			t.Errorf("gamesRuleText = %q, want %q", got, c.want)
+		}
+	}
+}

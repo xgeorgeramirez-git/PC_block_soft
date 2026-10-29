@@ -70,6 +70,18 @@ func ChildStatusFrom(name string, d core.Decision) ChildStatus {
 		Until:      d.Until,
 		PauseUntil: d.PauseUntil,
 		Used:       d.Used,
+
+		GamesRemainingS: d.GamesRemainingS,
+		GamesLimitS:     d.GamesLimitS,
+		GamesUnlimited:  d.GamesUnlimited,
+		CloseGames:      d.CloseGames,
+		StudyOnly:       d.StudyOnly,
+		// Правило ребёнка ядро в решение не кладёт: служба ставит его из Rules (statusOf); здесь —
+		// то, что видно по решению («только учёба» сейчас действует или нет).
+		EndMode: EndModeLock,
+	}
+	if d.StudyOnly {
+		s.EndMode = EndModeStudyOnly
 	}
 	s.StatusText = statusWords[s.Status]
 	// Остаток в минуты — единым правилом ядра (B-5): то же, что считает значок у часов.
@@ -78,6 +90,10 @@ func ChildStatusFrom(name string, d core.Decision) ChildStatus {
 	case StatusOK, StatusLow:
 		s.Label = fmt.Sprint(remMin)
 		s.Tooltip = "Осталось " + core.FormatDuration(remMin*60)
+		if hasGamesLimit(d) {
+			// Вторая строка подсказки (ТЗ 8.2.1 п.2): остаток игр тем же правилом минут (B-5).
+			s.Tooltip += "\nИгры: " + core.FormatDuration(core.RemainingMinutes(d.GamesRemainingS)*60)
+		}
 		s.Summary = "Сегодня осталось " + core.FormatDuration(remMin*60) + " из " + core.FormatLimit(d.LimitS/60)
 	case StatusTimeUp:
 		s.Label = "0"
@@ -108,21 +124,43 @@ func ChildStatusFrom(name string, d core.Decision) ChildStatus {
 		s.Tooltip = textSafe
 		s.Summary = textSafe
 	}
+	if d.StudyOnly && d.CloseReason != "" {
+		// «Оставить только учёбу» (R8): экрана блокировки нет (Lock из решения ядра), значок и
+		// мини-панель говорят, что доступна только учёба.
+		s.Tooltip, s.Summary = d.CloseReason, d.CloseReason
+	}
 	return s
+}
+
+// hasGamesLimit: у решения есть отдельный лимит игр. Ядро всегда заполняет GamesUnlimited; у
+// нулевого решения (старый код, тесты) его нет — тогда лимит виден по лимиту игр или закрытию игр
+// (лимит 0 ядро отдаёт как CloseGames).
+func hasGamesLimit(d core.Decision) bool {
+	return !d.GamesUnlimited && (d.GamesLimitS > 0 || d.CloseGames)
+}
+
+// GamesCardText — строка игр карточки «Сегодня» (ТЗ 8.3.2 п.3): «Игры 40 мин из 1 ч». usedS —
+// игры за день (прошедшее время, вниз), limitS — лимит игр с доп. временем; без отдельного
+// лимита игр — пусто.
+func GamesCardText(usedS, limitS int, unlimited bool) string {
+	if unlimited {
+		return ""
+	}
+	return "Игры " + core.FormatDuration(usedS) + " из " + core.FormatLimit(limitS/60)
 }
 
 // ChildStatusAdmin — статус учётки, которая стала администратором (R1): ограничения не действуют.
 func ChildStatusAdmin(name string) ChildStatus {
 	return ChildStatus{
 		Name: name, Status: StatusAdmin, StatusText: statusWords[StatusAdmin], Lock: LockNone,
-		Tooltip: textAdmin, Summary: textAdmin, Unlimited: true,
+		Tooltip: textAdmin, Summary: textAdmin, Unlimited: true, GamesUnlimited: true, EndMode: EndModeLock,
 	}
 }
 
 // ChildStatusNotChild — ответ GetChildStatus из сеанса, где работает не ребёнок: значку
 // нечего показывать, кроме пункта «Настройки для родителя».
 func ChildStatusNotChild() ChildStatus {
-	return ChildStatus{Status: StatusNotChild, Lock: LockNone, Unlimited: true}
+	return ChildStatus{Status: StatusNotChild, Lock: LockNone, Unlimited: true, GamesUnlimited: true, EndMode: EndModeLock}
 }
 
 func lockName(k core.LockKind) string {
@@ -199,9 +237,12 @@ func NewGuardWarningFor(threshold int, ev core.WarnEvent, eventS int) GuardWarni
 	case 30, 15:
 		w.Text = fmt.Sprintf("Через %d минут %s", threshold, what)
 	case 5:
-		if ev == core.WarnForbidden || ev == core.WarnPauseEnd {
+		switch ev {
+		case core.WarnForbidden, core.WarnPauseEnd:
 			w.Text = fmt.Sprintf("Через 5 минут %s", what)
-		} else {
+		case core.WarnGames:
+			w.Text = "Сохрани игру: через 5 минут " + what
+		default:
 			w.Text = "Через 5 минут время закончится. Сохрани игру"
 		}
 	case 1:
@@ -219,6 +260,8 @@ func warnEventName(ev core.WarnEvent) string {
 		return WarnEventForbidden
 	case core.WarnPauseEnd:
 		return WarnEventPause
+	case core.WarnGames:
+		return WarnEventGames
 	default:
 		return WarnEventLimit
 	}
@@ -231,6 +274,8 @@ func warnSubject(ev core.WarnEvent) (full, short string) {
 		return "начнутся запретные часы", "начнутся запретные часы"
 	case core.WarnPauseEnd:
 		return "закончится пауза", "закончится пауза"
+	case core.WarnGames:
+		return "время на игры закончится", "время на игры закончится"
 	default:
 		return "время на сегодня закончится", "время закончится"
 	}
@@ -243,6 +288,8 @@ func warnOneMinute(ev core.WarnEvent) string {
 		return "Через минуту начнутся запретные часы"
 	case core.WarnPauseEnd:
 		return "Через минуту закончится пауза"
+	case core.WarnGames:
+		return "Осталась 1 минута на игры" // страж дописывает отсчёт: «…: 0:59»
 	default:
 		return "Осталась 1 минута"
 	}

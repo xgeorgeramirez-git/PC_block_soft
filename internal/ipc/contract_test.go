@@ -67,7 +67,15 @@ func weekLimits() []WeekdayLimit {
 func okStatus() ChildStatus {
 	return ChildStatusFrom("Миша", core.Decision{
 		Day: "2026-10-19", Status: core.StatusOK, RemainingS: 85 * 60, LimitS: 120 * 60, UsedS: 35 * 60,
-		Used: "Сегодня: 35 мин из 2 ч",
+		Used: "Сегодня: 35 мин из 2 ч", GamesRemainingS: 20 * 60, GamesLimitS: 60 * 60,
+	})
+}
+
+// studyOnlyStatus — время вышло в режиме «Оставить только учёбу» (R8): экрана нет.
+func studyOnlyStatus() ChildStatus {
+	return ChildStatusFrom("Миша", core.Decision{
+		Day: "2026-10-19", Status: core.StatusTimeUp, StudyOnly: true, CloseReason: core.StudyOnlyPlateText,
+		Until: "Можно снова: завтра", Used: "Сегодня: 2 ч 00 мин из 2 ч", LimitS: 7200, UsedS: 7200, GamesUnlimited: true,
 	})
 }
 
@@ -86,7 +94,17 @@ func bypassStatus() ChildStatus {
 }
 
 func card(st ChildStatus, extra int, canClear bool) TodayCard {
-	return TodayCard{ChildID: 1, SID: "S-1-5-21-111-222-333-1001", Name: "Миша", Status: st, ExtraMin: extra, CanClearBlock: canClear}
+	c := TodayCard{ChildID: 1, SID: "S-1-5-21-111-222-333-1001", Name: "Миша", Status: st, ExtraMin: extra, CanClearBlock: canClear}
+	if st.GamesLimitS > 0 {
+		c.GamesText = GamesCardText(st.GamesLimitS-st.GamesRemainingS, st.GamesLimitS, false)
+	}
+	return c
+}
+
+// withPending — карточка со ссылкой «Ждут решения: N» (8.3.2 п.5).
+func withPending(c TodayCard, n int) TodayCard {
+	c.PendingPrograms = n
+	return c
 }
 
 func childRules() ChildRules {
@@ -96,11 +114,12 @@ func childRules() ChildRules {
 // examples — по одному примеру на каждую команду из AllCommands и варианты с пустыми массивами и отказами.
 func examples() map[string]example {
 	return map[string]example{
-		CmdHello:                  ok(nil, HelloReply{Protocol: ProtocolVersion, Version: "0.1.0", TestMode: false, Configured: true}),
-		CmdGetChildStatus:         ok(nil, okStatus()),
-		"GetChildStatus#notChild": ok(nil, ChildStatusNotChild()),
-		CmdOpenWindow:             ok(OpenWindowRequest{Kind: WindowParent}, OpenWindowReply{Opened: true}),
-		CmdWindowClosing:          ok(WindowClosingRequest{Kind: WindowMyStats}, Empty{}),
+		CmdHello:                   ok(nil, HelloReply{Protocol: ProtocolVersion, Version: "0.1.0", TestMode: false, Configured: true}),
+		CmdGetChildStatus:          ok(nil, okStatus()),
+		"GetChildStatus#notChild":  ok(nil, ChildStatusNotChild()),
+		"GetChildStatus#studyOnly": ok(nil, studyOnlyStatus()),
+		CmdOpenWindow:              ok(OpenWindowRequest{Kind: WindowParent}, OpenWindowReply{Opened: true}),
+		CmdWindowClosing:           ok(WindowClosingRequest{Kind: WindowMyStats}, Empty{}),
 
 		CmdListAccounts: ok(nil, ListAccountsReply{Accounts: []Account{
 			{SID: "S-1-5-21-111-222-333-1000", Name: "Анна", Admin: true, Current: true},
@@ -127,7 +146,7 @@ func examples() map[string]example {
 		CmdLogout:        ok(nil, Empty{}),
 		CmdSessionState:  ok(nil, SessionStateReply{Active: true, ExpiresMs: t0 + 540_000, RemainingS: 540}),
 		CmdGetToday: ok(nil, GetTodayReply{
-			Children: []TodayCard{card(okStatus(), 0, false), card(bypassStatus(), 30, true)},
+			Children: []TodayCard{withPending(card(okStatus(), 0, false), 2), withPending(card(bypassStatus(), 30, true), 2)},
 			Notices:  []string{},
 		}),
 		"GetToday#notices": ok(nil, GetTodayReply{
@@ -249,6 +268,7 @@ func examples() map[string]example {
 				{Weekday: 1, Day: "пн", Text: "2 ч"}, {Weekday: 2, Day: "вт", Text: "2 ч"}, {Weekday: 3, Day: "ср", Text: "1 ч 30 мин"},
 				{Weekday: 4, Day: "чт", Text: "2 ч"}, {Weekday: 5, Day: "пт", Text: "2 ч"}, {Weekday: 6, Day: "сб", Text: "4 ч"},
 				{Weekday: 7, Day: "вс", Text: "Без лимита"},
+				{Text: "Игры: до 1 ч в день"}, {Text: "Когда время вышло: экран блокировки"},
 			},
 		}),
 		"MyToday#empty": ok(nil, MyTodayReply{Status: ChildStatusNotChild()}),
@@ -259,6 +279,7 @@ func examples() map[string]example {
 				{Weekday: 1, Day: "пн", Text: "2 ч"}, {Weekday: 2, Day: "вт", Text: "2 ч"}, {Weekday: 3, Day: "ср", Text: "1 ч 30 мин"},
 				{Weekday: 4, Day: "чт", Text: "2 ч"}, {Weekday: 5, Day: "пт", Text: "2 ч"}, {Weekday: 6, Day: "сб", Text: "4 ч"},
 				{Weekday: 7, Day: "вс", Text: "Без лимита"},
+				{Text: "Игры: до 1 ч в день"}, {Text: "Когда время вышло: экран блокировки"},
 			},
 		}),
 		CmdFirstRunSeen: ok(nil, Empty{}),

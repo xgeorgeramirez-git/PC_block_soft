@@ -480,6 +480,7 @@ func (s *Service) statusOf(cs *childState) ipc.ChildStatus {
 		st.BonusBalance = bal
 	}
 	st.ForbiddenNote = s.forbiddenNote(cs)
+	st.EndMode = cs.rules.EndMode.String() // правило ребёнка (R8); решение ядра его не несёт
 	return st
 }
 
@@ -516,11 +517,29 @@ func (s *Service) cardOf(cs *childState) ipc.TodayCard {
 		bonus = 0
 	}
 	noForbidden := state.NoForbidden && state.Day == st.Day
+	gamesS := state.GamesS
+	if state.Day != st.Day && st.Day != "" {
+		gamesS = 0
+	}
 	return ipc.TodayCard{
 		ChildID: cs.child.ID, SID: cs.child.SID, Name: cs.child.Name, Status: st,
 		ExtraMin: extra, BonusBalance: bonus, CanClearBlock: bypass != "",
 		NoForbiddenToday: noForbidden,
+		// «Игры 40 мин из 1 ч» (8.3.2 п.3): игры за день ядра и лимит игр из того же решения.
+		GamesText:       ipc.GamesCardText(gamesS, st.GamesLimitS, st.GamesUnlimited),
+		PendingPrograms: s.pendingCount(),
 	}
+}
+
+// pendingCount — сколько программ ждут решения родителя (ссылка «Ждут решения: N», 8.3.2 п.5).
+// Не прочиталось: 0, ошибка в журнал работы.
+func (s *Service) pendingCount() int {
+	list, err := s.cfg.Store.ListPending()
+	if err != nil {
+		s.logRate("pending", "не удалось прочитать «Ждут решения»: %v", err)
+		return 0
+	}
+	return len(list)
 }
 
 // rulesView возвращает недельные лимиты и режим «Когда время вышло» в виде команд канала.

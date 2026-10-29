@@ -563,7 +563,8 @@ func TestParentStats(t *testing.T) {
 
 	var ms ipc.MyTodayReply
 	h.ok(adminPeer(), tok, ipc.CmdParentStats, ipc.ParentStatsRequest{ChildID: id}, &ms)
-	if ms.Status.Name != "Миша" || len(ms.Rules) != 7 || len(ms.Today) < 2 {
+	// Семь дней и общая строка «Когда время вышло» (M3, R21).
+	if ms.Status.Name != "Миша" || len(ms.Rules) != 8 || len(ms.Today) < 2 {
 		t.Fatalf("статистика Миши: %+v", ms)
 	}
 	h.ok(adminPeer(), tok, ipc.CmdParentStats, ipc.ParentStatsRequest{ChildID: id2}, &ms)
@@ -882,7 +883,8 @@ func TestMyToday(t *testing.T) {
 	h.run(65, activeSample)
 	var my ipc.MyTodayReply
 	h.ok(childPeer(), "", ipc.CmdMyToday, nil, &my)
-	if my.Status.Name != "Миша" || len(my.Rules) != 7 || my.Rules[0].Day != "пн" || my.Rules[0].Text != "2 ч" {
+	if my.Status.Name != "Миша" || len(my.Rules) != 8 || my.Rules[0].Day != "пн" || my.Rules[0].Text != "2 ч" ||
+		my.Rules[7].Text != "Когда время вышло: экран блокировки" {
 		t.Fatalf("ответ: %+v", my)
 	}
 	if len(my.Today) != 2 || my.Today[1] != "Использовано 1 мин" {
