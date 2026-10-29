@@ -1,9 +1,11 @@
 package winhost
 
 import (
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"pcblock/internal/programs"
 	"pcblock/internal/service"
@@ -105,5 +107,22 @@ func TestDryRunNoticeLimitsPaths(t *testing.T) {
 	}
 	if got := strings.Count(r.notice(), `c:\users\u\`); got != 20 {
 		t.Errorf("путей в пометке %d; want 20", got)
+	}
+}
+
+// Ловит: статистика снимка не попадает в пометку сухого прогона ни при удаче, ни при ошибке
+// сканера: прогон на windows-latest не показал бы, где уходит время (возврат T4b, п.1).
+func TestDryRunNoticeCarriesScanStats(t *testing.T) {
+	st := scanStats{Phase1: 12 * time.Second, Phase1Done: true, AppRoots: 230, Dirs: 5000, SlowestDir: `C:\Program Files\X`}
+	r := dryRun(nil, programs.NewClassifier(dryRoots, programs.DefaultCatalog), "", nil)
+	r.Scan = st.String()
+	if n := r.notice(); !strings.Contains(n, "Снимок: этап 1 закончен за 12.0 с") || !strings.Contains(n, "корней приложений 230") {
+		t.Errorf("в пометке нет статистики снимка: %q", n)
+	}
+	err := fmt.Errorf("сканирование программ не уложилось в 45 с (%s)", st)
+	n := scanFailedNotice(err)
+	if !strings.HasPrefix(n, "::notice title=Сухой прогон наблюдателя::снимок программ не сделан: ") ||
+		!strings.Contains(n, `самая долгая папка C:\Program Files\X`) || strings.ContainsAny(n, "\r\n") {
+		t.Errorf("пометка при ошибке снимка: %q", n)
 	}
 }

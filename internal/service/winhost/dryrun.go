@@ -31,6 +31,8 @@ type dryRunReport struct {
 	// Exposed — закрываемое, которое лежит в защищённом каталоге (система, Program Files,
 	// кэш инструментов и папка раннера): WatchDir указывает не туда.
 	Exposed []string
+	// Scan — статистика снимка (scanStats.String), "" — нет.
+	Scan string
 }
 
 // snapshotEntries превращает находки сканера в список классификатора так же, как снимок службы
@@ -146,5 +148,19 @@ func (r dryRunReport) notice() string {
 	if len(r.Misjudged) > 0 {
 		fmt.Fprintf(&b, " Ошибки классификации: %s", strings.Join(r.Misjudged, "; "))
 	}
-	return strings.NewReplacer("\r", " ", "\n", " ", "%", "%25").Replace(b.String())
+	if r.Scan != "" {
+		fmt.Fprintf(&b, " Снимок: %s.", r.Scan)
+	}
+	return noticeText(b.String())
+}
+
+// scanFailedNotice — пометка сухого прогона, когда снимок не сделан: ошибка сканера уже
+// содержит его статистику (где ушло время).
+func scanFailedNotice(err error) string {
+	return noticeText("::notice title=Сухой прогон наблюдателя::снимок программ не сделан: " + err.Error())
+}
+
+// noticeText делает из текста одну строку пометки GitHub Actions.
+func noticeText(s string) string {
+	return strings.NewReplacer("\r", " ", "\n", " ", "%", "%25").Replace(s)
 }

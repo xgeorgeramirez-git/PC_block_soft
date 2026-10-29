@@ -464,7 +464,7 @@ func TestMachineFoldersRoots(t *testing.T) {
 }
 
 // Сухой прогон (RM3-8): процессы сеанса раннера через настоящий снимок и классификатор. Kill не
-// вызывается. Итог — пометка ::notice в файле $RUNNER_TEMP/pcb-watch-dryrun.txt (его выводит шаг
+// вызывается. Итог (со статистикой снимка, и при его ошибке) — пометка ::notice в файле $RUNNER_TEMP/pcb-watch-dryrun.txt (его выводит шаг
 // windows.yml) и в журнале теста.
 //
 // Ловит: процесс папки Windows, Program Files или каталога установки после снимка «незнакомый»
@@ -474,12 +474,28 @@ func TestWatcherDryRun(t *testing.T) {
 	session := currentSession(t)
 	folders := readMachineFolders()
 	roots := folders.roots()
-	start := time.Now()
-	found, err := newWinScanner(folders).Scan()
+	writeNotice := func(notice string) {
+		t.Log(notice)
+		if dir := os.Getenv("RUNNER_TEMP"); dir != "" {
+			if err := os.WriteFile(filepath.Join(dir, "pcb-watch-dryrun.txt"), []byte(notice+"\n"), 0o644); err != nil {
+				t.Errorf("итог сухого прогона не записан: %v", err)
+			}
+		}
+	}
+	// Тест даёт сканеру 90 с, чтобы увидеть настоящее время, и отдельно сверяет его с бюджетом
+	// службы (первый этап 45 с).
+	sc := newWinScanner(folders)
+	sc.phase1, sc.timeout = 90*time.Second, 90*time.Second
+	found, stats, err := sc.scan()
 	if err != nil {
+		writeNotice(scanFailedNotice(err))
 		t.Fatalf("снимок программ раннера: %v", err)
 	}
-	t.Logf("снимок: %d программ за %d мс", len(found), time.Since(start).Milliseconds())
+	t.Logf("снимок: %s", stats)
+	if stats.Phase1 > scanPhase1Timeout {
+		t.Errorf("первый этап снимка шёл %.1f с, бюджет службы %d с: у заказчика снимок не сделался бы (%s)",
+			stats.Phase1.Seconds(), int(scanPhase1Timeout.Seconds()), stats)
+	}
 	c := programs.NewClassifier(roots, programs.DefaultCatalog)
 	c.Reload(snapshotEntries(c, found))
 
@@ -493,13 +509,8 @@ func TestWatcherDryRun(t *testing.T) {
 	}
 	safe := []string{os.Getenv("RUNNER_TOOL_CACHE"), `C:\hostedtoolcache`, `C:\actions-runner`, os.Getenv("RUNNER_WORKSPACE")}
 	r := dryRun(list, c, watchNorm, safe)
-	notice := r.notice()
-	t.Log(notice)
-	if dir := os.Getenv("RUNNER_TEMP"); dir != "" {
-		if err := os.WriteFile(filepath.Join(dir, "pcb-watch-dryrun.txt"), []byte(notice+"\n"), 0o644); err != nil {
-			t.Errorf("итог сухого прогона не записан: %v", err)
-		}
-	}
+	r.Scan = stats.String()
+	writeNotice(r.notice())
 	if len(r.Misjudged) > 0 {
 		t.Errorf("после снимка «незнакомые» в доверенных каталогах (закрывались бы у ребёнка): %s", strings.Join(r.Misjudged, "; "))
 	}
