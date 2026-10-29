@@ -318,6 +318,25 @@ describe("меню окна родителя", () => {
     expect(screen.queryByRole("button", { name: /^Ждут решения/ })).toBeNull();
   });
 
+  // Ловит: кнопка «Программы» у «Оставить только учёбу» ведёт не на «Учёбу» или теряет правки (FR-18, FR-19).
+  it("«Программы» из «Когда время вышло» открывают «Программы» с фильтром «Учёба» через вопрос о правках", async () => {
+    const user = setup();
+    await login(user);
+    await user.click(screen.getByRole("button", { name: "Дети" }));
+    await user.click(await screen.findByRole("tab", { name: "Когда время вышло" }));
+    await user.click(screen.getByRole("radio", { name: /Оставить только учёбу/ }));
+    const panel = screen.getByRole("tabpanel", { name: "Когда время вышло" });
+    await user.click(await within(panel).findByRole("button", { name: "Программы" }));
+    const dialog = screen.getByRole("dialog", { name: "Сохранить изменения?" });
+    await user.click(within(dialog).getByRole("button", { name: "Сохранить" }));
+    expect(await screen.findByRole("heading", { name: "Программы" })).toBeTruthy();
+    expect(mock.state.children[0].endMode).toBe("study_only");
+    const show = screen.getByRole("group", { name: "Показать" });
+    expect(within(show).getByRole("button", { name: "Учёба" }).getAttribute("aria-pressed")).toBe("true");
+    const nav = screen.getByRole("navigation", { name: "Разделы" });
+    expect(within(nav).getByRole("button", { name: "Программы" }).getAttribute("aria-current")).toBe("page");
+  });
+
   // Ловит: из раздела «Дети» можно уйти, потеряв правки, без вопроса (FR-19).
   it("уход из «Детей» с несохранёнными правками спрашивает «Сохранить изменения?»", async () => {
     const user = setup();

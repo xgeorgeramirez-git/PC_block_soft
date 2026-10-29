@@ -8,10 +8,12 @@ import ChildLimits from "./ChildLimits";
 
 interface Props {
   onOpenSettings: () => void;
+  /** «Программы» с фильтром «Учёба» из вкладки «Когда время вышло» (FR-18). */
+  onOpenPrograms?: () => void;
 }
 
 /** Раздел «Дети» (сценарий 8.3.3): выбор ребёнка и его лимиты. Другой ребёнок с правками - вопрос. */
-export default function Children({ onOpenSettings }: Props) {
+export default function Children({ onOpenSettings, onOpenPrograms }: Props) {
   const [children, setChildren] = useState<TodayCard[] | null>(null);
   const [selected, setSelected] = useState<number | null>(null);
   const [error, setError] = useState("");
@@ -106,7 +108,13 @@ export default function Children({ onOpenSettings }: Props) {
       ) : null}
       {selected !== null ? (
         <div id="child-panel" role={children.length > 1 ? "tabpanel" : undefined} aria-labelledby={children.length > 1 ? `child-tab-${selected}` : undefined}>
-          <ChildLimits key={selected} childId={selected} others={children.filter((c) => c.childId !== selected)} onSaved={() => void load()} />
+          <ChildLimits
+            key={selected}
+            childId={selected}
+            others={children.filter((c) => c.childId !== selected)}
+            onSaved={() => void load()}
+            onOpenPrograms={onOpenPrograms}
+          />
         </div>
       ) : null}
     </div>

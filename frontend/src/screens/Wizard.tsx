@@ -4,7 +4,7 @@ import LimitsTable from "../components/LimitsTable";
 import Notice from "../components/Notice";
 import TextField from "../components/TextField";
 import { CallError, errorText } from "../lib/errors";
-import { templateLimits, validateLimits, wireLimits } from "../lib/limits";
+import { limitErrorKey, templateLimits, validateLimits, wireLimits } from "../lib/limits";
 import { validatePasswordPair, type PasswordPairErrors } from "../lib/password";
 import type { Account, WeekdayLimit } from "../types";
 
@@ -32,7 +32,7 @@ export default function Wizard({ onOpenSettings }: Props) {
   const [selected, setSelected] = useState<string[]>([]);
 
   const [limits, setLimits] = useState<Record<string, WeekdayLimit[]>>({});
-  const [limitErrors, setLimitErrors] = useState<Record<number, string>>({});
+  const [limitErrors, setLimitErrors] = useState<Record<string, string>>({});
   const [formError, setFormError] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -94,7 +94,7 @@ export default function Wizard({ onOpenSettings }: Props) {
   const chosen = (accounts ?? []).filter((a) => selected.includes(a.sid));
 
   const finish = async () => {
-    const problems: Record<number, string> = {};
+    const problems: Record<string, string> = {};
     for (const a of chosen) {
       Object.assign(problems, validateLimits(limits[a.sid] ?? []));
     }
@@ -113,7 +113,7 @@ export default function Wizard({ onOpenSettings }: Props) {
     } catch (e) {
       const field = e instanceof CallError ? (e.field ?? "") : "";
       const text = errorText(e);
-      const day = /^limits\.(\d)$/.exec(field);
+      const day = limitErrorKey(field);
       if (field === "password") {
         setPwErrors({ password: text });
         setStep(1);
@@ -121,7 +121,7 @@ export default function Wizard({ onOpenSettings }: Props) {
         setChildrenError(text);
         setStep(2);
       } else if (day) {
-        setLimitErrors({ [Number(day[1])]: text });
+        setLimitErrors({ [day]: text });
       } else {
         setFormError(text);
       }

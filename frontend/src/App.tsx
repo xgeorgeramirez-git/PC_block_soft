@@ -290,7 +290,7 @@ function ParentWindow({ initialScreen, onLoggedOut }: { initialScreen: Screen; o
                 />
               ) : null}
               {screen === "children" ? (
-                <Children onOpenSettings={() => go("settings")} />
+                <Children onOpenSettings={() => go("settings")} onOpenPrograms={() => go("programs", { filter: "study" })} />
               ) : null}
               {screen === "programs" ? <Programs key={programsFilter} initialFilter={programsFilter} /> : null}
               {screen === "bonus" ? <Bonus /> : null}

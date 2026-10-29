@@ -844,10 +844,14 @@ html:has(.shell-child) body {
   padding-bottom: var(--space-6);
 }
 
-.limits-table {
-  width: 100%;
+.limits-wrap {
   max-width: 640px;
   margin-bottom: var(--space-4);
+}
+
+.limits-table {
+  width: 100%;
+  margin-bottom: var(--space-2);
   border-collapse: collapse;
   background: var(--surface);
   border: 1px solid var(--line);
@@ -872,8 +876,17 @@ html:has(.shell-child) body {
   white-space: nowrap;
 }
 
-.limits-row-off .limits-inputs {
+.limits-cell-off .limits-inputs {
   opacity: 0.6;
+}
+
+.limits-switch {
+  margin-top: var(--space-1);
+  font-size: 14px;
+}
+
+.limits-note {
+  margin-top: 0;
 }
 
 .limits-inputs {
@@ -889,6 +902,72 @@ html:has(.shell-child) body {
 
 .limits-unit {
   color: var(--text-muted);
+}
+
+/* «Когда время вышло» (FR-18): два варианта карточками, выбранный выделен рамкой. */
+.end-modes {
+  max-width: 640px;
+  margin: 0 0 var(--space-4);
+  padding: 0;
+  border: 0;
+}
+
+.end-modes legend {
+  padding: 0;
+}
+
+.end-mode {
+  margin-bottom: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-panel);
+}
+
+.end-mode-on {
+  border: 2px solid var(--primary);
+  padding: calc(var(--space-3) - 1px) calc(var(--space-4) - 1px);
+}
+
+.end-mode-label {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  cursor: pointer;
+}
+
+.end-mode-label input {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  margin-top: 2px;
+}
+
+.end-mode-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.end-mode-title {
+  font-weight: 600;
+}
+
+.end-mode-text {
+  color: var(--text-muted);
+}
+
+.end-mode-warn {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-3);
+  margin: var(--space-3) 0 0 calc(18px + var(--space-3));
+  padding: var(--space-2) var(--space-3);
+  border-left: 4px solid var(--status-warn);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 14px;
 }
 
 .savebar {
