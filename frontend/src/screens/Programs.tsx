@@ -10,6 +10,7 @@ import {
   FILTERS,
   attemptsText,
   decisionMessage,
+  fitPath,
   publisherText,
   shortenPath,
   visiblePrograms,
@@ -486,21 +487,57 @@ function AppIcon() {
   );
 }
 
+/** Делит показанный путь на начало и «\имя файла» (имя файла не разрывается). */
+function splitPath(shown: string): [string, string] {
+  const at = shown.lastIndexOf("\\");
+  return at > 0 ? [shown.slice(0, at), shown.slice(at)] : [shown, ""];
+}
+
 /**
- * Путь одной строкой: длинный обрезан по центру; если и так не помещается, сжимается начало, а
- * имя файла остаётся целым. Полный путь в подсказке, у диктора и по фокусу клавиатурой.
+ * Путь одной строкой: длинный обрезан по центру одним помощником (fitPath): не длиннее max знаков
+ * и не шире строки, многоточие одно, имя файла целиком. Ширина меряется временным зондом после
+ * отрисовки и при смене размера окна; без раскладки (тесты) — вид на max знаков. Полный путь в
+ * подсказке, у диктора и по фокусу клавиатурой.
  */
 function PathText({ path, max }: { path: string; max: number }) {
-  const short = shortenPath(path, max);
-  const cut = short !== path;
-  const at = short.lastIndexOf("\\");
-  const head = at > 0 ? short.slice(0, at) : short;
-  const tail = at > 0 ? short.slice(at) : "";
+  const [shown, setShown] = useState(() => shortenPath(path, max));
+  const box = useRef<HTMLSpanElement>(null);
+  useLayoutEffect(() => {
+    const el = box.current;
+    if (!el) return;
+    const measure = () => {
+      if (el.clientWidth === 0) {
+        setShown(shortenPath(path, max));
+        return;
+      }
+      // Зонд вне разметки React (её узлы не трогаются): тот же шрифт, одна строка; убирается сразу.
+      const probe = document.createElement("span");
+      probe.className = "path-probe";
+      el.appendChild(probe);
+      const room = el.clientWidth + 0.5;
+      const fits = (candidate: string) => {
+        probe.textContent = candidate;
+        return probe.getBoundingClientRect().width <= room;
+      };
+      try {
+        setShown(fitPath(path, max, fits));
+      } finally {
+        probe.remove();
+      }
+    };
+    measure();
+    const ro = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
+    ro?.observe(el);
+    void document.fonts?.ready.then(measure);
+    return () => ro?.disconnect();
+  }, [path, max]);
+  const cut = shown !== path;
+  const [head, tail] = splitPath(shown);
   return (
     <span className="program-path" title={path} tabIndex={cut ? 0 : undefined}>
-      <span className="path-short" aria-hidden="true">
+      <span className="path-short" aria-hidden="true" ref={box}>
         <span className="path-head">{head}</span>
-        {tail ? <span className="path-tail">{tail}</span> : null}
+        <span className="path-tail">{tail}</span>
       </span>
       <span className="path-full">{path}</span>
     </span>

@@ -1330,24 +1330,26 @@ html:has(.shell-child) body {
   border-radius: 2px;
 }
 
-/* Одна строка без переносов внутри слова: сжимается начало пути, имя файла целиком. */
+/* Одна строка без переносов: под ширину путь подгоняет fitPath (одно «…», имя файла целиком).
+   Своего многоточия у CSS нет: второе «…» поверх обрезанного пути давало «wi… \game.exe». */
 .program-path .path-short {
-  display: flex;
-  min-width: 0;
+  display: block;
+  overflow: hidden;
   white-space: nowrap;
 }
 
-.program-path .path-head {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
+.program-path .path-head,
+.program-path .path-tail {
+  display: inline-block;
+  vertical-align: top;
 }
 
-.program-path .path-tail {
-  flex: none;
-  max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
+/* Зонд ширины для fitPath: существует только на время замера. */
+.program-path .path-probe {
+  position: absolute;
+  visibility: hidden;
+  white-space: nowrap;
+  pointer-events: none;
 }
 
 .program-path .path-full {

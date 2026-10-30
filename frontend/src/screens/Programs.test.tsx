@@ -194,6 +194,18 @@ describe("Программы: ждут решения", () => {
     expect(path.querySelector(".path-full")?.textContent).toBe(BRAVE);
   });
 
+  // Ловит: путь в таблице обрезан вторым способом (CSS-многоточие поверх shortenPath): два «…» или
+  // пробел у многоточия («\\wi… \\game.exe»), имя файла отдельным куском потеряно.
+  it("путь с пробелами в таблице: одно многоточие без пробела рядом, имя файла отдельно", async () => {
+    const steam = "c:\\program files (x86)\\steam\\steamapps\\common\\очень длинное название игры с пробелами\\bin\\win64\\game.exe";
+    setup({ programs: [{ path: steam, name: "Игра", publisher: "", category: "games", source: "parent", weekS: 0 }] });
+    await screen.findByRole("region", { name: "Все программы" });
+    const path = within(rowOf("Игра")).getByTitle(steam);
+    expect(path.querySelector(".path-short")?.textContent).toBe("c:\\program files (x86)\\s…\\win64\\game.exe");
+    expect(path.querySelector(".path-head")?.textContent).toBe("c:\\program files (x86)\\s…\\win64");
+    expect(path.querySelector(".path-tail")?.textContent).toBe("\\game.exe");
+  });
+
   it("нет ждущих: блока нет", async () => {
     setup({ pending: [] });
     expect(await screen.findByRole("region", { name: "Все программы" })).toBeTruthy();

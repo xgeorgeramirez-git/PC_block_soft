@@ -83,8 +83,28 @@ export function shortenPath(path: string, max: number): string {
   } else {
     tail = path.slice(path.length - Math.floor(room / 2));
   }
-  // Пробел из середины имени папки перед «…» читается как «wi… \game.exe»: его убираем.
-  return `${path.slice(0, room - tail.length).trimEnd()}…${tail}`;
+  // Пробел из середины имени вплотную к «…» читается как «очень …\» или «… умножения.exe»:
+  // его убираем с обеих сторон.
+  return `${path.slice(0, room - tail.length).trimEnd()}…${tail.trimStart()}`;
+}
+
+/** Короче этого путь не обрезается: остаются диск, «…» и конец имени файла. */
+const MIN_PATH_CHARS = 12;
+
+/**
+ * Путь под ширину строки: самый длинный вид shortenPath (не длиннее max), для которого fits
+ * отвечает «помещается». Единственный способ обрезки пути на экране: CSS-многоточие поверх уже
+ * обрезанного пути дало бы второе «…» и пробел перед ним. Не помещается ничего — самый короткий.
+ */
+export function fitPath(path: string, max: number, fits: (shown: string) => boolean): string {
+  let last = "";
+  for (let n = Math.min(max, path.length); n >= MIN_PATH_CHARS; n--) {
+    const shown = shortenPath(path, n);
+    if (shown === last) continue;
+    last = shown;
+    if (fits(shown)) return shown;
+  }
+  return shortenPath(path, MIN_PATH_CHARS);
 }
 
 /** «1 раз», «2 раза», «5 раз». */
