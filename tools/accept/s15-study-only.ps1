@@ -102,11 +102,19 @@ Invoke-Scenario "S15" "«Оставить только учёбу»: время 
   }
 
   Step "Журнал родителя: «время вышло, доступна только учёба», без обхода и «попытка открыть запрещённое»" {
+    # Имена в журнале — из свойств файлов (обе копии Блокнота), поэтому образцы строятся по списку программ;
+    # при одинаковых именах нужны две записи (журнал пишет одну на путь).
+    $gameName = Get-ProgramName $script:GamePath
+    $notesName = Get-ProgramName $script:NotesPath
     Use-Parent {
       $closed = @(Find-Events 'время вышло, доступна только учёба')
       $closed | ForEach-Object { Write-Log "Журнал: $($_.text)" }
-      Assert-That (@($closed | Where-Object { $_.text -match '«game»' }).Count -ge 1) "В журнале нет записи о закрытии «game»: время вышло, доступна только учёба"
-      Assert-That (@($closed | Where-Object { $_.text -match '«notes»' }).Count -ge 1) "В журнале нет записи о закрытии «notes»: время вышло, доступна только учёба"
+      $all = Format-Events
+      $g = @($closed | Where-Object { $_.text -match ([regex]::Escape("«$gameName»")) }).Count
+      $n = @($closed | Where-Object { $_.text -match ([regex]::Escape("«$notesName»")) }).Count
+      Assert-That ($g -ge 1) "В журнале нет записи «закрыта «$gameName»: время вышло, доступна только учёба» (game.exe). Журнал: $all"
+      Assert-That ($n -ge 1) "В журнале нет записи «закрыта «$notesName»: время вышло, доступна только учёба» (notes.exe). Журнал: $all"
+      if ($gameName -eq $notesName) { Assert-That ($closed.Count -ge 2) "Имена game.exe и notes.exe одинаковые («$gameName»), записей о закрытии $($closed.Count), ждали 2. Журнал: $all" }
       $bypass = @(Find-Events 'попытка обойти защиту')
       Assert-That ($bypass.Count -eq 0) "В журнале запись об обходе: $(($bypass | ForEach-Object { $_.text }) -join ' | ')"
       $forbidden = @(Find-Events 'попытка открыть запрещённое')

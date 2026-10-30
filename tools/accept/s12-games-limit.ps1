@@ -97,10 +97,13 @@ Invoke-Scenario "S12" "Игры 30 мин из 2 ч: предупреждени�
   }
 
   Step "Журнал родителя: «время на игры закончилось», без «попытка обойти защиту»" {
+    # Имя в журнале — из свойств файла (копия Блокнота), поэтому образец строится по списку программ.
+    $gameName = Get-ProgramName $script:GamePath
     Use-Parent {
-      $closed = @(Find-Events '«game»: время на игры закончилось')
+      $want = "закрыта «$gameName»: время на игры закончилось"
+      $closed = @(Find-Events ([regex]::Escape($want)))
       $closed | ForEach-Object { Write-Log "Журнал: $($_.text)" }
-      Assert-That ($closed.Count -ge 1) "В журнале нет записи «закрыта «game»: время на игры закончилось»"
+      Assert-That ($closed.Count -ge 1) "В журнале нет записи «$want». Журнал: $(Format-Events)"
       $bypass = @(Find-Events 'попытка обойти защиту')
       Assert-That ($bypass.Count -eq 0) "В журнале запись об обходе: $(($bypass | ForEach-Object { $_.text }) -join ' | ')"
     }

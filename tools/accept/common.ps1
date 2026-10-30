@@ -1161,6 +1161,20 @@ function Get-ProgramsList {
   })
 }
 
+# Имя программы, как его показывает журнал родителя: имя из списка программ по пути (у копии Блокнота
+# это свойства файла, «Блокнот»/«Notepad», а не имя файла); программы в списке нет: имя файла без .exe.
+function Get-ProgramName([string]$Path) {
+  $norm = $Path.ToLowerInvariant()
+  $p = @(@(List (Get-ProgramsList).programs) | Where-Object { ([string]$_.path) -eq $norm })
+  if ($p.Count -gt 0 -and [string]$p[0].name) { return [string]$p[0].name }
+  return [IO.Path]::GetFileNameWithoutExtension($Path)
+}
+
+# Все строки журнала одной строкой: для текста ошибки, когда нужной записи нет.
+function Format-Events {
+  return (@(Get-Events | ForEach-Object { [string]$_.text }) -join ' | ')
+}
+
 # Строки «Ждут решения» с путём Path (путь в канале нормализован: нижний регистр).
 function Find-Pending($List, [string]$Path) {
   $norm = $Path.ToLowerInvariant()
