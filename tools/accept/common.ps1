@@ -1174,7 +1174,6 @@ function Find-Pending($List, [string]$Path) {
 # уже без родительской сессии (Ruling 19).
 function Set-ProgramCategory([string]$Path, [string]$Category) {
   $norm = $Path.ToLowerInvariant()
-  $how = ""
   $rep = Use-Parent {
     $r = Send-Parent "ListPrograms"
     Assert-Reply $r "ListPrograms"
