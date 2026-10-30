@@ -539,7 +539,7 @@ function PendingItem({ program: p, now, tz, busy, onDecide }: PendingProps) {
                 key={d.category}
                 type="button"
                 data-category={d.category}
-                className={d.category === "blocked" ? "btn btn-muted" : "btn"}
+                className="btn"
                 // Нажатая кнопка остаётся в фокусе и говорит «Сохраняю…», остальные недоступны.
                 aria-disabled={pressed || undefined}
                 disabled={busy !== null && !pressed}

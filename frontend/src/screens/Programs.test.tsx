@@ -150,8 +150,13 @@ describe("Программы: ждут решения", () => {
     expect(within(sg).getByText("Запускали: Миша 3 раза, Аня 1 раз; последняя попытка вчера 18:40")).toBeTruthy();
     expect(within(sg).getByText("Раньше было: игра")).toBeTruthy();
     expect(within(sg).getAllByRole("button").map((b) => b.textContent)).toEqual(["Игра", "Учёба", "Прочее", "Запретить"]);
-    // «Запретить» второстепенная, не красная кнопка.
-    expect(within(sg).getByRole("button", { name: "Запретить" }).className).toBe("btn btn-muted");
+    // Ловит: «Запретить» выглядит неактивной (серый текст btn-muted, приёмка P2 п.1). Она обычная
+    // второстепенная кнопка того же вида, что «Игра»/«Учёба»/«Прочее»: не красная и доступна.
+    const buttons = within(sg).getAllByRole("button") as HTMLButtonElement[];
+    expect(buttons.map((b) => b.className)).toEqual(["btn", "btn", "btn", "btn"]);
+    const ban = within(sg).getByRole("button", { name: "Запретить" }) as HTMLButtonElement;
+    expect(ban.disabled).toBe(false);
+    expect(ban.getAttribute("aria-disabled")).toBeNull();
   });
 
   it("без издателя: «Без подписи издателя»; без описания и пометки лишних строк нет", async () => {
