@@ -28,6 +28,24 @@ async function tallWindow(page: Page, height: number) {
   await page.setViewportSize({ width: 960, height });
 }
 
+/**
+ * Снимок страницы целиком (приёмка P2 п.6): окно растёт ровно на невидимый остаток прокручиваемой
+ * области, после чего прокрутки нет и низ страницы в кадре. Ширина окна не меняется.
+ */
+async function wholePage(page: Page) {
+  const scroller = page.locator("main.content");
+  const hidden = await scroller.evaluate((el) => Math.ceil(el.scrollHeight - el.clientHeight));
+  const size = page.viewportSize()!;
+  if (hidden > 0) await page.setViewportSize({ width: size.width, height: size.height + hidden });
+  expect(await scroller.evaluate((el) => el.scrollHeight - el.clientHeight), "часть страницы не в кадре").toBeLessThanOrEqual(1);
+}
+
+/** Элемент целиком в окне (низ не обрезан). */
+async function inFrame(page: Page, l: ReturnType<Page["locator"]>) {
+  const bottom = await l.evaluate((el) => el.getBoundingClientRect().bottom);
+  expect(bottom, "элемент ниже края кадра").toBeLessThanOrEqual(page.viewportSize()!.height + 0.5);
+}
+
 /** Лимит 2 ч на каждый день: снимок не зависит от дня недели, в который идёт сборка. */
 const everyDay = (totalMin: number) =>
   [1, 2, 3, 4, 5, 6, 7].map((weekday) => ({ weekday, totalMin, unlimited: false }));
@@ -262,6 +280,9 @@ test("s06 моя статистика ребёнка", async ({ page }) => {
   await expect(page.getByText("Родительский контроль")).toHaveCount(0);
   await expect(page.getByText("Даша")).toHaveCount(0);
   await noHorizontalScroll(page);
+  await wholePage(page);
+  await inFrame(page, page.getByRole("region", { name: "Итоги" }));
+  await inFrame(page, page.getByRole("button", { name: "Настройки для родителя" }));
   await page.screenshot({ path: `${SCREENS}/s06-my-stats.png`, fullPage: true });
 });
 
@@ -285,6 +306,9 @@ test("s07 что нового", async ({ page }) => {
   await expect(page.getByRole("heading", { level: 3 }).first()).toHaveText("Версия 0.3.0. Программы и игры");
   await expect(page.locator("main.content").getByRole("button")).toHaveCount(0);
   await noHorizontalScroll(page);
+  await wholePage(page);
+  await inFrame(page, page.getByRole("heading", { name: /^Версия 0\.2\.1\./, level: 3 }));
+  await inFrame(page, page.getByRole("heading", { level: 3 }).last());
   await page.screenshot({ path: `${SCREENS}/s07-whatsnew.png`, fullPage: true });
 });
 
@@ -867,13 +891,13 @@ test("s12 мастер, шаг времени в узком окне", async ({ 
   await page.screenshot({ path: `${SCREENS}/s12-wizard-time-720.png`, fullPage: true });
 });
 
-/** Вкладка «Когда время вышло»: карточки вариантов не слипаются (зазор ≥ 12 px). */
+/** Вкладка «Когда время вышло»: карточки вариантов не слипаются (зазор ≥ 16 px, приёмка P2 п.2). */
 async function endModesApart(page: Page) {
   const cards = page.locator(".end-mode");
   await expect(cards).toHaveCount(2);
   const a = await boxOf(cards.nth(0));
   const b = await boxOf(cards.nth(1));
-  expect(b.top - a.bottom, "варианты слиплись").toBeGreaterThanOrEqual(12 - 0.5);
+  expect(b.top - a.bottom, "варианты слиплись").toBeGreaterThanOrEqual(16 - 0.5);
 }
 
 // s12 — «Когда время вышло» (FR-18) без учебных программ: у «Оставить только учёбу» предупреждение
@@ -893,7 +917,13 @@ test("s12 когда время вышло: нет учебных програм
   expect(w.bottom).toBeLessThanOrEqual(card.bottom - 8 + 0.5);
   expect(w.right).toBeLessThanOrEqual(card.right - 8 + 0.5);
   await endModesApart(page);
-  await expect(page.getByRole("region", { name: "Сохранение изменений" }).getByText("Есть несохранённые изменения")).toBeVisible();
+  // Приёмка P2 п.3: на панели ровно одна фраза, одной строкой, без склейки со второй.
+  const bar = page.getByRole("region", { name: "Сохранение изменений" });
+  await expect(bar.locator(".savebar-main")).toHaveText("Есть несохранённые изменения");
+  await expect(bar.getByRole("status")).toHaveCount(0);
+  const barText = bar.locator(".savebar-text");
+  const lines = await barText.evaluate((el) => el.getBoundingClientRect().height / (parseFloat(getComputedStyle(el).lineHeight) || 20));
+  expect(lines, "фраза на панели переносится").toBeLessThan(1.5);
   await noHorizontalScroll(page);
   await page.screenshot({ path: `${SCREENS}/s12-end-mode-no-study.png`, fullPage: true });
 });
@@ -939,7 +969,11 @@ test("s12 мастер, шаг программ", async ({ page }) => {
   await expect(page.getByText("Шаг 3 из 4")).toBeVisible();
   await limitCellsFit(page);
   await noHorizontalScroll(page);
+  // Шаг целиком, с кнопками внизу; дальше снова окно мастера 880x680.
+  await wholePage(page);
+  await inFrame(page, page.getByRole("button", { name: "Далее" }));
   await page.screenshot({ path: `${SCREENS}/s12-wizard-time.png`, fullPage: true });
+  await page.setViewportSize({ width: 880, height: 680 });
   await page.getByRole("button", { name: "Далее" }).click();
   await expect(page.getByText("Шаг 4 из 4")).toBeVisible();
   await expect(page.getByRole("table", { name: "Программы на этом компьютере" })).toBeVisible();
