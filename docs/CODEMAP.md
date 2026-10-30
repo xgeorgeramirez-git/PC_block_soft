@@ -19,7 +19,7 @@
 | `internal/service/winhost` | 27 (7) | winhost — Windows-обвязка службы PCBlock: всё, что внутри internal/service |
 | `internal/sound` | 3 (1) | sound — звук предупреждения заказчика (D-55, FR-9). Файл заказчика |
 | `internal/storage` | 6 (8) | storage — хранилище программы: SQLite в режиме WAL (ТЗ 3.1, 3.4, 4), драйвер на чистом Go. |
-| `internal/systray` | 17 (9) | systray — значок у часов и мини-панель: надпись остатка, подсказка, цвет статуса, |
+| `internal/systray` | 19 (11) | systray — значок у часов и мини-панель: надпись остатка, подсказка, цвет статуса, |
 | `internal/ui` | 3 (1) | ui — окно программы на Wails: запуск окна и методы, доступные интерфейсу. |
 | `internal/version` | 1 (2) | version хранит номер версии программы. |
 | `internal/winsession` | 5 (0) | winsession запускает процессы в интерактивных сеансах Windows: |

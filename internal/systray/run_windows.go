@@ -105,10 +105,8 @@ func singleton(name string) (release func(), already bool, err error) {
 
 // sessionOf возвращает номер сеанса: из ключа --session (его передаёт служба) или свой.
 func sessionOf(opts launch.Options) uint32 {
-	if s := opts["session"]; s != "" {
-		if n, err := strconv.ParseUint(s, 10, 32); err == nil {
-			return uint32(n)
-		}
+	if n, ok := parseSession(opts["session"]); ok {
+		return n
 	}
 	var id uint32
 	if windows.ProcessIdToSessionId(windows.GetCurrentProcessId(), &id) == nil {
@@ -294,11 +292,7 @@ func (a *app) refresh() {
 // cardView — что показать на табло: по данным службы; если не вышло открыть окно, текст
 // отказа с кнопкой «Обновить» (она снимает его).
 func (a *app) cardView(now time.Time) CountdownView {
-	v := CountdownFor(a.tracker.Snapshot(now))
-	if note := a.currentNote(); note != "" && v.Kind != CountdownError {
-		return CountdownView{Kind: CountdownError, Title: v.Title, Big: note, Button: textButtonRefresh}
-	}
-	return v
+	return cardViewWith(a.tracker.Snapshot(now), a.currentNote())
 }
 
 // setBusy запрещает нажатия, пока команда службе в пути.
@@ -314,11 +308,8 @@ func (a *app) setBusy(b bool) {
 // onCardPress выполняет нажатие кнопки табло: стрелка открывает «Мою статистику», «Обновить»
 // повторяет запрос к службе.
 func (a *app) onCardPress(t CardTarget) {
-	switch t {
-	case TargetArrow:
-		a.onPanelButton(PanelButton{Kind: PanelMyStats})
-	case TargetRefresh:
-		a.onPanelButton(PanelButton{Kind: PanelRefresh})
+	if b, ok := cardPressButton(t); ok {
+		a.onPanelButton(b)
 	}
 }
 
@@ -390,41 +381,30 @@ func (a *app) togglePanelMini() {
 
 // onPanelButton выполняет нажатие кнопки мини-панели.
 func (a *app) onPanelButton(b PanelButton) {
-	if b.Disabled {
+	act, arg := panelAction(b)
+	switch act {
+	case actExplain:
 		// Недоступная кнопка объясняет, почему (L-17): показываем пояснение в note.
-		a.setNote(b.DisabledNote)
+		a.setNote(arg)
 		return
-	}
-	if b.Kind == PanelRefresh {
+	case actRefresh:
 		a.setNote("")
 		a.kickPoll()
 		return
-	}
-	if b.Kind == PanelSpendBonus {
+	case actSpend:
 		a.onSpendBonus()
 		return
-	}
-	if b.Kind == PanelAskMore {
-		// «Попросить ещё» открывает окно «Моя статистика», где ребёнок зовёт родителя
-		// вводом пароля; значок сам пароль не принимает (мини-панель — нативное окно).
-		b.Kind = PanelMyStats
-	}
-	kind, ok := b.Kind.OpenKind()
-	if !ok {
+	case actNone:
 		return
 	}
+	kind := arg
 	a.setNote("")
 	a.setBusy(true)
 	go safely(func() {
 		var rep ipc.OpenWindowReply
 		err := ipc.Call(a.caller, ipc.CmdOpenWindow, "", ipc.OpenWindowRequest{Kind: kind}, &rep)
 		if err != nil {
-			text := ""
-			var re *ipc.ReplyError
-			if errors.As(err, &re) {
-				text = re.Text
-			}
-			a.setNote(OpenFailedText(text, a.isNotChild()))
+			a.setNote(OpenFailedText(serviceText(err), a.isNotChild()))
 		}
 		ok := uintptr(1)
 		if err != nil {
@@ -439,32 +419,14 @@ func (a *app) onPanelButton(b PanelButton) {
 // блокировки и в «Моей статистике» (WebView).
 func (a *app) onSpendBonus() {
 	st := a.tracker.Snapshot(time.Now()).Status
-	minutes := 30
-	if st.BonusBalance > 0 && st.BonusBalance < minutes {
-		minutes = st.BonusBalance
-	}
-	if minutes <= 0 {
-		return
-	}
+	minutes := spendMinutes(st.BonusBalance)
 	a.setNote("")
 	a.setBusy(true)
 	go safely(func() {
 		var rep ipc.SpendBonusReply
 		// ChildID 0: служба берёт ребёнка этого сеанса (childSelf).
 		err := ipc.Call(a.caller, ipc.CmdSpendBonus, "", ipc.SpendBonusRequest{Minutes: minutes}, &rep)
-		if err != nil {
-			text := ""
-			var re *ipc.ReplyError
-			if errors.As(err, &re) {
-				text = re.Text
-			}
-			if text == "" {
-				text = textPanelError
-			}
-			a.setNote(text)
-		} else {
-			a.setNote(rep.Message)
-		}
+		a.setNote(spendResultText(err, rep.Message))
 		a.kickPoll()
 		procPostMessage.Call(a.host, wmOpenDone, 1, 0)
 	})

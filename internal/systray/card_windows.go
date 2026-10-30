@@ -4,7 +4,6 @@ package systray
 
 import (
 	"fmt"
-	"image"
 	"strings"
 	"time"
 	"unsafe"
@@ -229,7 +228,7 @@ func (c *card) ensureSurface() bool {
 // baseFor возвращает рисунок без текста для текущего вида и подсветки; пересчитывается только
 // при смене вида карточки, наведения или фокуса, а не каждую секунду.
 func (c *card) baseFor() []byte {
-	key := fmt.Sprintf("%d|%v|%d", c.view.Kind, c.state, c.view.Status)
+	key := cardBaseKey(c.view, c.state)
 	if key == c.baseKey && c.baseBGRA != nil {
 		return c.baseBGRA
 	}
@@ -237,17 +236,6 @@ func (c *card) baseFor() []byte {
 	c.baseBGRA = toBGRA(img, c.baseBGRA)
 	c.baseKey = key
 	return c.baseBGRA
-}
-
-// toBGRA переставляет красный и синий байты: DIB Windows хранит пиксель как B, G, R, A.
-func toBGRA(img *image.RGBA, dst []byte) []byte {
-	if len(dst) != len(img.Pix) {
-		dst = make([]byte, len(img.Pix))
-	}
-	for i := 0; i+3 < len(img.Pix); i += 4 {
-		dst[i], dst[i+1], dst[i+2], dst[i+3] = img.Pix[i+2], img.Pix[i+1], img.Pix[i], img.Pix[i+3]
-	}
-	return dst
 }
 
 // render собирает кадр: рисунок, поверх него текст, затем прозрачность возвращается из
@@ -284,24 +272,15 @@ func (c *card) drawRun(r TextRun) {
 	procSetBkMode.Call(c.memDC, transparent)
 	procSetTextColor.Call(c.memDC, rgb(uint32(r.Color.R), uint32(r.Color.G), uint32(r.Color.B)))
 	rc := rect{int32(r.Rect.Left), int32(r.Rect.Top), int32(r.Rect.Right), int32(r.Rect.Bottom)}
-	flags := uintptr(dtNoPrefix)
-	if r.Align == AlignCenter {
-		flags |= dtCenter
-	}
+	flags := textRunFlags(r)
 	text := uintptr(unsafe.Pointer(wstr(r.Text)))
 	if r.Wrap {
 		// Несколько строк по центру высоты: сначала меряем, потом сдвигаем.
 		calc := rc
-		procDrawText.Call(c.memDC, text, ^uintptr(0), uintptr(unsafe.Pointer(&calc)), flags|dtWordBreak|dtCalcRect)
-		if h := calc.bottom - calc.top; h < rc.bottom-rc.top {
-			shift := (rc.bottom - rc.top - h) / 2
-			rc.top += shift
-			rc.bottom = rc.top + h
-		}
-		procDrawText.Call(c.memDC, text, ^uintptr(0), uintptr(unsafe.Pointer(&rc)), flags|dtWordBreak)
-		return
+		procDrawText.Call(c.memDC, text, ^uintptr(0), uintptr(unsafe.Pointer(&calc)), flags|dtCalcRect)
+		rc.top, rc.bottom = centerRows(rc.top, rc.bottom, calc.bottom-calc.top)
 	}
-	procDrawText.Call(c.memDC, text, ^uintptr(0), uintptr(unsafe.Pointer(&rc)), flags|dtSingleLine|dtVCenter)
+	procDrawText.Call(c.memDC, text, ^uintptr(0), uintptr(unsafe.Pointer(&rc)), flags)
 }
 
 // setView принимает новый вид; кадр уходит на экран, только если вид изменился.
@@ -310,26 +289,15 @@ func (c *card) setView(v CountdownView) {
 		return
 	}
 	c.view = v
-	if order := FocusOrder(v.Kind); !contains(order, c.state.Focus) {
-		c.state.Focus = order[0]
-	}
+	c.state.Focus = focusFor(v.Kind, c.state.Focus)
 	if c.visible {
 		c.render(nil)
 	}
 }
 
-func contains(order []CardTarget, t CardTarget) bool {
-	for _, o := range order {
-		if o == t {
-			return true
-		}
-	}
-	return false
-}
-
 // show открывает карточку над значком (или у указателя, если оболочка не назвала место).
 func (c *card) show(anchor Rect, haveAnchor bool) {
-	if time.Since(c.hiddenAt) < cardReopenGuard {
+	if tooSoon(c.hiddenAt, time.Now(), cardReopenGuard) {
 		return
 	}
 	if !haveAnchor {
@@ -338,8 +306,8 @@ func (c *card) show(anchor Rect, haveAnchor bool) {
 		anchor = Rect{int(pt.x), int(pt.y), int(pt.x), int(pt.y)}
 	}
 	work := monitorWork(rect{int32(anchor.Left), int32(anchor.Top), int32(anchor.Right), int32(anchor.Bottom)}).toRect()
-	x, y := PlacePanel(anchor, work, c.layout.Card.Dx(), c.layout.Card.Dy())
-	at := point{int32(x - c.layout.Margin), int32(y - c.layout.Margin)}
+	x, y := cardOriginAt(c.layout, anchor, work)
+	at := point{int32(x), int32(y)}
 	c.state = CardState{Focus: FocusOrder(c.view.Kind)[0]}
 	c.busy = false
 	c.render(&at)
@@ -366,7 +334,7 @@ func (c *card) setBusy(b bool) { c.busy = b }
 
 // press выполняет нажатие кнопки карточки.
 func (c *card) press(t CardTarget) {
-	if c.busy || t == TargetNone || c.onPress == nil {
+	if !canPress(c.busy, t, c.onPress != nil) {
 		return
 	}
 	c.onPress(t)
@@ -381,36 +349,30 @@ func (c *card) setState(s CardState) {
 }
 
 func (c *card) hit(lParam uintptr) CardTarget {
-	x, y := int(int16(lParam&0xFFFF)), int(int16((lParam>>16)&0xFFFF))
+	x, y := pointFromLParam(lParam)
 	return c.layout.HitTest(x, y, c.view.Kind)
 }
 
 func (c *card) onKey(vk uintptr) bool {
-	order := FocusOrder(c.view.Kind)
-	st := c.state
-	st.FocusVisible = true
-	switch vk {
-	case vkEscape:
+	st, act := cardKey(vk, c.view.Kind, c.state, shiftDown)
+	switch act {
+	case keyHide:
 		c.hide()
-		return true
-	case vkTab, vkRight, vkDown, vkLeft, vkUp:
-		back := vk == vkLeft || vk == vkUp
-		if vk == vkTab {
-			s, _, _ := procGetKeyState.Call(vkShift)
-			back = int16(s) < 0
-		}
-		st.Focus = NextFocus(order, st.Focus, back)
+	case keyMove:
 		c.setState(st)
-		return true
-	case vkReturn, vkSpace:
-		if !contains(order, st.Focus) {
-			st.Focus = order[0]
-		}
+	case keyPress:
 		c.setState(st)
 		procPostMessage.Call(c.hwnd, wmCardPress, uintptr(st.Focus), 0)
-		return true
+	default:
+		return false
 	}
-	return false
+	return true
+}
+
+// shiftDown: Shift нажат сейчас (Shift+Tab идёт назад).
+func shiftDown() bool {
+	s, _, _ := procGetKeyState.Call(vkShift)
+	return int16(s) < 0
 }
 
 func (c *card) close() {
@@ -441,12 +403,12 @@ func cardProc(hwnd, msg, wParam, lParam uintptr) uintptr {
 				return maNoActivate // щелчок по крестику не забирает фокус у игры
 			}
 		case wmActivate:
-			if !c.noActivate && wParam&0xFFFF == waInactive {
+			if hidesOnDeactivate(c.noActivate, wParam) {
 				c.hide()
 			}
 			return 0
 		case wmTimer:
-			if c.visible && time.Since(c.shownAt) > cardMaxShown {
+			if shownTooLong(c.visible, c.shownAt, time.Now(), cardMaxShown) {
 				c.hide()
 			}
 			return 0
@@ -468,27 +430,23 @@ func cardProc(hwnd, msg, wParam, lParam uintptr) uintptr {
 			c.setState(st)
 			return 0
 		case wmSetCursor:
-			if c.state.Hover != TargetNone && !c.busy {
+			if cardHandCursor(c.state, c.busy) {
 				hand, _, _ := procLoadCursor.Call(0, idcHand)
 				procSetCursor.Call(hand)
 				return 1
 			}
 		case wmLButtonDown:
-			if t := c.hit(lParam); t != TargetNone {
+			if st, capture := cardDown(c.state, c.hit(lParam)); capture {
 				procSetCapture.Call(hwnd)
-				st := c.state
-				st.Pressed = t
 				c.setState(st)
 			}
 			return 0
 		case wmLButtonUp:
 			procReleaseCapture.Call()
-			pressed := c.state.Pressed
-			st := c.state
-			st.Pressed = TargetNone
+			st, fire := cardUp(c.state, c.hit(lParam))
 			c.setState(st)
-			if pressed != TargetNone && c.hit(lParam) == pressed {
-				procPostMessage.Call(hwnd, wmCardPress, uintptr(pressed), 0)
+			if fire != TargetNone {
+				procPostMessage.Call(hwnd, wmCardPress, uintptr(fire), 0)
 			}
 			return 0
 		case wmKeyDown:
@@ -547,8 +505,8 @@ func (w *WarningCard) Show(v CountdownView) {
 			wr = rect{0, 0, 1, 1}
 		}
 		work := monitorWork(wr).toRect()
-		x, y := PlaceCorner(work, c.layout.Card.Dx(), c.layout.Card.Dy(), int(scaled(cornerGap, c.dpi)))
-		at := point{int32(x - c.layout.Margin), int32(y - c.layout.Margin)}
+		x, y := cardOriginCorner(c.layout, work, int(scaled(cornerGap, c.dpi)))
+		at := point{int32(x), int32(y)}
 		c.state = CardState{}
 		c.render(&at)
 		c.visible, c.shownAt = true, time.Now()
@@ -582,7 +540,7 @@ func (w *WarningCard) ClickClose() {
 		return
 	}
 	x, y := c.layout.CloseCenter()
-	lp := uintptr(uint32(y)<<16 | uint32(x)&0xFFFF)
+	lp := lParamFromPoint(x, y)
 	procSendMessage.Call(c.hwnd, wmLButtonDown, 1, lp)
 	procSendMessage.Call(c.hwnd, wmLButtonUp, 0, lp)
 }
