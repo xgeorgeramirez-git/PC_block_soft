@@ -30,7 +30,8 @@
 ## В работе на момент передачи
 
 - **T7 приёмка S12…S15 — написана и запушена** (`37056c2`…`dcadf6d`): обвязка `common.ps1` (`WatchDir`, `New-TestApp`, `Wait-ProgramsReady`, замер закрытия), `s12-games-limit.ps1`, `s13-study.ps1`, `s14-unknown.ps1`, `s15-study-only.ps1`, `run-all.ps1`, `windows.yml`, `docs/06_Приёмка.md` (пункты `- [ ]`), правка S35 (кнопки плашки 1 мин). Ни разу не запускалась (PowerShell в песочнице нет).
-- **Запущен первый прогон на windows-latest: run 41008763410** (`scenario=accept`, `only=S12,S13,S14,S15,S35`). Посмотри итог: `gh run view 41008763410 --json conclusion,jobs`, пометки — `gh api repos/xgeorgeramirez-git/PC_block_soft/check-runs/<job-id>/annotations --jq '.[] | .title + "\n" + .message'`. Красное — чинить: сценарий (новый писатель по пакету T7) или продукт (писатель зоны).
+- Первый прогон 41008763410: продукт собрался, тесты Go зелёные, сухой прогон зелёный (скан 12,5 с); **все S12…S15, S35 упали в уборке** `Stop-TestApps` (`common.ps1:1128`, pwsh «Argument types do not match» на `@()` вокруг `List[object]`) — исправлено коммитом «fix(accept): хранить тестовые процессы обычным массивом».
+- **Второй прогон: run 41009579496** (тот же `only`) (`scenario=accept`, `only=S12,S13,S14,S15,S35`). Посмотри итог: `gh run view 41008763410 --json conclusion,jobs`, пометки — `gh api repos/xgeorgeramirez-git/PC_block_soft/check-runs/<job-id>/annotations --jq '.[] | .title + "\n" + .message'`. Красное — чинить: сценарий (новый писатель по пакету T7) или продукт (писатель зоны).
 - Заметки писателя T7:
   - в `GuardState.warnings` нет поля `event`: игровые предупреждения S12 узнаются по тексту («…время на игры закончится»), пороги «15,5,1» (30 не взводится при лимите ровно 30, PL-14);
   - категории тестовых программ до первого запуска задаются шагом мастера (`Invoke-Setup -Programs`), `DecideProgram` — только для ждущих/известных;
