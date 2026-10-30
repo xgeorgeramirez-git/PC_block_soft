@@ -31,6 +31,15 @@ $script:InstallerDir = if ($env:PCB_INSTALLER_DIR) { $env:PCB_INSTALLER_DIR } el
 $script:Work = Join-Path $script:TempRoot "pcb-accept"
 $script:Data = Join-Path $script:TempRoot "pcb-data"
 $script:Public = Join-Path $env:PUBLIC "pcb-accept"
+# Папка тестовых программ (WatchDir, RM3-8): в тестовом режиме наблюдатель трогает только её.
+$script:Apps = Join-Path $script:Work "apps"
+# Папка пробного запуска копии системной программы: вне WatchDir, наблюдатель её не трогает.
+$script:Probe = Join-Path $script:Work "probe"
+$script:TestProcs = New-Object System.Collections.Generic.List[object]
+$script:TestAppSource = ""
+$script:FgOverride = $false
+# Закрытие программы (NFR-6: не позже 1 с): допуск на раннере 1500 мс, в журнал — фактическое время.
+$script:CloseToleranceMs = 1500
 $script:MySid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
 $script:MySession = (Get-Process -Id $PID).SessionId
 $script:PsExe = (Get-Process -Id $PID).Path
@@ -76,6 +85,14 @@ public static class PcbNative {
   [DllImport("user32.dll")] static extern bool SystemParametersInfo(uint action, uint param, IntPtr value, uint flags);
   [DllImport("kernel32.dll")] static extern uint GetCurrentThreadId();
   [DllImport("kernel32.dll")] static extern uint GetTickCount();
+  [DllImport("kernel32.dll", CharSet = CharSet.Unicode)] static extern uint GetLongPathName(string s, StringBuilder b, uint n);
+
+  // Длинный путь без 8.3-имён (RUNNER~1): так путь exe видит наблюдатель службы (RM3-8).
+  public static string LongPath(string p) {
+    StringBuilder b = new StringBuilder(1024);
+    uint n = GetLongPathName(p, b, (uint)b.Capacity);
+    return (n == 0 || n >= b.Capacity) ? p : b.ToString();
+  }
 
   static Timer pinger;
   static int flip;
@@ -417,16 +434,28 @@ function Get-Today {
   return $r.payload
 }
 
+# Лимит одного дня для Setup и SaveLimits. GamesMin < 0: игры без отдельного лимита (как до M3);
+# 0 и больше: лимит игр в минутах (R5, FR-16; 0 — игры в этот день нельзя).
+function New-DayLimit([int]$Weekday, [int]$TotalMin, [int]$GamesMin = -1) {
+  return @{ weekday = $Weekday; totalMin = $TotalMin; unlimited = $false; gamesMin = [Math]::Max($GamesMin, 0); gamesUnlimited = ($GamesMin -lt 0) }
+}
+
 # Первичная настройка по команде Setup (то же, что делает мастер): пароль, ребёнок, лимиты на семь дней.
-function Invoke-Setup([int]$LimitMin = 120, [string]$ChildSid = $script:MySid, [string]$Name = "Тест", $Limits = $null) {
+# Programs — категории программ шага мастера «Программы» (FR-2): @(@{ path = ...; category = "games" }).
+# DecideProgram принимает только программу из «Ждут решения» или списка, поэтому категорию тестовой
+# программе до её первого запуска даёт мастер (PL-11: сначала настройка, потом запуск).
+function Invoke-Setup([int]$LimitMin = 120, [string]$ChildSid = $script:MySid, [string]$Name = "Тест", $Limits = $null, [int]$GamesMin = -1, $Programs = $null) {
   if (-not $Limits) {
-    $Limits = @(1..7 | ForEach-Object { @{ weekday = $_; totalMin = $LimitMin; unlimited = $false } })
+    $Limits = @(1..7 | ForEach-Object { New-DayLimit $_ $LimitMin $GamesMin })
   }
   $child = @{ sid = $ChildSid; name = $Name; limits = @($Limits) }
   $req = @{ password = $script:ParentPassword; children = @($child) }
+  if ($Programs) { $req.programs = @($Programs) }
   $r = Send-Pcb "Setup" $req
   Assert-Reply $r "Первичная настройка"
-  Write-Log "Первичная настройка: ребёнок $Name, лимит $LimitMin мин на каждый день"
+  $games = if ($GamesMin -lt 0) { "игры без отдельного лимита" } else { "игры $GamesMin мин" }
+  $progs = (@(List $Programs) | ForEach-Object { "$(Split-Path -Leaf $_.path)=$($_.category)" }) -join ", "
+  Write-Log "Первичная настройка: ребёнок $Name, лимит $LimitMin мин на каждый день, $games; программы мастера: [$progs]"
 }
 
 # --- Установка, тестовый режим, сброс -------------------------------------------------------------------
@@ -453,6 +482,11 @@ function Enable-TestMode([int]$Speed = 1, [string]$ChildSid = $script:MySid, [bo
   New-ItemProperty -Path $script:TestKey -Name ClockStart -Value "2026-10-19T15:00:00" -PropertyType String -Force | Out-Null
   New-ItemProperty -Path $script:TestKey -Name ClockRealStart -Value $realStart -PropertyType String -Force | Out-Null
   New-ItemProperty -Path $script:TestKey -Name TestChildSID -Value $ChildSid -PropertyType String -Force | Out-Null
+  # Папка тестовых программ (RM3-8): наблюдатель в тестовом режиме трогает только процессы внутри неё,
+  # иначе он закрыл бы программы раннера. Путь длинный, как его видит служба.
+  New-Item -ItemType Directory -Force -Path $script:Apps | Out-Null
+  $script:Apps = [PcbNative]::LongPath((Resolve-Path -LiteralPath $script:Apps).Path)
+  New-ItemProperty -Path $script:TestKey -Name WatchDir -Value $script:Apps -PropertyType String -Force | Out-Null
   # Срок автосмены пользователя на экране блокировки в секундах (1...900); 0: по умолчанию, 15 минут.
   if ($LockAutoSwitchS -gt 0) {
     New-ItemProperty -Path $script:TestKey -Name LockAutoSwitchS -Value $LockAutoSwitchS -PropertyType DWord -Force | Out-Null
@@ -471,12 +505,13 @@ function Enable-TestMode([int]$Speed = 1, [string]$ChildSid = $script:MySid, [bo
   if ($ExpectFresh) {
     Assert-That (-not (Send-Pcb "Hello").payload.configured) "Программа уже настроена, ждали чистую базу"
   }
-  Write-Log "Тестовый режим: ClockSpeed=$Speed, ClockStart=2026-10-19T15:00:00, данные $($script:Data)"
+  Write-Log "Тестовый режим: ClockSpeed=$Speed, ClockStart=2026-10-19T15:00:00, данные $($script:Data), WatchDir $($script:Apps)"
 }
 
 # Приводит машину к чистому состоянию. Вызывается в начале и в конце сценария и ничего не бросает.
 function Reset-Machine {
   Close-PipeConn
+  Stop-TestApps
   $exe = Join-Path (Join-Path $env:ProgramFiles "PCBlock") "PCBlock.exe"
   try {
     if ((Get-ServiceState) -ne "нет" -and (Test-Path -LiteralPath $exe)) {
@@ -499,6 +534,9 @@ function Reset-Machine {
   try { Remove-Item -LiteralPath $script:Data -Recurse -Force -ErrorAction SilentlyContinue } catch {}
   try { Remove-Item -LiteralPath $script:DefaultData -Recurse -Force -ErrorAction SilentlyContinue } catch {}
   try { Remove-TestUser } catch {}
+  foreach ($dir in @($script:Apps, $script:Probe)) {
+    try { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue } catch {}
+  }
   $script:Exe = $null
   $script:InstallDir = $null
   $script:Token = ""
@@ -544,8 +582,11 @@ function Write-Diagnostics {
     if (Test-Path -LiteralPath $sl) {
       Get-Content -LiteralPath $sl -Tail 400 -Encoding UTF8 | Where-Object { $_ -match 'событие сеанса|сеанс \d+:|снимок стража|удержание|Обход|Тестовое событие' } |
         Select-Object -Last 40 | ForEach-Object { Write-Log "ERROR: [диагностика] service.log (сеансы): $_" }
+      Get-Content -LiteralPath $sl -Tail 600 -Encoding UTF8 | Where-Object { $_ -match 'наблюдатель|[Сс]нимок программ|Корни программ|WatchDir|отпечаток|«Ждут решения»' } |
+        Select-Object -Last 30 | ForEach-Object { Write-Log "ERROR: [диагностика] service.log (программы): $_" }
     }
   }
+  Write-SessionProcs "ERROR: [диагностика]"
   foreach ($dir in @($script:Data, $script:DefaultData)) {
     foreach ($name in @("service.log", "boot.log")) {
       $f = Join-Path (Join-Path $dir "logs") $name
@@ -629,29 +670,34 @@ function Save-TrayCorner([string]$Name, [int]$Width = 520, [int]$Height = 90, [i
 function Save-ProgramWindow([string]$Name, [string[]]$ArgList, [int]$WaitSeconds = 40, [int]$SettleSeconds = 4) {
   $p = Start-Process -FilePath $script:Exe -ArgumentList (ConvertTo-ArgString $ArgList) -PassThru
   try {
-    Wait-Until { $p.Refresh(); $p.HasExited -or ($p.MainWindowHandle -ne [IntPtr]::Zero -and $p.MainWindowTitle -ne "") } $WaitSeconds "окно программы ($($ArgList -join ' '))"
-    Assert-That (-not $p.HasExited) "Программа завершилась сама, код $($p.ExitCode)"
-    $title = $p.MainWindowTitle
-    Start-Sleep -Seconds $SettleSeconds
-    $p.Refresh()
-    $h = $p.MainWindowHandle
-    [void][PcbNative]::ForceForeground($h)
-    Start-Sleep -Milliseconds 800
-    $f = [PcbNative]::WindowFrame($h)
-    $w = $f[2] - $f[0]
-    $hgt = $f[3] - $f[1]
-    Assert-That ($w -gt 100 -and $hgt -gt 100) "Окно «$title» имеет размер ${w}x${hgt}"
-    $bmp = New-Object System.Drawing.Bitmap $w, $hgt
-    try {
-      $g = [System.Drawing.Graphics]::FromImage($bmp)
-      try { $g.CopyFromScreen($f[0], $f[1], 0, 0, (New-Object System.Drawing.Size $w, $hgt)) } finally { $g.Dispose() }
-      $bmp.Save((Join-Path $script:ShotDir "$Name.png"), [System.Drawing.Imaging.ImageFormat]::Png)
-    } finally { $bmp.Dispose() }
-    Write-Log "Снимок окна: $Name.png, заголовок «$title», ${w}x${hgt}"
-    return $title
+    return (Save-ProcWindow $p $Name $WaitSeconds $SettleSeconds)
   } finally {
     try { if (-not $p.HasExited) { Stop-Process -Id $p.Id -Force } } catch {}
   }
+}
+
+# Ждёт окно уже запущенного процесса, выводит его вперёд и снимает рамку окна. Возвращает заголовок.
+function Save-ProcWindow([Diagnostics.Process]$p, [string]$Name, [int]$WaitSeconds = 40, [int]$SettleSeconds = 4) {
+  Wait-Until { $p.Refresh(); $p.HasExited -or ($p.MainWindowHandle -ne [IntPtr]::Zero -and $p.MainWindowTitle -ne "") } $WaitSeconds "окно программы (PID $($p.Id))"
+  Assert-That (-not $p.HasExited) "Программа завершилась сама, код $($p.ExitCode)"
+  $title = $p.MainWindowTitle
+  Start-Sleep -Seconds $SettleSeconds
+  $p.Refresh()
+  $h = $p.MainWindowHandle
+  [void][PcbNative]::ForceForeground($h)
+  Start-Sleep -Milliseconds 800
+  $f = [PcbNative]::WindowFrame($h)
+  $w = $f[2] - $f[0]
+  $hgt = $f[3] - $f[1]
+  Assert-That ($w -gt 100 -and $hgt -gt 100) "Окно «$title» имеет размер ${w}x${hgt}"
+  $bmp = New-Object System.Drawing.Bitmap $w, $hgt
+  try {
+    $g = [System.Drawing.Graphics]::FromImage($bmp)
+    try { $g.CopyFromScreen($f[0], $f[1], 0, 0, (New-Object System.Drawing.Size $w, $hgt)) } finally { $g.Dispose() }
+    $bmp.Save((Join-Path $script:ShotDir "$Name.png"), [System.Drawing.Imaging.ImageFormat]::Png)
+  } finally { $bmp.Dispose() }
+  Write-Log "Снимок окна: $Name.png, заголовок «$title», ${w}x${hgt}"
+  return $title
 }
 
 # Значок у часов: ищет его в области уведомлений через UI Automation и нажимает, чтобы открылась
@@ -772,7 +818,7 @@ function Format-GuardState($s) {
   $b = (@(List $s.buttons)) -join ","
   $f = (@(List $s.fields) | ForEach-Object { "$($_.id)='$($_.text)'" }) -join ","
   $x = (@(List $s.exits)) -join ","
-  return "экран=$($s.lockShown)/$($s.lockKind); кнопки=[$b]; поля=[$f]; предупреждения=[$w]; выходы=[$x]"
+  return "экран=$($s.lockShown)/$($s.lockKind); плашка=$($s.plateKind)'$($s.plate)'; кнопки=[$b]; поля=[$f]; предупреждения=[$w]; выходы=[$x]; передний план='$($s.foregroundPath)'"
 }
 
 function Get-WarnThresholds($State) { return @(List $State.warnings | ForEach-Object { [int]$_.threshold }) }
@@ -869,10 +915,10 @@ function Show-TrayIconOnTaskbar {
 
 # Ребёнок готов к испытанию: ввод идёт, настройка сделана, значок и страж запущены, часы ядра на паузе
 # (ускорение больше 1), чтобы время не уходило, пока готовится проверка. Дальше Resume-Clock.
-function Start-Child([int]$LimitMin, [bool]$Pinging = $true) {
+function Start-Child([int]$LimitMin, [bool]$Pinging = $true, [int]$GamesMin = -1, $Programs = $null) {
   Assert-That ($script:ClockSpeed -gt 1) "Start-Child работает только с ускорением часов (Initialize-Scenario 60)"
   if ($Pinging) { Start-Input 1000 }
-  Invoke-Setup $LimitMin
+  Invoke-Setup $LimitMin $script:MySid "Тест" $null $GamesMin $Programs
   Suspend-Clock
   Wait-SessionParts
   Start-Sleep -Seconds 3
@@ -919,4 +965,293 @@ function Invoke-AsTestUser([string[]]$ArgList, [string]$OutName) {
   $raw = Get-Content -LiteralPath $out -Raw -Encoding UTF8
   Write-Log ("От имени {0} ({1}): {2}" -f $script:TestUserName, $how, ($raw -replace '\s+', ' '))
   return ($raw | ConvertFrom-Json)
+}
+
+# --- Программы и игры (M3, RM3-8) --------------------------------------------------------------------
+# Тестовые программы — копии системной программы с обычным окном в папке $script:Apps (WatchDir): вне
+# доверенных каталогов, поэтому незнакомые по определению. Наблюдатель в тестовом режиме трогает только
+# эту папку; всё остальное на раннере (pwsh, PCBlock.exe, браузеры) он не закрывает.
+
+# Родительская сессия на время Body и сразу выход: родительская сессия в сеансе ребёнка прячет плашки
+# стража (Ruling 19), поэтому она не должна оставаться открытой, пока проверяются плашки.
+function Use-Parent([scriptblock]$Body) {
+  Open-Parent
+  try {
+    & $Body
+  } finally {
+    try { [void](Send-Parent "Logout") } catch {}
+    $script:Token = ""
+  }
+}
+
+# Ждёт снимок программ службы (RM3-10): пока его нет, наблюдатель ничего не закрывает. Признак — строка
+# «Снимок программ: найдено …» в журнале работы. Заодно проверяет, что служба приняла WatchDir.
+function Wait-ProgramsReady([double]$Seconds = 120) {
+  $log = Join-Path (Join-Path $script:Data "logs") "service.log"
+  $script:SeedLine = ""
+  Wait-Until {
+    if (-not (Test-Path -LiteralPath $log)) { return $false }
+    $lines = @(Get-Content -LiteralPath $log -Encoding UTF8 -ErrorAction SilentlyContinue)
+    $bad = @($lines | Where-Object { $_ -match 'снимок программ не (сделан|записан)' }) | Select-Object -Last 1
+    if ($bad) { throw "Служба не сделала снимок программ, наблюдатель ничего не закроет: $bad" }
+    $ok = @($lines | Where-Object { $_ -match 'Снимок программ: найдено' }) | Select-Object -Last 1
+    if ($ok) { $script:SeedLine = $ok }
+    [bool]$ok
+  } $Seconds "снимок программ службы (строка «Снимок программ: найдено» в service.log; без него наблюдатель ничего не закрывает, RM3-10)" 500
+  Write-Log ("Список программ готов за {0:N1} с: {1}" -f $script:WaitElapsed, $script:SeedLine)
+  $roots = @(Get-Content -LiteralPath $log -Encoding UTF8 -ErrorAction SilentlyContinue | Where-Object { $_ -match 'папка тестовых программ' }) | Select-Object -Last 1
+  Write-Log "Корни программ службы: $roots"
+  Assert-That ($roots -and $roots -notmatch 'папка тестовых программ ""') "Служба не приняла WatchDir (папка тестовых программ пуста): $roots"
+}
+
+# Копирует exe (и его файлы .mui из языковых папок System32, без них у копии нет строк интерфейса) в
+# Dir под именем Name.exe. Возвращает длинный путь копии.
+function Copy-TestExe([string]$Src, [string]$Dir, [string]$Name) {
+  New-Item -ItemType Directory -Force -Path $Dir | Out-Null
+  $dst = Join-Path $Dir "$Name.exe"
+  Copy-Item -LiteralPath $Src -Destination $dst -Force
+  $base = Split-Path -Leaf $Src
+  foreach ($mui in @(Get-ChildItem -Path (Join-Path (Split-Path -Parent $Src) "*\$base.mui") -ErrorAction SilentlyContinue)) {
+    $lang = Split-Path -Leaf (Split-Path -Parent $mui.FullName)
+    $ldir = Join-Path $Dir $lang
+    New-Item -ItemType Directory -Force -Path $ldir | Out-Null
+    Copy-Item -LiteralPath $mui.FullName -Destination (Join-Path $ldir "$Name.exe.mui") -Force
+  }
+  return [PcbNative]::LongPath($dst)
+}
+
+# Какую системную программу копировать: первую, у копии которой (вне WatchDir, в папке probe) за 10 с
+# появилось обычное окно. Порядок: notepad.exe (классический Блокнот образа Windows Server); если на
+# образе он заглушка Магазина (копия сразу завершается) — cmd.exe (окно консоли). Ни у одной нет окна —
+# notepad.exe, а передний план даёт подмена TestGuard foreground (Set-TestForeground).
+function Get-TestAppSource {
+  if ($script:TestAppSource) { return $script:TestAppSource }
+  $sys = Join-Path $env:SystemRoot "System32"
+  foreach ($cand in @("notepad.exe", "cmd.exe")) {
+    $src = Join-Path $sys $cand
+    if (-not (Test-Path -LiteralPath $src)) { Write-Log "Тестовая программа: $src нет на образе"; continue }
+    $p = $null
+    $since = Get-Date
+    try {
+      Remove-Item -LiteralPath $script:Probe -Recurse -Force -ErrorAction SilentlyContinue
+      $dst = Copy-TestExe $src $script:Probe "pcb-probe"
+      $p = Start-Process -FilePath $dst -PassThru -WorkingDirectory $script:Probe
+      $ok = $false
+      $sw = [Diagnostics.Stopwatch]::StartNew()
+      while ($sw.Elapsed.TotalSeconds -lt 10) {
+        $p.Refresh()
+        if ($p.HasExited) { break }
+        if ($p.MainWindowHandle -ne [IntPtr]::Zero) { $ok = $true; break }
+        Start-Sleep -Milliseconds 200
+      }
+      $why = if ($ok) { "окно «$($p.MainWindowTitle)»" } elseif ($p.HasExited) { "копия завершилась сама, код $($p.ExitCode)" } else { "окна нет за 10 с" }
+      Write-Log "Проба копии $cand`: $why"
+      if ($ok) { $script:TestAppSource = $src; return $src }
+    } catch {
+      Write-Log "Проба копии $cand не удалась: $($_.Exception.Message)"
+    } finally {
+      if ($p) { try { if (-not $p.HasExited) { Stop-Process -Id $p.Id -Force } } catch {} }
+      # Заглушка Блокнота открывает Блокнот из Магазина: его окно тоже закрыть.
+      Get-Process -Name "Notepad" -ErrorAction SilentlyContinue |
+        Where-Object { $_.Path -match '\\WindowsApps\\' -and $_.StartTime -ge $since } |
+        ForEach-Object { try { Stop-Process -Id $_.Id -Force } catch {} }
+      Remove-Item -LiteralPath $script:Probe -Recurse -Force -ErrorAction SilentlyContinue
+    }
+  }
+  $script:TestAppSource = Join-Path $sys "notepad.exe"
+  Write-Log "Тестовая программа: ни у одной копии нет окна, беру notepad.exe; передний план подменой TestGuard foreground"
+  return $script:TestAppSource
+}
+
+# Тестовая программа $script:Apps\<Name>.exe (копия системной программы, см. Get-TestAppSource).
+# Запуск — Start-TestApp, категорию до первого запуска даёт Invoke-Setup -Programs.
+function New-TestApp([string]$Name) {
+  $src = Get-TestAppSource
+  $path = Copy-TestExe $src $script:Apps $Name
+  Write-Log "Тестовая программа $Name.exe: копия $(Split-Path -Leaf $src), $path"
+  return $path
+}
+
+# Запускает тестовую программу в сеансе ребёнка (пользователь раннера) и возвращает процесс. Процесс
+# запоминается: Stop-TestApps закрывает его в конце сценария.
+function Start-TestApp([string]$Path) {
+  $p = Start-Process -FilePath $Path -PassThru -WorkingDirectory (Split-Path -Parent $Path)
+  $p | Add-Member -NotePropertyName PcbPath -NotePropertyValue $Path -Force
+  $p | Add-Member -NotePropertyName PcbStart -NotePropertyValue ([Diagnostics.Stopwatch]::StartNew()) -Force
+  $script:TestProcs.Add($p)
+  Write-Log "Запущена $(Split-Path -Leaf $Path) (PID $($p.Id))"
+  return $p
+}
+
+# Ждёт исчезновения процесса и возвращает миллисекунды: от запуска (время жизни процесса по часам
+# Windows) или от момента Since (Stopwatch, например «игры кончились»). Ждёт до max(4·MaxMs, 5 с), чтобы
+# в журнал попало фактическое время и при превышении допуска; процесс жив и тогда — возвращает -1.
+function Wait-ProcessGone($Proc, [int]$MaxMs = 1500, $Since = $null) {
+  $clock = if ($Since) { $Since } elseif ($Proc.PcbStart) { $Proc.PcbStart } else { [Diagnostics.Stopwatch]::StartNew() }
+  $limit = [Math]::Max(4 * $MaxMs, 5000)
+  while (-not $Proc.HasExited) {
+    if ($clock.ElapsedMilliseconds -gt $limit) { return -1 }
+    Start-Sleep -Milliseconds 15
+  }
+  if (-not $Since) {
+    try { return [int]($Proc.ExitTime - $Proc.StartTime).TotalMilliseconds } catch {}
+  }
+  return [int]$clock.ElapsedMilliseconds
+}
+
+# Процесс закрыт не позже допуска раннера (NFR-6: не позже 1 с; допуск 1500 мс). Фактическое время в журнал.
+function Assert-ClosedFast($Proc, [string]$What, $Since = $null) {
+  $name = Split-Path -Leaf ([string]$Proc.PcbPath)
+  $ms = Wait-ProcessGone $Proc $script:CloseToleranceMs $Since
+  if ($ms -lt 0) {
+    Write-SessionProcs "[$What]"
+    throw "${What}: $name (PID $($Proc.Id)) не закрыт за $([Math]::Max(4 * $script:CloseToleranceMs, 5000)) мс; экран стража: $(Format-GuardState (Get-GuardState))"
+  }
+  $from = if ($Since) { "от события" } else { "от запуска" }
+  $note = if ($ms -gt 1000) { "; дольше 1 с (NFR-6), в пределах допуска раннера" } else { "" }
+  Write-Log "${What}: $name закрыт за $ms мс $from (NFR-6: не позже 1000 мс, допуск раннера $($script:CloseToleranceMs) мс)$note"
+  Assert-That ($ms -le $script:CloseToleranceMs) "${What}: $name закрыт за $ms мс $from, допуск $($script:CloseToleranceMs) мс"
+  return $ms
+}
+
+function Assert-AppAlive($Proc, [string]$What) {
+  $Proc.Refresh()
+  if ($Proc.HasExited) {
+    Write-SessionProcs "[$What]"
+    throw "${What}: $(Split-Path -Leaf ([string]$Proc.PcbPath)) (PID $($Proc.Id)) закрыта, код $($Proc.ExitCode); экран стража: $(Format-GuardState (Get-GuardState))"
+  }
+}
+
+# Закрывает все тестовые программы (запущенные Start-TestApp и любые процессы из папки $script:Apps).
+# Ничего не бросает: вызывается из Reset-Machine в начале и в конце сценария.
+function Stop-TestApps {
+  foreach ($p in @($script:TestProcs)) {
+    try { if (-not $p.HasExited) { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue } } catch {}
+  }
+  $script:TestProcs.Clear()
+  foreach ($dir in @($script:Apps, $script:Probe)) {
+    try {
+      $prefix = $dir.TrimEnd('\') + '\'
+      Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Path -and $_.Path.StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase) } |
+        ForEach-Object { try { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue } catch {} }
+    } catch {}
+  }
+}
+
+# Процессы сеанса раннера с путями (диагностика): всё вне папки Windows и отдельно тестовые программы.
+function Write-SessionProcs([string]$Prefix) {
+  try {
+    $all = @(Get-CimInstance Win32_Process -ErrorAction Stop | Where-Object { $_.SessionId -eq $script:MySession })
+    $win = $env:SystemRoot.TrimEnd('\') + '\'
+    $shown = @($all | Where-Object { $_.ExecutablePath -and -not $_.ExecutablePath.StartsWith($win, [StringComparison]::OrdinalIgnoreCase) })
+    Write-Log "$Prefix процессов в сеансе $($script:MySession): $($all.Count), вне папки Windows: $($shown.Count)"
+    $shown | Select-Object -First 60 | ForEach-Object {
+      $mark = if ($_.ExecutablePath.StartsWith($script:Apps.TrimEnd('\') + '\', [StringComparison]::OrdinalIgnoreCase)) { " [тестовая]" } else { "" }
+      Write-Log "$Prefix процесс $($_.ProcessId)$mark`: $($_.ExecutablePath)"
+    }
+  } catch { Write-Log "$Prefix список процессов сеанса не получен: $($_.Exception.Message)" }
+}
+
+# «Программы» родителя (ListPrograms): ждут решения, все программы, дети.
+function Get-ProgramsList {
+  return (Use-Parent {
+    $r = Send-Parent "ListPrograms"
+    Assert-Reply $r "ListPrograms"
+    $r.payload
+  })
+}
+
+# Строки «Ждут решения» с путём Path (путь в канале нормализован: нижний регистр).
+function Find-Pending($List, [string]$Path) {
+  $norm = $Path.ToLowerInvariant()
+  return @(@(List $List.pending) | Where-Object { ([string]$_.path) -eq $norm })
+}
+
+# Категория программы через родительскую сессию (games, study, other, blocked): ждущей решения —
+# DecideProgram, уже известной — SetProgramsCategory. Программы нет ни там, ни там — ошибка: до первого
+# запуска категорию даёт Invoke-Setup -Programs. Возвращает ответ (message «superGame: игра», undoId).
+# DecideProgram — последняя команда перед выходом: плашку о решении страж получает следующим опросом
+# уже без родительской сессии (Ruling 19).
+function Set-ProgramCategory([string]$Path, [string]$Category) {
+  $norm = $Path.ToLowerInvariant()
+  $how = ""
+  $rep = Use-Parent {
+    $r = Send-Parent "ListPrograms"
+    Assert-Reply $r "ListPrograms"
+    $pend = @(Find-Pending $r.payload $Path)
+    $known = @(@(List $r.payload.programs) | Where-Object { ([string]$_.path) -eq $norm })
+    if ($pend.Count -gt 0) {
+      $script:SetHow = "DecideProgram"
+      $d = Send-Parent "DecideProgram" @{ path = $Path; category = $Category }
+    } elseif ($known.Count -gt 0) {
+      $script:SetHow = "SetProgramsCategory"
+      $d = Send-Parent "SetProgramsCategory" @{ paths = @($Path); category = $Category }
+    } else {
+      throw "Программы $Path нет ни в «Ждут решения», ни в списке программ: до первого запуска категорию даёт мастер (Invoke-Setup -Programs)"
+    }
+    $d
+  }
+  Assert-Reply $rep "$($script:SetHow) $Category"
+  Write-Log "Категория $(Split-Path -Leaf $Path): $Category через $($script:SetHow), сообщение «$($rep.payload.message)»"
+  return $rep.payload
+}
+
+# Ставит тестовую программу на передний план и ждёт, пока страж пришлёт её путь (GuardState.foregroundPath).
+# Сначала по-настоящему (ForceForeground, как Show-Fullscreen); не вышло за 5 с — подмена пути переднего
+# плана в страже (TestGuard foreground, только тестовый режим). Процесс при подмене должен работать:
+# отпечаток файла служба берёт у наблюдателя.
+function Set-TestForeground($Proc) {
+  $fgWant = ([string]$Proc.PcbPath).ToLowerInvariant()
+  if ($script:FgOverride) {
+    Invoke-TestGuard "foreground"
+    $script:FgOverride = $false
+  }
+  $h = [IntPtr]::Zero
+  for ($i = 0; $i -lt 25 -and $h -eq [IntPtr]::Zero -and -not $Proc.HasExited; $i++) {
+    $Proc.Refresh()
+    $h = $Proc.MainWindowHandle
+    if ($h -eq [IntPtr]::Zero) { Start-Sleep -Milliseconds 200 }
+  }
+  if ($h -ne [IntPtr]::Zero) {
+    $fg = [PcbNative]::ForceForeground($h)
+    try {
+      [void](Wait-GuardState { param($s) ([string]$s.foregroundPath).ToLowerInvariant() -eq $fgWant } 5 "страж видит $fgWant на переднем плане")
+      Write-Log "Передний план: $(Split-Path -Leaf $fgWant) по-настоящему (ForceForeground=$fg, $([PcbNative]::Foreground()))"
+      return
+    } catch {
+      Write-Log "Передний план по-настоящему не вышел: $($_.Exception.Message)"
+    }
+  } else {
+    Write-Log "У $(Split-Path -Leaf $fgWant) нет окна: передний план подменой"
+  }
+  Invoke-TestGuard "foreground" "" ([string]$Proc.PcbPath)
+  $script:FgOverride = $true
+  [void](Wait-GuardState { param($s) ([string]$s.foregroundPath).ToLowerInvariant() -eq $fgWant } 5 "подмена переднего плана в страже: $fgWant")
+  Write-Log "Передний план: $(Split-Path -Leaf $fgWant) подменой TestGuard foreground"
+}
+
+# «Моя статистика» ребёнка этого сеанса (MyToday): статус, gamesS, studyS — счётчики дня ядра.
+function Get-MyToday {
+  $r = Send-Pcb "MyToday"
+  Assert-Reply $r "MyToday"
+  return $r.payload
+}
+
+# Ждёт, пока статус ребёнка (GetChildStatus) подойдёт под условие; опрос 40 мс (при ускорении 60 это
+# около 2 с часов ядра). Возвращает статус; при провале в сообщении статус и передний план стража.
+function Wait-Status([scriptblock]$Cond, [double]$Seconds, [string]$What, [int]$PollMs = 40) {
+  $sw = [Diagnostics.Stopwatch]::StartNew()
+  while ($true) {
+    $st = Get-Status
+    if (& $Cond $st) { $script:WaitElapsed = $sw.Elapsed.TotalSeconds; return $st }
+    if ($sw.Elapsed.TotalSeconds -gt $Seconds) {
+      throw "За $Seconds с не дождались: $What (статус $($st.status), остаток $($st.remainingS) с, игры $($st.gamesRemainingS) с из $($st.gamesLimitS), closeGames=$($st.closeGames), studyOnly=$($st.studyOnly), usedS=$($st.usedS); экран: $(Format-GuardState (Get-GuardState)))"
+    }
+    Start-Sleep -Milliseconds $PollMs
+  }
+}
+
+# Пороги показанных предупреждений с текстами (для журнала сценария).
+function Format-Warnings($State) {
+  return ((@(List $State.warnings) | ForEach-Object { "$($_.threshold):'$($_.text)'" }) -join "; ")
 }
