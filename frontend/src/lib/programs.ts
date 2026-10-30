@@ -83,7 +83,8 @@ export function shortenPath(path: string, max: number): string {
   } else {
     tail = path.slice(path.length - Math.floor(room / 2));
   }
-  return `${path.slice(0, room - tail.length)}…${tail}`;
+  // Пробел из середины имени папки перед «…» читается как «wi… \game.exe»: его убираем.
+  return `${path.slice(0, room - tail.length).trimEnd()}…${tail}`;
 }
 
 /** «1 раз», «2 раза», «5 раз». */

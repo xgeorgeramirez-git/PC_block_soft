@@ -100,6 +100,13 @@ describe("путь: обрезка по центру", () => {
     expect(short.length).toBe(48);
   });
 
+  // Ловит: «wi… \game.exe» - пробел из середины пути остаётся перед «\» сразу за многоточием (приёмка P2 п.5).
+  it("начало перед многоточием без пробела на конце", () => {
+    const path = "c:\\program files (x86)\\steam\\steamapps\\common\\очень длинное название игры с пробелами\\bin\\win64\\game.exe";
+    expect(shortenPath(path, 68)).toBe("c:\\program files (x86)\\steam\\steamapps\\common\\очень…\\win64\\game.exe");
+    expect(shortenPath("c:\\aaa bbb ccc ddd\\x.exe", 14)).toBe("c:\\aaa…\\x.exe");
+  });
+
   it("очень длинное имя файла: всё равно предел и многоточие посередине", () => {
     const path = `c:\\downloads\\${"a".repeat(80)}.exe`;
     const short = shortenPath(path, 30);
