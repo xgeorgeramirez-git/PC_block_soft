@@ -152,6 +152,12 @@ func (s *Service) hDecideProgram(c *callCtx) ipc.Reply {
 		return ipc.Fail(textNoProgram)
 	}
 	at := c.real.UnixMilli()
+	// Свойства файла (отпечаток, издатель) — вне блокировки службы: сетевой путь читается долго,
+	// а тик, канал и снятие блокировки паролем ждать не должны (NFR-10).
+	metas := s.fileMetaUnlocked([]string{path}, false)
+	if s.stopping {
+		return ipc.Fail(textRetry)
+	}
 	pend, waiting, err := s.cfg.Store.ResolvePending(path)
 	if err != nil {
 		s.logRate("decide", "решение по программе не записано: %v", err)
@@ -167,7 +173,7 @@ func (s *Service) hDecideProgram(c *callCtx) ipc.Reply {
 	var name string
 	switch {
 	case waiting:
-		p := s.decidedProgram(path, pend.Name, pend.Publisher, req.Category, at)
+		p := s.decidedProgram(path, pend.Name, pend.Publisher, req.Category, at, metas[path])
 		if p.Publisher == "" && existed {
 			p.Publisher = prev.Publisher
 		}
@@ -206,20 +212,53 @@ func (s *Service) hDecideProgram(c *callCtx) ipc.Reply {
 	})
 }
 
+// fileMeta — свойства файла, прочитанные заранее вне блокировки службы.
+type fileMeta struct {
+	publisher, description, fingerprint string
+}
+
+// fileMetaUnlocked читает свойства файлов paths вне s.mu (NFR-10: сетевой путь не держит тик и
+// канал) и возвращает их по пути. all = false — только пути вне доверенных каталогов (им нужен
+// отпечаток, RM3-12). Вызывать под s.mu; возвращается под s.mu, но состояние службы за это время
+// могло измениться: вызывающий заново проверяет то, от чего зависит запись (s.stopping и т.п.).
+func (s *Service) fileMetaUnlocked(paths []string, all bool) map[string]fileMeta {
+	roots := s.classifier.Roots()
+	need := make([]string, 0, len(paths))
+	for _, p := range paths {
+		if all || !roots.IsTrusted(p) {
+			need = append(need, p)
+		}
+	}
+	out := make(map[string]fileMeta, len(need))
+	if len(need) == 0 {
+		return out
+	}
+	read := s.cfg.FileMeta
+	s.unlocked(func() {
+		for _, p := range need {
+			var m fileMeta
+			m.publisher, m.description, m.fingerprint = read(p)
+			out[p] = m
+		}
+	})
+	return out
+}
+
 // decidedProgram — запись решения родителя по пути: источник «родитель», корень приложения;
 // вне доверенных каталогов — отпечаток файла (RM3-12), издатель из файла, если не известен.
-// Имя берётся из «Ждут решения» (служба записала его из пути и файла), иначе из пути.
-func (s *Service) decidedProgram(path, name, publisher, category string, at int64) Program {
+// Имя берётся из «Ждут решения» (служба записала его из пути и файла), иначе из пути. Свойства
+// файла meta прочитаны заранее вне блокировки службы (fileMetaUnlocked).
+func (s *Service) decidedProgram(path, name, publisher, category string, at int64, meta fileMeta) Program {
 	roots := s.classifier.Roots()
 	p := Program{
 		Path: path, Name: programName(name, path), Publisher: programs.ClipName(publisher),
 		Category: category, Source: ProgramSourceParent, AppRoot: roots.AppRoot(path), DecidedAt: at,
 	}
 	if !roots.IsTrusted(path) {
-		pub, _, fp := s.cfg.FileMeta(path)
+		fp := meta.fingerprint
 		p.Fingerprint = fp
 		if p.Publisher == "" {
-			p.Publisher = programs.ClipName(pub)
+			p.Publisher = programs.ClipName(meta.publisher)
 		}
 		if fp == "" {
 			s.logRate("fingerprint", "отпечаток файла %s не прочитан: подмена файла не будет замечена", path)
@@ -413,12 +452,16 @@ func (s *Service) scanDTOs(found []FoundProgram) []ipc.ScanProgramDTO {
 }
 
 // setupPrograms проверяет выбор мастера (до записи чего-либо): категории родителя, не больше
-// maxSetupPrograms; непригодные пути и повторы пропускаются. Возвращает записи и текст отказа.
+// maxSetupPrograms; непригодные пути и повторы пропускаются. Свойства файлов (до 500) читаются
+// вне блокировки службы (NFR-10), поэтому после чтения вызывающий заново проверяет, что служба
+// не останавливается и не настроена другим мастером. Возвращает записи и текст отказа.
 func (s *Service) setupPrograms(list []ipc.SetupProgram, at int64) ([]Program, string) {
 	if len(list) > maxSetupPrograms {
 		return nil, ipc.TextBadRequest
 	}
-	out := make([]Program, 0, len(list))
+	type pick struct{ path, category string }
+	picks := make([]pick, 0, len(list))
+	paths := make([]string, 0, len(list))
 	seen := map[string]bool{}
 	roots := s.classifier.Roots()
 	for _, sp := range list {
@@ -430,12 +473,19 @@ func (s *Service) setupPrograms(list []ipc.SetupProgram, at int64) ([]Program, s
 			continue
 		}
 		seen[p] = true
-		pub, name, _ := s.cfg.FileMeta(p)
-		if cur, ok, err := s.cfg.Store.GetProgram(p); err == nil && ok {
+		picks = append(picks, pick{p, sp.Category})
+		paths = append(paths, p)
+	}
+	metas := s.fileMetaUnlocked(paths, true)
+	out := make([]Program, 0, len(picks))
+	for _, pk := range picks {
+		m := metas[pk.path]
+		pub, name := m.publisher, m.description
+		if cur, ok, err := s.cfg.Store.GetProgram(pk.path); err == nil && ok {
 			// Снимок при старте уже записал программу: имя и издатель из него.
 			name, pub = cur.Name, cur.Publisher
 		}
-		out = append(out, s.decidedProgram(p, name, pub, sp.Category, at))
+		out = append(out, s.decidedProgram(pk.path, name, pub, pk.category, at, m))
 	}
 	return out, ""
 }

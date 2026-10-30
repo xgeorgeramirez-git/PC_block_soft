@@ -556,3 +556,81 @@ func TestSetupDoesNotWaitForSnapshot(t *testing.T) {
 		t.Error("после мастера снимок не записан")
 	}
 }
+
+// metaHeld ждёт, пока служба войдёт в медленное чтение свойств файла, и проверяет, что Tick и
+// команда канала в это время не ждут блокировку службы (NFR-10: сетевой путь не держит s.mu).
+func metaHeld(t *testing.T, h *harness, meta *fakeMeta, call func()) {
+	t.Helper()
+	meta.hold()
+	t.Cleanup(meta.release)
+	done := make(chan struct{})
+	go func() { defer close(done); call() }()
+	select {
+	case <-meta.in:
+	case <-time.After(2 * time.Second):
+		t.Fatal("служба не дошла до чтения свойств файла")
+	}
+	within(t, time.Second, "Tick во время чтения свойств", func() { h.svc.Tick(h.clock.Now()) })
+	within(t, time.Second, "GetChildStatus во время чтения свойств", func() {
+		h.svc.Handle(childPeer(), ipc.Msg{Cmd: ipc.CmdGetChildStatus}, h.real.Now())
+	})
+	meta.release()
+	<-done
+}
+
+// Ловит (NFR-10): решение родителя по программе вне доверенных каталогов читает свойства файла
+// (отпечаток, издатель) под блокировкой службы: сетевой путь остановил бы тик, канал и снятие
+// блокировки паролем; после чтения вне блокировки решение всё равно записывается с отпечатком.
+func TestDecideReadsFileMetaOutsideServiceLock(t *testing.T) {
+	h := newProgHarness(t)
+	metaHeld(t, h.harness, h.meta, func() { h.decide(pathSuperGame, "games") })
+	if p, _, _ := h.store.GetProgram(pathSuperGame); p.Category != "games" || p.Fingerprint != "1024:1700000000" {
+		t.Errorf("SuperGame после решения: %+v", p)
+	}
+}
+
+// Ловит (NFR-10): мастер читает свойства до 500 выбранных программ под блокировкой службы; после
+// чтения вне блокировки выбор записан (издатель и отпечаток из файла), а мастер, который во время
+// чтения обогнал другой мастер, не перезаписывает настройку (повторная проверка «не настроено»).
+func TestSetupReadsFileMetaOutsideServiceLock(t *testing.T) {
+	meta := newMeta()
+	meta.set(pathHomework, "Школа №1", "Домашка", "77:1700000100")
+	h := newHarness(t, withPrograms(typicalScan()), withMeta(meta))
+	h.start()
+	req := ipc.SetupRequest{Password: goodPassword, Children: []ipc.SetupChild{{SID: childSID, Name: "Миша", Limits: setupLimits(120)}},
+		Programs: []ipc.SetupProgram{{Path: pathHomework, Category: "study"}}}
+	var first ipc.Reply
+	metaHeld(t, h, meta, func() { first = h.do(elevatedPeer(), "", ipc.CmdSetup, req) })
+	if !first.OK {
+		t.Fatalf("мастер: %+v", first)
+	}
+	h.svc.waitSeed()
+	if p, _, _ := h.store.GetProgram(pathHomework); p.Category != "study" || p.Publisher != "Школа №1" || p.Fingerprint != "77:1700000100" {
+		t.Errorf("Домашка из мастера: %+v", p)
+	}
+
+	meta2 := newMeta()
+	h2 := newHarness(t, withPrograms(typicalScan()), withMeta(meta2))
+	h2.start()
+	meta2.hold()
+	t.Cleanup(meta2.release)
+	done := make(chan ipc.Reply, 1)
+	go func() { done <- h2.do(elevatedPeer(), "", ipc.CmdSetup, req) }()
+	select {
+	case <-meta2.in:
+	case <-time.After(2 * time.Second):
+		t.Fatal("мастер не дошёл до чтения свойств файла")
+	}
+	other := req
+	other.Programs = nil
+	if rep := h2.do(elevatedPeer(), "", ipc.CmdSetup, other); !rep.OK {
+		t.Fatalf("второй мастер: %+v", rep)
+	}
+	meta2.release()
+	if rep := <-done; rep.OK || rep.Error != "Программа уже настроена" {
+		t.Errorf("первый мастер после второго: %+v, want отказ «Программа уже настроена»", rep)
+	}
+	if _, ok, _ := h2.store.GetProgram(pathHomework); ok {
+		t.Error("опоздавший мастер записал программу")
+	}
+}

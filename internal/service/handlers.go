@@ -241,6 +241,14 @@ func (s *Service) hSetup(c *callCtx) ipc.Reply {
 	default:
 		return ipc.FailField(denial, fieldPrograms)
 	}
+	// Свойства программ читались вне блокировки службы: за это время служба могла начать
+	// останавливаться или её настроил другой мастер.
+	if s.stopping {
+		return ipc.Fail(textRetry)
+	}
+	if s.configured() {
+		return ipc.Fail(textAlreadySetup)
+	}
 	hash, err := s.cfg.Hasher.Hash(req.Password)
 	if err != nil {
 		return ipc.FailField(err.Error(), ipc.FieldPassword)

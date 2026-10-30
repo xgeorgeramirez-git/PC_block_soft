@@ -1062,6 +1062,24 @@ type fakeMeta struct {
 	mu    sync.Mutex
 	files map[string][3]string
 	asked []string
+	gate  chan struct{} // не nil: чтение ждёт, пока его закроют (медленный сетевой путь)
+	in    chan struct{} // сигнал о входе в чтение
+}
+
+// hold — следующие чтения свойств ждут release (проверка, что их ждёт не блокировка службы).
+func (m *fakeMeta) hold() {
+	m.mu.Lock()
+	m.gate, m.in = make(chan struct{}), make(chan struct{}, 1)
+	m.mu.Unlock()
+}
+
+func (m *fakeMeta) release() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.gate != nil {
+		close(m.gate)
+		m.gate = nil
+	}
 }
 
 func newMeta() *fakeMeta { return &fakeMeta{files: map[string][3]string{}} }
@@ -1073,6 +1091,18 @@ func (m *fakeMeta) set(path, publisher, description, fingerprint string) {
 }
 
 func (m *fakeMeta) meta(path string) (string, string, string) {
+	m.mu.Lock()
+	gate, in := m.gate, m.in
+	m.mu.Unlock()
+	if in != nil {
+		select {
+		case in <- struct{}{}:
+		default:
+		}
+	}
+	if gate != nil {
+		<-gate
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.asked = append(m.asked, path)
