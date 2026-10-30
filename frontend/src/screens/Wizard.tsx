@@ -361,7 +361,7 @@ export default function Wizard({ onOpenSettings }: Props) {
 
       {step === 4 ? (
         <div>
-          <p className="panel-text">Отметьте, какие программы игры, а какие для учёбы. {PROGRAMS_NOTE}.</p>
+          <p className="panel-text">Отметьте, какие программы игровые, а какие нужны для учёбы. {PROGRAMS_NOTE}.</p>
           {formError ? (
             <Notice tone="warn" urgent>
               {formError}
