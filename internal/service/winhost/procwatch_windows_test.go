@@ -60,6 +60,16 @@ func currentSession(t *testing.T) uint32 {
 	return s
 }
 
+// currentUserSID — SID пользователя самого теста, независимо от адаптера: маркер текущего процесса.
+func currentUserSID(t *testing.T) string {
+	t.Helper()
+	tu, err := windows.GetCurrentProcessToken().GetTokenUser()
+	if err != nil {
+		t.Fatalf("GetTokenUser: %v", err)
+	}
+	return tu.User.Sid.String()
+}
+
 func copyFile(t *testing.T, src, dst string) {
 	t.Helper()
 	in, err := os.Open(src)
@@ -186,7 +196,8 @@ func findPID(list []service.ProcInfo, pid uint32) (service.ProcInfo, bool) {
 	return service.ProcInfo{}, false
 }
 
-// Ловит: наблюдатель не видит процесс сеанса, путь приходит в 8.3-виде («RUNNER~1») или с
+// Ловит: наблюдатель не видит процесс сеанса или не сообщает его пользователя (тогда служба не
+// закрыла бы ничего, R19), путь приходит в 8.3-виде («RUNNER~1») или с
 // регистром и ссылками как попало (тогда ключ таблицы программ не совпал бы, RM3-1); Kill
 // завершает процесс с чужим моментом создания или другим путём (PL-9: номер процесса повторяется);
 // повторный Kill уже завершённого процесса отвечает «завершён» (служба записала бы лишнее).
@@ -215,6 +226,9 @@ func TestProcessWatcherListsAndKillsChild(t *testing.T) {
 	}
 	if got := programs.Normalize(p.Path); got != want {
 		t.Fatalf("путь %q (нормализованный %q); ждали %q (запуск по %q)", p.Path, got, want, c.cmd.Path)
+	}
+	if me := currentUserSID(t); !p.UserOK || p.UserSID != me {
+		t.Fatalf("пользователь дочернего процесса %q (прочитан %v); ждали SID текущего пользователя %q", p.UserSID, p.UserOK, me)
 	}
 	for _, q := range list {
 		if q.SessionID != session {

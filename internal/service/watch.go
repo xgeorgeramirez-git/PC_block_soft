@@ -16,7 +16,7 @@ import (
 // Опрос — собственный тикер по настоящим часам (watchEvery), не тик учёта. Под s.mu берётся только
 // снимок (сеансы детей, решение ядра, свои процессы PC Block); List, свойства файлов и Kill — вне
 // s.mu, итог записывается под s.mu. «Не знаю» = «не трогать» (PL-9): нечитаемый путь, чужой или
-// неизвестный сеанс, класс «система», список программ не готов, пауза и безопасный режим.
+// неизвестный сеанс, процесс другого пользователя в сеансе ребёнка, класс «система», список программ не готов, пауза и безопасный режим.
 
 const (
 	watchEvery        = 250 * time.Millisecond // период опроса процессов (NFR-6: не позже 1 с)
@@ -50,6 +50,7 @@ type watchEntry struct {
 type watchTarget struct {
 	session uint32
 	childID int64
+	sid     string // SID учётки ребёнка: процессы другого пользователя в его сеансе не трогаются (R19)
 	d       core.Decision
 	own     map[uint32]bool // процессы PC Block этого сеанса (страж, значок, окна): не трогать никогда
 }
@@ -111,7 +112,7 @@ func (s *Service) Watch(real time.Time) {
 	gen := s.watch.gen
 	var acts []watchAct
 	notes := []string{}
-	unreadable := map[uint32]int{}
+	unreadable, others := map[uint32]int{}, map[uint32]int{}
 	for i := range targets {
 		t := &targets[i]
 		list, err := s.cfg.Watcher.List(t.session)
@@ -122,8 +123,11 @@ func (s *Service) Watch(real time.Time) {
 		}
 		for _, p := range list {
 			a, skip := s.watchDecide(t, p, gen)
-			if skip == skipUnreadable {
+			switch skip {
+			case skipUnreadable:
 				unreadable[t.session]++
+			case skipOtherUser:
+				others[t.session]++
 			}
 			if a != nil {
 				acts = append(acts, *a)
@@ -159,7 +163,7 @@ func (s *Service) Watch(real time.Time) {
 	s.real = real
 	s.fpSeen = fps   // категория секунды переднего плана сверяет тот же отпечаток (RM3-12)
 	s.pubSeen = pubs // и того же издателя (RM3-13)
-	s.applyWatch(acts, notes, unreadable, real)
+	s.applyWatch(acts, notes, unreadable, others, real)
 }
 
 // keepSession помечает виденными процессы сеанса, список которого не прочитался: память о них
@@ -197,6 +201,11 @@ func (s *Service) watchSnapshot() ([]watchTarget, bool) {
 		if cs == nil || cs.admin || cs.rules.Broken {
 			continue
 		}
+		if cs.child.SID == "" {
+			// PL-9: без SID ребёнка не отличить его процессы от программ администратора (UAC).
+			s.logRate(fmt.Sprint("watch-nosid|", ss.childID), "наблюдатель: SID ребёнка неизвестен (id %d), в сеансе %d ничего не закрывается", ss.childID, id)
+			continue
+		}
 		d := cs.eng.Current()
 		if d.Status == core.StatusPaused || d.Status == core.StatusSafe {
 			continue
@@ -212,7 +221,7 @@ func (s *Service) watchSnapshot() ([]watchTarget, bool) {
 				own[sp.pid] = true
 			}
 		}
-		out = append(out, watchTarget{session: id, childID: ss.childID, d: d, own: own})
+		out = append(out, watchTarget{session: id, childID: ss.childID, sid: cs.child.SID, d: d, own: own})
 	}
 	return out, true
 }
@@ -221,16 +230,22 @@ func (s *Service) watchSnapshot() ([]watchTarget, bool) {
 const (
 	skipNone = iota
 	skipUnreadable
+	skipOtherUser
 )
 
 // watchDecide решает судьбу одного процесса сеанса t вне s.mu: nil — не трогать. Порядок:
-// чужой сеанс, свой процесс PC Block, нечитаемый путь, вне WatchDir в тестовом режиме, класс
+// чужой сеанс, свой процесс PC Block, процесс другого пользователя или с непрочитанным
+// пользователем (программа администратора через UAC в сеансе ребёнка, R19; проверяется
+// пользователь, а не повышение прав), нечитаемый путь, вне WatchDir в тестовом режиме, класс
 // «система» — не трогать; «незнакомая» и «запрещённая» — закрыть; разрешённая категория —
 // закрыть, только если её сейчас нельзя и правило закрывает её (игры при CloseGames, всё,
 // кроме учёбы, при StudyOnly; R5, R8). Под экраном «Блокировать экран» закрываются только игры.
 func (s *Service) watchDecide(t *watchTarget, p ProcInfo, gen uint64) (*watchAct, int) {
 	if p.SessionID != t.session || t.own[p.PID] {
 		return nil, skipNone
+	}
+	if !p.UserOK || !strings.EqualFold(p.UserSID, t.sid) {
+		return nil, skipOtherUser
 	}
 	if !p.PathOK || p.Path == "" {
 		return nil, skipUnreadable
@@ -299,13 +314,16 @@ func coreCategory(cat string) core.Category {
 
 // applyWatch записывает итог прохода под s.mu: «Ждут решения», журнал родителя (с ограничителем
 // повторов), плашки стражу сеанса на экране, журнал работы о незакрытом и нечитаемом.
-func (s *Service) applyWatch(acts []watchAct, notes []string, unreadable map[uint32]int, real time.Time) {
+func (s *Service) applyWatch(acts []watchAct, notes []string, unreadable, others map[uint32]int, real time.Time) {
 	for _, n := range notes {
 		key, text, _ := strings.Cut(n, "\x00")
 		s.logRate(key, "%s", text)
 	}
 	for session, n := range unreadable {
 		s.logRate(fmt.Sprint("watch-unreadable|", session), "наблюдатель: у %d процессов сеанса %d путь не прочитан, они не трогаются", n, session)
+	}
+	for session, n := range others {
+		s.logRate(fmt.Sprint("watch-otheruser|", session), "наблюдатель: %d процессов в сеансе %d идут от имени другого пользователя или пользователь не прочитан, они не трогаются", n, session)
 	}
 	s.pruneWatchLimits(real)
 	for i := range acts {

@@ -1158,12 +1158,24 @@ func (w *fakeWatcher) Kill(p ProcInfo) bool {
 	return false
 }
 
-// start запускает процесс с путём path в сеансе session и возвращает его.
+// start запускает процесс с путём path в сеансе session от имени ребёнка (childSID) и возвращает его.
 func (w *fakeWatcher) start(session uint32, path string) ProcInfo {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	w.nextPID++
-	p := ProcInfo{PID: w.nextPID, Stamp: uint64(w.nextPID) * 7, SessionID: session, Path: path, PathOK: path != ""}
+	p := ProcInfo{PID: w.nextPID, Stamp: uint64(w.nextPID) * 7, SessionID: session, Path: path, PathOK: path != "",
+		UserSID: childSID, UserOK: true}
+	w.procs = append(w.procs, p)
+	return p
+}
+
+// startAs запускает процесс от имени пользователя sid (ok = false: пользователь не прочитан).
+func (w *fakeWatcher) startAs(session uint32, path, sid string, ok bool) ProcInfo {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.nextPID++
+	p := ProcInfo{PID: w.nextPID, Stamp: uint64(w.nextPID) * 7, SessionID: session, Path: path, PathOK: true,
+		UserSID: sid, UserOK: ok}
 	w.procs = append(w.procs, p)
 	return p
 }

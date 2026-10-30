@@ -274,8 +274,8 @@ func TestWatchNeverTouchesPCBlock(t *testing.T) {
 		w.start(childSession, pathNotepad),
 	}
 	own := []ProcInfo{
-		{PID: guardPID, Stamp: 1, SessionID: childSession, Path: pathDevBuild, PathOK: true},
-		{PID: trayPID, Stamp: 2, SessionID: childSession, Path: pathDevBuild, PathOK: true},
+		{PID: guardPID, Stamp: 1, SessionID: childSession, Path: pathDevBuild, PathOK: true, UserSID: childSID, UserOK: true},
+		{PID: trayPID, Stamp: 2, SessionID: childSession, Path: pathDevBuild, PathOK: true, UserSID: childSID, UserOK: true},
 	}
 	for _, p := range own {
 		w.add(p)
@@ -304,10 +304,10 @@ func TestWatchUnknownIsUntouched(t *testing.T) {
 	)
 	h.svc.OnSession(SessionLogon, 1, h.real.Now())
 	keep := []ProcInfo{
-		{PID: 7001, Stamp: 1, SessionID: childSession, Path: pathSuperGame, PathOK: false},
-		{PID: 7002, Stamp: 1, SessionID: childSession, Path: "", PathOK: true},
-		{PID: 7003, Stamp: 1, SessionID: childSession, Path: `relative\game.exe`, PathOK: true},
-		{PID: 7004, Stamp: 1, SessionID: 9, Path: pathSuperGame, PathOK: true},
+		{PID: 7001, Stamp: 1, SessionID: childSession, Path: pathSuperGame, PathOK: false, UserSID: childSID, UserOK: true},
+		{PID: 7002, Stamp: 1, SessionID: childSession, Path: "", PathOK: true, UserSID: childSID, UserOK: true},
+		{PID: 7003, Stamp: 1, SessionID: childSession, Path: `relative\game.exe`, PathOK: true, UserSID: childSID, UserOK: true},
+		{PID: 7004, Stamp: 1, SessionID: 9, Path: pathSuperGame, PathOK: true, UserSID: childSID, UserOK: true},
 	}
 	for _, p := range keep {
 		w.add(p)
@@ -412,11 +412,11 @@ func TestWatchFirstStartAfterUpdate(t *testing.T) {
 func TestWatchPIDReuse(t *testing.T) {
 	w := newWatcher()
 	h := watchHarness(t, w)
-	brave := ProcInfo{PID: 7100, Stamp: 1, SessionID: childSession, Path: pathBrave, PathOK: true}
+	brave := ProcInfo{PID: 7100, Stamp: 1, SessionID: childSession, Path: pathBrave, PathOK: true, UserSID: childSID, UserOK: true}
 	w.add(brave)
 	h.watch()
 	w.exit(brave)
-	game := ProcInfo{PID: 7100, Stamp: 2, SessionID: childSession, Path: pathSuperGame, PathOK: true}
+	game := ProcInfo{PID: 7100, Stamp: 2, SessionID: childSession, Path: pathSuperGame, PathOK: true, UserSID: childSID, UserOK: true}
 	w.add(game)
 	h.watch()
 	if w.alive(game) {
@@ -450,4 +450,72 @@ func TestWatchKillRefused(t *testing.T) {
 	if pend, _ := h.store.ListPending(); len(pend) != 1 || pend[0].Attempts != 1 {
 		t.Errorf("после закрытия «Ждут решения»: %+v, want одна попытка", pend)
 	}
+}
+
+// Ловит (R19, PL-9): наблюдатель отбирает процессы только по сеансу и закрывает программу, которую
+// администратор запустил через UAC в сеансе ребёнка (установщик из «Загрузок»); процесс, чей
+// пользователь не прочитан, закрывается («не знаю» = «не трогать»); регистр SID мешает узнать
+// ребёнка; запись о чужом процессе попадает в журнал родителя, а не в журнал работы.
+func TestWatchSkipsOtherUserInChildSession(t *testing.T) {
+	w := newWatcher()
+	h := watchHarness(t, w)
+	admin := w.startAs(childSession, `c:\users\миша\downloads\setup.exe`, parentSID, true)
+	unread := w.startAs(childSession, `c:\users\миша\downloads\other.exe`, "", false)
+	// Адаптер заполнил SID, но сам пометил его непрочитанным: доверять нельзя.
+	half := w.startAs(childSession, `c:\users\миша\downloads\other.exe`, childSID, false)
+	lower := w.startAs(childSession, `c:\users\миша\downloads\lower.exe`, strings.ToLower(childSID), true)
+	child := w.startAs(childSession, pathSuperGame, childSID, true)
+	h.watch()
+	if !w.alive(admin) || !w.alive(unread) || !w.alive(half) {
+		t.Errorf("закрыт процесс другого пользователя или с непрочитанным пользователем: закрыты %v", w.killedPaths())
+	}
+	if w.alive(child) || w.alive(lower) {
+		t.Errorf("процесс ребёнка не закрыт: закрыты %v, want supergame.exe и lower.exe", w.killedPaths())
+	}
+	pend, _ := h.store.ListPending()
+	paths := []string{}
+	for _, p := range pend {
+		paths = append(paths, p.Path)
+	}
+	if want := []string{`c:\users\миша\downloads\lower.exe`, pathSuperGame}; !slicesEqual(sortedStrings(paths), want) {
+		t.Errorf("«Ждут решения» %v, want %v", paths, want)
+	}
+	for _, ev := range h.store.events {
+		if d, _ := ev.Details["path"].(string); strings.Contains(d, "setup.exe") || strings.Contains(d, "other.exe") {
+			t.Errorf("в журнале родителя запись о чужом процессе: %+v", ev)
+		}
+	}
+	if !strings.Contains(h.logText(), "другого пользователя") {
+		t.Errorf("процессы другого пользователя не записаны в журнал работы:\n%s", h.logText())
+	}
+}
+
+// Ловит (PL-9): SID ребёнка в базе пуст, а наблюдатель всё равно закрывает программы его сеанса
+// (сравнение с пустой строкой или пропуск проверки).
+func TestWatchChildWithoutSIDClosesNothing(t *testing.T) {
+	w := newWatcher()
+	h := watchHarness(t, w)
+	h.svc.mu.Lock()
+	h.svc.children[h.childID(childSID)].child.SID = ""
+	h.svc.mu.Unlock()
+	game := w.startAs(childSession, pathSuperGame, "", false)
+	h.watch()
+	if !w.alive(game) {
+		t.Error("программа закрыта, хотя SID ребёнка неизвестен")
+	}
+	if !strings.Contains(h.logText(), "SID ребёнка неизвестен") {
+		t.Errorf("журнал работы молчит о неизвестном SID:\n%s", h.logText())
+	}
+}
+
+func slicesEqual(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }

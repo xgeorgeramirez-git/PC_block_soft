@@ -180,13 +180,17 @@ type FileMeta func(path string) (publisher, description, fingerprint string)
 // ProcInfo — процесс сеанса для наблюдателя (M3: R12, R13, NFR-6, RM3-11). Пара (PID, Stamp)
 // не повторяется, в отличие от PID: Stamp — момент создания процесса. Path — полный путь exe
 // (адаптер разворачивает 8.3-имена и junction); PathOK = false — путь не прочитан (защищённый
-// процесс, отказ в доступе): такой процесс наблюдатель не трогает (PL-9).
+// процесс, отказ в доступе): такой процесс наблюдатель не трогает (PL-9). UserSID — SID
+// пользователя, от имени которого идёт процесс (маркер доступа); UserOK = false — не прочитан:
+// процесс не трогается (программа администратора через UAC в сеансе ребёнка, R19).
 type ProcInfo struct {
 	PID       uint32
 	Stamp     uint64
 	SessionID uint32
 	Path      string
 	PathOK    bool
+	UserSID   string
+	UserOK    bool
 }
 
 // ProcessWatcher — процессы сеансов Windows для наблюдателя (Windows-реализация в winhost: Toolhelp32,

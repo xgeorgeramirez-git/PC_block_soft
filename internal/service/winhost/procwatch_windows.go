@@ -32,11 +32,14 @@ type procStamp struct {
 	stamp uint64
 }
 
-// procPath — развёрнутый путь процесса; ok = false — путь не прочитан.
+// procPath — развёрнутый путь процесса и его пользователь; ok = false — путь не прочитан,
+// userOK = false — пользователь (SID маркера доступа) не прочитан.
 type procPath struct {
 	session uint32
 	path    string
 	ok      bool
+	user    string
+	userOK  bool
 }
 
 // Номера процессов, которых наблюдатель не касается: бездействие системы и System.
@@ -96,8 +99,8 @@ func (w *processWatcher) List(sessionID uint32) ([]service.ProcInfo, error) {
 	return out, nil
 }
 
-// inspect открывает процесс на чтение сведений и возвращает его описание; ok = false — процесс
-// уже завершился. Ручка закрывается здесь же.
+// inspect открывает процесс на чтение сведений и возвращает его описание (путь, пользователь);
+// ok = false — процесс уже завершился. Ручка закрывается здесь же.
 func (w *processWatcher) inspect(pid, session uint32) (service.ProcInfo, procStamp, bool) {
 	info := service.ProcInfo{PID: pid, SessionID: session}
 	h, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, pid)
@@ -118,10 +121,29 @@ func (w *processWatcher) inspect(pid, session uint32) (service.ProcInfo, procSta
 	if !ok {
 		c = procPath{session: session}
 		c.path, c.ok = resolveImage(h)
+		c.user, c.userOK = processUser(h)
 		w.cache[key] = c
 	}
 	info.Path, info.PathOK = c.path, c.ok
+	info.UserSID, info.UserOK = c.user, c.userOK
 	return info, key, true
+}
+
+// processUser — SID пользователя, от имени которого идёт процесс, по уже открытой ручке
+// (OpenProcessToken с TOKEN_QUERY, GetTokenUser). Не прочитался — ok = false: служба такой
+// процесс не трогает (R19, PL-9).
+func processUser(h windows.Handle) (string, bool) {
+	var tok windows.Token
+	if err := windows.OpenProcessToken(h, windows.TOKEN_QUERY, &tok); err != nil {
+		return "", false
+	}
+	defer tok.Close()
+	tu, err := tok.GetTokenUser()
+	if err != nil || tu.User.Sid == nil {
+		return "", false
+	}
+	sid := tu.User.Sid.String()
+	return sid, sid != ""
 }
 
 // resolveImage — развёрнутый путь exe процесса по ручке.
