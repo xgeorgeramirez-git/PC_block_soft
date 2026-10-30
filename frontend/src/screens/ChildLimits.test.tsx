@@ -647,6 +647,9 @@ describe("ChildLimits: «Скопировать правила с…» (FR-33)",
     await user.click(screen.getByRole("button", { name: "Скопировать правила с…" }));
     await user.click(screen.getByRole("button", { name: "Даша" }));
     await vi.waitFor(() => expect(gUnlimited("вторник").checked).toBe(false));
+    // Копирование изменило поля: панель говорит и о правках, и о том, что правила скопированы.
+    expect(screen.getByText("Есть несохранённые изменения")).toBeTruthy();
+    expect(screen.getByText("Правила скопированы. Проверьте и сохраните").closest('[role="status"]')).toBeTruthy();
     expect(gMinutes("вторник").value).toBe("30");
     expect(hours("вторник").value).toBe("1");
     await user.click(screen.getByRole("tab", { name: "Когда время вышло" }));

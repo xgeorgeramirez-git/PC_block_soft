@@ -7,7 +7,10 @@ export const SaveBarSlotContext = createContext<HTMLElement | null>(null);
 interface Props {
   dirty: boolean;
   saving: boolean;
-  /** Итог последнего сохранения: «Сохранено. Новые правила уже действуют». */
+  /**
+   * Итог последнего действия: «Сохранено. Новые правила уже действуют»; при правках - пояснение к
+   * ним («Правила скопированы. Проверьте и сохраните»), оно видно рядом со словами о правках.
+   */
   savedText?: string;
   /** Общая ошибка сохранения (не у поля): видна там, куда смотрит родитель. */
   error?: string;
@@ -24,7 +27,14 @@ export default function SaveBar({ dirty, saving, savedText, error, onSave, onDis
     <div className="savebar" role="region" aria-label="Сохранение изменений">
       <div className="savebar-main">
         {dirty ? (
-          <span className="savebar-text">Есть несохранённые изменения</span>
+          <>
+            <span className="savebar-text">Есть несохранённые изменения</span>
+            {savedText ? (
+              <span className="savebar-note" role="status">
+                {savedText}
+              </span>
+            ) : null}
+          </>
         ) : (
           <span className="savebar-text savebar-saved" role="status">
             {savedText}

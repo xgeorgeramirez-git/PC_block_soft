@@ -1005,6 +1005,10 @@ html:has(.shell-child) body {
   color: var(--status-ok);
 }
 
+.savebar-note {
+  font-size: 14px;
+}
+
 .savebar-error {
   color: var(--status-danger);
   font-size: 14px;
