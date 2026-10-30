@@ -13,11 +13,14 @@ import (
 
 var procPeekMessage = user32.NewProc("PeekMessageW")
 
-// pump разбирает очередь сообщений потока: окна живут в потоке теста.
-func pump(d time.Duration) {
+// pumpUntil разбирает очередь сообщений потока (окна живут в потоке теста), пока не выполнится
+// done или не выйдет срок. Ждать по времени нельзя (PL-16): перед нашим сообщением в очереди
+// стоят сообщения системы (WM_MOUSELEAVE после TrackMouseEvent, когда настоящий указатель не
+// над окном), а их перерисовка под -race дольше любого короткого срока.
+func pumpUntil(done func() bool) {
 	var m tagMSG
-	end := time.Now().Add(d)
-	for time.Now().Before(end) {
+	end := time.Now().Add(5 * time.Second)
+	for !done() && time.Now().Before(end) {
 		r, _, _ := procPeekMessage.Call(uintptr(unsafe.Pointer(&m)), 0, 0, 0, 1) // PM_REMOVE
 		if r == 0 {
 			time.Sleep(5 * time.Millisecond)
@@ -81,7 +84,7 @@ func TestCardWindowShowsAndHandlesInput(t *testing.T) {
 	}
 	c.state.Focus = TargetRefresh
 	c.onKey(vkReturn)
-	pump(30 * time.Millisecond)
+	pumpUntil(func() bool { return len(pressed) >= 1 })
 	if len(pressed) != 1 || pressed[0] != TargetRefresh {
 		t.Fatalf("Enter: %v", pressed)
 	}
@@ -102,8 +105,11 @@ func TestCardWindowShowsAndHandlesInput(t *testing.T) {
 		t.Fatalf("нажатие: %+v", c.state)
 	}
 	send(c.hwnd, wmLButtonUp, 0, lp)
-	pump(30 * time.Millisecond)
-	if len(pressed) != 2 || pressed[1] != TargetArrow || c.state.Pressed != TargetNone {
+	if c.state.Pressed != TargetNone {
+		t.Fatalf("отпускание снимает нажатие: %+v", c.state)
+	}
+	pumpUntil(func() bool { return len(pressed) >= 2 })
+	if len(pressed) != 2 || pressed[1] != TargetArrow {
 		t.Fatalf("щелчок: %v, %+v", pressed, c.state)
 	}
 	send(c.hwnd, wmLButtonDown, 1, 0) // мимо кнопок
@@ -201,7 +207,7 @@ func TestWarningCardInSystrayPackage(t *testing.T) {
 		t.Fatal("у плашки нет клавиатуры")
 	}
 	w.ClickClose()
-	pump(30 * time.Millisecond)
+	pumpUntil(func() bool { return closed >= 1 })
 	if closed != 1 {
 		t.Fatalf("крестик дошёл %d раз, ждали 1", closed)
 	}
