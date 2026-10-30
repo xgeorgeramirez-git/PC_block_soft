@@ -26,3 +26,6 @@
 | visual-reviewer: кадры P2 + UX-аудит «Программ» | a8bb0d8ffba1ae67b | reader (sonnet) | done | PASS; LOW: пробел в обрезке пути в «Все программы» → R1 п.5; UX: 0 CRITICAL/HIGH, 3 MEDIUM → бэклог | — |
 | ревью диффа M3 (свежий) | a9cf593bd599c3804 | reviewer | done | With fixes: Important — процессы другого пользователя в сеансе ребёнка (UAC), FileMeta под s.mu; Minor — Kill 300 мс, пустые корни, снимок 400, UI-миноры → пакет M3-R1 | — |
 | R1 фиксы ревью | aa10f84f4de55331a | writer | in progress | пакет `plans/packets/M3-R1-review-fixes.md` | 0 |
+| R1 фиксы ревью — итог | aa10f84f4de55331a | writer | done | 5 коммитов `45f0f6b`…`8b40b07`: SID владельца процесса, FileMeta вне s.mu, Kill, пустые корни, обрезка пути одним помощником; полная приёмка 41033476820 PASS | 0 |
+| visual-reviewer: обрезка путей после R1 | a54261f50fad76135 | reader (sonnet) | done | s11-* PASS; s14-programs — экран пароля родителя (так задумано, RM3-4) | — |
+| покрытие systray для R4 | ae07ce1cda3cf4433 | writer | done | `f7f2db4`, `46d0742`: логика окна табло в общие файлы, Windows-тесты; возврат 1: тест ждал 30 мс → `f54f3cb` ждёт по признаку; R4 41059592081 зелёная | 1 |
