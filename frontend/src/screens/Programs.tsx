@@ -486,14 +486,21 @@ function AppIcon() {
   );
 }
 
-/** Путь: длинный обрезан по центру; полный в подсказке, у диктора и по фокусу клавиатурой. */
+/**
+ * Путь одной строкой: длинный обрезан по центру; если и так не помещается, сжимается начало, а
+ * имя файла остаётся целым. Полный путь в подсказке, у диктора и по фокусу клавиатурой.
+ */
 function PathText({ path, max }: { path: string; max: number }) {
   const short = shortenPath(path, max);
   const cut = short !== path;
+  const at = short.lastIndexOf("\\");
+  const head = at > 0 ? short.slice(0, at) : short;
+  const tail = at > 0 ? short.slice(at) : "";
   return (
     <span className="program-path" title={path} tabIndex={cut ? 0 : undefined}>
       <span className="path-short" aria-hidden="true">
-        {short}
+        <span className="path-head">{head}</span>
+        {tail ? <span className="path-tail">{tail}</span> : null}
       </span>
       <span className="path-full">{path}</span>
     </span>

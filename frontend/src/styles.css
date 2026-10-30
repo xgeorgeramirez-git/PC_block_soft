@@ -1321,9 +1321,29 @@ html:has(.shell-child) body {
 
 /* Путь: обрезанный виден всегда, полный читает диктор; по фокусу клавиатурой полный виден. */
 .program-path {
-  display: inline-block;
+  display: block;
   max-width: 100%;
   border-radius: 2px;
+}
+
+/* Одна строка без переносов внутри слова: сжимается начало пути, имя файла целиком. */
+.program-path .path-short {
+  display: flex;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.program-path .path-head {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.program-path .path-tail {
+  flex: none;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .program-path .path-full {

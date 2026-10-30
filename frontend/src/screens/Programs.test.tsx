@@ -178,6 +178,17 @@ describe("Программы: ждут решения", () => {
     expect(short.tabIndex).toBe(-1);
   });
 
+  // Ловит: путь в таблице переносится посреди имени файла («supergame.ex» / «e»).
+  it("путь в таблице одной строкой: начало сжимается, имя файла целиком отдельным куском", async () => {
+    setup();
+    await screen.findByRole("region", { name: "Все программы" });
+    const path = within(rowOf("Brave")).getByTitle(BRAVE);
+    expect(path.querySelector(".path-short")?.textContent).toBe("c:\\program files\\…\\application\\brave.exe");
+    expect(path.querySelector(".path-head")?.textContent).toBe("c:\\program files\\…\\application");
+    expect(path.querySelector(".path-tail")?.textContent).toBe("\\brave.exe");
+    expect(path.querySelector(".path-full")?.textContent).toBe(BRAVE);
+  });
+
   it("нет ждущих: блока нет", async () => {
     setup({ pending: [] });
     expect(await screen.findByRole("region", { name: "Все программы" })).toBeTruthy();

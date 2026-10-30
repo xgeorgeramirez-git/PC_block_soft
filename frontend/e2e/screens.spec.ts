@@ -715,6 +715,21 @@ async function nothingSticksOut(page: Page) {
   expect(out, "элементы вылезают за край").toEqual([]);
 }
 
+/** Путь в строках одной строкой, без переноса посреди имени файла; имя файла видно целиком. */
+async function pathsOneLine(page: Page) {
+  const bad = await page.evaluate(() => {
+    const out: string[] = [];
+    for (const el of Array.from(document.querySelectorAll<HTMLElement>(".program-path .path-short"))) {
+      const line = parseFloat(getComputedStyle(el).lineHeight) || 20;
+      if (el.getBoundingClientRect().height > line * 1.5) out.push(`перенос: ${el.textContent}`);
+      const tail = el.querySelector<HTMLElement>(".path-tail");
+      if (tail && tail.scrollWidth > tail.clientWidth + 1) out.push(`имя файла обрезано: ${tail.textContent}`);
+    }
+    return out;
+  });
+  expect(bad).toEqual([]);
+}
+
 // s11 — «Программы»: два ждущих решения (одна с пометкой «Раньше было: игра», другая с длинным
 // путём и без издателя) и список всех программ.
 test("s11 программы: ждут решения и список", async ({ page }) => {
@@ -729,6 +744,7 @@ test("s11 программы: ждут решения и список", async ({
   await decisionButtonsEven(page);
   await blocksApart(page);
   await nothingSticksOut(page);
+  await pathsOneLine(page);
   await noHorizontalScroll(page);
   await page.screenshot({ path: `${SCREENS}/s11-programs.png`, fullPage: true });
 });
@@ -748,6 +764,7 @@ test("s11 программы: решение, фильтр и массовая �
   await decisionButtonsEven(page);
   await blocksApart(page);
   await nothingSticksOut(page);
+  await pathsOneLine(page);
   await noHorizontalScroll(page);
   await page.screenshot({ path: `${SCREENS}/s11-programs-filtered.png`, fullPage: true });
 });
