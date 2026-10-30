@@ -107,3 +107,32 @@ describe("токены палитры (ТЗ 8.0 п.9)", () => {
     expect(ratio(dark["field-border"], dark.surface)).toBeGreaterThanOrEqual(3);
   });
 });
+
+/** Токен из правила styles.css: «color: var(--text-muted)» у селектора. */
+function ruleVar(selector: string, prop: string): string {
+  const esc = selector.replace(/[.*+?^${}()|[\]\\:]/g, "\\$&");
+  const block = blockOf(css, new RegExp(`(^|\\n)${esc}\\s*\\{`));
+  const m = new RegExp(`(^|[;\\s])${prop}\\s*:\\s*var\\(--([a-z0-9-]+)\\)`).exec(block);
+  if (!m) throw new Error(`у ${selector} нет ${prop}: var(--…)`);
+  return m[2];
+}
+
+// Кнопка «Запретить» на «Программах» (btn btn-muted): второстепенный вид, но текст читается
+// не хуже 4,5:1 на её фоне, в покое и при наведении, в обеих темах. Цвета берутся из правил CSS.
+describe("второстепенная кнопка «Запретить»", () => {
+  const fg = ruleVar(".btn-muted", "color");
+  const backs = [ruleVar(".btn", "background"), ruleVar(".btn:hover:not(:disabled)", "background")];
+
+  it("цвет текста и фона заданы токенами палитры", () => {
+    expect(fg).toBe("text-muted");
+    expect(backs).toEqual(["surface", "bg"]);
+  });
+
+  it.each(backs)("светлая тема: текст к фону %s не меньше 4,5:1", (bg) => {
+    expect(ratio(light[fg], light[bg])).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it.each(backs)("тёмная тема: текст к фону %s не меньше 4,5:1", (bg) => {
+    expect(ratio(dark[fg], dark[bg])).toBeGreaterThanOrEqual(4.5);
+  });
+});
