@@ -927,7 +927,7 @@ html:has(.shell-child) body {
 }
 
 .end-mode {
-  margin-bottom: var(--space-3);
+  margin-bottom: var(--space-4);
   padding: var(--space-3) var(--space-4);
   background: var(--surface);
   border: 1px solid var(--line);
