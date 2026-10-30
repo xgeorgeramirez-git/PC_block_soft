@@ -157,8 +157,10 @@ func resolveImage(h windows.Handle) (string, bool) {
 
 // Kill завершает процесс p, если это всё ещё он: ручка открывается один раз, по ней сверяются
 // момент создания (PID мог достаться другому процессу, PL-9) и путь, ею же процесс завершается.
-// Ждёт исчезновения до killWaitMs. true — процесс завершён этим вызовом; уже завершённый,
-// другой, защищённый (отказ в доступе) процесс и непрочитанный путь — false.
+// Ждёт исчезновения до killWaitMs, но ответ от ожидания не зависит: true — TerminateProcess этого
+// вызова удался (процесс мог ещё не исчезнуть, следующий List его покажет, а повторный Kill
+// ответит false «уже завершается»; иначе служба не записала бы закрытие вовсе, PL-16); уже
+// завершённый, другой, защищённый (отказ в доступе) процесс и непрочитанный путь — false.
 func (w *processWatcher) Kill(p service.ProcInfo) bool {
 	if !p.PathOK || p.Path == "" || p.PID == pidIdle || p.PID == pidSystem || p.PID == w.self {
 		return false
@@ -193,8 +195,8 @@ func (w *processWatcher) Kill(p service.ProcInfo) bool {
 	if err := windows.TerminateProcess(h, 1); err != nil {
 		return false
 	}
-	ev, err := windows.WaitForSingleObject(h, killWaitMs)
-	return err == nil && ev == windows.WAIT_OBJECT_0
+	_, _ = windows.WaitForSingleObject(h, killWaitMs) // даём процессу исчезнуть до следующего List
+	return true
 }
 
 var _ service.ProcessWatcher = (*processWatcher)(nil)

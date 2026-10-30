@@ -1134,11 +1134,14 @@ type fakeWatcher struct {
 	listAt    []time.Time      // моменты вызовов List (настоящие часы)
 	killAt    map[uint32]time.Time
 	nextPID   uint32
+	linger    map[uint32]bool // PID, который после успешного Kill ещё один List живёт (завершается)
+	dying     map[uint32]bool // Kill удался, процесс исчезнет после следующего List
 }
 
 func newWatcher() *fakeWatcher {
 	return &fakeWatcher{listAll: map[uint32]bool{}, listErr: map[uint32]error{}, protected: map[uint32]bool{},
-		lists: map[uint32]int{}, killAt: map[uint32]time.Time{}, nextPID: 5000}
+		lists: map[uint32]int{}, killAt: map[uint32]time.Time{}, nextPID: 5000,
+		linger: map[uint32]bool{}, dying: map[uint32]bool{}}
 }
 
 func (w *fakeWatcher) List(session uint32) ([]ProcInfo, error) {
@@ -1150,11 +1153,18 @@ func (w *fakeWatcher) List(session uint32) ([]ProcInfo, error) {
 		return nil, err
 	}
 	out := []ProcInfo{}
+	live := w.procs[:0:0]
 	for _, p := range w.procs {
 		if p.SessionID == session || w.listAll[session] {
 			out = append(out, p)
 		}
+		if w.dying[p.PID] {
+			delete(w.dying, p.PID) // показан последний раз: завершился
+			continue
+		}
+		live = append(live, p)
 	}
+	w.procs = live
 	return out, nil
 }
 
@@ -1177,7 +1187,17 @@ func (w *fakeWatcher) Kill(p ProcInfo) bool {
 	if w.protected[p.PID] {
 		return false
 	}
+	if w.dying[p.PID] {
+		return false // уже завершается: как настоящий адаптер, «не завершён этим вызовом»
+	}
 	for i, q := range w.procs {
+		if q.PID == p.PID && q.Stamp == p.Stamp && w.linger[p.PID] {
+			delete(w.linger, p.PID)
+			w.dying[p.PID] = true
+			w.killed = append(w.killed, q)
+			w.killAt[q.PID] = time.Now()
+			return true
+		}
 		if q.PID == p.PID && q.Stamp == p.Stamp {
 			w.procs = append(w.procs[:i], w.procs[i+1:]...)
 			w.killed = append(w.killed, q)

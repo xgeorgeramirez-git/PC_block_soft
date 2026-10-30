@@ -519,3 +519,32 @@ func slicesEqual(a, b []string) bool {
 	}
 	return true
 }
+
+// Ловит (PL-16): TerminateProcess сработал, а процесс исчез не сразу (завершается дольше 300 мс):
+// следующий проход видит его живым. Записи о закрытии (журнал родителя, «Ждут решения», плашка)
+// должны быть ровно одни, а журнал работы не должен говорить «не удалось закрыть».
+func TestWatchKilledButAliveOnePass(t *testing.T) {
+	w := newWatcher()
+	h := watchHarness(t, w)
+	game := w.start(childSession, pathSuperGame)
+	w.mu.Lock()
+	w.linger[game.PID] = true
+	w.mu.Unlock()
+	h.watch()
+	h.real.Advance(time.Second)
+	h.watch()
+	h.real.Advance(time.Second)
+	h.watch()
+	if w.alive(game) {
+		t.Fatal("процесс не завершился")
+	}
+	if ev := h.store.eventsOf(evProgramPending); len(ev) != 1 {
+		t.Errorf("записей «ждёт решения» в журнале родителя %d, want 1: %v", len(ev), h.store.eventKinds())
+	}
+	if pend, _ := h.store.ListPending(); len(pend) != 1 || pend[0].Attempts != 1 {
+		t.Errorf("«Ждут решения»: %+v, want одна попытка", pend)
+	}
+	if strings.Contains(h.logText(), "не удалось закрыть") {
+		t.Errorf("журнал работы пишет о неудаче, хотя процесс завершается:\n%s", h.logText())
+	}
+}

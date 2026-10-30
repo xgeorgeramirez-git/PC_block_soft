@@ -328,6 +328,9 @@ func (s *Service) applyWatch(acts []watchAct, notes []string, unreadable, others
 	s.pruneWatchLimits(real)
 	for i := range acts {
 		a := &acts[i]
+		if !a.killed && a.again {
+			continue // уже закрыт этим наблюдателем и ещё завершается (PL-16): не сбой
+		}
 		if !a.killed {
 			s.logRate("watch-kill|"+a.e.norm, "наблюдатель: не удалось закрыть %s (PID %d, %s)", a.e.norm, a.p.PID, a.res.Verdict)
 			continue
