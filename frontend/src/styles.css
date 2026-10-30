@@ -906,7 +906,7 @@ html:has(.shell-child) body {
 }
 
 .limits-num {
-  width: 72px;
+  width: 60px;
   padding: var(--space-1) var(--space-2);
 }
 

@@ -76,7 +76,7 @@ test("s00 вход родителя, тёмная тема", async ({ page }) =>
 test("s01 мастер, шаг пароля", async ({ page }) => {
   await mockProgram(page, { configured: false, mode: "wizard" });
   await page.goto("/");
-  await expect(page.getByText("Шаг 1 из 3")).toBeVisible();
+  await expect(page.getByText("Шаг 1 из 4")).toBeVisible();
   await page.getByLabel("Пароль родителя").fill("123");
   await page.getByLabel("Повторите пароль").fill("123");
   await page.getByRole("button", { name: "Далее" }).click();
@@ -282,7 +282,7 @@ test("s07 что нового", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("navigation", { name: "Разделы" }).getByRole("button", { name: "Что нового" }).click();
   await expect(page.getByRole("heading", { name: "Что нового", level: 2 })).toBeVisible();
-  await expect(page.getByRole("heading", { level: 3 }).first()).toHaveText("Версия 0.2.5. Предупреждения с табло и звуком");
+  await expect(page.getByRole("heading", { level: 3 }).first()).toHaveText("Версия 0.3.0. Программы и игры");
   await expect(page.locator("main.content").getByRole("button")).toHaveCount(0);
   await noHorizontalScroll(page);
   await page.screenshot({ path: `${SCREENS}/s07-whatsnew.png`, fullPage: true });
@@ -471,7 +471,7 @@ for (const [w, h] of [
     // Низ: «Настройки для родителя» достижима прокруткой и стоит под всем содержимым.
     const link = page.getByRole("button", { name: "Настройки для родителя" });
     await expect(link).toBeInViewport({ ratio: 1 });
-    await expect(page.getByText("Когда время выйдет, экран закроется блокировкой.", { exact: false })).toBeInViewport({ ratio: 1 });
+    await expect(page.getByText("Когда время вышло: экран блокировки", { exact: true })).toBeInViewport({ ratio: 1 });
     await noHorizontalScroll(page);
     if (w === 640) await page.screenshot({ path: `${SCREENS}/s06-my-stats-small.png` });
   });
@@ -769,4 +769,193 @@ test("s11 программы, тёмная тема", async ({ page }) => {
   await openPrograms(page, { pending: pendingPrograms(Date.now()), programs: programList() });
   await expect(page.getByRole("heading", { name: "Ждут решения: 2" })).toBeVisible();
   await page.screenshot({ path: `${SCREENS}/s11-programs-dark.png`, fullPage: true });
+});
+
+// --- M3: лимит игр, «Когда время вышло», шаг мастера «Программы» (T6b) -----------------
+
+/** Неделя с играми: будни 2 ч и игры 1 ч, суббота 4 ч и игры 2 ч, среда игры 0, воскресенье игры без лимита. */
+const gamesWeek = () =>
+  [1, 2, 3, 4, 5, 6, 7].map((weekday) => ({
+    weekday,
+    totalMin: weekday >= 6 ? 240 : 120,
+    unlimited: false,
+    gamesMin: weekday === 3 ? 0 : weekday === 6 ? 120 : 60,
+    gamesUnlimited: weekday === 7,
+  }));
+
+/** Внутри ячейки таблицы лимитов ничего не вылезает за её край, поля одной ячейки в одну строку. */
+async function limitCellsFit(page: Page) {
+  const bad = await page.evaluate(() => {
+    const out: string[] = [];
+    for (const cell of Array.from(document.querySelectorAll<HTMLElement>(".limits-cell"))) {
+      const c = cell.getBoundingClientRect();
+      const inputs = Array.from(cell.querySelectorAll<HTMLElement>("input.limits-num"));
+      if (inputs.length === 2 && Math.abs(inputs[0].getBoundingClientRect().top - inputs[1].getBoundingClientRect().top) > 0.5) {
+        out.push(`часы и минуты не в одну строку: ${inputs[0].getAttribute("aria-label")}`);
+      }
+      for (const el of Array.from(cell.querySelectorAll<HTMLElement>("input, label, p, span"))) {
+        const r = el.getBoundingClientRect();
+        if (r.width === 0) continue;
+        if (r.right > c.right + 0.5 || r.left < c.left - 0.5) out.push(`${el.className || el.tagName} вылезает: ${el.getAttribute("aria-label") ?? el.textContent?.slice(0, 30)}`);
+      }
+    }
+    return out;
+  });
+  expect(bad, "в ячейках лимитов что-то вылезает").toEqual([]);
+}
+
+// s12 — «Дети → Лимиты» со столбцом «Игры» (FR-16): подсказка «0 мин: в этот день играть нельзя»
+// в среде, игры без лимита в воскресенье, пояснение про игры и учёбу под таблицей. Окно 960x640.
+test("s12 лимиты с играми", async ({ page }) => {
+  await tallWindow(page, 900);
+  await mockProgram(page, { mode: "parent", sessionActive: true, children: [child({ limits: gamesWeek() })] });
+  await page.goto("/");
+  await page.getByRole("button", { name: "Дети" }).click();
+  await expect(page.getByRole("columnheader", { name: "Игры" })).toBeVisible();
+  await expect(page.getByLabel("Часы игр, понедельник")).toHaveValue("1");
+  await expect(page.getByRole("row", { name: /Среда/ }).getByText("0 мин: в этот день играть нельзя")).toBeVisible();
+  await expect(page.getByLabel("Игры без лимита, воскресенье")).toBeChecked();
+  const note = page.getByText("Время игр входит в общее. Учёба в общее время не входит");
+  await expect(note).toBeVisible();
+  // Пояснение стоит под таблицей с зазором, а не прижато к ней.
+  const table = await boxOf(page.locator(".limits-table"));
+  const noteBox = await boxOf(note);
+  expect(noteBox.top - table.bottom).toBeGreaterThanOrEqual(4 - 0.5);
+  // Столбцы «Общее» и «Игры» одинаковой ширины по содержимому не обязаны, но оба целиком в окне.
+  for (const name of ["Общее", "Игры"]) {
+    const h = await boxOf(page.getByRole("columnheader", { name }));
+    expect(h.right).toBeLessThanOrEqual(960);
+  }
+  await limitCellsFit(page);
+  await noHorizontalScroll(page);
+  await page.screenshot({ path: `${SCREENS}/s12-limits-games.png`, fullPage: true });
+});
+
+// s12 — шаг «Время» мастера в самом узком окне мастера (720x560): два столбца без прокрутки вбок.
+test("s12 мастер, шаг времени в узком окне", async ({ page }) => {
+  await page.setViewportSize({ width: 720, height: 560 });
+  await mockProgram(page, { configured: false, mode: "wizard" });
+  await page.goto("/");
+  await page.getByLabel("Пароль родителя").fill("секрет-123");
+  await page.getByLabel("Повторите пароль").fill("секрет-123");
+  await page.getByRole("button", { name: "Далее" }).click();
+  await page.getByRole("checkbox", { name: /Миша/ }).check();
+  await page.getByRole("button", { name: "Далее" }).click();
+  await expect(page.getByRole("columnheader", { name: "Игры" })).toBeVisible();
+  await limitCellsFit(page);
+  await noHorizontalScroll(page);
+  const table = await boxOf(page.locator(".limits-table"));
+  const panel = await boxOf(page.locator(".wizard"));
+  expect(table.right, "таблица шире панели мастера").toBeLessThanOrEqual(panel.right - 16 + 0.5);
+  await page.screenshot({ path: `${SCREENS}/s12-wizard-time-720.png`, fullPage: true });
+});
+
+/** Вкладка «Когда время вышло»: карточки вариантов не слипаются (зазор ≥ 12 px). */
+async function endModesApart(page: Page) {
+  const cards = page.locator(".end-mode");
+  await expect(cards).toHaveCount(2);
+  const a = await boxOf(cards.nth(0));
+  const b = await boxOf(cards.nth(1));
+  expect(b.top - a.bottom, "варианты слиплись").toBeGreaterThanOrEqual(12 - 0.5);
+}
+
+// s12 — «Когда время вышло» (FR-18) без учебных программ: у «Оставить только учёбу» предупреждение
+// и кнопка «Программы»; выбран «Оставить только учёбу», внизу панель «Сохранить».
+test("s12 когда время вышло: нет учебных программ", async ({ page }) => {
+  await mockProgram(page, { mode: "parent", sessionActive: true, children: [child({ limits: gamesWeek() })], programs: programList().filter((p) => p.category !== "study") });
+  await page.goto("/");
+  await page.getByRole("button", { name: "Дети" }).click();
+  await page.getByRole("tab", { name: "Когда время вышло" }).click();
+  await page.getByRole("radio", { name: /Оставить только учёбу/ }).check();
+  const warn = page.locator(".end-mode-warn");
+  await expect(warn).toContainText("Учебных программ и сайтов пока нет: в этом режиме будет закрыто всё");
+  await expect(warn.getByRole("button", { name: "Программы" })).toBeVisible();
+  // Предупреждение внутри карточки «Оставить только учёбу», с отступом от её краёв.
+  const card = await boxOf(page.locator(".end-mode").nth(1));
+  const w = await boxOf(warn);
+  expect(w.bottom).toBeLessThanOrEqual(card.bottom - 8 + 0.5);
+  expect(w.right).toBeLessThanOrEqual(card.right - 8 + 0.5);
+  await endModesApart(page);
+  await expect(page.getByRole("region", { name: "Сохранение изменений" }).getByText("Есть несохранённые изменения")).toBeVisible();
+  await noHorizontalScroll(page);
+  await page.screenshot({ path: `${SCREENS}/s12-end-mode-no-study.png`, fullPage: true });
+});
+
+// s12 — «Когда время вышло» с учебной программой: предупреждения нет, выбран сохранённый «Блокировать экран».
+test("s12 когда время вышло: учебные есть", async ({ page }) => {
+  await mockProgram(page, {
+    mode: "parent",
+    sessionActive: true,
+    children: [child({ limits: gamesWeek() })],
+    programs: programList(),
+  });
+  await page.goto("/");
+  await page.getByRole("button", { name: "Дети" }).click();
+  await page.getByRole("tab", { name: "Когда время вышло" }).click();
+  await expect(page.getByRole("radio", { name: /Блокировать экран/ })).toBeChecked();
+  await expect(page.getByText(/Учебных программ и сайтов пока нет/)).toHaveCount(0);
+  await endModesApart(page);
+  await noHorizontalScroll(page);
+  await page.screenshot({ path: `${SCREENS}/s12-end-mode.png`, fullPage: true });
+});
+
+test("s12 когда время вышло, тёмная тема", async ({ page }) => {
+  await page.emulateMedia({ colorScheme: "dark" });
+  await mockProgram(page, { mode: "parent", sessionActive: true, children: [child({ limits: gamesWeek(), endMode: "study_only" })], programs: [] });
+  await page.goto("/");
+  await page.getByRole("button", { name: "Дети" }).click();
+  await page.getByRole("tab", { name: "Когда время вышло" }).click();
+  await expect(page.locator(".end-mode-warn")).toBeVisible();
+  await page.screenshot({ path: `${SCREENS}/s12-end-mode-dark.png`, fullPage: true });
+});
+
+// s12 — мастер, шаг 4 «Программы» (FR-2): окно мастера 880x680, список найденных программ с выбором.
+test("s12 мастер, шаг программ", async ({ page }) => {
+  await page.setViewportSize({ width: 880, height: 680 });
+  await mockProgram(page, { configured: false, mode: "wizard" });
+  await page.goto("/");
+  await page.getByLabel("Пароль родителя").fill("секрет-123");
+  await page.getByLabel("Повторите пароль").fill("секрет-123");
+  await page.getByRole("button", { name: "Далее" }).click();
+  await page.getByRole("checkbox", { name: /Миша/ }).check();
+  await page.getByRole("button", { name: "Далее" }).click();
+  await expect(page.getByText("Шаг 3 из 4")).toBeVisible();
+  await limitCellsFit(page);
+  await noHorizontalScroll(page);
+  await page.screenshot({ path: `${SCREENS}/s12-wizard-time.png`, fullPage: true });
+  await page.getByRole("button", { name: "Далее" }).click();
+  await expect(page.getByText("Шаг 4 из 4")).toBeVisible();
+  await expect(page.getByRole("table", { name: "Программы на этом компьютере" })).toBeVisible();
+  await expect(page.getByRole("combobox", { name: "Что это: Minecraft Launcher" })).toHaveValue("games");
+  await expect(page.getByText(/Незнакомые программы будут ждать вашего решения/)).toBeVisible();
+  // Кнопки шага в одну строку, одной высоты, под списком.
+  const buttons = ["Назад", "Пропустить", "Готово"].map((name) => page.getByRole("button", { name, exact: true }));
+  const boxes = await Promise.all(buttons.map((b) => boxOf(b)));
+  for (const b of boxes) {
+    expect(Math.abs(b.top - boxes[0].top)).toBeLessThanOrEqual(0.5);
+    expect(Math.abs(b.height - boxes[0].height)).toBeLessThanOrEqual(0.5);
+  }
+  const list = await boxOf(page.locator(".wizard-programs"));
+  expect(boxes[0].top - list.bottom).toBeGreaterThanOrEqual(8 - 0.5);
+  await nothingSticksOut(page);
+  await noHorizontalScroll(page);
+  await page.screenshot({ path: `${SCREENS}/s12-wizard-programs.png`, fullPage: true });
+});
+
+// s12 — «Сегодня» с играми (8.3.2 п.3): у Миши «Игры 40 мин из 1 ч» под «Использовано».
+test("s12 сегодня с играми", async ({ page }) => {
+  await mockProgram(page, {
+    mode: "parent",
+    sessionActive: true,
+    children: [child({ limits: gamesWeek().map((l) => ({ ...l, gamesMin: 60, gamesUnlimited: false })), usedS: 3600, gamesUsedS: 2400 })],
+  });
+  await page.goto("/");
+  const misha = page.getByRole("article", { name: "Миша" });
+  const games = misha.getByText("Игры 40 мин из 1 ч", { exact: true });
+  await expect(games).toBeVisible();
+  const used = await boxOf(misha.getByText(/^Использовано /));
+  const g = await boxOf(games);
+  expect(g.top).toBeGreaterThanOrEqual(used.bottom - 0.5);
+  await noHorizontalScroll(page);
+  await page.screenshot({ path: `${SCREENS}/s12-today-games.png`, fullPage: true });
 });
