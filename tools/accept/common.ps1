@@ -35,7 +35,7 @@ $script:Public = Join-Path $env:PUBLIC "pcb-accept"
 $script:Apps = Join-Path $script:Work "apps"
 # Папка пробного запуска копии системной программы: вне WatchDir, наблюдатель её не трогает.
 $script:Probe = Join-Path $script:Work "probe"
-$script:TestProcs = New-Object System.Collections.Generic.List[object]
+$script:TestProcs = @()  # обычный массив: @() вокруг List[object] в pwsh 7 падает «Argument types do not match» (прогон 41008763410)
 $script:TestAppSource = ""
 $script:FgOverride = $false
 # Закрытие программы (NFR-6: не позже 1 с): допуск на раннере 1500 мс, в журнал — фактическое время.
@@ -1078,7 +1078,7 @@ function Start-TestApp([string]$Path) {
   $p = Start-Process -FilePath $Path -PassThru -WorkingDirectory (Split-Path -Parent $Path)
   $p | Add-Member -NotePropertyName PcbPath -NotePropertyValue $Path -Force
   $p | Add-Member -NotePropertyName PcbStart -NotePropertyValue ([Diagnostics.Stopwatch]::StartNew()) -Force
-  $script:TestProcs.Add($p)
+  $script:TestProcs = @($script:TestProcs) + @($p)
   Write-Log "Запущена $(Split-Path -Leaf $Path) (PID $($p.Id))"
   return $p
 }
@@ -1125,10 +1125,10 @@ function Assert-AppAlive($Proc, [string]$What) {
 # Закрывает все тестовые программы (запущенные Start-TestApp и любые процессы из папки $script:Apps).
 # Ничего не бросает: вызывается из Reset-Machine в начале и в конце сценария.
 function Stop-TestApps {
-  foreach ($p in @($script:TestProcs)) {
+  foreach ($p in $script:TestProcs) {
     try { if (-not $p.HasExited) { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue } } catch {}
   }
-  $script:TestProcs.Clear()
+  $script:TestProcs = @()
   foreach ($dir in @($script:Apps, $script:Probe)) {
     try {
       $prefix = $dir.TrimEnd('\') + '\'
