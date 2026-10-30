@@ -166,7 +166,7 @@ export default function Wizard({ onOpenSettings }: Props) {
     setStep(4);
   };
 
-  /** «Готово» отправляет изменённые отметки программ, «Пропустить» - без программ (FR-2). */
+  /** «Готово» отправляет изменённые отметки программ, «Настрою позже» - без программ (FR-2). */
   const finish = async (withPrograms: boolean) => {
     if (!limitsValid()) {
       setStep(3);
@@ -396,7 +396,7 @@ export default function Wizard({ onOpenSettings }: Props) {
               Назад
             </button>
             <button type="button" className="btn" onClick={() => void finish(false)} disabled={busy}>
-              Пропустить
+              Настрою позже
             </button>
             <button
               type="button"

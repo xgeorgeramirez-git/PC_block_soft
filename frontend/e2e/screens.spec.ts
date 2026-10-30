@@ -929,7 +929,7 @@ test("s12 мастер, шаг программ", async ({ page }) => {
   await expect(page.getByRole("combobox", { name: "Что это: Minecraft Launcher" })).toHaveValue("games");
   await expect(page.getByText(/Незнакомые программы будут ждать вашего решения/)).toBeVisible();
   // Кнопки шага в одну строку, одной высоты, под списком.
-  const buttons = ["Назад", "Пропустить", "Готово"].map((name) => page.getByRole("button", { name, exact: true }));
+  const buttons = ["Назад", "Настрою позже", "Готово"].map((name) => page.getByRole("button", { name, exact: true }));
   const boxes = await Promise.all(buttons.map((b) => boxOf(b)));
   for (const b of boxes) {
     expect(Math.abs(b.top - boxes[0].top)).toBeLessThanOrEqual(0.5);

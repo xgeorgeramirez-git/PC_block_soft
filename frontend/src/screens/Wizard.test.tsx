@@ -330,37 +330,37 @@ describe("Wizard: шаг 4, программы (FR-2)", () => {
     expect(openSettings).toHaveBeenCalledWith("секрет-123");
   });
 
-  it("«Пропустить» настраивает без программ, даже если отметки менялись", async () => {
+  it("«Настрою позже» настраивает без программ, даже если отметки менялись", async () => {
     const user = setup();
     await passStep1(user);
     await passStep2(user, "Миша");
     await passStep3(user);
     await user.selectOptions(pick("Brave"), "games");
-    await user.click(screen.getByRole("button", { name: "Пропустить" }));
+    await user.click(screen.getByRole("button", { name: "Настрою позже" }));
     expect(await screen.findByText("Готово. Правила начнут действовать при следующем входе детей")).toBeTruthy();
     expect(mock.calls.find((c) => c.command === "Setup")?.payload.programs).toBeUndefined();
   });
 
-  it("«Пропустить» доступна, пока программы ищутся", async () => {
+  it("«Настрою позже» доступна, пока программы ищутся", async () => {
     const user = setup();
     mock.override("ScanPrograms", () => new Promise(() => undefined), 1);
     await passStep1(user);
     await passStep2(user, "Миша");
     await user.click(next());
     await screen.findByText("Ищу установленные программы");
-    await user.click(screen.getByRole("button", { name: "Пропустить" }));
+    await user.click(screen.getByRole("button", { name: "Настрою позже" }));
     expect(await screen.findByText("Готово. Правила начнут действовать при следующем входе детей")).toBeTruthy();
   });
 
-  // Review Focus 4: после ошибки шаг можно повторить, «Пропустить» есть всегда.
-  it("программы не нашлись: текст службы, «Повторить» и «Пропустить»", async () => {
+  // Review Focus 4: после ошибки шаг можно повторить, «Настрою позже» есть всегда.
+  it("программы не нашлись: текст службы, «Повторить» и «Настрою позже»", async () => {
     const user = setup();
     mock.override("ScanPrograms", { ok: false, error: "Не удалось найти программы. Их можно настроить позже в разделе «Программы»" }, 1);
     await passStep1(user);
     await passStep2(user, "Миша");
     await user.click(next());
     expect(await screen.findByText("Не удалось найти программы. Их можно настроить позже в разделе «Программы»")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Пропустить" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Настрою позже" })).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "Повторить" }));
     expect(await screen.findByRole("table", { name: "Программы на этом компьютере" })).toBeTruthy();
     expect(mock.count("ScanPrograms")).toBe(2);
