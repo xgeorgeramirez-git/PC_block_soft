@@ -2,6 +2,7 @@ package guard
 
 import (
 	"fmt"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -207,7 +208,8 @@ func TestControllerCloseButtonAcks(t *testing.T) {
 }
 
 // Ловит (CI 40751015930, S2 и S35): табло «за 5» ещё видно, через 4 с приходит порог 1 — плашка 1 мин
-// должна сменить табло (без крестика, новый ID) и звук за 1 играет один раз.
+// должна сменить табло (без крестика, с «Попросить ещё» при пустой копилке, новый ID) и звук за 1
+// играет один раз.
 func TestBoard5ReplacedByOneMinute(t *testing.T) {
 	r := newCtRig()
 	r.svc.test = true
@@ -226,14 +228,14 @@ func TestBoard5ReplacedByOneMinute(t *testing.T) {
 		r.poll()
 	}
 	v := r.ctl.View()
-	if v.Warning == nil || v.Warning.Threshold != 1 || v.Warning.Board != nil || v.Warning.ID == five.ID || len(v.Warning.Buttons) != 0 {
+	if v.Warning == nil || v.Warning.Threshold != 1 || v.Warning.Board != nil || v.Warning.ID == five.ID || buttonNames(v.Warning) != TargetAskMorePlate {
 		t.Fatalf("после порога 1: %+v", v.Warning)
 	}
 	n := waitPlayedN(&playedN, 2)
 	r.ctl.mu.Lock()
 	st := StateFromView(r.ctl.last, "", r.ctl.shown, r.ctl.sounds, r.ctl.fields)
 	r.ctl.mu.Unlock()
-	if len(st.Buttons) != 0 || Get(st.Sounds) != "5,1" || n != 2 {
+	if strings.Join(st.Buttons, ",") != TargetAskMorePlate || Get(st.Sounds) != "5,1" || n != 2 {
 		t.Fatalf("кнопки %v, звуки %v, сыграно %d", st.Buttons, st.Sounds, n)
 	}
 }
@@ -355,7 +357,7 @@ func TestPushStateConsistentWithoutWindowFrame(t *testing.T) {
 		}
 		thr += itoa(w.Threshold)
 	}
-	if thr != "5,1" || len(st.Buttons) != 0 || Get(st.Sounds) != "5,1" {
+	if thr != "5,1" || strings.Join(st.Buttons, ",") != TargetAskMorePlate || Get(st.Sounds) != "5,1" {
 		t.Fatalf("несогласованный снимок: предупреждения %s, кнопки %v, звуки %v", thr, st.Buttons, st.Sounds)
 	}
 }

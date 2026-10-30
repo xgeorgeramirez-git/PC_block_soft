@@ -14,6 +14,10 @@ export function Mode() {
   return window['go']['ui']['App']['Mode']();
 }
 
+export function StartScreen() {
+  return window['go']['ui']['App']['StartScreen']();
+}
+
 export function Version() {
   return window['go']['ui']['App']['Version']();
 }

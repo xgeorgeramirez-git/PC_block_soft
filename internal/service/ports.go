@@ -22,6 +22,52 @@ type Child struct {
 	SID          string
 	Name         string
 	BypassDetail string // блокировка за обход (R17); пусто: блокировки нет
+	EndMode      string // «Когда время вышло» (R8): "lock" или "study_only" (core.EndMode.String)
+}
+
+// Program — программа из списка (storage.Program): одна категория для всех детей (R12, FR-20).
+// Category: games|study|other|blocked|system; Source: catalog|snapshot|parent.
+type Program struct {
+	ID          int64
+	Path        string // нормализованный путь exe в нижнем регистре (RM3-1)
+	Name        string
+	Publisher   string // CompanyName из файла (RM3-3); пусто — не известен
+	Category    string
+	Source      string
+	Fingerprint string // «размер:время изменения» (RM3-12); пусто — не нужен
+	AppRoot     string // корень приложения (RM3-1 п.3); пусто — нет
+	DecidedAt   int64  // момент решения родителя, UTC мс; 0 — нет
+}
+
+// PendingChild — попытки одного ребёнка запустить ждущую решения программу (storage.PendingChild).
+type PendingChild struct {
+	ChildID       int64
+	Attempts      int
+	LastAttemptAt int64 // UTC мс
+}
+
+// PendingProgram — программа в «Ждут решения» (storage.PendingProgram, R12, FR-20).
+type PendingProgram struct {
+	Path           string
+	Name           string
+	Publisher      string
+	Description    string
+	WasCategory    string // прежняя категория при смене отпечатка (RM3-12); пусто — нет
+	FirstChildID   int64
+	FirstAttemptAt int64 // UTC мс
+	LastAttemptAt  int64 // UTC мс
+	Attempts       int
+	Children       []PendingChild // новые сверху; нет — [], не nil
+}
+
+// UsageRow — порция учёта usage_daily (storage.UsageRow, RM3-6). Day пусто — день состояния;
+// Category: games|video_social|study|other («Системное» не пишется); Kind: program|site.
+type UsageRow struct {
+	Day      string
+	Category string
+	Kind     string
+	Subject  string
+	Seconds  int
 }
 
 // StoredEvent — запись журнала (R22), storage.Event с ChildID 0 вместо nil.
@@ -73,6 +119,8 @@ type Store interface {
 	SetBypass(childID int64, detail string) error
 	SetDayLimits(childID int64, week [7]core.DayLimit) error
 	GetDayLimits(childID int64) ([7]core.DayLimit, error)
+	SetEndMode(childID int64, mode string) error // "lock" | "study_only", иное — ошибка
+	GetEndMode(childID int64) (string, error)    // нет ребёнка: "lock"
 	GetSchedule(childID int64) ([]core.Interval, error)
 	SetSchedule(childID int64, intervals []core.Interval) error
 	AppendBonus(childID int64, deltaMin int, reason string) (balanceAfter int, err error)
@@ -83,6 +131,24 @@ type Store interface {
 	ListPromos() ([]PromoRecord, error)
 	LoadDayState(childID int64, day string) (core.DayState, error)
 	SaveDayState(childID int64, st core.DayState) error
+	// SaveDayAndUsage — состояние дня и порции учёта по программам одной транзакцией (RM3-6, G10).
+	SaveDayAndUsage(childID int64, st core.DayState, usage []UsageRow) error
+	AddUsage(childID int64, day, category, kind, subject string, seconds int) error
+	ProgramSeconds(fromDay string) (map[string]int, error) // секунды по пути exe с fromDay, все дети
+
+	// Программы и «Ждут решения» (M3: R12, FR-20, RM3-10).
+	UpsertProgram(p Program) error
+	SeedPrograms(ps []Program) (added int, err error) // только отсутствующие; решения родителя не трогает
+	GetProgram(path string) (Program, bool, error)
+	ListPrograms() ([]Program, error)
+	// SetProgramsCategory — решение родителя: возвращает прежние значения изменённых (для «Отменить»).
+	SetProgramsCategory(paths []string, category string, at int64) (changed []Program, err error)
+	RestoreProgram(p Program) error
+	DeleteProgram(path string) error
+	AddPendingAttempt(p PendingProgram, childID, at int64) (attempts int, err error)
+	ListPending() ([]PendingProgram, error)
+	ResolvePending(path string) (PendingProgram, bool, error)
+	RestorePending(p PendingProgram) error
 	AppendEvent(e StoredEvent) error
 	ListEvents(q EventQuery) ([]StoredEvent, error)
 	GetAuth() (Auth, bool, error)
@@ -90,6 +156,50 @@ type Store interface {
 	GetSetting(key string) (string, bool, error)
 	SetSetting(key, value string) error
 	Close() error
+}
+
+// FoundProgram — программа, найденная сканером в Program Files (снимок RM3-10, мастер FR-2).
+// Name — описание из файла или имя файла; Publisher — CompanyName (RM3-3), пусто — не известен.
+type FoundProgram struct {
+	Path      string
+	Name      string
+	Publisher string
+}
+
+// Scanner — снимок программ компьютера: главные exe корней приложений Program Files и известные
+// игры по каталогу (Windows-реализация в winhost). Ошибка — снимок не сделан: служба не считает
+// компьютер пустым и ничего не закрывает (RM3-10, R18).
+type Scanner interface {
+	Scan() ([]FoundProgram, error)
+}
+
+// FileMeta читает свойства файла exe: издатель (CompanyName), описание (FileDescription) и
+// отпечаток «размер:время изменения unix» (RM3-12). Не прочиталось — пустые строки.
+type FileMeta func(path string) (publisher, description, fingerprint string)
+
+// ProcInfo — процесс сеанса для наблюдателя (M3: R12, R13, NFR-6, RM3-11). Пара (PID, Stamp)
+// не повторяется, в отличие от PID: Stamp — момент создания процесса. Path — полный путь exe
+// (адаптер разворачивает 8.3-имена и junction); PathOK = false — путь не прочитан (защищённый
+// процесс, отказ в доступе): такой процесс наблюдатель не трогает (PL-9). UserSID — SID
+// пользователя, от имени которого идёт процесс (маркер доступа); UserOK = false — не прочитан:
+// процесс не трогается (программа администратора через UAC в сеансе ребёнка, R19).
+type ProcInfo struct {
+	PID       uint32
+	Stamp     uint64
+	SessionID uint32
+	Path      string
+	PathOK    bool
+	UserSID   string
+	UserOK    bool
+}
+
+// ProcessWatcher — процессы сеансов Windows для наблюдателя (Windows-реализация в winhost: Toolhelp32,
+// ProcessIdToSessionId, QueryFullProcessImageName, TerminateProcess). Служба зовёт его вне s.mu.
+type ProcessWatcher interface {
+	// List возвращает процессы сеанса sessionID; нечитаемый путь — PathOK=false.
+	List(sessionID uint32) ([]ProcInfo, error)
+	// Kill завершает процесс, если PID и Stamp всё ещё совпадают (ручка открыта при проверке); true — завершён.
+	Kill(p ProcInfo) bool
 }
 
 // StoreOpener открывает базу и сохраняет копию испорченной. Open при порче файла

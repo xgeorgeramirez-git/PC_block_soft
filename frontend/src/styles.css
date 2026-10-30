@@ -208,7 +208,8 @@ p {
   font-weight: 600;
 }
 
-.menu-help {
+/* «Что нового»: внизу меню, отдельно от разделов (ТЗ 8.3.2 п.2). */
+.menu-foot {
   margin-top: var(--space-4);
   color: var(--text-muted);
 }
@@ -542,6 +543,9 @@ p {
 /* --- Сегодня ---------------------------------------------------------------------- */
 
 .today-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
   margin-bottom: var(--space-4);
 }
 
@@ -744,6 +748,16 @@ html:has(.shell-child) body {
   border-top: 1px solid var(--line);
 }
 
+.my-rules-general {
+  margin: var(--space-3) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.my-rules-general li + li {
+  margin-top: var(--space-1);
+}
+
 .my-foot .link {
   color: var(--text-muted);
   text-decoration: underline;
@@ -840,10 +854,14 @@ html:has(.shell-child) body {
   padding-bottom: var(--space-6);
 }
 
-.limits-table {
-  width: 100%;
+.limits-wrap {
   max-width: 640px;
   margin-bottom: var(--space-4);
+}
+
+.limits-table {
+  width: 100%;
+  margin-bottom: var(--space-2);
   border-collapse: collapse;
   background: var(--surface);
   border: 1px solid var(--line);
@@ -868,8 +886,17 @@ html:has(.shell-child) body {
   white-space: nowrap;
 }
 
-.limits-row-off .limits-inputs {
+.limits-cell-off .limits-inputs {
   opacity: 0.6;
+}
+
+.limits-switch {
+  margin-top: var(--space-1);
+  font-size: 14px;
+}
+
+.limits-note {
+  margin-top: 0;
 }
 
 .limits-inputs {
@@ -879,12 +906,78 @@ html:has(.shell-child) body {
 }
 
 .limits-num {
-  width: 72px;
+  width: 60px;
   padding: var(--space-1) var(--space-2);
 }
 
 .limits-unit {
   color: var(--text-muted);
+}
+
+/* «Когда время вышло» (FR-18): два варианта карточками, выбранный выделен рамкой. */
+.end-modes {
+  max-width: 640px;
+  margin: 0 0 var(--space-4);
+  padding: 0;
+  border: 0;
+}
+
+.end-modes legend {
+  padding: 0;
+}
+
+.end-mode {
+  margin-bottom: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-panel);
+}
+
+.end-mode-on {
+  border: 2px solid var(--primary);
+  padding: calc(var(--space-3) - 1px) calc(var(--space-4) - 1px);
+}
+
+.end-mode-label {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  cursor: pointer;
+}
+
+.end-mode-label input {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  margin-top: 2px;
+}
+
+.end-mode-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.end-mode-title {
+  font-weight: 600;
+}
+
+.end-mode-text {
+  color: var(--text-muted);
+}
+
+.end-mode-warn {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-3);
+  margin: var(--space-3) 0 0 calc(18px + var(--space-3));
+  padding: var(--space-2) var(--space-3);
+  border-left: 4px solid var(--status-warn);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 14px;
 }
 
 .savebar {
@@ -910,6 +1003,10 @@ html:has(.shell-child) body {
 
 .savebar-saved {
   color: var(--status-ok);
+}
+
+.savebar-note {
+  font-size: 14px;
 }
 
 .savebar-error {
@@ -940,7 +1037,8 @@ html:has(.shell-child) body {
   cursor: pointer;
 }
 
-.tab[aria-selected="true"] {
+.tab[aria-selected="true"],
+.tab[aria-pressed="true"] {
   background: var(--primary);
   border-color: var(--primary);
   color: var(--primary-text);
@@ -978,6 +1076,43 @@ html:has(.shell-child) body {
   flex-wrap: wrap;
   gap: var(--space-3);
   margin-bottom: var(--space-2);
+}
+
+/* Шаг мастера «Программы» (FR-2): список прокручивается внутри, кнопки шага всегда под ним. */
+.wizard-programs {
+  max-height: 360px;
+  margin-bottom: var(--space-2);
+  overflow-y: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+}
+
+.wizard-scanning {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.wizard-spinner {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--line);
+  border-top-color: var(--primary);
+  border-radius: 50%;
+  animation: wizard-spin 0.9s linear infinite;
+}
+
+@keyframes wizard-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wizard-spinner {
+    animation: none;
+  }
 }
 
 .account-list {
@@ -1097,6 +1232,272 @@ html:has(.shell-child) body {
   color: var(--text-muted);
 }
 
+/* --- Программы (FR-20, 8.3.4) --------------------------------------------------------- */
+
+/* Блоки страницы: между ними 16 px, как у остальных панелей. */
+.programs-block {
+  margin-bottom: var(--space-4);
+  padding: var(--space-6);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-panel);
+}
+
+.programs-lead {
+  margin-bottom: var(--space-2);
+  color: var(--text-muted);
+}
+
+/* Сообщение о решении с «Отменить»: в потоке страницы, рядом с тем, что нажали. */
+.programs-feedback {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  margin: 0 0 var(--space-4);
+  padding: var(--space-2) var(--space-4);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--text-muted);
+  border-radius: var(--radius-control);
+}
+
+.programs-feedback.field-error {
+  border-left-color: var(--status-danger);
+}
+
+.pending-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.pending-item {
+  display: flex;
+  gap: var(--space-3);
+  padding: var(--space-4) 0;
+  border-top: 1px solid var(--line);
+}
+
+.pending-item:last-child {
+  padding-bottom: 0;
+}
+
+.program-icon {
+  flex: none;
+  color: var(--text-muted);
+}
+
+.pending-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.program-name {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.program-meta {
+  color: var(--text-muted);
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+
+.pending-was {
+  margin-top: var(--space-1);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+/* Кнопки решения одной высоты и с равными промежутками. */
+.pending-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+
+.pending-actions .btn {
+  min-width: 104px;
+}
+
+/* Путь: обрезанный виден всегда, полный читает диктор; по фокусу клавиатурой полный виден. */
+.program-path {
+  display: block;
+  max-width: 100%;
+  border-radius: 2px;
+}
+
+/* Одна строка без переносов: под ширину путь подгоняет fitPath (одно «…», имя файла целиком).
+   Своего многоточия у CSS нет: второе «…» поверх обрезанного пути давало «wi… \game.exe». */
+.program-path .path-short {
+  display: block;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.program-path .path-head,
+.program-path .path-tail {
+  display: inline-block;
+  vertical-align: top;
+}
+
+/* Зонд ширины для fitPath: существует только на время замера. */
+.program-path .path-probe {
+  position: absolute;
+  visibility: hidden;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.program-path .path-full {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.program-path:focus .path-short {
+  display: none;
+}
+
+.program-path:focus .path-full {
+  position: static;
+  width: auto;
+  height: auto;
+  margin: 0;
+  overflow: visible;
+  clip: auto;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.programs-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-4);
+  margin-bottom: var(--space-4);
+}
+
+.programs-search {
+  flex: 1 1 260px;
+  margin-bottom: 0;
+}
+
+.programs-filter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.programs-filter .tab {
+  padding: var(--space-2) var(--space-3);
+}
+
+.programs-empty .panel-text {
+  margin-bottom: var(--space-3);
+}
+
+.bulk-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-4);
+  min-height: 40px;
+  margin-bottom: var(--space-2);
+}
+
+.bulk-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.bulk-count {
+  font-weight: 600;
+}
+
+.bulk-select {
+  width: auto;
+}
+
+.bulk-error {
+  margin-top: 0;
+}
+
+.programs-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.programs-table th,
+.programs-table td {
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  vertical-align: top;
+}
+
+.programs-table thead th {
+  color: var(--text-muted);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.programs-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.programs-table .col-check {
+  width: 44px;
+}
+
+.programs-table .col-check input {
+  width: 18px;
+  height: 18px;
+  margin: var(--space-1) 0 0;
+}
+
+.programs-table .col-category {
+  width: 168px;
+}
+
+.programs-table .col-week {
+  width: 120px;
+  white-space: nowrap;
+}
+
+.sort-button {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 0;
+  background: none;
+  border: 0;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.sort-mark {
+  min-width: 1ch;
+}
+
+.program-saving {
+  display: block;
+  margin-top: var(--space-1);
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
 /* --- Диалог ----------------------------------------------------------------------------- */
 
 .dialog-backdrop {
@@ -1169,7 +1570,7 @@ html:has(.shell-child) body {
     border-bottom-color: var(--primary);
   }
 
-  .menu-help {
+  .menu-foot {
     margin-top: 0;
     margin-left: auto;
   }
@@ -1202,240 +1603,14 @@ html:has(.shell-child) body {
   }
 }
 
-/* --- Помощник: карточки подсказок, тур, «Помощь» ---------------------------------------- */
+/* --- «Что нового» ----------------------------------------------------------------------- */
 
-/* Место под заголовком окна: пусто - не занимает высоты. */
-.hint-strip {
-  flex: none;
-}
-
-.hint-strip:empty {
-  display: none;
-}
-
-.hint-strip .hint-card {
-  margin: var(--space-3) var(--space-6) 0;
-}
-
-/* Карточка встаёт в поток страницы на своё место и ничего не перекрывает. */
-.hint-card {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--space-3);
-  max-width: 640px;
-  margin-bottom: var(--space-4);
-  padding: var(--space-3) var(--space-4);
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-left: 3px solid var(--primary);
-  border-radius: var(--radius-panel);
-}
-
-.hint-card-risk {
-  border-left-color: var(--status-warn);
-}
-
-.hint-icon {
-  display: inline-flex;
-  flex: none;
-  margin-top: 2px;
-  color: var(--text-muted);
-}
-
-.hint-card-risk .hint-icon {
-  color: var(--status-warn);
-}
-
-.hint-main {
-  flex: 1;
-  min-width: 0;
-}
-
-.hint-title {
-  margin-bottom: var(--space-1);
-  font-weight: 600;
-}
-
-.hint-body {
-  margin-bottom: var(--space-3);
-  color: var(--text-muted);
-}
-
-.hint-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-2);
-}
-
-.hint-mute {
-  margin-left: var(--space-2);
-  color: var(--text-muted);
-  font-size: 14px;
-}
-
-.hint-close {
-  display: inline-flex;
-  flex: none;
-  padding: var(--space-1);
-  background: none;
-  border: 0;
-  border-radius: var(--radius-control);
-  color: var(--text-muted);
-  cursor: pointer;
-}
-
-.hint-close:hover {
-  background: var(--bg);
-  color: var(--text);
-}
-
-/* Тур: затемнение с вырезом под нужный элемент и карточка шага рядом. */
-.tour {
-  position: fixed;
-  inset: 0;
-  z-index: 40;
-}
-
-.tour-scrim {
-  position: absolute;
-  inset: 0;
-}
-
-.tour-scrim-dim {
-  background: rgba(21, 24, 27, 0.45);
-}
-
-.tour-spot {
-  position: absolute;
-  border-radius: var(--radius-control);
-  box-shadow:
-    0 0 0 2px var(--surface),
-    0 0 0 4px var(--primary),
-    0 0 0 9999px rgba(21, 24, 27, 0.45);
-  pointer-events: none;
-  transition:
-    top 0.15s,
-    left 0.15s,
-    width 0.15s,
-    height 0.15s;
-}
-
-.tour-card {
-  position: fixed;
-  width: min(360px, calc(100vw - 32px));
-  padding: var(--space-4);
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-panel);
-  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.25);
-}
-
-.tour-card-center {
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-}
-
-.tour-count {
-  margin-bottom: var(--space-1);
-  color: var(--text-muted);
-  font-size: 13px;
-}
-
-.tour-title {
-  margin-bottom: var(--space-2);
-  font-size: 16px;
-  font-weight: 600;
-}
-
-.tour-body {
-  margin-bottom: var(--space-3);
-}
-
-.tour-note {
-  margin-bottom: var(--space-3);
-  color: var(--text-muted);
-  font-size: 14px;
-}
-
-.tour-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-2);
-}
-
-.tour-skip {
-  margin-left: auto;
-  color: var(--text-muted);
-  font-size: 14px;
-}
-
-/* «Помощь». */
-.help-off {
-  margin-bottom: var(--space-4);
-}
-
-.help-list {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.help-item {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  padding: var(--space-2) 0;
-  border-top: 1px solid var(--line);
-}
-
-.help-item:first-child {
-  border-top: 0;
-}
-
-.help-item-main {
-  flex: 1;
-  min-width: 0;
-}
-
-.help-item-title {
-  font-weight: 600;
-}
-
-.help-mark {
-  display: inline-flex;
-  flex: none;
-  color: var(--text-muted);
-}
-
-.help-mark-done {
-  color: var(--status-ok);
-}
-
-.help-done {
-  color: var(--status-ok);
-  font-weight: 600;
-}
-
-.help-news + .help-news {
+.whatsnew-entry + .whatsnew-entry {
   margin-top: var(--space-4);
 }
 
-.help-bullets,
-.howto-steps {
+.whatsnew-bullets {
   margin: var(--space-2) 0 0 var(--space-4);
-}
-
-.howto-steps li + li {
-  margin-top: var(--space-2);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .tour-spot {
-    transition: none;
-  }
 }
 
 /* --- M2: запретные часы, копилка, пауза --------------------------------- */

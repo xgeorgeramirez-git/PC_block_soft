@@ -33,3 +33,17 @@ func RemainingTotalS(limit DayLimit, extraMin, totalS int) (remaining int, unlim
 	}
 	return remaining, false
 }
+
+// RemainingGamesS — остаток игр (R5): лимит игр дня + доп. время − игры за день. Лимита
+// игр нет (GamesMin nil) — unlimited = true: игры ограничены только общим временем.
+// Остаток не бывает меньше нуля (лимит уменьшили или доп. время убавили).
+func RemainingGamesS(limit DayLimit, extraMin, gamesS int) (remaining int, unlimited bool) {
+	if limit.GamesMin == nil {
+		return 0, true
+	}
+	remaining = (*limit.GamesMin+extraMin)*60 - gamesS
+	if remaining < 0 {
+		remaining = 0
+	}
+	return remaining, false
+}

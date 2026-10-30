@@ -16,7 +16,7 @@
             "status": "ok",
             "statusText": "Можно",
             "label": "85",
-            "tooltip": "Осталось 1 ч 25 мин",
+            "tooltip": "Осталось 1 ч 25 мин\nИгры: 20 мин",
             "summary": "Сегодня осталось 1 ч 25 мин из 2 ч",
             "day": "2026-10-19",
             "remainingS": 5100,
@@ -30,12 +30,20 @@
             "pauseUntil": "",
             "used": "Сегодня: 35 мин из 2 ч",
             "bonusBalance": 0,
-            "forbiddenNote": ""
+            "forbiddenNote": "",
+            "gamesRemainingS": 1200,
+            "gamesLimitS": 3600,
+            "gamesUnlimited": false,
+            "endMode": "lock",
+            "closeGames": false,
+            "studyOnly": false
           },
           "extraMin": 30,
           "bonusBalance": 0,
           "canClearBlock": false,
-          "noForbiddenToday": false
+          "noForbiddenToday": false,
+          "gamesText": "Игры 40 мин из 1 ч",
+          "pendingPrograms": 0
         },
         "message": "Добавлено 30 минут",
         "extraId": "e-17",
@@ -72,7 +80,7 @@
             "status": "ok",
             "statusText": "Можно",
             "label": "85",
-            "tooltip": "Осталось 1 ч 25 мин",
+            "tooltip": "Осталось 1 ч 25 мин\nИгры: 20 мин",
             "summary": "Сегодня осталось 1 ч 25 мин из 2 ч",
             "day": "2026-10-19",
             "remainingS": 5100,
@@ -86,12 +94,20 @@
             "pauseUntil": "",
             "used": "Сегодня: 35 мин из 2 ч",
             "bonusBalance": 0,
-            "forbiddenNote": ""
+            "forbiddenNote": "",
+            "gamesRemainingS": 1200,
+            "gamesLimitS": 3600,
+            "gamesUnlimited": false,
+            "endMode": "lock",
+            "closeGames": false,
+            "studyOnly": false
           },
           "extraMin": 30,
           "bonusBalance": 0,
           "canClearBlock": false,
-          "noForbiddenToday": false
+          "noForbiddenToday": false,
+          "gamesText": "Игры 40 мин из 1 ч",
+          "pendingPrograms": 0
         },
         "message": "Добавлено 30 минут"
       }
@@ -139,7 +155,7 @@
             "status": "ok",
             "statusText": "Можно",
             "label": "85",
-            "tooltip": "Осталось 1 ч 25 мин",
+            "tooltip": "Осталось 1 ч 25 мин\nИгры: 20 мин",
             "summary": "Сегодня осталось 1 ч 25 мин из 2 ч",
             "day": "2026-10-19",
             "remainingS": 5100,
@@ -153,12 +169,20 @@
             "pauseUntil": "",
             "used": "Сегодня: 35 мин из 2 ч",
             "bonusBalance": 0,
-            "forbiddenNote": ""
+            "forbiddenNote": "",
+            "gamesRemainingS": 1200,
+            "gamesLimitS": 3600,
+            "gamesUnlimited": false,
+            "endMode": "lock",
+            "closeGames": false,
+            "studyOnly": false
           },
           "extraMin": 0,
           "bonusBalance": 0,
           "canClearBlock": false,
-          "noForbiddenToday": false
+          "noForbiddenToday": false,
+          "gamesText": "Игры 40 мин из 1 ч",
+          "pendingPrograms": 0
         },
         "message": "Блокировка снята"
       }
@@ -192,7 +216,7 @@
             "status": "ok",
             "statusText": "Можно",
             "label": "85",
-            "tooltip": "Осталось 1 ч 25 мин",
+            "tooltip": "Осталось 1 ч 25 мин\nИгры: 20 мин",
             "summary": "Сегодня осталось 1 ч 25 мин из 2 ч",
             "day": "2026-10-19",
             "remainingS": 5100,
@@ -206,12 +230,20 @@
             "pauseUntil": "",
             "used": "Сегодня: 35 мин из 2 ч",
             "bonusBalance": 0,
-            "forbiddenNote": ""
+            "forbiddenNote": "",
+            "gamesRemainingS": 1200,
+            "gamesLimitS": 3600,
+            "gamesUnlimited": false,
+            "endMode": "lock",
+            "closeGames": false,
+            "studyOnly": false
           },
           "extraMin": 0,
           "bonusBalance": 0,
           "canClearBlock": false,
-          "noForbiddenToday": false
+          "noForbiddenToday": false,
+          "gamesText": "Игры 40 мин из 1 ч",
+          "pendingPrograms": 0
         },
         "message": "Доп. время убрано",
         "extraId": "e-19",
@@ -231,37 +263,51 @@
           {
             "weekday": 1,
             "totalMin": 120,
-            "unlimited": false
+            "unlimited": false,
+            "gamesMin": 60,
+            "gamesUnlimited": false
           },
           {
             "weekday": 2,
             "totalMin": 120,
-            "unlimited": false
+            "unlimited": false,
+            "gamesMin": 0,
+            "gamesUnlimited": true
           },
           {
             "weekday": 3,
             "totalMin": 90,
-            "unlimited": false
+            "unlimited": false,
+            "gamesMin": 0,
+            "gamesUnlimited": false
           },
           {
             "weekday": 4,
             "totalMin": 120,
-            "unlimited": false
+            "unlimited": false,
+            "gamesMin": 0,
+            "gamesUnlimited": true
           },
           {
             "weekday": 5,
             "totalMin": 120,
-            "unlimited": false
+            "unlimited": false,
+            "gamesMin": 0,
+            "gamesUnlimited": true
           },
           {
             "weekday": 6,
             "totalMin": 240,
-            "unlimited": false
+            "unlimited": false,
+            "gamesMin": 120,
+            "gamesUnlimited": false
           },
           {
             "weekday": 7,
             "totalMin": 0,
-            "unlimited": true
+            "unlimited": true,
+            "gamesMin": 0,
+            "gamesUnlimited": true
           }
         ],
         "intervals": [
@@ -271,6 +317,7 @@
             "endMin": 420
           }
         ],
+        "endMode": "study_only",
         "message": "Правила скопированы. Проверьте и сохраните"
       }
     }
@@ -301,6 +348,84 @@
       "ok": false,
       "error": "Такой код уже есть, придумайте другой",
       "field": "code"
+    }
+  },
+  "DecideProgram": {
+    "request": {
+      "path": "c:\\users\\миша\\downloads\\supergame.exe",
+      "category": "games"
+    },
+    "reply": {
+      "ok": true,
+      "payload": {
+        "message": "SuperGame: игра",
+        "undoId": "p-3",
+        "undoUntilMs": 1760000010000,
+        "programs": {
+          "pending": [
+            {
+              "path": "c:\\users\\миша\\downloads\\supergame.exe",
+              "name": "SuperGame",
+              "publisher": "Без подписи издателя",
+              "description": "Super Game",
+              "attempts": 4,
+              "lastAttemptAt": 1759996400000,
+              "wasCategory": "games",
+              "byChild": [
+                {
+                  "childId": 1,
+                  "name": "Миша",
+                  "attempts": 3
+                },
+                {
+                  "childId": 2,
+                  "name": "Даша",
+                  "attempts": 1
+                }
+              ]
+            }
+          ],
+          "programs": [
+            {
+              "path": "c:\\program files\\bravesoftware\\brave-browser\\application\\brave.exe",
+              "name": "Brave",
+              "publisher": "Brave Software, Inc.",
+              "category": "other",
+              "source": "snapshot",
+              "weekS": 5400
+            },
+            {
+              "path": "c:\\program files\\minecraft launcher\\minecraftlauncher.exe",
+              "name": "Minecraft Launcher",
+              "publisher": "Mojang",
+              "category": "games",
+              "source": "catalog",
+              "weekS": 0
+            }
+          ],
+          "children": [
+            {
+              "childId": 1,
+              "name": "Миша"
+            },
+            {
+              "childId": 2,
+              "name": "Даша"
+            }
+          ]
+        }
+      }
+    }
+  },
+  "DecideProgram#invalid": {
+    "request": {
+      "path": "c:\\x.exe",
+      "category": "system"
+    },
+    "reply": {
+      "ok": false,
+      "error": "Выберите: игра, учёба, прочее или запретить",
+      "field": "category"
     }
   },
   "ExtendSession": {
@@ -382,39 +507,54 @@
           {
             "weekday": 1,
             "totalMin": 120,
-            "unlimited": false
+            "unlimited": false,
+            "gamesMin": 60,
+            "gamesUnlimited": false
           },
           {
             "weekday": 2,
             "totalMin": 120,
-            "unlimited": false
+            "unlimited": false,
+            "gamesMin": 0,
+            "gamesUnlimited": true
           },
           {
             "weekday": 3,
             "totalMin": 90,
-            "unlimited": false
+            "unlimited": false,
+            "gamesMin": 0,
+            "gamesUnlimited": false
           },
           {
             "weekday": 4,
             "totalMin": 120,
-            "unlimited": false
+            "unlimited": false,
+            "gamesMin": 0,
+            "gamesUnlimited": true
           },
           {
             "weekday": 5,
             "totalMin": 120,
-            "unlimited": false
+            "unlimited": false,
+            "gamesMin": 0,
+            "gamesUnlimited": true
           },
           {
             "weekday": 6,
             "totalMin": 240,
-            "unlimited": false
+            "unlimited": false,
+            "gamesMin": 120,
+            "gamesUnlimited": false
           },
           {
             "weekday": 7,
             "totalMin": 0,
-            "unlimited": true
+            "unlimited": true,
+            "gamesMin": 0,
+            "gamesUnlimited": true
           }
-        ]
+        ],
+        "endMode": "lock"
       }
     }
   },
@@ -426,7 +566,7 @@
         "status": "ok",
         "statusText": "Можно",
         "label": "85",
-        "tooltip": "Осталось 1 ч 25 мин",
+        "tooltip": "Осталось 1 ч 25 мин\nИгры: 20 мин",
         "summary": "Сегодня осталось 1 ч 25 мин из 2 ч",
         "day": "2026-10-19",
         "remainingS": 5100,
@@ -440,7 +580,13 @@
         "pauseUntil": "",
         "used": "Сегодня: 35 мин из 2 ч",
         "bonusBalance": 0,
-        "forbiddenNote": ""
+        "forbiddenNote": "",
+        "gamesRemainingS": 1200,
+        "gamesLimitS": 3600,
+        "gamesUnlimited": false,
+        "endMode": "lock",
+        "closeGames": false,
+        "studyOnly": false
       }
     }
   },
@@ -466,7 +612,45 @@
         "pauseUntil": "",
         "used": "",
         "bonusBalance": 0,
-        "forbiddenNote": ""
+        "forbiddenNote": "",
+        "gamesRemainingS": 0,
+        "gamesLimitS": 0,
+        "gamesUnlimited": true,
+        "endMode": "lock",
+        "closeGames": false,
+        "studyOnly": false
+      }
+    }
+  },
+  "GetChildStatus#studyOnly": {
+    "reply": {
+      "ok": true,
+      "payload": {
+        "name": "Миша",
+        "status": "timeUp",
+        "statusText": "Время вышло",
+        "label": "0",
+        "tooltip": "Время вышло. Сейчас доступна только учёба",
+        "summary": "Время вышло. Сейчас доступна только учёба",
+        "day": "2026-10-19",
+        "remainingS": 0,
+        "limitS": 7200,
+        "usedS": 7200,
+        "unlimited": false,
+        "lock": "none",
+        "reason": "",
+        "detail": "",
+        "until": "Можно снова: завтра",
+        "pauseUntil": "",
+        "used": "Сегодня: 2 ч 00 мин из 2 ч",
+        "bonusBalance": 0,
+        "forbiddenNote": "",
+        "gamesRemainingS": 0,
+        "gamesLimitS": 0,
+        "gamesUnlimited": true,
+        "endMode": "study_only",
+        "closeGames": false,
+        "studyOnly": true
       }
     }
   },
@@ -477,28 +661,6 @@
       "payload": {
         "verbose": false,
         "logsPath": "C:\\ProgramData\\PCBlock\\logs"
-      }
-    }
-  },
-  "GetHelperState": {
-    "reply": {
-      "ok": true,
-      "payload": {
-        "state": {
-          "enabled": true,
-          "seen": [
-            "H-M1-01"
-          ],
-          "snoozed": {}
-        }
-      }
-    }
-  },
-  "GetHelperState#empty": {
-    "reply": {
-      "ok": true,
-      "payload": {
-        "state": {}
       }
     }
   },
@@ -546,7 +708,7 @@
               "status": "ok",
               "statusText": "Можно",
               "label": "85",
-              "tooltip": "Осталось 1 ч 25 мин",
+              "tooltip": "Осталось 1 ч 25 мин\nИгры: 20 мин",
               "summary": "Сегодня осталось 1 ч 25 мин из 2 ч",
               "day": "2026-10-19",
               "remainingS": 5100,
@@ -560,12 +722,20 @@
               "pauseUntil": "",
               "used": "Сегодня: 35 мин из 2 ч",
               "bonusBalance": 0,
-              "forbiddenNote": ""
+              "forbiddenNote": "",
+              "gamesRemainingS": 1200,
+              "gamesLimitS": 3600,
+              "gamesUnlimited": false,
+              "endMode": "lock",
+              "closeGames": false,
+              "studyOnly": false
             },
             "extraMin": 0,
             "bonusBalance": 0,
             "canClearBlock": false,
-            "noForbiddenToday": false
+            "noForbiddenToday": false,
+            "gamesText": "Игры 40 мин из 1 ч",
+            "pendingPrograms": 2
           },
           {
             "childId": 1,
@@ -590,12 +760,20 @@
               "pauseUntil": "",
               "used": "Сегодня: 35 мин из 2 ч",
               "bonusBalance": 0,
-              "forbiddenNote": ""
+              "forbiddenNote": "",
+              "gamesRemainingS": 0,
+              "gamesLimitS": 0,
+              "gamesUnlimited": false,
+              "endMode": "lock",
+              "closeGames": false,
+              "studyOnly": false
             },
             "extraMin": 30,
             "bonusBalance": 0,
             "canClearBlock": true,
-            "noForbiddenToday": false
+            "noForbiddenToday": false,
+            "gamesText": "",
+            "pendingPrograms": 2
           }
         ],
         "notices": []
@@ -639,12 +817,20 @@
               "pauseUntil": "",
               "used": "Сегодня: 2 ч 00 мин из 2 ч",
               "bonusBalance": 0,
-              "forbiddenNote": ""
+              "forbiddenNote": "",
+              "gamesRemainingS": 0,
+              "gamesLimitS": 0,
+              "gamesUnlimited": false,
+              "endMode": "lock",
+              "closeGames": false,
+              "studyOnly": false
             },
             "extraMin": 0,
             "bonusBalance": 0,
             "canClearBlock": false,
-            "noForbiddenToday": false
+            "noForbiddenToday": false,
+            "gamesText": "",
+            "pendingPrograms": 0
           }
         ],
         "notices": [
@@ -701,7 +887,8 @@
         "sessionActive": true,
         "lastInputAgoMs": 1200,
         "fullscreen": true,
-        "foreground": "games"
+        "foreground": "games",
+        "foregroundPath": ""
       },
       "events": [
         {
@@ -749,7 +936,13 @@
           "pauseUntil": "",
           "used": "Сегодня: 2 ч 00 мин из 2 ч",
           "bonusBalance": 0,
-          "forbiddenNote": ""
+          "forbiddenNote": "",
+          "gamesRemainingS": 0,
+          "gamesLimitS": 0,
+          "gamesUnlimited": false,
+          "endMode": "lock",
+          "closeGames": false,
+          "studyOnly": false
         },
         "warnings": [
           {
@@ -780,15 +973,16 @@
       }
     }
   },
-  "GuardPoll#empty": {
+  "GuardPoll#blocked": {
     "request": {
       "sample": {
         "atMs": 1760000000000,
         "tzOffsetMin": 0,
-        "sessionActive": false,
+        "sessionActive": true,
         "lastInputAgoMs": 0,
         "fullscreen": false,
-        "foreground": "other"
+        "foreground": "games",
+        "foregroundPath": "c:\\users\\миша\\downloads\\supergame.exe"
       },
       "events": []
     },
@@ -800,7 +994,7 @@
           "status": "ok",
           "statusText": "Можно",
           "label": "85",
-          "tooltip": "Осталось 1 ч 25 мин",
+          "tooltip": "Осталось 1 ч 25 мин\nИгры: 20 мин",
           "summary": "Сегодня осталось 1 ч 25 мин из 2 ч",
           "day": "2026-10-19",
           "remainingS": 5100,
@@ -814,7 +1008,80 @@
           "pauseUntil": "",
           "used": "Сегодня: 35 мин из 2 ч",
           "bonusBalance": 0,
-          "forbiddenNote": ""
+          "forbiddenNote": "",
+          "gamesRemainingS": 1200,
+          "gamesLimitS": 3600,
+          "gamesUnlimited": false,
+          "endMode": "lock",
+          "closeGames": false,
+          "studyOnly": false
+        },
+        "warnings": [
+          {
+            "threshold": 5,
+            "text": "Сохрани игру: через 5 минут время на игры закончится",
+            "sound": true,
+            "event": "games",
+            "eventS": 300
+          }
+        ],
+        "commands": [
+          {
+            "kind": "blocked",
+            "plate": {
+              "kind": "unknown",
+              "text": "Программа «SuperGame» ждёт разрешения родителя",
+              "showS": 10,
+              "path": "c:\\users\\миша\\downloads\\supergame.exe",
+              "canAsk": true
+            }
+          }
+        ]
+      }
+    }
+  },
+  "GuardPoll#empty": {
+    "request": {
+      "sample": {
+        "atMs": 1760000000000,
+        "tzOffsetMin": 0,
+        "sessionActive": false,
+        "lastInputAgoMs": 0,
+        "fullscreen": false,
+        "foreground": "other",
+        "foregroundPath": ""
+      },
+      "events": []
+    },
+    "reply": {
+      "ok": true,
+      "payload": {
+        "status": {
+          "name": "Миша",
+          "status": "ok",
+          "statusText": "Можно",
+          "label": "85",
+          "tooltip": "Осталось 1 ч 25 мин\nИгры: 20 мин",
+          "summary": "Сегодня осталось 1 ч 25 мин из 2 ч",
+          "day": "2026-10-19",
+          "remainingS": 5100,
+          "limitS": 7200,
+          "usedS": 2100,
+          "unlimited": false,
+          "lock": "none",
+          "reason": "",
+          "detail": "",
+          "until": "",
+          "pauseUntil": "",
+          "used": "Сегодня: 35 мин из 2 ч",
+          "bonusBalance": 0,
+          "forbiddenNote": "",
+          "gamesRemainingS": 1200,
+          "gamesLimitS": 3600,
+          "gamesUnlimited": false,
+          "endMode": "lock",
+          "closeGames": false,
+          "studyOnly": false
         },
         "warnings": [],
         "commands": []
@@ -853,6 +1120,7 @@
         "lockShown": true,
         "lockKind": "timeUp",
         "plate": "",
+        "plateKind": "",
         "buttons": [
           "parentPassword",
           "shutdown",
@@ -867,7 +1135,33 @@
         ],
         "exits": [
           "switchUser"
-        ]
+        ],
+        "foregroundPath": ""
+      }
+    }
+  },
+  "GuardState#blocked": {
+    "reply": {
+      "ok": true,
+      "payload": {
+        "warnings": [],
+        "sounds": [],
+        "ui": {
+          "tickMs": 0,
+          "ticks": 0,
+          "panic": ""
+        },
+        "lockShown": false,
+        "lockKind": "",
+        "plate": "Программа «SuperGame» ждёт разрешения родителя",
+        "plateKind": "unknown",
+        "buttons": [
+          "askNow",
+          "plateClose"
+        ],
+        "fields": [],
+        "exits": [],
+        "foregroundPath": "c:\\users\\миша\\downloads\\supergame.exe"
       }
     }
   },
@@ -885,9 +1179,11 @@
         "lockShown": false,
         "lockKind": "",
         "plate": "",
+        "plateKind": "",
         "buttons": [],
         "fields": [],
-        "exits": []
+        "exits": [],
+        "foregroundPath": ""
       }
     }
   },
@@ -994,6 +1290,74 @@
       }
     }
   },
+  "ListPrograms": {
+    "reply": {
+      "ok": true,
+      "payload": {
+        "pending": [
+          {
+            "path": "c:\\users\\миша\\downloads\\supergame.exe",
+            "name": "SuperGame",
+            "publisher": "Без подписи издателя",
+            "description": "Super Game",
+            "attempts": 4,
+            "lastAttemptAt": 1759996400000,
+            "wasCategory": "games",
+            "byChild": [
+              {
+                "childId": 1,
+                "name": "Миша",
+                "attempts": 3
+              },
+              {
+                "childId": 2,
+                "name": "Даша",
+                "attempts": 1
+              }
+            ]
+          }
+        ],
+        "programs": [
+          {
+            "path": "c:\\program files\\bravesoftware\\brave-browser\\application\\brave.exe",
+            "name": "Brave",
+            "publisher": "Brave Software, Inc.",
+            "category": "other",
+            "source": "snapshot",
+            "weekS": 5400
+          },
+          {
+            "path": "c:\\program files\\minecraft launcher\\minecraftlauncher.exe",
+            "name": "Minecraft Launcher",
+            "publisher": "Mojang",
+            "category": "games",
+            "source": "catalog",
+            "weekS": 0
+          }
+        ],
+        "children": [
+          {
+            "childId": 1,
+            "name": "Миша"
+          },
+          {
+            "childId": 2,
+            "name": "Даша"
+          }
+        ]
+      }
+    }
+  },
+  "ListPrograms#empty": {
+    "reply": {
+      "ok": true,
+      "payload": {
+        "pending": [],
+        "programs": [],
+        "children": []
+      }
+    }
+  },
   "ListPromos": {
     "request": {},
     "reply": {
@@ -1085,7 +1449,7 @@
           "status": "ok",
           "statusText": "Можно",
           "label": "85",
-          "tooltip": "Осталось 1 ч 25 мин",
+          "tooltip": "Осталось 1 ч 25 мин\nИгры: 20 мин",
           "summary": "Сегодня осталось 1 ч 25 мин из 2 ч",
           "day": "2026-10-19",
           "remainingS": 5100,
@@ -1099,7 +1463,13 @@
           "pauseUntil": "",
           "used": "Сегодня: 35 мин из 2 ч",
           "bonusBalance": 0,
-          "forbiddenNote": ""
+          "forbiddenNote": "",
+          "gamesRemainingS": 1200,
+          "gamesLimitS": 3600,
+          "gamesUnlimited": false,
+          "endMode": "lock",
+          "closeGames": false,
+          "studyOnly": false
         },
         "today": [
           "Сегодня осталось 1 ч 25 мин из 2 ч",
@@ -1140,8 +1510,20 @@
             "weekday": 7,
             "day": "вс",
             "text": "Без лимита"
+          },
+          {
+            "weekday": 0,
+            "day": "",
+            "text": "Игры: до 1 ч в день"
+          },
+          {
+            "weekday": 0,
+            "day": "",
+            "text": "Когда время вышло: экран блокировки"
           }
-        ]
+        ],
+        "gamesS": 1200,
+        "studyS": 2400
       }
     }
   },
@@ -1168,10 +1550,18 @@
           "pauseUntil": "",
           "used": "",
           "bonusBalance": 0,
-          "forbiddenNote": ""
+          "forbiddenNote": "",
+          "gamesRemainingS": 0,
+          "gamesLimitS": 0,
+          "gamesUnlimited": true,
+          "endMode": "lock",
+          "closeGames": false,
+          "studyOnly": false
         },
         "today": [],
-        "rules": []
+        "rules": [],
+        "gamesS": 0,
+        "studyS": 0
       }
     }
   },
@@ -1196,6 +1586,28 @@
       }
     }
   },
+  "OpenWindow#badScreen": {
+    "request": {
+      "kind": "parent",
+      "screen": "nope"
+    },
+    "reply": {
+      "ok": false,
+      "error": "Не удалось разобрать запрос. Попробуйте ещё раз"
+    }
+  },
+  "OpenWindow#programs": {
+    "request": {
+      "kind": "parent",
+      "screen": "programs"
+    },
+    "reply": {
+      "ok": true,
+      "payload": {
+        "opened": true
+      }
+    }
+  },
   "ParentStats": {
     "request": {
       "childId": 1
@@ -1208,7 +1620,7 @@
           "status": "ok",
           "statusText": "Можно",
           "label": "85",
-          "tooltip": "Осталось 1 ч 25 мин",
+          "tooltip": "Осталось 1 ч 25 мин\nИгры: 20 мин",
           "summary": "Сегодня осталось 1 ч 25 мин из 2 ч",
           "day": "2026-10-19",
           "remainingS": 5100,
@@ -1222,7 +1634,13 @@
           "pauseUntil": "",
           "used": "Сегодня: 35 мин из 2 ч",
           "bonusBalance": 0,
-          "forbiddenNote": ""
+          "forbiddenNote": "",
+          "gamesRemainingS": 1200,
+          "gamesLimitS": 3600,
+          "gamesUnlimited": false,
+          "endMode": "lock",
+          "closeGames": false,
+          "studyOnly": false
         },
         "today": [
           "Сегодня осталось 1 ч 25 мин из 2 ч",
@@ -1263,8 +1681,20 @@
             "weekday": 7,
             "day": "вс",
             "text": "Без лимита"
+          },
+          {
+            "weekday": 0,
+            "day": "",
+            "text": "Игры: до 1 ч в день"
+          },
+          {
+            "weekday": 0,
+            "day": "",
+            "text": "Когда время вышло: экран блокировки"
           }
-        ]
+        ],
+        "gamesS": 1200,
+        "studyS": 2400
       }
     }
   },
@@ -1285,7 +1715,7 @@
             "status": "ok",
             "statusText": "Можно",
             "label": "85",
-            "tooltip": "Осталось 1 ч 25 мин",
+            "tooltip": "Осталось 1 ч 25 мин\nИгры: 20 мин",
             "summary": "Сегодня осталось 1 ч 25 мин из 2 ч",
             "day": "2026-10-19",
             "remainingS": 5100,
@@ -1299,12 +1729,20 @@
             "pauseUntil": "",
             "used": "Сегодня: 35 мин из 2 ч",
             "bonusBalance": 0,
-            "forbiddenNote": ""
+            "forbiddenNote": "",
+            "gamesRemainingS": 1200,
+            "gamesLimitS": 3600,
+            "gamesUnlimited": false,
+            "endMode": "lock",
+            "closeGames": false,
+            "studyOnly": false
           },
           "extraMin": 0,
           "bonusBalance": 0,
           "canClearBlock": false,
-          "noForbiddenToday": false
+          "noForbiddenToday": false,
+          "gamesText": "Игры 40 мин из 1 ч",
+          "pendingPrograms": 0
         },
         "message": "Пауза до 18:30"
       }
@@ -1327,7 +1765,7 @@
               "status": "ok",
               "statusText": "Можно",
               "label": "85",
-              "tooltip": "Осталось 1 ч 25 мин",
+              "tooltip": "Осталось 1 ч 25 мин\nИгры: 20 мин",
               "summary": "Сегодня осталось 1 ч 25 мин из 2 ч",
               "day": "2026-10-19",
               "remainingS": 5100,
@@ -1341,12 +1779,20 @@
               "pauseUntil": "",
               "used": "Сегодня: 35 мин из 2 ч",
               "bonusBalance": 0,
-              "forbiddenNote": ""
+              "forbiddenNote": "",
+              "gamesRemainingS": 1200,
+              "gamesLimitS": 3600,
+              "gamesUnlimited": false,
+              "endMode": "lock",
+              "closeGames": false,
+              "studyOnly": false
             },
             "extraMin": 0,
             "bonusBalance": 0,
             "canClearBlock": false,
-            "noForbiddenToday": false
+            "noForbiddenToday": false,
+            "gamesText": "Игры 40 мин из 1 ч",
+            "pendingPrograms": 0
           }
         ],
         "message": "Пауза для всех детей на 1 ч"
@@ -1382,7 +1828,7 @@
             "status": "ok",
             "statusText": "Можно",
             "label": "85",
-            "tooltip": "Осталось 1 ч 25 мин",
+            "tooltip": "Осталось 1 ч 25 мин\nИгры: 20 мин",
             "summary": "Сегодня осталось 1 ч 25 мин из 2 ч",
             "day": "2026-10-19",
             "remainingS": 5100,
@@ -1396,12 +1842,20 @@
             "pauseUntil": "",
             "used": "Сегодня: 35 мин из 2 ч",
             "bonusBalance": 0,
-            "forbiddenNote": ""
+            "forbiddenNote": "",
+            "gamesRemainingS": 1200,
+            "gamesLimitS": 3600,
+            "gamesUnlimited": false,
+            "endMode": "lock",
+            "closeGames": false,
+            "studyOnly": false
           },
           "extraMin": 30,
           "bonusBalance": 0,
           "canClearBlock": false,
-          "noForbiddenToday": false
+          "noForbiddenToday": false,
+          "gamesText": "Игры 40 мин из 1 ч",
+          "pendingPrograms": 0
         },
         "addedMin": 30,
         "message": "Добавлено 30 минут"
@@ -1449,7 +1903,7 @@
             "status": "ok",
             "statusText": "Можно",
             "label": "85",
-            "tooltip": "Осталось 1 ч 25 мин",
+            "tooltip": "Осталось 1 ч 25 мин\nИгры: 20 мин",
             "summary": "Сегодня осталось 1 ч 25 мин из 2 ч",
             "day": "2026-10-19",
             "remainingS": 5100,
@@ -1463,12 +1917,20 @@
             "pauseUntil": "",
             "used": "Сегодня: 35 мин из 2 ч",
             "bonusBalance": 0,
-            "forbiddenNote": ""
+            "forbiddenNote": "",
+            "gamesRemainingS": 1200,
+            "gamesLimitS": 3600,
+            "gamesUnlimited": false,
+            "endMode": "lock",
+            "closeGames": false,
+            "studyOnly": false
           },
           "extraMin": 0,
           "bonusBalance": 0,
           "canClearBlock": false,
-          "noForbiddenToday": false
+          "noForbiddenToday": false,
+          "gamesText": "Игры 40 мин из 1 ч",
+          "pendingPrograms": 0
         },
         "message": "Убрано 30 минут",
         "extraId": "e-18",
@@ -1496,22 +1958,6 @@
       "payload": {}
     }
   },
-  "SaveHelperState": {
-    "request": {
-      "state": {
-        "enabled": true,
-        "seen": [
-          "H-M1-01",
-          "H-M1-02"
-        ],
-        "snoozed": {}
-      }
-    },
-    "reply": {
-      "ok": true,
-      "payload": {}
-    }
-  },
   "SaveLimits": {
     "request": {
       "childId": 1,
@@ -1519,39 +1965,54 @@
         {
           "weekday": 1,
           "totalMin": 120,
-          "unlimited": false
+          "unlimited": false,
+          "gamesMin": 60,
+          "gamesUnlimited": false
         },
         {
           "weekday": 2,
           "totalMin": 120,
-          "unlimited": false
+          "unlimited": false,
+          "gamesMin": 0,
+          "gamesUnlimited": true
         },
         {
           "weekday": 3,
           "totalMin": 90,
-          "unlimited": false
+          "unlimited": false,
+          "gamesMin": 0,
+          "gamesUnlimited": false
         },
         {
           "weekday": 4,
           "totalMin": 120,
-          "unlimited": false
+          "unlimited": false,
+          "gamesMin": 0,
+          "gamesUnlimited": true
         },
         {
           "weekday": 5,
           "totalMin": 120,
-          "unlimited": false
+          "unlimited": false,
+          "gamesMin": 0,
+          "gamesUnlimited": true
         },
         {
           "weekday": 6,
           "totalMin": 240,
-          "unlimited": false
+          "unlimited": false,
+          "gamesMin": 120,
+          "gamesUnlimited": false
         },
         {
           "weekday": 7,
           "totalMin": 0,
-          "unlimited": true
+          "unlimited": true,
+          "gamesMin": 0,
+          "gamesUnlimited": true
         }
-      ]
+      ],
+      "endMode": "lock"
     },
     "reply": {
       "ok": true,
@@ -1563,39 +2024,54 @@
             {
               "weekday": 1,
               "totalMin": 120,
-              "unlimited": false
+              "unlimited": false,
+              "gamesMin": 60,
+              "gamesUnlimited": false
             },
             {
               "weekday": 2,
               "totalMin": 120,
-              "unlimited": false
+              "unlimited": false,
+              "gamesMin": 0,
+              "gamesUnlimited": true
             },
             {
               "weekday": 3,
               "totalMin": 90,
-              "unlimited": false
+              "unlimited": false,
+              "gamesMin": 0,
+              "gamesUnlimited": false
             },
             {
               "weekday": 4,
               "totalMin": 120,
-              "unlimited": false
+              "unlimited": false,
+              "gamesMin": 0,
+              "gamesUnlimited": true
             },
             {
               "weekday": 5,
               "totalMin": 120,
-              "unlimited": false
+              "unlimited": false,
+              "gamesMin": 0,
+              "gamesUnlimited": true
             },
             {
               "weekday": 6,
               "totalMin": 240,
-              "unlimited": false
+              "unlimited": false,
+              "gamesMin": 120,
+              "gamesUnlimited": false
             },
             {
               "weekday": 7,
               "totalMin": 0,
-              "unlimited": true
+              "unlimited": true,
+              "gamesMin": 0,
+              "gamesUnlimited": true
             }
-          ]
+          ],
+          "endMode": "lock"
         },
         "card": {
           "childId": 1,
@@ -1606,7 +2082,7 @@
             "status": "ok",
             "statusText": "Можно",
             "label": "85",
-            "tooltip": "Осталось 1 ч 25 мин",
+            "tooltip": "Осталось 1 ч 25 мин\nИгры: 20 мин",
             "summary": "Сегодня осталось 1 ч 25 мин из 2 ч",
             "day": "2026-10-19",
             "remainingS": 5100,
@@ -1620,12 +2096,127 @@
             "pauseUntil": "",
             "used": "Сегодня: 35 мин из 2 ч",
             "bonusBalance": 0,
-            "forbiddenNote": ""
+            "forbiddenNote": "",
+            "gamesRemainingS": 1200,
+            "gamesLimitS": 3600,
+            "gamesUnlimited": false,
+            "endMode": "lock",
+            "closeGames": false,
+            "studyOnly": false
           },
           "extraMin": 0,
           "bonusBalance": 0,
           "canClearBlock": false,
-          "noForbiddenToday": false
+          "noForbiddenToday": false,
+          "gamesText": "Игры 40 мин из 1 ч",
+          "pendingPrograms": 0
+        },
+        "message": "Сохранено. Новые правила уже действуют"
+      }
+    }
+  },
+  "SaveLimits#endMode": {
+    "request": {
+      "childId": 1,
+      "limits": [],
+      "endMode": "study_only"
+    },
+    "reply": {
+      "ok": true,
+      "payload": {
+        "rules": {
+          "childId": 1,
+          "name": "Миша",
+          "limits": [
+            {
+              "weekday": 1,
+              "totalMin": 120,
+              "unlimited": false,
+              "gamesMin": 60,
+              "gamesUnlimited": false
+            },
+            {
+              "weekday": 2,
+              "totalMin": 120,
+              "unlimited": false,
+              "gamesMin": 0,
+              "gamesUnlimited": true
+            },
+            {
+              "weekday": 3,
+              "totalMin": 90,
+              "unlimited": false,
+              "gamesMin": 0,
+              "gamesUnlimited": false
+            },
+            {
+              "weekday": 4,
+              "totalMin": 120,
+              "unlimited": false,
+              "gamesMin": 0,
+              "gamesUnlimited": true
+            },
+            {
+              "weekday": 5,
+              "totalMin": 120,
+              "unlimited": false,
+              "gamesMin": 0,
+              "gamesUnlimited": true
+            },
+            {
+              "weekday": 6,
+              "totalMin": 240,
+              "unlimited": false,
+              "gamesMin": 120,
+              "gamesUnlimited": false
+            },
+            {
+              "weekday": 7,
+              "totalMin": 0,
+              "unlimited": true,
+              "gamesMin": 0,
+              "gamesUnlimited": true
+            }
+          ],
+          "endMode": "study_only"
+        },
+        "card": {
+          "childId": 1,
+          "sid": "S-1-5-21-111-222-333-1001",
+          "name": "Миша",
+          "status": {
+            "name": "Миша",
+            "status": "ok",
+            "statusText": "Можно",
+            "label": "85",
+            "tooltip": "Осталось 1 ч 25 мин\nИгры: 20 мин",
+            "summary": "Сегодня осталось 1 ч 25 мин из 2 ч",
+            "day": "2026-10-19",
+            "remainingS": 5100,
+            "limitS": 7200,
+            "usedS": 2100,
+            "unlimited": false,
+            "lock": "none",
+            "reason": "",
+            "detail": "",
+            "until": "",
+            "pauseUntil": "",
+            "used": "Сегодня: 35 мин из 2 ч",
+            "bonusBalance": 0,
+            "forbiddenNote": "",
+            "gamesRemainingS": 1200,
+            "gamesLimitS": 3600,
+            "gamesUnlimited": false,
+            "endMode": "lock",
+            "closeGames": false,
+            "studyOnly": false
+          },
+          "extraMin": 0,
+          "bonusBalance": 0,
+          "canClearBlock": false,
+          "noForbiddenToday": false,
+          "gamesText": "Игры 40 мин из 1 ч",
+          "pendingPrograms": 0
         },
         "message": "Сохранено. Новые правила уже действуют"
       }
@@ -1638,7 +2229,9 @@
         {
           "weekday": 3,
           "totalMin": 2000,
-          "unlimited": false
+          "unlimited": false,
+          "gamesMin": 0,
+          "gamesUnlimited": false
         }
       ]
     },
@@ -1678,7 +2271,7 @@
             "status": "ok",
             "statusText": "Можно",
             "label": "85",
-            "tooltip": "Осталось 1 ч 25 мин",
+            "tooltip": "Осталось 1 ч 25 мин\nИгры: 20 мин",
             "summary": "Сегодня осталось 1 ч 25 мин из 2 ч",
             "day": "2026-10-19",
             "remainingS": 5100,
@@ -1692,12 +2285,20 @@
             "pauseUntil": "",
             "used": "Сегодня: 35 мин из 2 ч",
             "bonusBalance": 0,
-            "forbiddenNote": ""
+            "forbiddenNote": "",
+            "gamesRemainingS": 1200,
+            "gamesLimitS": 3600,
+            "gamesUnlimited": false,
+            "endMode": "lock",
+            "closeGames": false,
+            "studyOnly": false
           },
           "extraMin": 0,
           "bonusBalance": 0,
           "canClearBlock": false,
-          "noForbiddenToday": false
+          "noForbiddenToday": false,
+          "gamesText": "Игры 40 мин из 1 ч",
+          "pendingPrograms": 0
         },
         "message": "Сохранено. Новые правила уже действуют"
       }
@@ -1718,6 +2319,35 @@
       "ok": false,
       "error": "Начало и конец совпадают",
       "field": "end"
+    }
+  },
+  "ScanPrograms": {
+    "reply": {
+      "ok": true,
+      "payload": {
+        "programs": [
+          {
+            "path": "c:\\program files\\minecraft launcher\\minecraftlauncher.exe",
+            "name": "Minecraft Launcher",
+            "publisher": "Mojang",
+            "suggestedCategory": "games"
+          },
+          {
+            "path": "c:\\program files\\bravesoftware\\brave-browser\\application\\brave.exe",
+            "name": "Brave",
+            "publisher": "Brave Software, Inc.",
+            "suggestedCategory": "other"
+          }
+        ]
+      }
+    }
+  },
+  "ScanPrograms#empty": {
+    "reply": {
+      "ok": true,
+      "payload": {
+        "programs": []
+      }
     }
   },
   "SessionState": {
@@ -1819,7 +2449,7 @@
             "status": "ok",
             "statusText": "Можно",
             "label": "85",
-            "tooltip": "Осталось 1 ч 25 мин",
+            "tooltip": "Осталось 1 ч 25 мин\nИгры: 20 мин",
             "summary": "Сегодня осталось 1 ч 25 мин из 2 ч",
             "day": "2026-10-19",
             "remainingS": 5100,
@@ -1833,14 +2463,91 @@
             "pauseUntil": "",
             "used": "Сегодня: 35 мин из 2 ч",
             "bonusBalance": 0,
-            "forbiddenNote": ""
+            "forbiddenNote": "",
+            "gamesRemainingS": 1200,
+            "gamesLimitS": 3600,
+            "gamesUnlimited": false,
+            "endMode": "lock",
+            "closeGames": false,
+            "studyOnly": false
           },
           "extraMin": 0,
           "bonusBalance": 0,
           "canClearBlock": false,
-          "noForbiddenToday": false
+          "noForbiddenToday": false,
+          "gamesText": "Игры 40 мин из 1 ч",
+          "pendingPrograms": 0
         },
         "message": "Сегодня запретные часы не действуют"
+      }
+    }
+  },
+  "SetProgramsCategory": {
+    "request": {
+      "paths": [
+        "c:\\program files\\bravesoftware\\brave-browser\\application\\brave.exe"
+      ],
+      "category": "study"
+    },
+    "reply": {
+      "ok": true,
+      "payload": {
+        "message": "Изменено программ: 1",
+        "undoId": "p-4",
+        "undoUntilMs": 1760000010000,
+        "programs": {
+          "pending": [
+            {
+              "path": "c:\\users\\миша\\downloads\\supergame.exe",
+              "name": "SuperGame",
+              "publisher": "Без подписи издателя",
+              "description": "Super Game",
+              "attempts": 4,
+              "lastAttemptAt": 1759996400000,
+              "wasCategory": "games",
+              "byChild": [
+                {
+                  "childId": 1,
+                  "name": "Миша",
+                  "attempts": 3
+                },
+                {
+                  "childId": 2,
+                  "name": "Даша",
+                  "attempts": 1
+                }
+              ]
+            }
+          ],
+          "programs": [
+            {
+              "path": "c:\\program files\\bravesoftware\\brave-browser\\application\\brave.exe",
+              "name": "Brave",
+              "publisher": "Brave Software, Inc.",
+              "category": "other",
+              "source": "snapshot",
+              "weekS": 5400
+            },
+            {
+              "path": "c:\\program files\\minecraft launcher\\minecraftlauncher.exe",
+              "name": "Minecraft Launcher",
+              "publisher": "Mojang",
+              "category": "games",
+              "source": "catalog",
+              "weekS": 0
+            }
+          ],
+          "children": [
+            {
+              "childId": 1,
+              "name": "Миша"
+            },
+            {
+              "childId": 2,
+              "name": "Даша"
+            }
+          ]
+        }
       }
     }
   },
@@ -1855,39 +2562,59 @@
             {
               "weekday": 1,
               "totalMin": 120,
-              "unlimited": false
+              "unlimited": false,
+              "gamesMin": 60,
+              "gamesUnlimited": false
             },
             {
               "weekday": 2,
               "totalMin": 120,
-              "unlimited": false
+              "unlimited": false,
+              "gamesMin": 0,
+              "gamesUnlimited": true
             },
             {
               "weekday": 3,
               "totalMin": 90,
-              "unlimited": false
+              "unlimited": false,
+              "gamesMin": 0,
+              "gamesUnlimited": false
             },
             {
               "weekday": 4,
               "totalMin": 120,
-              "unlimited": false
+              "unlimited": false,
+              "gamesMin": 0,
+              "gamesUnlimited": true
             },
             {
               "weekday": 5,
               "totalMin": 120,
-              "unlimited": false
+              "unlimited": false,
+              "gamesMin": 0,
+              "gamesUnlimited": true
             },
             {
               "weekday": 6,
               "totalMin": 240,
-              "unlimited": false
+              "unlimited": false,
+              "gamesMin": 120,
+              "gamesUnlimited": false
             },
             {
               "weekday": 7,
               "totalMin": 0,
-              "unlimited": true
+              "unlimited": true,
+              "gamesMin": 0,
+              "gamesUnlimited": true
             }
           ]
+        }
+      ],
+      "programs": [
+        {
+          "path": "c:\\program files\\minecraft launcher\\minecraftlauncher.exe",
+          "category": "games"
         }
       ]
     },
@@ -1924,7 +2651,7 @@
             "status": "ok",
             "statusText": "Можно",
             "label": "85",
-            "tooltip": "Осталось 1 ч 25 мин",
+            "tooltip": "Осталось 1 ч 25 мин\nИгры: 20 мин",
             "summary": "Сегодня осталось 1 ч 25 мин из 2 ч",
             "day": "2026-10-19",
             "remainingS": 5100,
@@ -1938,12 +2665,20 @@
             "pauseUntil": "",
             "used": "Сегодня: 35 мин из 2 ч",
             "bonusBalance": 0,
-            "forbiddenNote": ""
+            "forbiddenNote": "",
+            "gamesRemainingS": 1200,
+            "gamesLimitS": 3600,
+            "gamesUnlimited": false,
+            "endMode": "lock",
+            "closeGames": false,
+            "studyOnly": false
           },
           "extraMin": 30,
           "bonusBalance": 0,
           "canClearBlock": false,
-          "noForbiddenToday": false
+          "noForbiddenToday": false,
+          "gamesText": "Игры 40 мин из 1 ч",
+          "pendingPrograms": 0
         },
         "message": "Взято из копилки 30 мин",
         "balanceAfter": 15
@@ -1980,6 +2715,18 @@
       "action": {
         "action": "click",
         "target": "parentPassword"
+      }
+    },
+    "reply": {
+      "ok": true,
+      "payload": {}
+    }
+  },
+  "TestGuard#foreground": {
+    "request": {
+      "action": {
+        "action": "foreground",
+        "text": "c:\\users\\runneradmin\\appdata\\local\\temp\\pcb\\game.exe"
       }
     },
     "reply": {
@@ -2034,7 +2781,7 @@
             "status": "ok",
             "statusText": "Можно",
             "label": "85",
-            "tooltip": "Осталось 1 ч 25 мин",
+            "tooltip": "Осталось 1 ч 25 мин\nИгры: 20 мин",
             "summary": "Сегодня осталось 1 ч 25 мин из 2 ч",
             "day": "2026-10-19",
             "remainingS": 5100,
@@ -2048,14 +2795,86 @@
             "pauseUntil": "",
             "used": "Сегодня: 35 мин из 2 ч",
             "bonusBalance": 0,
-            "forbiddenNote": ""
+            "forbiddenNote": "",
+            "gamesRemainingS": 1200,
+            "gamesLimitS": 3600,
+            "gamesUnlimited": false,
+            "endMode": "lock",
+            "closeGames": false,
+            "studyOnly": false
           },
           "extraMin": 0,
           "bonusBalance": 0,
           "canClearBlock": false,
-          "noForbiddenToday": false
+          "noForbiddenToday": false,
+          "gamesText": "Игры 40 мин из 1 ч",
+          "pendingPrograms": 0
         },
         "message": "Добавленное время отменено"
+      }
+    }
+  },
+  "UndoProgram": {
+    "request": {
+      "undoId": "p-4"
+    },
+    "reply": {
+      "ok": true,
+      "payload": {
+        "message": "Решение отменено",
+        "programs": {
+          "pending": [
+            {
+              "path": "c:\\users\\миша\\downloads\\supergame.exe",
+              "name": "SuperGame",
+              "publisher": "Без подписи издателя",
+              "description": "Super Game",
+              "attempts": 4,
+              "lastAttemptAt": 1759996400000,
+              "wasCategory": "games",
+              "byChild": [
+                {
+                  "childId": 1,
+                  "name": "Миша",
+                  "attempts": 3
+                },
+                {
+                  "childId": 2,
+                  "name": "Даша",
+                  "attempts": 1
+                }
+              ]
+            }
+          ],
+          "programs": [
+            {
+              "path": "c:\\program files\\bravesoftware\\brave-browser\\application\\brave.exe",
+              "name": "Brave",
+              "publisher": "Brave Software, Inc.",
+              "category": "other",
+              "source": "snapshot",
+              "weekS": 5400
+            },
+            {
+              "path": "c:\\program files\\minecraft launcher\\minecraftlauncher.exe",
+              "name": "Minecraft Launcher",
+              "publisher": "Mojang",
+              "category": "games",
+              "source": "catalog",
+              "weekS": 0
+            }
+          ],
+          "children": [
+            {
+              "childId": 1,
+              "name": "Миша"
+            },
+            {
+              "childId": 2,
+              "name": "Даша"
+            }
+          ]
+        }
       }
     }
   },

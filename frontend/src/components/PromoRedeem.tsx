@@ -39,7 +39,7 @@ export default function PromoRedeem({ onRedeemed }: Props) {
   };
 
   return (
-    <div className="promo-redeem" data-help-anchor="promo-redeem">
+    <div className="promo-redeem">
       <label className="field">
         <span className="field-label">Промокод</span>
         <input

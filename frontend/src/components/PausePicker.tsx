@@ -20,7 +20,7 @@ export default function PausePicker({ withMin15 = true, disabled, onPick }: Prop
   const [open, setOpen] = useState(false);
   const options = LABELS.filter((o) => withMin15 || !o.min15);
   return (
-    <div className="pause-picker-wrap" data-help-anchor="child-card-pause">
+    <div className="pause-picker-wrap">
       <button type="button" className="btn" disabled={disabled} aria-expanded={open} onClick={() => setOpen((v) => !v)}>
         Пауза
       </button>

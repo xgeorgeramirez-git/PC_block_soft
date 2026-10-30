@@ -20,6 +20,11 @@ import type {
   Reply,
   TodayCard,
   WeekdayLimit,
+  EndMode,
+  PendingProgramDTO,
+  ProgramCategory,
+  ProgramDTO,
+  ProgramsReply,
 } from "../types";
 
 export const DEFAULT_PASSWORD = "секрет-123";
@@ -56,6 +61,12 @@ export interface MockChild {
   noForbiddenToday?: boolean;
   /** Сейчас запретные часы: «Можно снова: сегодня в 07:00» (R7). Статус forbidden с блокировкой. */
   forbiddenUntil?: string;
+  /** «Когда время вышло» (R8, FR-18); по умолчанию экран блокировки. */
+  endMode?: EndMode;
+  /** Игры за сегодня, секунды (R5); входят и в usedS. */
+  gamesUsedS?: number;
+  /** Учёба за сегодня, секунды (R3); в usedS не входит. */
+  studyUsedS?: number;
 }
 
 /** Промокод в подменной программе (R26, D-50). */
@@ -69,6 +80,8 @@ export interface MockPromo {
 
 export interface MockOptions {
   mode?: string;
+  /** Экран окна родителя по ключу --screen (App.StartScreen, RM3-4); по умолчанию пусто. */
+  startScreen?: string;
   version?: string;
   testMode?: boolean;
   /** Пароль родителя уже задан, мастер пройден. */
@@ -86,8 +99,6 @@ export interface MockOptions {
   children?: MockChild[];
   events?: JournalEntry[];
   notices?: string[];
-  /** Содержимое состояния Помощника. */
-  helper?: Record<string, unknown>;
   /**
    * Чей сеанс у окна ребёнка (MyToday): childId; null - сеанс не ребёнка (родитель в своей учётке).
    * По умолчанию - первый ребёнок.
@@ -97,10 +108,14 @@ export interface MockOptions {
   linkDown?: boolean;
   /** Промокоды на старте (R26). */
   promos?: MockPromo[];
+  /** «Программы» на старте (FR-20); по умолчанию - как в примере контракта ListPrograms. */
+  programs?: ProgramDTO[];
+  pending?: PendingProgramDTO[];
 }
 
 export interface MockState {
   mode: string;
+  startScreen: string;
   version: string;
   testMode: boolean;
   configured: boolean;
@@ -116,7 +131,6 @@ export interface MockState {
   children: MockChild[];
   events: JournalEntry[];
   notices: string[];
-  helper: Record<string, unknown>;
   myChildId: number | null;
   /** Ребёнок нажал «Понятно» в окне первого входа (FirstRunSeen). */
   firstRunSeen: boolean;
@@ -137,6 +151,12 @@ export interface MockState {
   bonusRate: number;
   /** Сколько раз просили открыть папку логов (FR-25, D-48). */
   openLogsCount: number;
+  /** Все программы (FR-20). */
+  programs: ProgramDTO[];
+  /** «Ждут решения» (R12), новые сверху. */
+  pending: PendingProgramDTO[];
+  /** «Отменить» решений по программам: снимок списков до решения. */
+  programUndo: Map<string, { programs: ProgramDTO[]; pending: PendingProgramDTO[]; undoUntilMs: number }>;
 }
 
 export type Override = Reply | "reject" | "garbage" | ((request: any) => Reply | Promise<Reply>);
@@ -205,6 +225,16 @@ function isoDay(ms: number): string {
   return d.toISOString().slice(0, 10);
 }
 
+/** Семь дней лимитов, как их отдаёт служба: с полями игр (нет поля - игры без отдельного лимита). */
+function limitsWithGames(limits: WeekdayLimit[] | null | undefined): WeekdayLimit[] {
+  const src = new Map((limits ?? []).map((l) => [l.weekday, l]));
+  return normalizeLimits(limits).map((l) => {
+    const got = src.get(l.weekday);
+    const gamesUnlimited = got?.gamesUnlimited ?? got?.gamesMin === undefined;
+    return { ...l, gamesMin: gamesUnlimited ? 0 : (got?.gamesMin ?? 0), gamesUnlimited };
+  });
+}
+
 function todayLimit(child: MockChild, nowMs: number): WeekdayLimit {
   const wd = weekdayOfMs(nowMs, localOffsetMin(new Date(nowMs)));
   return normalizeLimits(child.limits)[wd - 1];
@@ -223,7 +253,34 @@ function forbiddenNoteOf(child: MockChild, nowMs: number): string {
 
 /** Статус ребёнка: слова и числа собираются в одном месте, как это делает служба. */
 export function statusOf(child: MockChild, nowMs: number): ChildStatus {
+  const st = statusCore(child, nowMs);
+  // «Оставить только учёбу» (R8): время вышло, а экрана блокировки нет.
+  if (st.studyOnly) {
+    const text = st.lock === "forbidden" ? "Сейчас нельзя пользоваться компьютером. Доступна только учёба" : "Время вышло. Сейчас доступна только учёба";
+    return { ...st, lock: "none", tooltip: text, summary: text, closeGames: true };
+  }
+  return st;
+}
+
+/** Остаток и лимит игр, как их считает ядро (R5): нет лимита игр - всё по нулям. */
+function gamesOf(child: MockChild, nowMs: number) {
+  const limit = todayLimit(child, nowMs);
+  const raw = limitsWithGames(child.limits)[limit.weekday - 1];
+  if (raw.gamesUnlimited) {
+    return { gamesRemainingS: 0, gamesLimitS: 0, gamesUnlimited: true };
+  }
+  const gamesLimitS = Math.max(0, ((raw.gamesMin ?? 0) + child.extraMin) * 60);
+  return { gamesRemainingS: Math.max(0, gamesLimitS - (child.gamesUsedS ?? 0)), gamesLimitS, gamesUnlimited: false };
+}
+
+function statusCore(child: MockChild, nowMs: number): ChildStatus {
+  const games = gamesOf(child, nowMs);
+  const endMode: EndMode = child.endMode ?? "lock";
   const base = {
+    ...games,
+    endMode,
+    closeGames: !games.gamesUnlimited && games.gamesRemainingS === 0,
+    studyOnly: false,
     name: child.name,
     day: isoDay(nowMs),
     usedS: child.usedS,
@@ -248,6 +305,10 @@ export function statusOf(child: MockChild, nowMs: number): ChildStatus {
       unlimited: true,
       lock: "none",
       used: "",
+      gamesRemainingS: 0,
+      gamesLimitS: 0,
+      gamesUnlimited: true,
+      closeGames: false,
     };
   }
   const limit = todayLimit(child, nowMs);
@@ -273,6 +334,8 @@ export function statusOf(child: MockChild, nowMs: number): ChildStatus {
       reason,
       until: child.forbiddenUntil,
       used: usedText,
+      closeGames: true,
+      studyOnly: endMode === "study_only",
     };
   }
 
@@ -308,6 +371,8 @@ export function statusOf(child: MockChild, nowMs: number): ChildStatus {
       pauseUntil: "",
       bonusBalance: 0,
       forbiddenNote: "",
+      closeGames: true,
+      studyOnly: endMode === "study_only",
     };
   }
   const left = formatDuration(remainingS);
@@ -317,13 +382,15 @@ export function statusOf(child: MockChild, nowMs: number): ChildStatus {
     status: low ? "low" : "ok",
     statusText: low ? `Осталось ${left}` : "Можно",
     label: String(Math.floor(remainingS / 60)),
-    tooltip: `Осталось ${left}`,
+    tooltip: games.gamesUnlimited
+      ? `Осталось ${left}`
+      : `Осталось ${left}\nИгры: ${formatDuration(Math.ceil(games.gamesRemainingS / 60) * 60)}`,
     summary: `Сегодня осталось ${left} из ${formatLimit(limitMin)}`,
     lock: "none",
   };
 }
 
-function cardOf(child: MockChild, nowMs: number): TodayCard {
+function cardOf(child: MockChild, nowMs: number, pendingPrograms = 0): TodayCard {
   return {
     childId: child.childId,
     sid: child.sid,
@@ -333,16 +400,46 @@ function cardOf(child: MockChild, nowMs: number): TodayCard {
     bonusBalance: child.bonusBalance ?? 0,
     canClearBlock: false,
     noForbiddenToday: Boolean(child.noForbiddenToday),
+    gamesText: gamesTextOf(child, nowMs),
+    pendingPrograms,
   };
+}
+
+/** «Игры 40 мин из 1 ч» (8.3.2 п.3), как ipc.GamesCardText; без лимита игр - пусто. */
+function gamesTextOf(child: MockChild, nowMs: number): string {
+  const g = gamesOf(child, nowMs);
+  if (g.gamesUnlimited) return "";
+  return `Игры ${formatDuration(child.gamesUsedS ?? 0)} из ${formatLimit(g.gamesLimitS / 60)}`;
 }
 
 /** «Мои правила» текстом, как их собирает служба: «2 ч», «Без лимита», «Нельзя». */
 function myRules(child: MockChild): MyRule[] {
-  return normalizeLimits(child.limits).map((l) => ({
+  const days: MyRule[] = normalizeLimits(child.limits).map((l) => ({
     weekday: l.weekday,
     day: weekdayShort(l.weekday),
     text: l.unlimited ? "Без лимита" : l.totalMin === 0 ? "Нельзя" : formatLimit(l.totalMin),
   }));
+  // Общие правила после дней (R21), как у службы: лимит игр и «Когда время вышло».
+  const games = gamesRuleText(limitsWithGames(child.limits));
+  if (games) days.push({ weekday: 0, day: "", text: games });
+  days.push({
+    weekday: 0,
+    day: "",
+    text: child.endMode === "study_only" ? "Когда время вышло: остаётся только учёба" : "Когда время вышло: экран блокировки",
+  });
+  return days;
+}
+
+/** «Игры: до 1 ч в день» / «Игры: пн до 1 ч, ср нельзя» (как gamesRuleText службы). */
+function gamesRuleText(limits: WeekdayLimit[]): string {
+  const word = (min: number) => (min === 0 ? "нельзя" : `до ${formatLimit(min)}`);
+  const limited = limits.filter((l) => !l.gamesUnlimited);
+  if (!limited.length) return "";
+  const first = limited[0].gamesMin ?? 0;
+  if (limited.length === 7 && limited.every((l) => (l.gamesMin ?? 0) === first)) {
+    return first === 0 ? "Игры: нельзя" : `Игры: ${word(first)} в день`;
+  }
+  return `Игры: ${limited.map((l) => `${weekdayShort(l.weekday)} ${word(l.gamesMin ?? 0)}`).join(", ")}`;
 }
 
 /** Ответ MyToday ребёнка: строки «Сегодня» и правила. Не ребёнок - пустые списки (не null). */
@@ -355,7 +452,7 @@ function myToday(child: MockChild | undefined, nowMs: number): MyTodayReply {
   if (status.lock === "timeUp" && status.until) {
     today.push(status.until);
   }
-  return { status, today, rules: myRules(child) };
+  return { status, today, rules: myRules(child), gamesS: child.gamesUsedS ?? 0, studyS: child.studyUsedS ?? 0 };
 }
 
 const PARENT_COMMANDS = new Set([
@@ -368,8 +465,6 @@ const PARENT_COMMANDS = new Set([
   "ListEvents",
   "ChangePassword",
   "SetChildren",
-  "GetHelperState",
-  "SaveHelperState",
   "ExtendSession",
   "Logout",
   "GetSchedule",
@@ -393,6 +488,10 @@ const PARENT_COMMANDS = new Set([
   "GetBonusRate",
   "SetBonusRate",
   "OpenLogs",
+  "ListPrograms",
+  "DecideProgram",
+  "SetProgramsCategory",
+  "UndoProgram",
 ]);
 
 /** Нормализация промокода как в ядре (R26): без пробелов по краям и без учёта регистра. */
@@ -404,6 +503,7 @@ function makeState(opts: MockOptions): MockState {
   const attempts = opts.attempts ?? 5;
   return {
     mode: opts.mode ?? "window",
+    startScreen: opts.startScreen ?? "",
     version: opts.version ?? DEFAULT_VERSION,
     testMode: opts.testMode ?? false,
     configured,
@@ -419,7 +519,6 @@ function makeState(opts: MockOptions): MockState {
     children,
     events: opts.events ?? [],
     notices: opts.notices ?? [],
-    helper: opts.helper ?? {},
     myChildId: opts.myChildId === undefined ? (children[0]?.childId ?? null) : opts.myChildId,
     firstRunSeen: false,
     openedWindows: [],
@@ -433,7 +532,23 @@ function makeState(opts: MockOptions): MockState {
     promos: opts.promos ?? [],
     bonusRate: 5,
     openLogsCount: 0,
+    programs: (opts.programs ?? exampleProgramsReply().programs).map((p) => ({ ...p })),
+    pending: (opts.pending ?? exampleProgramsReply().pending).map((p) => ({ ...p, byChild: [...p.byChild] })),
+    programUndo: new Map(),
   };
+}
+
+/** «Программы» из примера контракта (копия). */
+function exampleProgramsReply(): ProgramsReply {
+  return JSON.parse(JSON.stringify(examples.ListPrograms.reply.payload)) as ProgramsReply;
+}
+
+const PROGRAM_CATEGORY_WORD: Record<string, string> = { games: "игра", study: "учёба", other: "прочее", blocked: "запрещена" };
+const PROGRAM_CATEGORY_TITLE: Record<string, string> = { games: "Игры", study: "Учёба", other: "Прочее" };
+
+/** Строка журнала о решении родителя, как у службы (R22): «Вы отнесли «X» к категории «Игры»». */
+function programDecidedText(name: string, category: string): string {
+  return category === "blocked" ? `Вы запретили «${name}»` : `Вы отнесли «${name}» к категории «${PROGRAM_CATEGORY_TITLE[category]}»`;
 }
 
 export function createBackend(opts: MockOptions = {}): MockBackend {
@@ -459,6 +574,23 @@ export function createBackend(opts: MockOptions = {}): MockBackend {
     });
   };
   const childById = (id: number) => state.children.find((c) => c.childId === id);
+  const card = (child: MockChild, now: number) => cardOf(child, now, state.pending.length);
+  const programsReply = (): ProgramsReply => ({
+    pending: state.pending.map((p) => ({ ...p, byChild: [...p.byChild] })),
+    programs: [...state.programs].sort((a, b) => a.name.localeCompare(b.name)),
+    children: state.children.map((c) => ({ childId: c.childId, name: c.name })),
+  });
+  const rememberUndo = (now: number) => {
+    const undoId = `p-${state.nextExtraId++}`;
+    state.programUndo.clear(); // как служба: отменить можно только последнюю операцию
+    state.programUndo.set(undoId, {
+      programs: state.programs.map((p) => ({ ...p })),
+      pending: state.pending.map((p) => ({ ...p, byChild: [...p.byChild] })),
+      undoUntilMs: now + UNDO_WINDOW_MS,
+    });
+    return { undoId, undoUntilMs: now + UNDO_WINDOW_MS };
+  };
+  const parentCategory = (c: unknown): c is ProgramCategory => typeof c === "string" && c in PROGRAM_CATEGORY_WORD;
 
   // Неверный пароль: считаем попытки, после серии закрываем ввод на паузу (R19).
   const deny = (now: number): Reply => {
@@ -489,6 +621,9 @@ export function createBackend(opts: MockOptions = {}): MockBackend {
     for (const l of limits) {
       if (!l.unlimited && l.totalMin > MAX_LIMIT_MIN) {
         return fail("Не больше 24 ч", `limits.${l.weekday}`);
+      }
+      if (l.gamesUnlimited === false && (l.gamesMin ?? 0) > MAX_LIMIT_MIN) {
+        return fail("Не больше 24 ч", `games.${l.weekday}`);
       }
     }
     return null;
@@ -573,24 +708,34 @@ export function createBackend(opts: MockOptions = {}): MockBackend {
     },
 
     GetToday: (_req, now) =>
-      okReply({ children: state.children.map((c) => cardOf(c, now)), notices: [...state.notices] }),
+      okReply({ children: state.children.map((c) => card(c, now)), notices: [...state.notices] }),
 
     GetChildRules: (req) => {
       const child = childById(req.childId);
       if (!child) return fail("Ребёнок не найден");
-      return okReply({ childId: child.childId, name: child.name, limits: normalizeLimits(child.limits) });
+      return okReply({ childId: child.childId, name: child.name, limits: limitsWithGames(child.limits), endMode: child.endMode ?? "lock" });
     },
 
     SaveLimits: (req, now) => {
       const child = childById(req.childId);
       if (!child) return fail("Ребёнок не найден");
-      const bad = limitsError(req.limits ?? []);
-      if (bad) return bad;
-      child.limits = normalizeLimits(req.limits);
-      addEvent(now, child, "settings", `${child.name}: лимиты изменены`);
+      if (req.endMode && req.endMode !== "lock" && req.endMode !== "study_only") {
+        return fail("Выберите, что делать, когда время вышло", "endMode");
+      }
+      const onlyMode = !(req.limits ?? []).length && Boolean(req.endMode);
+      if (!onlyMode) {
+        const bad = limitsError(req.limits ?? []);
+        if (bad) return bad;
+        child.limits = limitsWithGames(req.limits);
+        addEvent(now, child, "settings", `${child.name}: лимиты изменены`);
+      }
+      if (req.endMode && req.endMode !== (child.endMode ?? "lock")) {
+        child.endMode = req.endMode;
+        addEvent(now, child, "settings", `${child.name}: изменён режим, когда время вышло`);
+      }
       return okReply({
-        rules: { childId: child.childId, name: child.name, limits: child.limits },
-        card: cardOf(child, now),
+        rules: { childId: child.childId, name: child.name, limits: limitsWithGames(child.limits), endMode: child.endMode ?? "lock" },
+        card: card(child, now),
         message: "Сохранено. Новые правила уже действуют",
       });
     },
@@ -609,7 +754,7 @@ export function createBackend(opts: MockOptions = {}): MockBackend {
       }
       child.schedule = (req.intervals ?? []) as Interval[];
       addEvent(now, child, "settings", `${child.name}: запретные часы изменены`);
-      return okReply({ intervals: child.schedule, card: cardOf(child, now), message: "Сохранено. Новые правила уже действуют" });
+      return okReply({ intervals: child.schedule, card: card(child, now), message: "Сохранено. Новые правила уже действуют" });
     },
 
     CopyRules: (req, now) => {
@@ -617,7 +762,12 @@ export function createBackend(opts: MockOptions = {}): MockBackend {
       const to = childById(req.toChildId);
       if (!from || !to) return fail("Ребёнок не найден");
       void now;
-      return okReply({ limits: normalizeLimits(from.limits), intervals: from.schedule ?? [], message: "Правила скопированы. Проверьте и сохраните" });
+      return okReply({
+        limits: limitsWithGames(from.limits),
+        intervals: from.schedule ?? [],
+        endMode: from.endMode ?? "lock",
+        message: "Правила скопированы. Проверьте и сохраните",
+      });
     },
 
     GetBonus: (req) => {
@@ -659,12 +809,12 @@ export function createBackend(opts: MockOptions = {}): MockBackend {
       if (!child) return fail("Ребёнок не найден");
       child.pauseUntil = "18:30";
       addEvent(now, child, "pause", `${child.name}: пауза`);
-      return okReply({ card: cardOf(child, now), message: "Пауза до 18:30" });
+      return okReply({ card: card(child, now), message: "Пауза до 18:30" });
     },
 
     PauseAll: (_req, now) => {
       for (const c of state.children) c.pauseUntil = "18:30";
-      return okReply({ children: state.children.map((c) => cardOf(c, now)), message: "Пауза для всех детей на 1 ч" });
+      return okReply({ children: state.children.map((c) => card(c, now)), message: "Пауза для всех детей на 1 ч" });
     },
 
     AddExtra: (req, now) => {
@@ -679,7 +829,7 @@ export function createBackend(opts: MockOptions = {}): MockBackend {
       state.extras.push(extra);
       addEvent(now, child, "extra_time", `${child.name}: доп. время +${m} мин`);
       return okReply({
-        card: cardOf(child, now),
+        card: card(child, now),
         message: `Добавлено ${m} ${minutesWord(m)}`,
         extraId: extra.id,
         undoUntilMs: extra.undoUntilMs,
@@ -698,11 +848,11 @@ export function createBackend(opts: MockOptions = {}): MockBackend {
       const newExtra = Math.max(child.extraMin - m, floor);
       const removed = child.extraMin - newExtra;
       child.extraMin = newExtra;
-      if (removed === 0) return okReply({ card: cardOf(child, now), message: "Убирать нечего" });
+      if (removed === 0) return okReply({ card: card(child, now), message: "Убирать нечего" });
       const extra = { id: `e-${state.nextExtraId++}`, childId: child.childId, delta: -removed, undoUntilMs: now + UNDO_WINDOW_MS };
       state.extras.push(extra);
       addEvent(now, child, "extra_time", `${child.name}: доп. время −${removed} мин`);
-      return okReply({ card: cardOf(child, now), message: `Убрано ${removed} ${minutesWord(removed)}`, extraId: extra.id, undoUntilMs: extra.undoUntilMs });
+      return okReply({ card: card(child, now), message: `Убрано ${removed} ${minutesWord(removed)}`, extraId: extra.id, undoUntilMs: extra.undoUntilMs });
     },
 
     // Обнулить доп. время (R10, D-43, «Убрать доп. время»).
@@ -711,11 +861,11 @@ export function createBackend(opts: MockOptions = {}): MockBackend {
       if (!child) return fail("Ребёнок не найден");
       const removed = child.extraMin;
       child.extraMin = 0;
-      if (removed === 0) return okReply({ card: cardOf(child, now), message: "Доп. времени нет" });
+      if (removed === 0) return okReply({ card: card(child, now), message: "Доп. времени нет" });
       const extra = { id: `e-${state.nextExtraId++}`, childId: child.childId, delta: -removed, undoUntilMs: now + UNDO_WINDOW_MS };
       state.extras.push(extra);
       addEvent(now, child, "extra_time", `${child.name}: доп. время убрано`);
-      return okReply({ card: cardOf(child, now), message: "Доп. время убрано", extraId: extra.id, undoUntilMs: extra.undoUntilMs });
+      return okReply({ card: card(child, now), message: "Доп. время убрано", extraId: extra.id, undoUntilMs: extra.undoUntilMs });
     },
 
     UndoExtra: (req, now) => {
@@ -725,14 +875,14 @@ export function createBackend(opts: MockOptions = {}): MockBackend {
       if (now > extra.undoUntilMs) return fail("Отменить уже нельзя: прошло больше 10 секунд");
       child.extraMin -= extra.delta;
       state.extras = state.extras.filter((e) => e !== extra);
-      return okReply({ card: cardOf(child, now), message: "Изменение доп. времени отменено" });
+      return okReply({ card: card(child, now), message: "Изменение доп. времени отменено" });
     },
 
     ClearBlock: (req, now) => {
       const child = childById(req.childId);
       if (!child) return fail("Ребёнок не найден");
       child.blocked = false;
-      return okReply({ card: cardOf(child, now), message: "Блокировка снята" });
+      return okReply({ card: card(child, now), message: "Блокировка снята" });
     },
 
     ParentStats: (req, now) => {
@@ -802,7 +952,7 @@ export function createBackend(opts: MockOptions = {}): MockBackend {
       child.noForbiddenToday = Boolean(req.on);
       addEvent(now, child, "no_forbidden", `${child.name}: запретные часы сегодня ${req.on ? "сняты" : "снова действуют"}`);
       return okReply({
-        card: cardOf(child, now),
+        card: card(child, now),
         message: req.on ? "Сегодня запретные часы не действуют" : "Запретные часы снова действуют сегодня",
       });
     },
@@ -863,7 +1013,7 @@ export function createBackend(opts: MockOptions = {}): MockBackend {
       promo.usedByChild = child.childId;
       child.extraMin += promo.minutes;
       addEvent(now, child, "promo_redeem", `${child.name}: промокод «${promo.codeDisplay}» +${promo.minutes} мин`);
-      return okReply({ card: cardOf(child, now), addedMin: promo.minutes, message: `Добавлено ${promo.minutes} ${minutesWord(promo.minutes)}` });
+      return okReply({ card: card(child, now), addedMin: promo.minutes, message: `Добавлено ${promo.minutes} ${minutesWord(promo.minutes)}` });
     },
 
     // --- Окно ребёнка (D-53): «Попросить ещё», «Взять из копилки», «Настройки для родителя» ---
@@ -880,7 +1030,7 @@ export function createBackend(opts: MockOptions = {}): MockBackend {
       state.attemptsLeft = state.attemptsMax;
       child.extraMin += req.minutes;
       addEvent(now, child, "extra_time", `${child.name}: доп. время +${req.minutes} мин`);
-      return okReply({ card: cardOf(child, now), message: `Добавлено ${req.minutes} ${minutesWord(req.minutes)}` });
+      return okReply({ card: card(child, now), message: `Добавлено ${req.minutes} ${minutesWord(req.minutes)}` });
     },
 
     SpendBonus: (req, now) => {
@@ -903,12 +1053,13 @@ export function createBackend(opts: MockOptions = {}): MockBackend {
         ...(child.bonusLedger ?? []),
       ];
       addEvent(now, child, "bonus_spend", `${child.name}: из копилки -${m} мин`);
-      return okReply({ card: cardOf(child, now), message: `Взято из копилки ${m} мин`, balanceAfter: after });
+      return okReply({ card: card(child, now), message: `Взято из копилки ${m} мин`, balanceAfter: after });
     },
 
     OpenWindow: (req) => {
       if (!["parent", "mystats", "firstrun"].includes(req.kind)) return fail("Не получилось открыть окно. Попробуй ещё раз");
-      state.openedWindows.push(req.kind);
+      if (req.screen !== undefined && req.screen !== "programs") return fail(examples["OpenWindow#badScreen"].reply.error ?? "");
+      state.openedWindows.push(req.screen ? `${req.kind}:${req.screen}` : req.kind);
       return okReply({ opened: true });
     },
 
@@ -917,19 +1068,65 @@ export function createBackend(opts: MockOptions = {}): MockBackend {
       return okReply({ path: MOCK_LOGS_PATH, message: "Открываю папку с логами" });
     },
 
+    // --- M3: программы (FR-20) -----------------------------------------------------
+
+    ListPrograms: () => okReply(programsReply()),
+
+    DecideProgram: (req, now) => {
+      if (!parentCategory(req.category)) return fail("Выберите: игра, учёба, прочее или запретить", "category");
+      const path = (req.path ?? "").toLowerCase();
+      const p = state.pending.find((x) => x.path === path);
+      const known = state.programs.find((x) => x.path === path);
+      // Как служба: ждущая программа или уже в списке, иначе отказ.
+      if (!p && !known) return fail("Такой программы нет в списке");
+      const undo = rememberUndo(now);
+      const name = p?.name ?? known?.name ?? "";
+      if (p) {
+        state.pending = state.pending.filter((x) => x !== p);
+        state.programs = state.programs.filter((x) => x.path !== p.path);
+        state.programs.push({ path: p.path, name: p.name, publisher: p.publisher, category: req.category, source: "parent", weekS: 0 });
+      } else if (known) {
+        known.category = req.category;
+        known.source = "parent";
+      }
+      addEvent(now, undefined, "program_decided", programDecidedText(name, req.category));
+      return okReply({ message: `${name}: ${PROGRAM_CATEGORY_WORD[req.category]}`, ...undo, programs: programsReply() });
+    },
+
+    SetProgramsCategory: (req, now) => {
+      if (!parentCategory(req.category)) return fail("Выберите: игра, учёба, прочее или запретить", "category");
+      const paths = new Set<string>((req.paths ?? []).map((x: string) => x.toLowerCase()));
+      if (paths.size > 200) return fail("Можно изменить не больше 200 программ за раз");
+      if (!state.programs.some((p) => paths.has(p.path))) return fail("Такой программы нет в списке");
+      const undo = rememberUndo(now);
+      let n = 0;
+      for (const p of state.programs) {
+        if (paths.has(p.path) && (p.category !== req.category || p.source !== "parent")) {
+          p.category = req.category;
+          p.source = "parent";
+          n += 1;
+        }
+      }
+      return okReply({ message: `Изменено программ: ${n}`, ...undo, programs: programsReply() });
+    },
+
+    UndoProgram: (req, now) => {
+      const rec = state.programUndo.get(req.undoId);
+      if (!rec) return fail("Отменить уже нельзя");
+      if (now >= rec.undoUntilMs) return fail("Отменить уже нельзя");
+      state.programUndo.delete(req.undoId);
+      addEvent(now, undefined, "program_undone", "Решение по программам отменено");
+      state.programs = rec.programs;
+      state.pending = rec.pending;
+      return okReply({ message: "Решение отменено", programs: programsReply() });
+    },
+
     GetBonusRate: () => okReply({ minutes: state.bonusRate }),
 
     SetBonusRate: (req) => {
       if (!Number.isInteger(req.minutes) || req.minutes < 0 || req.minutes > 600) return fail("Можно от 0 до 600 минут", "minutes");
       state.bonusRate = req.minutes;
       return okReply({ minutes: state.bonusRate });
-    },
-
-    GetHelperState: () => okReply({ state: state.helper }),
-
-    SaveHelperState: (req) => {
-      state.helper = req.state ?? {};
-      return okReply();
     },
   };
 
@@ -992,6 +1189,7 @@ export function installBackend(opts: MockOptions = {}, target: Window = window):
       App: {
         Call: (command, payload) => backend.call(command, payload),
         Mode: () => Promise.resolve(backend.state.mode),
+        StartScreen: () => Promise.resolve(backend.state.startScreen),
         Version: () => Promise.resolve(backend.state.version),
         Finish: (code) => {
           backend.state.finishCode = code;

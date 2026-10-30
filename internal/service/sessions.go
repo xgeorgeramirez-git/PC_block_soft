@@ -132,6 +132,10 @@ func (s *Service) noteSessionState(ev SessionEvent, id uint32) {
 		// Номер сеанса прочитать не удалось: экран уже перечитан сверкой со списком Windows,
 		// блокировку по такому событию не ставим (её видит страж), а разблокировку, вход и
 		// подключение применяем ко всем сеансам: лишний сброс безвреден, страж поправит.
+		// Удержание отключения (offHold) такое подключение НЕ снимает (B-26): при смене
+		// пользователя это обычно подключение родителя, а список Windows ещё говорит «ребёнок
+		// активен» — снятое удержание засчитало бы ребёнку время у чужого экрана (S33). Цена —
+		// не больше offHoldFor неучтённого времени, если подключился сам ребёнок.
 		if ev == SessionUnlock || ev == SessionLogon || ev == SessionConnect {
 			for _, ss := range s.sessions {
 				ss.locked = false
@@ -560,7 +564,7 @@ func (s *Service) superviseWindow(ss *sessState, kind string, sp *supProc, real 
 		return
 	}
 	s.deferBypass(ss, detailWindowClosed, "window_closed", real, bypassGrace)
-	if _, err := s.openWindow(ss, kind, false, real); err != nil {
+	if _, err := s.openWindow(ss, kind, "", false, real); err != nil {
 		s.logRate(fmt.Sprint("reopen", ss.id), "окно %s не открыто заново: %v", kind, err)
 	}
 }
@@ -579,10 +583,12 @@ func windowFlag(kind string) (string, bool) {
 }
 
 // openWindow открывает окно в сеансе от имени его пользователя. Окно уже открыто: ничего не
-// делает. handover (только для окна родителя): окно получает родительскую сессию, токен
+// делает (открытое окно родителя не переводится на другой экран: в нём может быть несохранённое).
+// screen (только окно родителя): экран, на котором оно откроется, ключом --screen (RM3-4).
+// handover (только для окна родителя): окно получает родительскую сессию, токен
 // передаётся ключом запуска и привязывается к процессу окна здесь же, под той же блокировкой,
 // поэтому окно не успеет прийти со своим запросом раньше привязки.
-func (s *Service) openWindow(ss *sessState, kind string, handover bool, real time.Time) (bool, error) {
+func (s *Service) openWindow(ss *sessState, kind, screen string, handover bool, real time.Time) (bool, error) {
 	flag, ok := windowFlag(kind)
 	if !ok {
 		return false, fmt.Errorf("неизвестный вид окна %q", kind)
@@ -598,6 +604,9 @@ func (s *Service) openWindow(ss *sessState, kind string, handover bool, real tim
 		delete(ss.windows, kind)
 	}
 	args := []string{flag}
+	if arg := launch.ScreenArg(screen); arg != "" && kind == ipc.WindowParent {
+		args = append(args, arg)
+	}
 	var tok string
 	if handover {
 		if tok = s.cfg.Rand(); tok == "" {

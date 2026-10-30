@@ -58,16 +58,24 @@ const (
 
 func weekLimits() []WeekdayLimit {
 	return []WeekdayLimit{
-		{Weekday: 1, TotalMin: 120}, {Weekday: 2, TotalMin: 120}, {Weekday: 3, TotalMin: 90},
-		{Weekday: 4, TotalMin: 120}, {Weekday: 5, TotalMin: 120}, {Weekday: 6, TotalMin: 240},
-		{Weekday: 7, Unlimited: true},
+		{Weekday: 1, TotalMin: 120, GamesMin: 60}, {Weekday: 2, TotalMin: 120, GamesUnlimited: true}, {Weekday: 3, TotalMin: 90, GamesMin: 0},
+		{Weekday: 4, TotalMin: 120, GamesUnlimited: true}, {Weekday: 5, TotalMin: 120, GamesUnlimited: true}, {Weekday: 6, TotalMin: 240, GamesMin: 120},
+		{Weekday: 7, Unlimited: true, GamesUnlimited: true},
 	}
 }
 
 func okStatus() ChildStatus {
 	return ChildStatusFrom("Миша", core.Decision{
 		Day: "2026-10-19", Status: core.StatusOK, RemainingS: 85 * 60, LimitS: 120 * 60, UsedS: 35 * 60,
-		Used: "Сегодня: 35 мин из 2 ч",
+		Used: "Сегодня: 35 мин из 2 ч", GamesRemainingS: 20 * 60, GamesLimitS: 60 * 60,
+	})
+}
+
+// studyOnlyStatus — время вышло в режиме «Оставить только учёбу» (R8): экрана нет.
+func studyOnlyStatus() ChildStatus {
+	return ChildStatusFrom("Миша", core.Decision{
+		Day: "2026-10-19", Status: core.StatusTimeUp, StudyOnly: true, CloseReason: core.StudyOnlyPlateText,
+		Until: "Можно снова: завтра", Used: "Сегодня: 2 ч 00 мин из 2 ч", LimitS: 7200, UsedS: 7200, GamesUnlimited: true,
 	})
 }
 
@@ -86,21 +94,52 @@ func bypassStatus() ChildStatus {
 }
 
 func card(st ChildStatus, extra int, canClear bool) TodayCard {
-	return TodayCard{ChildID: 1, SID: "S-1-5-21-111-222-333-1001", Name: "Миша", Status: st, ExtraMin: extra, CanClearBlock: canClear}
+	c := TodayCard{ChildID: 1, SID: "S-1-5-21-111-222-333-1001", Name: "Миша", Status: st, ExtraMin: extra, CanClearBlock: canClear}
+	if st.GamesLimitS > 0 {
+		c.GamesText = GamesCardText(st.GamesLimitS-st.GamesRemainingS, st.GamesLimitS, false)
+	}
+	return c
+}
+
+// withPending — карточка со ссылкой «Ждут решения: N» (8.3.2 п.5).
+func withPending(c TodayCard, n int) TodayCard {
+	c.PendingPrograms = n
+	return c
+}
+
+// programsReply — «Программы»: одна ждёт решения (Миша 3 попытки, Даша 1), две в списке.
+func programsReply() ProgramsReply {
+	return ProgramsReply{
+		Pending: []PendingProgramDTO{{
+			Path: `c:\users\миша\downloads\supergame.exe`, Name: "SuperGame", Publisher: "Без подписи издателя", Description: "Super Game",
+			Attempts: 4, LastAttemptAt: t0 - 3_600_000, WasCategory: ProgramCatGames,
+			ByChild: []PendingChildDTO{{ChildID: 1, Name: "Миша", Attempts: 3}, {ChildID: 2, Name: "Даша", Attempts: 1}},
+		}},
+		Programs: []ProgramDTO{
+			{Path: `c:\program files\bravesoftware\brave-browser\application\brave.exe`, Name: "Brave", Publisher: "Brave Software, Inc.",
+				Category: ProgramCatOther, Source: ProgramSourceSnapshot, WeekS: 5400},
+			{Path: `c:\program files\minecraft launcher\minecraftlauncher.exe`, Name: "Minecraft Launcher", Publisher: "Mojang",
+				Category: ProgramCatGames, Source: ProgramSourceCatalog, WeekS: 0},
+		},
+		Children: []ChildName{{ChildID: 1, Name: "Миша"}, {ChildID: 2, Name: "Даша"}},
+	}
 }
 
 func childRules() ChildRules {
-	return ChildRules{ChildID: 1, Name: "Миша", Limits: weekLimits()}
+	return ChildRules{ChildID: 1, Name: "Миша", Limits: weekLimits(), EndMode: EndModeLock}
 }
 
 // examples — по одному примеру на каждую команду из AllCommands и варианты с пустыми массивами и отказами.
 func examples() map[string]example {
 	return map[string]example{
-		CmdHello:                  ok(nil, HelloReply{Protocol: ProtocolVersion, Version: "0.1.0", TestMode: false, Configured: true}),
-		CmdGetChildStatus:         ok(nil, okStatus()),
-		"GetChildStatus#notChild": ok(nil, ChildStatusNotChild()),
-		CmdOpenWindow:             ok(OpenWindowRequest{Kind: WindowParent}, OpenWindowReply{Opened: true}),
-		CmdWindowClosing:          ok(WindowClosingRequest{Kind: WindowMyStats}, Empty{}),
+		CmdHello:                   ok(nil, HelloReply{Protocol: ProtocolVersion, Version: "0.1.0", TestMode: false, Configured: true}),
+		CmdGetChildStatus:          ok(nil, okStatus()),
+		"GetChildStatus#notChild":  ok(nil, ChildStatusNotChild()),
+		"GetChildStatus#studyOnly": ok(nil, studyOnlyStatus()),
+		CmdOpenWindow:              ok(OpenWindowRequest{Kind: WindowParent}, OpenWindowReply{Opened: true}),
+		"OpenWindow#programs":      ok(OpenWindowRequest{Kind: WindowParent, Screen: ScreenPrograms}, OpenWindowReply{Opened: true}),
+		"OpenWindow#badScreen":     fail(OpenWindowRequest{Kind: WindowParent, Screen: "nope"}, TextBadRequest, "", nil),
+		CmdWindowClosing:           ok(WindowClosingRequest{Kind: WindowMyStats}, Empty{}),
 
 		CmdListAccounts: ok(nil, ListAccountsReply{Accounts: []Account{
 			{SID: "S-1-5-21-111-222-333-1000", Name: "Анна", Admin: true, Current: true},
@@ -111,6 +150,7 @@ func examples() map[string]example {
 		CmdSetup: ok(SetupRequest{
 			Password: "секрет-123",
 			Children: []SetupChild{{SID: "S-1-5-21-111-222-333-1001", Name: "Миша", Limits: weekLimits()}},
+			Programs: []SetupProgram{{Path: `c:\program files\minecraft launcher\minecraftlauncher.exe`, Category: ProgramCatGames}},
 		}, Empty{}),
 		"Setup#invalid":   fail(SetupRequest{Password: "123"}, "Не меньше 6 символов", FieldPassword, nil),
 		CmdResetPassword:  ok(ResetPasswordRequest{NewPassword: "новый-секрет"}, Empty{}),
@@ -127,7 +167,7 @@ func examples() map[string]example {
 		CmdLogout:        ok(nil, Empty{}),
 		CmdSessionState:  ok(nil, SessionStateReply{Active: true, ExpiresMs: t0 + 540_000, RemainingS: 540}),
 		CmdGetToday: ok(nil, GetTodayReply{
-			Children: []TodayCard{card(okStatus(), 0, false), card(bypassStatus(), 30, true)},
+			Children: []TodayCard{withPending(card(okStatus(), 0, false), 2), withPending(card(bypassStatus(), 30, true), 2)},
 			Notices:  []string{},
 		}),
 		"GetToday#notices": ok(nil, GetTodayReply{
@@ -136,11 +176,15 @@ func examples() map[string]example {
 		}),
 		"GetToday#empty": ok(nil, GetTodayReply{}),
 		CmdGetChildRules: ok(ChildRequest{ChildID: 1}, childRules()),
-		CmdSaveLimits: ok(SaveLimitsRequest{ChildID: 1, Limits: weekLimits()}, SaveLimitsReply{
+		CmdSaveLimits: ok(SaveLimitsRequest{ChildID: 1, Limits: weekLimits(), EndMode: EndModeLock}, SaveLimitsReply{
 			Rules: childRules(), Card: card(okStatus(), 0, false), Message: "Сохранено. Новые правила уже действуют",
 		}),
 		"SaveLimits#invalid": fail(SaveLimitsRequest{ChildID: 1, Limits: []WeekdayLimit{{Weekday: 3, TotalMin: 2000}}},
 			"Не больше 24 ч", LimitField(3), nil),
+		"SaveLimits#endMode": ok(SaveLimitsRequest{ChildID: 1, Limits: []WeekdayLimit{}, EndMode: EndModeStudyOnly}, SaveLimitsReply{
+			Rules: ChildRules{ChildID: 1, Name: "Миша", Limits: weekLimits(), EndMode: EndModeStudyOnly}, Card: card(okStatus(), 0, false),
+			Message: "Сохранено. Новые правила уже действуют",
+		}),
 		CmdAddExtra: ok(AddExtraRequest{ChildID: 1, Minutes: 30}, AddExtraReply{
 			Card: card(okStatus(), 30, false), Message: "Добавлено 30 минут", ExtraID: "e-17", UndoUntilMs: t0 + 10_000,
 		}),
@@ -197,10 +241,7 @@ func examples() map[string]example {
 			{ChildID: 1, SID: "S-1-5-21-111-222-333-1001", Name: "Михаил"},
 			{ChildID: 4, SID: "S-1-5-21-111-222-333-1002", Name: "Даша"},
 		}}),
-		"SetChildren#empty":    ok(SetChildrenRequest{}, SetChildrenReply{}),
-		CmdGetHelperState:      ok(nil, HelperState{State: json.RawMessage(`{"enabled":true,"seen":["H-M1-01"],"snoozed":{}}`)}),
-		"GetHelperState#empty": ok(nil, HelperState{}),
-		CmdSaveHelperState:     ok(HelperState{State: json.RawMessage(`{"enabled":true,"seen":["H-M1-01","H-M1-02"],"snoozed":{}}`)}, Empty{}),
+		"SetChildren#empty": ok(SetChildrenRequest{}, SetChildrenReply{}),
 
 		// M2: расписание, пауза, копилка.
 		CmdGetSchedule: ok(GetScheduleRequest{ChildID: 1}, GetScheduleReply{ChildID: 1, Intervals: []Interval{
@@ -228,7 +269,8 @@ func examples() map[string]example {
 		}}),
 		"GetBonus#empty": ok(GetBonusRequest{ChildID: 1}, GetBonusReply{ChildID: 1, Entries: []BonusEntry{}}),
 		CmdCopyRules: ok(CopyRulesRequest{FromChildID: 2, ToChildID: 1}, CopyRulesReply{
-			Limits: weekLimits(), Intervals: []Interval{{Weekday: 1, StartMin: 1260, EndMin: 420}}, Message: "Правила скопированы. Проверьте и сохраните",
+			Limits: weekLimits(), Intervals: []Interval{{Weekday: 1, StartMin: 1260, EndMin: 420}}, EndMode: EndModeStudyOnly,
+			Message: "Правила скопированы. Проверьте и сохраните",
 		}),
 		CmdAskMore: ok(AskMoreRequest{ChildID: 1, Minutes: 30, Password: "секрет-123"}, AskMoreReply{
 			Card: card(okStatus(), 30, false), Message: "Добавлено 30 минут",
@@ -247,7 +289,9 @@ func examples() map[string]example {
 				{Weekday: 1, Day: "пн", Text: "2 ч"}, {Weekday: 2, Day: "вт", Text: "2 ч"}, {Weekday: 3, Day: "ср", Text: "1 ч 30 мин"},
 				{Weekday: 4, Day: "чт", Text: "2 ч"}, {Weekday: 5, Day: "пт", Text: "2 ч"}, {Weekday: 6, Day: "сб", Text: "4 ч"},
 				{Weekday: 7, Day: "вс", Text: "Без лимита"},
+				{Text: "Игры: до 1 ч в день"}, {Text: "Когда время вышло: экран блокировки"},
 			},
+			GamesS: 1200, StudyS: 2400,
 		}),
 		"MyToday#empty": ok(nil, MyTodayReply{Status: ChildStatusNotChild()}),
 		CmdParentStats: ok(ParentStatsRequest{ChildID: 1}, MyTodayReply{
@@ -257,7 +301,9 @@ func examples() map[string]example {
 				{Weekday: 1, Day: "пн", Text: "2 ч"}, {Weekday: 2, Day: "вт", Text: "2 ч"}, {Weekday: 3, Day: "ср", Text: "1 ч 30 мин"},
 				{Weekday: 4, Day: "чт", Text: "2 ч"}, {Weekday: 5, Day: "пт", Text: "2 ч"}, {Weekday: 6, Day: "сб", Text: "4 ч"},
 				{Weekday: 7, Day: "вс", Text: "Без лимита"},
+				{Text: "Игры: до 1 ч в день"}, {Text: "Когда время вышло: экран блокировки"},
 			},
+			GamesS: 1200, StudyS: 2400,
 		}),
 		CmdFirstRunSeen: ok(nil, Empty{}),
 
@@ -277,7 +323,15 @@ func examples() map[string]example {
 				{Kind: GuardCmdTest, Test: &TestGuardAction{Action: TestType, Target: "password", Text: "секрет-123"}},
 			},
 		}),
-		"GuardPoll#empty":  ok(GuardPollRequest{Sample: SampleFromCore(core.SessionSample{AtMs: t0})}, GuardPollReply{Status: okStatus()}),
+		"GuardPoll#empty": ok(GuardPollRequest{Sample: SampleFromCore(core.SessionSample{AtMs: t0})}, GuardPollReply{Status: okStatus()}),
+		"GuardPoll#blocked": ok(GuardPollRequest{Sample: SensorSample{AtMs: t0, SessionActive: true, Foreground: CatNameGames,
+			ForegroundPath: `c:\users\миша\downloads\supergame.exe`}}, GuardPollReply{
+			Status: okStatus(), Warnings: []GuardWarning{NewGuardWarningFor(5, core.WarnGames, 300)},
+			Commands: []GuardCommand{{Kind: GuardCmdBlocked, Plate: &BlockedPlate{
+				Kind: BlockedUnknown, Text: "Программа «SuperGame» ждёт разрешения родителя", ShowS: 10,
+				Path: `c:\users\миша\downloads\supergame.exe`, CanAsk: true,
+			}}},
+		}),
 		CmdGuardLogoff:     ok(nil, Empty{}),
 		CmdGuardShutdown:   ok(nil, Empty{}),
 		CmdGuardSwitchUser: ok(nil, Empty{}),
@@ -297,6 +351,25 @@ func examples() map[string]example {
 			Exits:     []string{ExitSwitchUser},
 		}),
 		"GuardState#empty": ok(nil, GuardStateReply{}),
+		"GuardState#blocked": ok(nil, GuardStateReply{
+			Plate: "Программа «SuperGame» ждёт разрешения родителя", PlateKind: BlockedUnknown,
+			Buttons: []string{"askNow", "plateClose"}, ForegroundPath: `c:\users\миша\downloads\supergame.exe`,
+		}),
+		"TestGuard#foreground": ok(TestGuardRequest{Action: TestGuardAction{Action: TestForeground, Text: `c:\users\runneradmin\appdata\local\temp\pcb\game.exe`}}, Empty{}),
+
+		// M3: программы.
+		CmdListPrograms:         ok(nil, programsReply()),
+		"ListPrograms#empty":    ok(nil, ProgramsReply{Pending: []PendingProgramDTO{}, Programs: []ProgramDTO{}, Children: []ChildName{}}),
+		CmdDecideProgram:        ok(DecideProgramRequest{Path: `c:\users\миша\downloads\supergame.exe`, Category: ProgramCatGames}, DecideProgramReply{Message: "SuperGame: игра", UndoID: "p-3", UndoUntilMs: t0 + 10_000, Programs: programsReply()}),
+		"DecideProgram#invalid": fail(DecideProgramRequest{Path: `c:\x.exe`, Category: ProgramCatSystem}, "Выберите: игра, учёба, прочее или запретить", "category", nil),
+		CmdSetProgramsCategory: ok(SetProgramsCategoryRequest{Paths: []string{`c:\program files\bravesoftware\brave-browser\application\brave.exe`}, Category: ProgramCatStudy},
+			DecideProgramReply{Message: "Изменено программ: 1", UndoID: "p-4", UndoUntilMs: t0 + 10_000, Programs: programsReply()}),
+		CmdUndoProgram: ok(UndoProgramRequest{UndoID: "p-4"}, UndoProgramReply{Message: "Решение отменено", Programs: programsReply()}),
+		CmdScanPrograms: ok(nil, ScanProgramsReply{Programs: []ScanProgramDTO{
+			{Path: `c:\program files\minecraft launcher\minecraftlauncher.exe`, Name: "Minecraft Launcher", Publisher: "Mojang", SuggestedCategory: ProgramCatGames},
+			{Path: `c:\program files\bravesoftware\brave-browser\application\brave.exe`, Name: "Brave", Publisher: "Brave Software, Inc.", SuggestedCategory: ProgramCatOther},
+		}}),
+		"ScanPrograms#empty": ok(nil, ScanProgramsReply{Programs: []ScanProgramDTO{}}),
 	}
 }
 
@@ -353,8 +426,23 @@ func TestContractHasEveryCommand(t *testing.T) {
 			t.Errorf("пример для %s есть, а в AllCommands её нет", c)
 		}
 	}
-	if len(AllCommands) != 59 {
-		t.Errorf("команд %d, ждали 59 (48 из M1/M2/0.2.1, 9 из фидбек-раунда 0.2.2: OpenLogs, SetNoForbidden, ClearBonus, ReduceBonus, CreatePromo, ListPromos, RedeemPromo, GetBonusRate, SetBonusRate, GuardClosing из раунда 0.2.3 и тестовая TestSession из 0.2.5)", len(AllCommands))
+	if len(AllCommands) != 62 {
+		t.Errorf("команд %d, ждали 62 (46 из M1/M2/0.2.1 без команд Помощника, 9 из фидбек-раунда 0.2.2: OpenLogs, SetNoForbidden, ClearBonus, ReduceBonus, CreatePromo, ListPromos, RedeemPromo, GetBonusRate, SetBonusRate, GuardClosing из раунда 0.2.3, тестовая TestSession из 0.2.5 и 5 программ M3: ListPrograms, DecideProgram, SetProgramsCategory, UndoProgram, ScanPrograms)", len(AllCommands))
+	}
+}
+
+// Ловит: команды удалённого Помощника (D-56) остались в канале или в примерах контракта.
+func TestNoHelperCommands(t *testing.T) {
+	gone := map[string]bool{"GetHelperState": true, "SaveHelperState": true}
+	for _, c := range AllCommands {
+		if gone[c] {
+			t.Errorf("команда %s осталась в AllCommands", c)
+		}
+	}
+	for key := range examples() {
+		if gone[commandOf(key)] {
+			t.Errorf("пример %s остался в контракте", key)
+		}
 	}
 }
 
@@ -465,11 +553,5 @@ func TestContractKeysAreSorted(t *testing.T) {
 	}
 	if len(keys) < len(AllCommands) {
 		t.Fatalf("записей %d меньше команд %d", len(keys), len(AllCommands))
-	}
-}
-
-func TestHelperStateEmptyIsObject(t *testing.T) {
-	if got := string(OK(HelperState{}).Payload); got != `{"state":{}}` {
-		t.Fatalf("пустое состояние Помощника: %s", got)
 	}
 }

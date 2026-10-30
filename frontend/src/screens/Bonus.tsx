@@ -4,7 +4,6 @@ import Dialog from "../components/Dialog";
 import GrantBonusForm from "../components/GrantBonusForm";
 import Notice from "../components/Notice";
 import PromoAdmin from "../components/PromoAdmin";
-import HintSlot from "../guidance/HintSlot";
 import { autoBonusRule, autoBonusText, historyText, isAutoBonus } from "../lib/bonus";
 import { CallError, errorText } from "../lib/errors";
 import { formatEventTime, formatLimit, genitiveName } from "../lib/format";
@@ -152,13 +151,10 @@ export default function Bonus() {
           className="tab"
           aria-selected={tab === "bonuses"}
           onClick={() => setTab("bonuses")}
-          data-help-anchor="bonus-tab"
         >
           Бонусы
         </button>
       </div>
-
-      <HintSlot anchor="bonus-tab" />
 
       {loadError ? (
         <div className="panel">
@@ -177,18 +173,16 @@ export default function Bonus() {
             <p className="panel-text">Пока нет ни одного ребёнка.</p>
           ) : (
             <div className="cards">
-              {items.map((it, idx) => (
+              {items.map((it) => (
                 <article key={it.card.childId} className="panel bonus-page" aria-label={`Копилка, ${it.card.name}`}>
                   <h3 className="child-name">{it.card.name}</h3>
                   <p className="bonus-balance">{`Баланс: ${formatLimit(it.balance)}`}</p>
-                  <HintSlot anchor="bonus-grant" subject={String(it.card.childId)} name={it.card.name} />
                   <GrantBonusForm
                     disabled={busy === it.card.childId}
                     minutesError={fieldError[it.card.childId]}
                     onGrant={(m, r) => void grant(it.card.childId, m, r)}
                   />
-                  {idx === 0 ? <HintSlot anchor="bonus-adjust" /> : null}
-                  <div className="bonus-adjust" data-help-anchor="bonus-adjust">
+                  <div className="bonus-adjust">
                     <button
                       type="button"
                       className="btn"

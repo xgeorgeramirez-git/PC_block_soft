@@ -1,0 +1,21 @@
+{
+  "name": "G4",
+  "source": "docs/04_Эталоны_учёта.md G4. Учёба не считается (R3, R4): пн, лимит 120 мин; 15:00:00-15:30:00 программа «Учёба», 15:30:00-16:00:00 программа «Игры»; общее 30:00, игры 30:00, учёба 30:00; остаток общего 90:00",
+  "tz_offset_min": 180,
+  "limits_min": { "mon": 120 },
+  "sessions": [{ "from": "2026-10-19T15:00:00", "to": "2026-10-19T16:00:00", "end": "logoff" }],
+  "segments": [
+    { "from": "2026-10-19T15:00:00", "to": "2026-10-19T15:30:00", "foreground": "study", "fullscreen": false, "input_every_s": 60 },
+    { "from": "2026-10-19T15:30:00", "to": "2026-10-19T16:00:00", "foreground": "games", "fullscreen": false, "input_every_s": 60 }
+  ],
+  "expect": {
+    "warnings": [],
+    "locks": [],
+    "checkpoints": [
+      { "at": "2026-10-19T15:30:00", "total_s": 0 }
+    ],
+    "days": [
+      { "day": "2026-10-19", "total_s": 1800, "games_s": 1800, "study_s": 1800, "remaining_s": 5400 }
+    ]
+  }
+}

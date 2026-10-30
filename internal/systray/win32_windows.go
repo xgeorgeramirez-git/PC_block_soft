@@ -107,17 +107,6 @@ const (
 	wmRButtonUp       = 0x0205
 	wmApp             = 0x8000
 
-	waInactive = 0
-	vkEscape   = 0x1B
-	vkReturn   = 0x0D
-	vkTab      = 0x09
-	vkSpace    = 0x20
-	vkShift    = 0x10
-	vkLeft     = 0x25
-	vkUp       = 0x26
-	vkRight    = 0x27
-	vkDown     = 0x28
-
 	wsPopup        = 0x80000000
 	wsVisible      = 0x10000000
 	wsChild        = 0x40000000
@@ -142,14 +131,8 @@ const (
 	odsSelected = 0x0001
 	odsFocus    = 0x0010
 
-	dtCenter     = 0x0001
-	dtVCenter    = 0x0004
-	dtWordBreak  = 0x0010
-	dtSingleLine = 0x0020
-	dtCalcRect   = 0x0400
-	dtNoPrefix   = 0x0800
-	transparent  = 1
-	psSolid      = 0
+	transparent = 1
+	psSolid     = 0
 
 	defaultCharset = 1
 	clearType      = 5

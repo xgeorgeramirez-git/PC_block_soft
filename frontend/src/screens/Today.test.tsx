@@ -57,6 +57,23 @@ describe("Today: карточка ребёнка", () => {
     expect(within(misha).queryByRole("button", { name: "Снять блокировку" })).toBeNull();
   });
 
+  // ТЗ 8.3.2 п.3: строка игр от службы (card.gamesText) под «Использовано».
+  it("«Игры 40 мин из 1 ч» под строкой общего времени", async () => {
+    setup({ children: [mockChild({ gamesUsedS: 2400 })] });
+    const misha = await screen.findByRole("article", { name: "Миша" });
+    const games = within(misha).getByText("Игры 40 мин из 1 ч");
+    const used = within(misha).getByText("Использовано 35 мин из 2 ч");
+    expect(used.compareDocumentPosition(games) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  // Ловит: у ребёнка без лимита игр карточка пишет «Игры 0 мин из 0 мин».
+  it("без лимита игр строки игр нет", async () => {
+    const limits = [1, 2, 3, 4, 5, 6, 7].map((weekday) => ({ weekday, totalMin: 120, unlimited: false }));
+    setup({ children: [mockChild({ limits })] });
+    const misha = await screen.findByRole("article", { name: "Миша" });
+    expect(within(misha).queryByText(/^Игры /)).toBeNull();
+  });
+
   // Ловит: цвет статуса не по ТЗ 8.0 п.3 (зелёный - можно, янтарный - мало, красный - вышло/обход)
   // или статус передан одним цветом без слова.
   it.each([
@@ -349,6 +366,26 @@ describe("Today: общее", () => {
   it("без нарушений: «Нарушения сегодня: 0»", async () => {
     setup();
     expect(await screen.findByRole("button", { name: "Нарушения сегодня: 0" })).toBeTruthy();
+  });
+
+  // 8.3.2 п.5: ссылка «Ждут решения: N» ведёт на «Программы»; число то же, что у службы.
+  it("ссылка «Ждут решения: N» стоит первой и открывает «Программы»", async () => {
+    mock = installBackend({ sessionActive: true });
+    const openPrograms = vi.fn<() => void>();
+    const user = userEvent.setup({ advanceTimers: (ms) => vi.advanceTimersByTime(ms) });
+    render(<Today onOpenPrograms={openPrograms} onOpenJournal={vi.fn()} />);
+    const link = await screen.findByRole("button", { name: "Ждут решения: 1" });
+    await screen.findByRole("button", { name: "Нарушения сегодня: 0" });
+    expect(link.parentElement?.firstElementChild).toBe(link);
+    await user.click(link);
+    expect(openPrograms).toHaveBeenCalledTimes(1);
+  });
+
+  it("никто не ждёт решения: ссылки «Ждут решения» нет", async () => {
+    mock = installBackend({ sessionActive: true, pending: [] });
+    render(<Today />);
+    await screen.findByRole("button", { name: "Нарушения сегодня: 0" });
+    expect(screen.queryByRole("button", { name: /Ждут решения/ })).toBeNull();
   });
 
   it("если журнал не прочитался, ссылки нет, а карточки на месте", async () => {

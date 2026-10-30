@@ -5,10 +5,12 @@
 # Дано: лимит 40 мин, окно на весь экран. Когда: остаток 30, 15, 5, 1 мин. Тогда: за 30 мин плашка-табло
 # (окно карточки PCBlockTrayCard в процессе стража, крестик warningClose в GuardState), фокус остаётся у
 # окна на весь экран; через 6 с табло нет; за 15 мин крестик закрывает табло сразу; за 1 мин плашка
-# (окно PCBlockGuardPlate) видна и через 20 с, без кнопок; звук по одному на каждый порог (GuardState.sounds);
+# (окно PCBlockGuardPlate) видна и через 20 с, с одной кнопкой «Попросить ещё» (копилка пуста — «Взять из
+# копилки» нет, RM3-5, B-27); звук по одному на каждый порог (GuardState.sounds);
 # «+30» у плашки 1 мин: её сменяет «Добавлено 30 минут» (снимок), повторного «за 30» нет, каждый порог в
-# журнале показанных предупреждений по одному разу.
-# Снимки: s35-warning-30.png, s35-warning-1.png, s35-added.png.
+# журнале показанных предупреждений по одному разу. Затем копилка 30 мин: у следующей плашки 1 мин обе
+# кнопки, «Взять из копилки» даёт «Добавлено 30 минут», копилка пуста.
+# Снимки: s35-warning-30.png, s35-warning-1.png, s35-added.png, s35-warning-1-bonus.png, s35-bonus-added.png.
 $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "common.ps1")
 
@@ -94,13 +96,15 @@ Invoke-Scenario "S35" "Плашка-табло 30, 15, 5, плашка 1 мин 
     Assert-That (@(List $g.warnings)[2].text -eq "Через 5 минут время закончится. Сохрани игру") "Текст за 5 мин: «$(@(List $g.warnings)[2].text)»"
   }
 
-  Step "Остаток 1 мин: плашка без кнопок видна и через 20 с, снимок" {
+  Step "Остаток 1 мин: плашка с «Попросить ещё» без «Взять из копилки» видна и через 20 с, снимок" {
     $st = Wait-Remaining 57 60 "остаток 1 мин"
     Suspend-Clock
     Write-Log "Часы остановлены при остатке $($st.remainingS) с"
     $g = Wait-GuardState { param($s) (Get-WarnThresholds $s).Count -ge 4 } 10 "плашка за 1 минуту"
     Assert-That ((Get-WarnThresholds $g) -join "," -eq "30,15,5,1") "Показанные плашки: $((Get-WarnThresholds $g) -join ','), ждали 30,15,5,1"
-    Assert-That (@(List $g.buttons).Count -eq 0) "У плашки 1 мин есть кнопки: $(Format-GuardState $g)"
+    # Плашка 1 мин (RM3-5, B-27): «Попросить ещё» всегда, «Взять из копилки» только при копилке больше 0.
+    $btn = (@(List $g.buttons)) -join ","
+    Assert-That ($btn -eq "askMorePlate") "Кнопки плашки 1 мин: [$btn], ждали только askMorePlate («Попросить ещё»; копилка пуста): $(Format-GuardState $g)"
     Start-Sleep -Seconds 20
     $g = Get-GuardState
     Assert-That (-not $g.lockShown) "Экран блокировки показан при остановленных часах"
@@ -139,5 +143,33 @@ Invoke-Scenario "S35" "Плашка-табло 30, 15, 5, плашка 1 мин 
     Stop-Fullscreen
   }
 
-  Write-Log "S35: табло 30, 15, 5 без перехвата фокуса, закрытие через 5 с и крестиком, плашка 1 мин держится, звук на каждом пороге"
+  Step "Копилка 30 мин: у плашки 1 мин обе кнопки, «Взять из копилки» даёт «Добавлено 30 минут»" {
+    # Начисление через родителя (вход, команда, выход: Ruling 19), до новой плашки 1 мин.
+    Open-Parent
+    Assert-Reply (Send-Parent "GrantBonus" @{ childId = $script:ChildId; minutes = 30; reason = "за уборку" }) "GrantBonus 30"
+    Assert-Reply (Send-Parent "Logout") "Logout"
+    $st = Get-Status
+    Assert-That ($st.bonusBalance -eq 30) "Копилка $($st.bonusBalance) мин, ждали 30"
+    # «+30» отодвинул событие: пороги взводятся заново, остаток снова доходит до 1 мин (около 30 с).
+    Resume-Clock
+    $st = Wait-Remaining 57 60 "остаток снова 1 мин"
+    Suspend-Clock
+    Write-Log "Часы остановлены при остатке $($st.remainingS) с, копилка $($st.bonusBalance) мин"
+    $g = Wait-GuardState { param($s) $s.plateKind -eq "oneMinute" -and (Test-HasButton $s "spendBonusPlate") -and (Test-HasButton $s "askMorePlate") } 10 "плашка 1 мин с «Взять из копилки» и «Попросить ещё»"
+    Write-Log "Плашка 1 мин при копилке: $(Format-GuardState $g)"
+    Start-Sleep -Milliseconds 500 # поток окон перерисовывает плашку по своему таймеру
+    Save-Screen "s35-warning-1-bonus"
+    Invoke-GuardClick "spendBonusPlate"
+    $g = Wait-GuardState { param($s) [string]$s.plate -eq "Добавлено 30 минут" } 5 "плашка «Добавлено 30 минут» после «Взять из копилки»"
+    Assert-That ($g.plateKind -eq "added") "Вид плашки «$($g.plateKind)», ждали added"
+    Start-Sleep -Milliseconds 500
+    Save-Screen "s35-bonus-added"
+    $st = Get-Status
+    Write-Log "После «Взять из копилки»: остаток $($st.remainingS) с, копилка $($st.bonusBalance) мин"
+    Assert-That ($st.remainingS -ge 1800) "Остаток $($st.remainingS) с, ждали не меньше 1800"
+    Assert-That ($st.bonusBalance -eq 0) "Копилка $($st.bonusBalance) мин, ждали 0"
+    Assert-That (-not $g.lockShown) "Экран блокировки после «Взять из копилки»: $(Format-GuardState $g)"
+  }
+
+  Write-Log "S35: табло 30, 15, 5 без перехвата фокуса, закрытие через 5 с и крестиком, плашка 1 мин держится с «Попросить ещё», «Взять из копилки» при копилке, звук на каждом пороге"
 }

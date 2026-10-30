@@ -3,8 +3,11 @@
 package guard
 
 import (
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"unsafe"
 
@@ -14,10 +17,10 @@ import (
 	"pcblock/internal/ipc"
 )
 
-// Датчики сеанса (ТЗ R2, R3). Страж читает только три вещи: сколько прошло с последнего ввода,
-// закрывает ли окно переднего плана весь монитор и не заблокирован ли сеанс. Заголовки окон,
-// имена программ и нажатия не читаются и не хранятся (R23); перехват клавиатуры включается
-// только на время экрана блокировки и ничего не записывает.
+// Датчики сеанса (ТЗ R2, R3). Страж читает только четыре вещи: сколько прошло с последнего
+// ввода, закрывает ли окно переднего плана весь монитор, не заблокирован ли сеанс и путь exe
+// программы на переднем плане, без заголовков окон и нажатий (R23); перехват клавиатуры
+// включается только на время экрана блокировки и ничего не записывает.
 var (
 	procGetLastInputInfo    = user32.NewProc("GetLastInputInfo")
 	procGetClassName        = user32.NewProc("GetClassNameW")
@@ -54,8 +57,76 @@ func ReadSensors(now time.Time, speed int) ipc.SensorSample {
 	return BuildSample(now, readRaw(), speed)
 }
 
+// readRaw читает датчики одним проходом: окно переднего плана берётся один раз, и полноэкранность
+// и путь относятся к одному окну (PL-15).
 func readRaw() RawSensors {
-	return RawSensors{IdleMs: idleMs(), Fullscreen: foregroundIsFullscreen(), Locked: sessionLocked()}
+	fg, _, _ := procGetForegroundWin.Call()
+	return RawSensors{IdleMs: idleMs(), Fullscreen: windowIsFullscreen(fg), Locked: sessionLocked(), ForegroundPath: foregroundPath(fg)}
+}
+
+// fgPathBuf — сколько символов пути читается: больше ipc.MaxForegroundPathLen, чтобы длинный путь
+// был виден как длинный (ForegroundPathFor его отбросит), а не обрезан.
+const fgPathBuf = 1024
+
+var (
+	installDirOnce sync.Once
+	installDirVal  string
+)
+
+// installDir — каталог установки PC Block (папка своего exe) длинными именами; «» — не узнан.
+func installDir() string {
+	installDirOnce.Do(func() {
+		exe, err := os.Executable()
+		if err != nil {
+			return
+		}
+		installDirVal = longPath(filepath.Dir(exe))
+	})
+	return installDirVal
+}
+
+// longPath разворачивает 8.3-имена (GetLongPathName); не вышло — путь как есть.
+func longPath(p string) string {
+	in, err := windows.UTF16PtrFromString(p)
+	if err != nil {
+		return p
+	}
+	buf := make([]uint16, fgPathBuf)
+	n, err := windows.GetLongPathName(in, &buf[0], uint32(len(buf)))
+	if err != nil || n == 0 || int(n) >= len(buf) {
+		return p
+	}
+	return windows.UTF16ToString(buf[:n])
+}
+
+// foregroundPath — путь exe процесса окна fg (R3, RM3-1): GetWindowThreadProcessId, OpenProcess с
+// PROCESS_QUERY_LIMITED_INFORMATION, QueryFullProcessImageName, GetLongPathName. Заголовок окна не
+// читается (R23). Ошибка на любом шаге, окно стража и окна PC Block — «» (PL-9).
+func foregroundPath(fg uintptr) string {
+	if fg == 0 {
+		return ""
+	}
+	var pid uint32
+	procGetWindowThreadProcessID.Call(fg, uintptr(unsafe.Pointer(&pid)))
+	own := windows.GetCurrentProcessId()
+	if pid == 0 || pid == own {
+		return ""
+	}
+	h, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, pid)
+	if err != nil {
+		return ""
+	}
+	defer windows.CloseHandle(h)
+	buf := make([]uint16, fgPathBuf)
+	size := uint32(len(buf))
+	if err := windows.QueryFullProcessImageName(h, 0, &buf[0], &size); err != nil || size == 0 {
+		return ""
+	}
+	path := windows.UTF16ToString(buf[:size])
+	if strings.Contains(path, "~") {
+		path = longPath(path)
+	}
+	return ForegroundPathFor(path, pid, own, installDir())
 }
 
 // idleMs: сколько миллисекунд прошло с последнего ввода с клавиатуры или мыши в этом сеансе.
@@ -75,11 +146,10 @@ func windowClass(hwnd uintptr) string {
 	return windows.UTF16ToString(buf[:n])
 }
 
-// foregroundIsFullscreen: окно переднего плана закрывает весь монитор и без заголовка.
+// windowIsFullscreen: окно переднего плана fg закрывает весь монитор и без заголовка.
 // Рабочий стол (Progman, WorkerW), свернутые, невидимые окна и окна самого стража не в счёт
 // (Ruling 24, ТЗ R2 и D-24).
-func foregroundIsFullscreen() bool {
-	fg, _, _ := procGetForegroundWin.Call()
+func windowIsFullscreen(fg uintptr) bool {
 	if fg == 0 {
 		return false
 	}

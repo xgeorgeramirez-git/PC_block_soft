@@ -37,6 +37,21 @@ type fakeStore struct {
 	failEvents   bool // AppendEvent возвращает ошибку
 	failAuth     bool // GetAuth возвращает ошибку
 	failSchedule bool // GetSchedule возвращает ошибку
+	failEndMode  bool // GetEndMode возвращает ошибку
+	failPrograms bool // ListPrograms возвращает ошибку
+
+	endModes map[int64]string           // режим «Когда время вышло» (M3); нет записи — "lock"
+	programs map[string]Program         // программы по пути (M3)
+	nextProg int64                      // следующий номер программы
+	pending  map[string]*PendingProgram // «Ждут решения» по пути (M3)
+	usage    map[string]int             // учёт: "id|день|категория|вид|предмет" → секунды (M3)
+	usageLog []savedUsage               // история SaveDayAndUsage
+}
+
+type savedUsage struct {
+	childID int64
+	st      core.DayState
+	rows    []UsageRow
 }
 
 type savedDay struct {
@@ -49,7 +64,307 @@ func newFakeStore() *fakeStore {
 		children: map[int64]*Child{}, removed: map[int64]bool{}, nextID: 1,
 		limits: map[int64][7]core.DayLimit{}, days: map[string]core.DayState{}, settings: map[string]string{},
 		schedule: map[int64][]core.Interval{}, bonus: map[int64][]BonusRecord{},
+		endModes: map[int64]string{}, programs: map[string]Program{}, nextProg: 1,
+		pending: map[string]*PendingProgram{}, usage: map[string]int{},
 	}
+}
+
+func (f *fakeStore) SetEndMode(id int64, mode string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if mode != "lock" && mode != "study_only" {
+		return errors.New("неверный режим")
+	}
+	if _, ok := f.children[id]; !ok {
+		return errors.New("нет такого ребёнка")
+	}
+	f.endModes[id] = mode
+	return nil
+}
+
+func (f *fakeStore) GetEndMode(id int64) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.failEndMode {
+		return "", errFake
+	}
+	if m, ok := f.endModes[id]; ok {
+		return m, nil
+	}
+	return "lock", nil
+}
+
+// --- программы и «Ждут решения» (M3) --------------------------------------------------
+
+var fakeCategories = map[string]bool{"games": true, "study": true, "other": true, "blocked": true, "system": true}
+
+func (f *fakeStore) putProgram(p Program) {
+	if old, ok := f.programs[p.Path]; ok {
+		p.ID = old.ID
+	} else {
+		p.ID = f.nextProg
+		f.nextProg++
+	}
+	f.programs[p.Path] = p
+}
+
+func (f *fakeStore) UpsertProgram(p Program) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if p.Path == "" || p.Name == "" || !fakeCategories[p.Category] {
+		return errFake
+	}
+	f.putProgram(p)
+	return nil
+}
+
+func (f *fakeStore) RestoreProgram(p Program) error { return f.UpsertProgram(p) }
+
+func (f *fakeStore) SeedPrograms(ps []Program) (int, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, p := range ps {
+		if p.Path == "" || p.Name == "" || !fakeCategories[p.Category] {
+			return 0, errFake
+		}
+	}
+	added := 0
+	for _, p := range ps {
+		if _, ok := f.programs[p.Path]; !ok {
+			f.putProgram(p)
+			added++
+		}
+	}
+	return added, nil
+}
+
+func (f *fakeStore) GetProgram(path string) (Program, bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	p, ok := f.programs[path]
+	return p, ok, nil
+}
+
+func (f *fakeStore) ListPrograms() ([]Program, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.failPrograms {
+		return nil, errFake
+	}
+	out := make([]Program, 0, len(f.programs))
+	for _, p := range f.programs {
+		out = append(out, p)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Name != out[j].Name {
+			return out[i].Name < out[j].Name
+		}
+		return out[i].Path < out[j].Path
+	})
+	return out, nil
+}
+
+func (f *fakeStore) SetProgramsCategory(paths []string, category string, at int64) ([]Program, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if !fakeCategories[category] {
+		return nil, errFake
+	}
+	changed := []Program{}
+	for _, path := range paths {
+		p, ok := f.programs[path]
+		if !ok || (p.Category == category && p.Source == "parent") {
+			continue
+		}
+		changed = append(changed, p)
+		p.Category, p.Source, p.DecidedAt = category, "parent", at
+		f.programs[path] = p
+	}
+	return changed, nil
+}
+
+func (f *fakeStore) DeleteProgram(path string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if _, ok := f.programs[path]; !ok {
+		return errors.New("нет такой программы")
+	}
+	delete(f.programs, path)
+	return nil
+}
+
+func (f *fakeStore) AddPendingAttempt(p PendingProgram, childID, at int64) (int, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if p.Path == "" || p.Name == "" {
+		return 0, errFake
+	}
+	if childID != 0 {
+		if _, ok := f.children[childID]; !ok {
+			return 0, errFake
+		}
+	}
+	cur, ok := f.pending[p.Path]
+	if !ok {
+		cur = &PendingProgram{Path: p.Path, Name: p.Name, Publisher: p.Publisher, Description: p.Description, WasCategory: p.WasCategory,
+			FirstChildID: childID, FirstAttemptAt: at, LastAttemptAt: at, Children: []PendingChild{}}
+		f.pending[p.Path] = cur
+	} else {
+		cur.Name = p.Name
+		if p.Publisher != "" {
+			cur.Publisher = p.Publisher
+		}
+		if p.Description != "" {
+			cur.Description = p.Description
+		}
+		if p.WasCategory != "" {
+			cur.WasCategory = p.WasCategory
+		}
+		cur.LastAttemptAt = max(cur.LastAttemptAt, at)
+	}
+	cur.Attempts++
+	if childID != 0 {
+		found := false
+		for i := range cur.Children {
+			if cur.Children[i].ChildID == childID {
+				cur.Children[i].Attempts++
+				cur.Children[i].LastAttemptAt = max(cur.Children[i].LastAttemptAt, at)
+				found = true
+			}
+		}
+		if !found {
+			cur.Children = append(cur.Children, PendingChild{ChildID: childID, Attempts: 1, LastAttemptAt: at})
+		}
+	}
+	return cur.Attempts, nil
+}
+
+// pendingCopy копирует ждущую программу с детьми, новые сверху.
+func pendingCopy(p *PendingProgram) PendingProgram {
+	out := *p
+	out.Children = append([]PendingChild{}, p.Children...)
+	sort.SliceStable(out.Children, func(i, j int) bool { return out.Children[i].LastAttemptAt > out.Children[j].LastAttemptAt })
+	return out
+}
+
+func (f *fakeStore) ListPending() ([]PendingProgram, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make([]PendingProgram, 0, len(f.pending))
+	for _, p := range f.pending {
+		out = append(out, pendingCopy(p))
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].LastAttemptAt != out[j].LastAttemptAt {
+			return out[i].LastAttemptAt > out[j].LastAttemptAt
+		}
+		return out[i].Path < out[j].Path
+	})
+	return out, nil
+}
+
+func (f *fakeStore) ResolvePending(path string) (PendingProgram, bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	p, ok := f.pending[path]
+	if !ok {
+		return PendingProgram{}, false, nil
+	}
+	delete(f.pending, path)
+	return pendingCopy(p), true, nil
+}
+
+func (f *fakeStore) RestorePending(p PendingProgram) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if p.Path == "" || p.Name == "" {
+		return errFake
+	}
+	cur, ok := f.pending[p.Path]
+	if !ok {
+		cp := pendingCopy(&p)
+		f.pending[p.Path] = &cp
+		return nil
+	}
+	cur.Attempts += p.Attempts
+	if cur.WasCategory == "" { // как storage: прежняя категория не теряется
+		cur.WasCategory = p.WasCategory
+	}
+	if p.FirstAttemptAt < cur.FirstAttemptAt {
+		cur.FirstAttemptAt, cur.FirstChildID = p.FirstAttemptAt, p.FirstChildID
+	}
+	cur.LastAttemptAt = max(cur.LastAttemptAt, p.LastAttemptAt)
+	for _, c := range p.Children {
+		found := false
+		for i := range cur.Children {
+			if cur.Children[i].ChildID == c.ChildID {
+				cur.Children[i].Attempts += c.Attempts
+				cur.Children[i].LastAttemptAt = max(cur.Children[i].LastAttemptAt, c.LastAttemptAt)
+				found = true
+			}
+		}
+		if !found {
+			cur.Children = append(cur.Children, c)
+		}
+	}
+	return nil
+}
+
+// --- учёт по программам (M3) ----------------------------------------------------------
+
+var fakeUsageCats = map[string]bool{"games": true, "video_social": true, "study": true, "other": true}
+
+func usageKey(id int64, u UsageRow) string {
+	return fmt.Sprintf("%d|%s|%s|%s|%s", id, u.Day, u.Category, u.Kind, u.Subject)
+}
+
+func (f *fakeStore) AddUsage(id int64, day, category, kind, subject string, seconds int) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	u := UsageRow{Day: day, Category: category, Kind: kind, Subject: subject, Seconds: seconds}
+	if !fakeUsageCats[category] || subject == "" || seconds < 0 || day == "" {
+		return errFake
+	}
+	f.usage[usageKey(id, u)] += seconds
+	return nil
+}
+
+func (f *fakeStore) SaveDayAndUsage(id int64, st core.DayState, rows []UsageRow) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.failSave {
+		return errFake
+	}
+	cp := make([]UsageRow, 0, len(rows))
+	for _, u := range rows {
+		if u.Day == "" {
+			u.Day = st.Day
+		}
+		if !fakeUsageCats[u.Category] || u.Subject == "" || u.Seconds < 0 {
+			return errFake
+		}
+		cp = append(cp, u)
+	}
+	f.days[dayKey(id, st.Day)] = st
+	f.saves = append(f.saves, savedDay{id, st})
+	for _, u := range cp {
+		f.usage[usageKey(id, u)] += u.Seconds
+	}
+	f.usageLog = append(f.usageLog, savedUsage{id, st, cp})
+	return nil
+}
+
+func (f *fakeStore) ProgramSeconds(fromDay string) (map[string]int, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := map[string]int{}
+	for k, sec := range f.usage {
+		parts := strings.SplitN(k, "|", 5)
+		if parts[3] == "program" && parts[1] >= fromDay {
+			out[parts[4]] += sec
+		}
+	}
+	return out, nil
 }
 
 var errFake = errors.New("поддельная ошибка хранилища")
@@ -79,7 +394,12 @@ func (f *fakeStore) ListChildren() ([]Child, error) {
 	out := []Child{}
 	for id, c := range f.children {
 		if !f.removed[id] {
-			out = append(out, *c)
+			cp := *c
+			cp.EndMode = "lock"
+			if m, ok := f.endModes[id]; ok {
+				cp.EndMode = m
+			}
+			out = append(out, cp)
 		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
@@ -667,4 +987,322 @@ func containsAll(s string, subs ...string) bool {
 		}
 	}
 	return true
+}
+
+// --- сканер программ и свойства файлов (M3) ---------------------------------------------
+
+// fakeScanner — снимок Program Files: список, ошибка и число вызовов. gate (не nil) держит Scan,
+// пока его не закроют, entered получает сигнал о входе в Scan (сканер с задержкой, Д-2).
+type fakeScanner struct {
+	mu      sync.Mutex
+	list    []FoundProgram
+	err     error
+	calls   int
+	gate    chan struct{}
+	entered chan struct{}
+}
+
+func (sc *fakeScanner) Scan() ([]FoundProgram, error) {
+	sc.mu.Lock()
+	sc.calls++
+	gate, entered, err := sc.gate, sc.entered, sc.err
+	list := append([]FoundProgram{}, sc.list...)
+	sc.mu.Unlock()
+	if entered != nil {
+		entered <- struct{}{}
+	}
+	if gate != nil {
+		<-gate
+	}
+	if err != nil {
+		return nil, err
+	}
+	return list, nil
+}
+
+// hold включает задержку: Scan ждёт release.
+func (sc *fakeScanner) hold() {
+	sc.mu.Lock()
+	sc.gate, sc.entered = make(chan struct{}), make(chan struct{}, 8)
+	sc.mu.Unlock()
+}
+
+// release отпускает задержанные Scan.
+func (sc *fakeScanner) release() {
+	sc.mu.Lock()
+	g := sc.gate
+	sc.gate = nil
+	sc.mu.Unlock()
+	if g != nil {
+		close(g)
+	}
+}
+
+// waitEntered ждёт входа в Scan не дольше d.
+func (sc *fakeScanner) waitEntered(d time.Duration) bool {
+	sc.mu.Lock()
+	e := sc.entered
+	sc.mu.Unlock()
+	select {
+	case <-e:
+		return true
+	case <-time.After(d):
+		return false
+	}
+}
+
+func (sc *fakeScanner) callCount() int {
+	sc.mu.Lock()
+	defer sc.mu.Unlock()
+	return sc.calls
+}
+
+// fakeMeta — свойства файлов по пути (издатель, описание, отпечаток) и журнал запросов.
+type fakeMeta struct {
+	mu    sync.Mutex
+	files map[string][3]string
+	asked []string
+	gate  chan struct{} // не nil: чтение ждёт, пока его закроют (медленный сетевой путь)
+	in    chan struct{} // сигнал о входе в чтение
+}
+
+// hold — следующие чтения свойств ждут release (проверка, что их ждёт не блокировка службы).
+func (m *fakeMeta) hold() {
+	m.mu.Lock()
+	m.gate, m.in = make(chan struct{}), make(chan struct{}, 1)
+	m.mu.Unlock()
+}
+
+func (m *fakeMeta) release() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.gate != nil {
+		close(m.gate)
+		m.gate = nil
+	}
+}
+
+func newMeta() *fakeMeta { return &fakeMeta{files: map[string][3]string{}} }
+
+func (m *fakeMeta) set(path, publisher, description, fingerprint string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.files[path] = [3]string{publisher, description, fingerprint}
+}
+
+func (m *fakeMeta) meta(path string) (string, string, string) {
+	m.mu.Lock()
+	gate, in := m.gate, m.in
+	m.mu.Unlock()
+	if in != nil {
+		select {
+		case in <- struct{}{}:
+		default:
+		}
+	}
+	if gate != nil {
+		<-gate
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.asked = append(m.asked, path)
+	f := m.files[path]
+	return f[0], f[1], f[2]
+}
+
+func (m *fakeMeta) askedPaths() []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return append([]string{}, m.asked...)
+}
+
+// --- процессы сеансов для наблюдателя (M3) ----------------------------------------------
+
+// fakeWatcher — процессы по сеансам, журнал завершений, ошибки списка, «защищённые» процессы,
+// которые Kill не берёт, и задержка Kill (проверка, что канал не ждёт завершения).
+type fakeWatcher struct {
+	mu        sync.Mutex
+	procs     []ProcInfo       // все живые процессы; List отдаёт по сеансу (или всё из listAll)
+	listAll   map[uint32]bool  // List этого сеанса возвращает процессы всех сеансов (адаптер ошибся)
+	listErr   map[uint32]error // ошибка List по сеансу
+	protected map[uint32]bool  // PID, которые Kill не завершает
+	killGate  chan struct{}    // не nil: Kill ждёт, пока его закроют
+	killIn    chan struct{}    // сигнал о входе в Kill
+	lists     map[uint32]int   // вызовы List по сеансу
+	killed    []ProcInfo       // завершённые
+	tries     int              // вызовы Kill
+	listAt    []time.Time      // моменты вызовов List (настоящие часы)
+	killAt    map[uint32]time.Time
+	nextPID   uint32
+	linger    map[uint32]bool // PID, который после успешного Kill ещё один List живёт (завершается)
+	dying     map[uint32]bool // Kill удался, процесс исчезнет после следующего List
+}
+
+func newWatcher() *fakeWatcher {
+	return &fakeWatcher{listAll: map[uint32]bool{}, listErr: map[uint32]error{}, protected: map[uint32]bool{},
+		lists: map[uint32]int{}, killAt: map[uint32]time.Time{}, nextPID: 5000,
+		linger: map[uint32]bool{}, dying: map[uint32]bool{}}
+}
+
+func (w *fakeWatcher) List(session uint32) ([]ProcInfo, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.lists[session]++
+	w.listAt = append(w.listAt, time.Now())
+	if err := w.listErr[session]; err != nil {
+		return nil, err
+	}
+	out := []ProcInfo{}
+	live := w.procs[:0:0]
+	for _, p := range w.procs {
+		if p.SessionID == session || w.listAll[session] {
+			out = append(out, p)
+		}
+		if w.dying[p.PID] {
+			delete(w.dying, p.PID) // показан последний раз: завершился
+			continue
+		}
+		live = append(live, p)
+	}
+	w.procs = live
+	return out, nil
+}
+
+func (w *fakeWatcher) Kill(p ProcInfo) bool {
+	w.mu.Lock()
+	gate, in := w.killGate, w.killIn
+	w.tries++
+	w.mu.Unlock()
+	if in != nil {
+		select {
+		case in <- struct{}{}:
+		default:
+		}
+	}
+	if gate != nil {
+		<-gate
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.protected[p.PID] {
+		return false
+	}
+	if w.dying[p.PID] {
+		return false // уже завершается: как настоящий адаптер, «не завершён этим вызовом»
+	}
+	for i, q := range w.procs {
+		if q.PID == p.PID && q.Stamp == p.Stamp && w.linger[p.PID] {
+			delete(w.linger, p.PID)
+			w.dying[p.PID] = true
+			w.killed = append(w.killed, q)
+			w.killAt[q.PID] = time.Now()
+			return true
+		}
+		if q.PID == p.PID && q.Stamp == p.Stamp {
+			w.procs = append(w.procs[:i], w.procs[i+1:]...)
+			w.killed = append(w.killed, q)
+			w.killAt[q.PID] = time.Now()
+			return true
+		}
+	}
+	return false
+}
+
+// start запускает процесс с путём path в сеансе session от имени ребёнка (childSID) и возвращает его.
+func (w *fakeWatcher) start(session uint32, path string) ProcInfo {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.nextPID++
+	p := ProcInfo{PID: w.nextPID, Stamp: uint64(w.nextPID) * 7, SessionID: session, Path: path, PathOK: path != "",
+		UserSID: childSID, UserOK: true}
+	w.procs = append(w.procs, p)
+	return p
+}
+
+// startAs запускает процесс от имени пользователя sid (ok = false: пользователь не прочитан).
+func (w *fakeWatcher) startAs(session uint32, path, sid string, ok bool) ProcInfo {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.nextPID++
+	p := ProcInfo{PID: w.nextPID, Stamp: uint64(w.nextPID) * 7, SessionID: session, Path: path, PathOK: true,
+		UserSID: sid, UserOK: ok}
+	w.procs = append(w.procs, p)
+	return p
+}
+
+// add добавляет процесс как есть (свой PID, Stamp, нечитаемый путь).
+func (w *fakeWatcher) add(p ProcInfo) {
+	w.mu.Lock()
+	w.procs = append(w.procs, p)
+	w.mu.Unlock()
+}
+
+// exit — процесс завершился сам.
+func (w *fakeWatcher) exit(p ProcInfo) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	for i, q := range w.procs {
+		if q.PID == p.PID && q.Stamp == p.Stamp {
+			w.procs = append(w.procs[:i], w.procs[i+1:]...)
+			return
+		}
+	}
+}
+
+// alive сообщает, что процесс ещё работает.
+func (w *fakeWatcher) alive(p ProcInfo) bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	for _, q := range w.procs {
+		if q.PID == p.PID && q.Stamp == p.Stamp {
+			return true
+		}
+	}
+	return false
+}
+
+// killedPaths — пути завершённых процессов по порядку.
+func (w *fakeWatcher) killedPaths() []string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	out := []string{}
+	for _, p := range w.killed {
+		out = append(out, p.Path)
+	}
+	return out
+}
+
+// listCalls — вызовы List по сеансам.
+func (w *fakeWatcher) listCalls() map[uint32]int {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	out := map[uint32]int{}
+	for k, v := range w.lists {
+		out[k] = v
+	}
+	return out
+}
+
+// listCount — все вызовы List.
+func (w *fakeWatcher) listCount() int {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return len(w.listAt)
+}
+
+// holdKill включает задержку Kill до releaseKill.
+func (w *fakeWatcher) holdKill() {
+	w.mu.Lock()
+	w.killGate, w.killIn = make(chan struct{}), make(chan struct{}, 8)
+	w.mu.Unlock()
+}
+
+func (w *fakeWatcher) releaseKill() {
+	w.mu.Lock()
+	g := w.killGate
+	w.killGate = nil
+	w.mu.Unlock()
+	if g != nil {
+		close(g)
+	}
 }

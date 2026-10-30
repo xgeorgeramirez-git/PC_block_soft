@@ -77,7 +77,11 @@ func wantAllowed(cmd, kind, tok string, test, configured bool) bool {
 	switch cmd {
 	case ipc.CmdHello:
 		return true
-	case ipc.CmdGetChildStatus, ipc.CmdWindowClosing, ipc.CmdOpenWindow, ipc.CmdLogout, ipc.CmdSessionState,
+	case ipc.CmdOpenWindow:
+		// Окна пользователя; страж своего сеанса — окно родителя (пароль спросит окно, RM3-4) и
+		// «Моя статистика» (плашка 1 мин, RM3-5).
+		return user || kind == "guard"
+	case ipc.CmdGetChildStatus, ipc.CmdWindowClosing, ipc.CmdLogout, ipc.CmdSessionState,
 		ipc.CmdExtendSession, ipc.CmdMyToday, ipc.CmdFirstRunSeen, ipc.CmdTrayClosing:
 		return user
 	case ipc.CmdLogin:
@@ -97,8 +101,6 @@ func wantAllowed(cmd, kind, tok string, test, configured bool) bool {
 	case ipc.CmdRedeemPromo:
 		// Ребёнок своего сеанса вводит промокод (childSelf): экран блокировки и «Бонусы» (R26, D-50).
 		return kind == "child" || kind == "guard"
-	case ipc.CmdGetHelperState, ipc.CmdSaveHelperState:
-		return (user && own) || kind == "child"
 	case ipc.CmdGuardPoll, ipc.CmdGuardLogoff, ipc.CmdGuardShutdown, ipc.CmdGuardSwitchUser, ipc.CmdGuardClosing:
 		return kind == "guard"
 	case ipc.CmdTestGuard, ipc.CmdTestClock, ipc.CmdTestSession:
@@ -118,6 +120,12 @@ func wantAllowed(cmd, kind, tok string, test, configured bool) bool {
 	case ipc.CmdSpendBonus:
 		// «Взять из копилки»: ребёнок своего сеанса без пароля (childSelf, FR-11).
 		return kind == "child" || kind == "guard"
+	case ipc.CmdListPrograms, ipc.CmdDecideProgram, ipc.CmdSetProgramsCategory, ipc.CmdUndoProgram:
+		// «Программы» (FR-20): только родитель своим токеном; ребёнок не читает и не меняет.
+		return user && own
+	case ipc.CmdScanPrograms:
+		// Шаг мастера «Программы» (FR-2): как ListAccounts до настройки, после настройки — никому.
+		return kind == "elev" && !configured
 	}
 	return false
 }

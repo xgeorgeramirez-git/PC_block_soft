@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"pcblock/internal/core"
+	"pcblock/internal/programs"
 )
 
 // months — месяцы в родительном падеже для «19 октября».
@@ -78,6 +79,18 @@ func eventText(kind, name string, d map[string]any) string {
 		body = "не удалось прочитать правила, ограничения не действовали, прежние данные сохранены"
 	case "uninstall_forgot":
 		body = "удаление программы без пароля, пароль забыт"
+	case evProgramDecided:
+		body = decidedText(d)
+	case evProgramUndone:
+		body = "решение по программам отменено"
+	case evProgramPending:
+		body = "программа «" + eventProgram(d) + "» ждёт решения"
+	case evProgramForbiddenTry:
+		body = "попытка открыть запрещённое: «" + eventProgram(d) + "»"
+	case evProgramClosedGames:
+		body = "закрыта «" + eventProgram(d) + "»: время на игры закончилось"
+	case evProgramClosedStudyOnly:
+		body = "закрыта «" + eventProgram(d) + "»: время вышло, доступна только учёба"
 	default:
 		body = detStr(d, "text")
 		if body == "" {
@@ -88,4 +101,40 @@ func eventText(kind, name string, d map[string]any) string {
 		return capitalize(body)
 	}
 	return name + ": " + body
+}
+
+// eventProgram — имя программы события: из подробностей (name), иначе из пути; не длиннее 120 символов.
+func eventProgram(d map[string]any) string {
+	if n := programs.ClipName(detStr(d, "name")); n != "" {
+		return n
+	}
+	return programs.NameFromPath(detStr(d, "path"))
+}
+
+// decidedText — решение родителя о программах (R22): «вы отнесли «SuperGame» к категории «Игры»»,
+// «вы запретили 5 программ». Начало строки делает заглавным eventText.
+func decidedText(d map[string]any) string {
+	cat := detStr(d, "category")
+	subject := "«" + eventProgram(d) + "»"
+	if n := detInt(d, "count"); n > 1 || eventProgram(d) == "" {
+		subject = fmt.Sprintf("%d %s", n, programsWord(n))
+	}
+	if cat == programs.CatBlocked {
+		return "вы запретили " + subject
+	}
+	return "вы отнесли " + subject + " к категории «" + categoryTitle[cat] + "»"
+}
+
+// programsWord — «программу», «программы», «программ» для числа n (винительный падеж).
+func programsWord(n int) string {
+	n = abs(n)
+	switch {
+	case n%100 >= 11 && n%100 <= 14:
+		return "программ"
+	case n%10 == 1:
+		return "программу"
+	case n%10 >= 2 && n%10 <= 4:
+		return "программы"
+	}
+	return "программ"
 }

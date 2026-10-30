@@ -8,10 +8,7 @@ import type { MockChild, MockOptions } from "../src/__mocks__/backend";
 const SCREENS = "screens";
 
 async function mockProgram(page: Page, options: MockOptions = {}) {
-  // Помощник по умолчанию выключен: его карточки появляются с задержкой и сдвигают страницу, а снимки и
-  // проверки остальных экранов должны быть одинаковыми при каждом прогоне. Свои снимки Помощника
-  // (s07, s08) включают его явно.
-  await page.addInitScript({ content: await mockScript({ helper: { enabled: false }, ...options }) });
+  await page.addInitScript({ content: await mockScript(options) });
 }
 
 /** Ни окно, ни прокручиваемая область страницы не уходят вбок. */
@@ -29,6 +26,24 @@ async function noHorizontalScroll(page: Page) {
  */
 async function tallWindow(page: Page, height: number) {
   await page.setViewportSize({ width: 960, height });
+}
+
+/**
+ * Снимок страницы целиком (приёмка P2 п.6): окно растёт ровно на невидимый остаток прокручиваемой
+ * области, после чего прокрутки нет и низ страницы в кадре. Ширина окна не меняется.
+ */
+async function wholePage(page: Page) {
+  const scroller = page.locator("main.content");
+  const hidden = await scroller.evaluate((el) => Math.ceil(el.scrollHeight - el.clientHeight));
+  const size = page.viewportSize()!;
+  if (hidden > 0) await page.setViewportSize({ width: size.width, height: size.height + hidden });
+  expect(await scroller.evaluate((el) => el.scrollHeight - el.clientHeight), "часть страницы не в кадре").toBeLessThanOrEqual(1);
+}
+
+/** Элемент целиком в окне (низ не обрезан). */
+async function inFrame(page: Page, l: ReturnType<Page["locator"]>) {
+  const bottom = await l.evaluate((el) => el.getBoundingClientRect().bottom);
+  expect(bottom, "элемент ниже края кадра").toBeLessThanOrEqual(page.viewportSize()!.height + 0.5);
 }
 
 /** Лимит 2 ч на каждый день: снимок не зависит от дня недели, в который идёт сборка. */
@@ -79,7 +94,7 @@ test("s00 вход родителя, тёмная тема", async ({ page }) =>
 test("s01 мастер, шаг пароля", async ({ page }) => {
   await mockProgram(page, { configured: false, mode: "wizard" });
   await page.goto("/");
-  await expect(page.getByText("Шаг 1 из 3")).toBeVisible();
+  await expect(page.getByText("Шаг 1 из 4")).toBeVisible();
   await page.getByLabel("Пароль родителя").fill("123");
   await page.getByLabel("Повторите пароль").fill("123");
   await page.getByRole("button", { name: "Далее" }).click();
@@ -241,8 +256,9 @@ test("s05 настройки", async ({ page }) => {
     await expect(cards.filter({ hasText: name }).getByText(`Учётная запись Windows: ${name}`)).toBeVisible();
   }
   await expect(box.getByRole("heading", { name: "Добавить детскую учётку" })).toBeVisible();
-  // В «Помощнике» только работающий переключатель.
+  // Ни обещаний на будущее, ни раздела Помощника (D-56).
   await expect(page.getByText(/в следующем обновлении/)).toHaveCount(0);
+  await expect(page.getByRole("region", { name: "Помощник" })).toHaveCount(0);
   await expect(page.getByRole("alert")).not.toContainText(/база данных|служб/i);
   await expect(page.getByText("Версия 0.0.1")).toHaveCount(2);
   await noHorizontalScroll(page);
@@ -264,6 +280,9 @@ test("s06 моя статистика ребёнка", async ({ page }) => {
   await expect(page.getByText("Родительский контроль")).toHaveCount(0);
   await expect(page.getByText("Даша")).toHaveCount(0);
   await noHorizontalScroll(page);
+  await wholePage(page);
+  await inFrame(page, page.getByRole("region", { name: "Итоги" }));
+  await inFrame(page, page.getByRole("button", { name: "Настройки для родителя" }));
   await page.screenshot({ path: `${SCREENS}/s06-my-stats.png`, fullPage: true });
 });
 
@@ -277,59 +296,20 @@ test("s06 первый вход ребёнка", async ({ page }) => {
   await page.screenshot({ path: `${SCREENS}/s06-first-run.png`, fullPage: true });
 });
 
-// s07 — «Помощь»: туры, первые шаги с отметками, «Что нового».
-test("s07 помощь", async ({ page }) => {
+// s07 — «Что нового» (FR-36): внизу меню, версии от новой к старой, только текст.
+test("s07 что нового", async ({ page }) => {
   await tallWindow(page, 1100);
   await mockProgram(page, { mode: "parent", sessionActive: true, children: family() });
   await page.goto("/");
-  await page.getByRole("button", { name: "Помощь" }).click();
-  await expect(page.getByRole("heading", { name: "Помощь" })).toBeVisible();
-  await expect(page.getByRole("region", { name: "Обучение" })).toBeVisible();
-  await expect(page.getByRole("region", { name: "Первые шаги" }).getByText("Пароль родителя задан")).toBeVisible();
-  await expect(page.getByRole("region", { name: "Что нового" })).toBeVisible();
-  await expect(page.getByText(/в следующем обновлении/)).toHaveCount(0);
+  await page.getByRole("navigation", { name: "Разделы" }).getByRole("button", { name: "Что нового" }).click();
+  await expect(page.getByRole("heading", { name: "Что нового", level: 2 })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 3 }).first()).toHaveText("Версия 0.3.0. Программы и игры");
+  await expect(page.locator("main.content").getByRole("button")).toHaveCount(0);
   await noHorizontalScroll(page);
-  await page.screenshot({ path: `${SCREENS}/s07-help.png`, fullPage: true });
-});
-
-// s08 — Помощник включён: приглашение в тур, не перекрывающее окно, и сам тур с подсветкой.
-test("s08 приглашение и тур", async ({ page }) => {
-  await mockProgram(page, { mode: "parent", sessionActive: true, children: family(), helper: {} });
-  await page.goto("/");
-  const invite = page.getByRole("status").filter({ hasText: "Короткий тур по окну родителя" });
-  await expect(invite).toBeVisible();
-  // Карточка в потоке страницы: меню по-прежнему доступно. Имя кнопки берём точное и только из меню:
-  // «Нарушения сегодня: N» на главной тоже содержит это слово.
-  await expect(page.getByRole("navigation", { name: "Разделы" }).getByRole("button", { name: "Сегодня", exact: true })).toBeVisible();
-  await noHorizontalScroll(page);
-  await page.screenshot({ path: `${SCREENS}/s08-helper-invite.png`, fullPage: true });
-  await invite.getByRole("button", { name: "Начать" }).click();
-  const tour = page.getByRole("dialog", { name: "Короткий тур по окну родителя" });
-  await expect(tour).toBeVisible();
-  await expect(tour.getByRole("button", { name: "Пропустить тур" })).toBeVisible();
-  await expect(page.locator(".tour-spot")).toBeVisible();
-  await page.screenshot({ path: `${SCREENS}/s08-helper-tour.png`, fullPage: true });
-  await tour.getByRole("button", { name: "Пропустить тур" }).click();
-  await expect(tour).toHaveCount(0);
-});
-
-// s08 — напоминание о риске на карточке ребёнка: «Без лимита» во все дни.
-test("s08 напоминание на карточке ребёнка", async ({ page }) => {
-  await tallWindow(page, 900);
-  const unlimited = [1, 2, 3, 4, 5, 6, 7].map((weekday) => ({ weekday, totalMin: 0, unlimited: true }));
-  await mockProgram(page, {
-    mode: "parent",
-    sessionActive: true,
-    children: [child({ limits: unlimited, usedS: 600 })],
-    helper: { done: ["H-M1-01", "H-M1-03"] },
-  });
-  await page.goto("/");
-  const card = page.getByRole("article", { name: "Миша" }).getByRole("status");
-  await expect(card).toContainText("Похоже, у Миши нет ограничений ни в один день");
-  await expect(card.getByRole("button", { name: "Задать лимиты" })).toBeVisible();
-  await expect(card.getByRole("button", { name: "Больше не напоминать" })).toBeVisible();
-  await noHorizontalScroll(page);
-  await page.screenshot({ path: `${SCREENS}/s08-helper-reminder.png`, fullPage: true });
+  await wholePage(page);
+  await inFrame(page, page.getByRole("heading", { name: /^Версия 0\.2\.1\./, level: 3 }));
+  await inFrame(page, page.getByRole("heading", { level: 3 }).last());
+  await page.screenshot({ path: `${SCREENS}/s07-whatsnew.png`, fullPage: true });
 });
 
 // --- Фидбек-раунд 0.2.2 ---------------------------------------------------------------
@@ -515,7 +495,7 @@ for (const [w, h] of [
     // Низ: «Настройки для родителя» достижима прокруткой и стоит под всем содержимым.
     const link = page.getByRole("button", { name: "Настройки для родителя" });
     await expect(link).toBeInViewport({ ratio: 1 });
-    await expect(page.getByText("Когда время выйдет, экран закроется блокировкой.", { exact: false })).toBeInViewport({ ratio: 1 });
+    await expect(page.getByText("Когда время вышло: экран блокировки", { exact: true })).toBeInViewport({ ratio: 1 });
     await noHorizontalScroll(page);
     if (w === 640) await page.screenshot({ path: `${SCREENS}/s06-my-stats-small.png` });
   });
@@ -655,4 +635,378 @@ test("s06 бонусы ребёнка и промокод", async ({ page }) => 
   await expect(box.getByText("Добавлено 30 минут")).toBeVisible();
   await noHorizontalScroll(page);
   await page.screenshot({ path: `${SCREENS}/s06-my-bonuses.png`, fullPage: true });
+});
+
+// --- M3: экран «Программы» (FR-20, 8.3.4) -----------------------------------------------
+
+const H = 3600_000;
+const pendingPrograms = (now: number) => [
+  {
+    path: "c:\\users\\миша\\downloads\\supergame.exe",
+    name: "SuperGame",
+    publisher: "Без подписи издателя",
+    description: "Super Game Deluxe",
+    attempts: 4,
+    lastAttemptAt: now - 2 * H,
+    wasCategory: "games",
+    byChild: [
+      { childId: 1, name: "Миша", attempts: 3 },
+      { childId: 2, name: "Даша", attempts: 1 },
+    ],
+  },
+  {
+    path: "c:\\users\\даша\\appdata\\local\\programs\\очень длинное название папки тренажёра по математике\\версия 2026.10.1\\тренажёр таблицы умножения.exe",
+    name: "Тренажёр таблицы умножения для начальной школы",
+    publisher: "",
+    description: "",
+    attempts: 2,
+    lastAttemptAt: now - 26 * H,
+    wasCategory: "",
+    byChild: [{ childId: 2, name: "Даша", attempts: 2 }],
+  },
+];
+
+const programList = () => [
+  { path: "c:\\program files\\bravesoftware\\brave-browser\\application\\brave.exe", name: "Brave", publisher: "Brave Software, Inc.", category: "other" as const, source: "snapshot" as const, weekS: 5400 },
+  { path: "c:\\program files\\minecraft launcher\\minecraftlauncher.exe", name: "Minecraft Launcher", publisher: "Mojang", category: "games" as const, source: "catalog" as const, weekS: 7500 },
+  { path: "c:\\program files (x86)\\steam\\steamapps\\common\\очень длинное название игры с пробелами\\bin\\win64\\game.exe", name: "Очень длинное название игры с пробелами и цифрами 2026", publisher: "", category: "games" as const, source: "parent" as const, weekS: 0 },
+  { path: "c:\\program files\\uchi\\uchi.exe", name: "Учи.ру", publisher: "Учи.ру", category: "study" as const, source: "parent" as const, weekS: 1800 },
+  { path: "c:\\users\\миша\\downloads\\bad.exe", name: "Bad", publisher: "", category: "blocked" as const, source: "parent" as const, weekS: 0 },
+  { path: "c:\\windows\\system32\\notepad.exe", name: "Блокнот", publisher: "Microsoft", category: "system" as const, source: "snapshot" as const, weekS: 600 },
+];
+
+async function openPrograms(page: Page, options: MockOptions) {
+  await mockProgram(page, { mode: "parent", sessionActive: true, children: family(), ...options });
+  await page.goto("/");
+  await page.getByRole("navigation", { name: "Разделы" }).getByRole("button", { name: "Программы" }).click();
+  await expect(page.getByRole("heading", { name: "Программы", level: 2 })).toBeVisible();
+}
+
+type Box = { left: number; right: number; top: number; bottom: number; width: number; height: number };
+const boxOf = (l: ReturnType<Page["locator"]>) =>
+  l.evaluate((el) => {
+    const r = el.getBoundingClientRect();
+    return { left: r.left, right: r.right, top: r.top, bottom: r.bottom, width: r.width, height: r.height } as Box;
+  });
+
+/** Кнопки решения одной высоты, в одну строку и с равными промежутками. */
+async function decisionButtonsEven(page: Page) {
+  const groups = page.locator(".pending-actions");
+  const n = await groups.count();
+  expect(n).toBeGreaterThan(0);
+  for (let g = 0; g < n; g++) {
+    const buttons = groups.nth(g).getByRole("button");
+    await expect(buttons).toHaveText(["Игра", "Учёба", "Прочее", "Запретить"]);
+    const boxes: Box[] = [];
+    for (let i = 0; i < 4; i++) boxes.push(await boxOf(buttons.nth(i)));
+    for (const b of boxes) {
+      expect(Math.abs(b.height - boxes[0].height), "кнопки решения разной высоты").toBeLessThanOrEqual(0.5);
+      expect(Math.abs(b.top - boxes[0].top), "кнопки решения не в одну строку").toBeLessThanOrEqual(0.5);
+    }
+    const gaps = [1, 2, 3].map((i) => boxes[i].left - boxes[i - 1].right);
+    for (const gap of gaps) {
+      expect(Math.abs(gap - gaps[0]), `промежутки между кнопками разные: ${gaps.join(", ")}`).toBeLessThanOrEqual(0.5);
+      expect(gap).toBeGreaterThanOrEqual(8 - 0.5);
+    }
+  }
+}
+
+/** Зазор между соседними блоками страницы не меньше 16 px (замер, не на глаз). */
+async function blocksApart(page: Page) {
+  const parts = page.locator("main.content .programs-page > *");
+  const n = await parts.count();
+  const boxes: Box[] = [];
+  for (let i = 0; i < n; i++) boxes.push(await boxOf(parts.nth(i)));
+  for (let i = 1; i < boxes.length; i++) {
+    expect(boxes[i].top - boxes[i - 1].bottom, `между блоками ${i - 1} и ${i} меньше 16 px`).toBeGreaterThanOrEqual(16 - 0.5);
+  }
+}
+
+/** Ничего не вылезает из ячеек таблицы и из строк «Ждут решения». */
+async function nothingSticksOut(page: Page) {
+  const out = await page.evaluate(() => {
+    const bad: string[] = [];
+    for (const cell of Array.from(document.querySelectorAll<HTMLElement>(".programs-table td, .pending-item"))) {
+      const c = cell.getBoundingClientRect();
+      for (const child of Array.from(cell.querySelectorAll<HTMLElement>("select, button, input, p, .program-path"))) {
+        const r = child.getBoundingClientRect();
+        if (r.width === 0) continue;
+        if (r.right > c.right + 0.5 || r.left < c.left - 0.5) bad.push(`${child.className || child.tagName}: ${child.textContent?.slice(0, 40)}`);
+      }
+    }
+    return bad;
+  });
+  expect(out, "элементы вылезают за край").toEqual([]);
+}
+
+/** Путь в строках одной строкой, без переноса посреди имени файла; имя файла видно целиком. */
+async function pathsOneLine(page: Page) {
+  const bad = await page.evaluate(() => {
+    const out: string[] = [];
+    for (const el of Array.from(document.querySelectorAll<HTMLElement>(".program-path .path-short"))) {
+      const line = parseFloat(getComputedStyle(el).lineHeight) || 20;
+      if (el.getBoundingClientRect().height > line * 1.5) out.push(`перенос: ${el.textContent}`);
+      const tail = el.querySelector<HTMLElement>(".path-tail");
+      if (tail && tail.scrollWidth > tail.clientWidth + 1) out.push(`имя файла обрезано: ${tail.textContent}`);
+    }
+    return out;
+  });
+  expect(bad).toEqual([]);
+}
+
+// s11 — «Программы»: два ждущих решения (одна с пометкой «Раньше было: игра», другая с длинным
+// путём и без издателя) и список всех программ.
+test("s11 программы: ждут решения и список", async ({ page }) => {
+  await tallWindow(page, 1500);
+  await openPrograms(page, { pending: pendingPrograms(Date.now()), programs: programList() });
+  await expect(page.getByRole("heading", { name: "Ждут решения: 2" })).toBeVisible();
+  await expect(page.getByText("Раньше было: игра")).toBeVisible();
+  const longPath = page.locator(".pending-item").nth(1).locator(".path-short");
+  await expect(longPath).toContainText("…");
+  await expect(longPath).toContainText("тренажёр таблицы умножения.exe");
+  await expect(page.getByText("Блокнот")).toHaveCount(0);
+  await decisionButtonsEven(page);
+  await blocksApart(page);
+  await nothingSticksOut(page);
+  await pathsOneLine(page);
+  await noHorizontalScroll(page);
+  await page.screenshot({ path: `${SCREENS}/s11-programs.png`, fullPage: true });
+});
+
+// s11 — после «Игра»: сообщение «SuperGame: игра» с «Отменить», фильтр «Игры» и отмеченные строки.
+test("s11 программы: решение, фильтр и массовая смена", async ({ page }) => {
+  await tallWindow(page, 1300);
+  await openPrograms(page, { pending: pendingPrograms(Date.now()), programs: programList() });
+  await page.locator(".pending-item").first().getByRole("button", { name: "Игра" }).click();
+  await expect(page.getByText("SuperGame: игра")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Отменить" })).toBeVisible();
+  const all = page.getByRole("region", { name: "Все программы" });
+  await all.getByRole("group", { name: "Показать" }).getByRole("button", { name: "Игры" }).click();
+  await expect(all.getByRole("button", { name: "Игры" })).toHaveAttribute("aria-pressed", "true");
+  await all.getByRole("checkbox", { name: "Выбрать всё в списке" }).check();
+  await expect(all.getByText("Выбрано: 3")).toBeVisible();
+  await decisionButtonsEven(page);
+  await blocksApart(page);
+  await nothingSticksOut(page);
+  await pathsOneLine(page);
+  await noHorizontalScroll(page);
+  await page.screenshot({ path: `${SCREENS}/s11-programs-filtered.png`, fullPage: true });
+});
+
+// s11 — «Программы» пустой: никто ничего не запускал.
+test("s11 программы: пусто", async ({ page }) => {
+  await openPrograms(page, { pending: [], programs: [] });
+  await expect(page.getByText("Программ пока нет: они появятся, когда ребёнок запустит что-то новое")).toBeVisible();
+  await expect(page.getByRole("heading", { name: /Ждут решения/ })).toHaveCount(0);
+  await blocksApart(page);
+  await noHorizontalScroll(page);
+  await page.screenshot({ path: `${SCREENS}/s11-programs-empty.png`, fullPage: true });
+});
+
+// s11 — тёмная тема Windows: тот же экран читается.
+test("s11 программы, тёмная тема", async ({ page }) => {
+  await page.emulateMedia({ colorScheme: "dark" });
+  await tallWindow(page, 1500);
+  await openPrograms(page, { pending: pendingPrograms(Date.now()), programs: programList() });
+  await expect(page.getByRole("heading", { name: "Ждут решения: 2" })).toBeVisible();
+  await page.screenshot({ path: `${SCREENS}/s11-programs-dark.png`, fullPage: true });
+});
+
+// --- M3: лимит игр, «Когда время вышло», шаг мастера «Программы» (T6b) -----------------
+
+/** Неделя с играми: будни 2 ч и игры 1 ч, суббота 4 ч и игры 2 ч, среда игры 0, воскресенье игры без лимита. */
+const gamesWeek = () =>
+  [1, 2, 3, 4, 5, 6, 7].map((weekday) => ({
+    weekday,
+    totalMin: weekday >= 6 ? 240 : 120,
+    unlimited: false,
+    gamesMin: weekday === 3 ? 0 : weekday === 6 ? 120 : 60,
+    gamesUnlimited: weekday === 7,
+  }));
+
+/** Внутри ячейки таблицы лимитов ничего не вылезает за её край, поля одной ячейки в одну строку. */
+async function limitCellsFit(page: Page) {
+  const bad = await page.evaluate(() => {
+    const out: string[] = [];
+    for (const cell of Array.from(document.querySelectorAll<HTMLElement>(".limits-cell"))) {
+      const c = cell.getBoundingClientRect();
+      const inputs = Array.from(cell.querySelectorAll<HTMLElement>("input.limits-num"));
+      if (inputs.length === 2 && Math.abs(inputs[0].getBoundingClientRect().top - inputs[1].getBoundingClientRect().top) > 0.5) {
+        out.push(`часы и минуты не в одну строку: ${inputs[0].getAttribute("aria-label")}`);
+      }
+      for (const el of Array.from(cell.querySelectorAll<HTMLElement>("input, label, p, span"))) {
+        const r = el.getBoundingClientRect();
+        if (r.width === 0) continue;
+        if (r.right > c.right + 0.5 || r.left < c.left - 0.5) out.push(`${el.className || el.tagName} вылезает: ${el.getAttribute("aria-label") ?? el.textContent?.slice(0, 30)}`);
+      }
+    }
+    return out;
+  });
+  expect(bad, "в ячейках лимитов что-то вылезает").toEqual([]);
+}
+
+// s12 — «Дети → Лимиты» со столбцом «Игры» (FR-16): подсказка «0 мин: в этот день играть нельзя»
+// в среде, игры без лимита в воскресенье, пояснение про игры и учёбу под таблицей. Окно 960x640.
+test("s12 лимиты с играми", async ({ page }) => {
+  await tallWindow(page, 900);
+  await mockProgram(page, { mode: "parent", sessionActive: true, children: [child({ limits: gamesWeek() })] });
+  await page.goto("/");
+  await page.getByRole("button", { name: "Дети" }).click();
+  await expect(page.getByRole("columnheader", { name: "Игры" })).toBeVisible();
+  await expect(page.getByLabel("Часы игр, понедельник")).toHaveValue("1");
+  await expect(page.getByRole("row", { name: /Среда/ }).getByText("0 мин: в этот день играть нельзя")).toBeVisible();
+  await expect(page.getByLabel("Игры без лимита, воскресенье")).toBeChecked();
+  const note = page.getByText("Время игр входит в общее. Учёба в общее время не входит");
+  await expect(note).toBeVisible();
+  // Пояснение стоит под таблицей с зазором, а не прижато к ней.
+  const table = await boxOf(page.locator(".limits-table"));
+  const noteBox = await boxOf(note);
+  expect(noteBox.top - table.bottom).toBeGreaterThanOrEqual(4 - 0.5);
+  // Столбцы «Общее» и «Игры» одинаковой ширины по содержимому не обязаны, но оба целиком в окне.
+  for (const name of ["Общее", "Игры"]) {
+    const h = await boxOf(page.getByRole("columnheader", { name }));
+    expect(h.right).toBeLessThanOrEqual(960);
+  }
+  await limitCellsFit(page);
+  await noHorizontalScroll(page);
+  await page.screenshot({ path: `${SCREENS}/s12-limits-games.png`, fullPage: true });
+});
+
+// s12 — шаг «Время» мастера в самом узком окне мастера (720x560): два столбца без прокрутки вбок.
+test("s12 мастер, шаг времени в узком окне", async ({ page }) => {
+  await page.setViewportSize({ width: 720, height: 560 });
+  await mockProgram(page, { configured: false, mode: "wizard" });
+  await page.goto("/");
+  await page.getByLabel("Пароль родителя").fill("секрет-123");
+  await page.getByLabel("Повторите пароль").fill("секрет-123");
+  await page.getByRole("button", { name: "Далее" }).click();
+  await page.getByRole("checkbox", { name: /Миша/ }).check();
+  await page.getByRole("button", { name: "Далее" }).click();
+  await expect(page.getByRole("columnheader", { name: "Игры" })).toBeVisible();
+  await limitCellsFit(page);
+  await noHorizontalScroll(page);
+  const table = await boxOf(page.locator(".limits-table"));
+  const panel = await boxOf(page.locator(".wizard"));
+  expect(table.right, "таблица шире панели мастера").toBeLessThanOrEqual(panel.right - 16 + 0.5);
+  await page.screenshot({ path: `${SCREENS}/s12-wizard-time-720.png`, fullPage: true });
+});
+
+/** Вкладка «Когда время вышло»: карточки вариантов не слипаются (зазор ≥ 16 px, приёмка P2 п.2). */
+async function endModesApart(page: Page) {
+  const cards = page.locator(".end-mode");
+  await expect(cards).toHaveCount(2);
+  const a = await boxOf(cards.nth(0));
+  const b = await boxOf(cards.nth(1));
+  expect(b.top - a.bottom, "варианты слиплись").toBeGreaterThanOrEqual(16 - 0.5);
+}
+
+// s12 — «Когда время вышло» (FR-18) без учебных программ: у «Оставить только учёбу» предупреждение
+// и кнопка «Программы»; выбран «Оставить только учёбу», внизу панель «Сохранить».
+test("s12 когда время вышло: нет учебных программ", async ({ page }) => {
+  await mockProgram(page, { mode: "parent", sessionActive: true, children: [child({ limits: gamesWeek() })], programs: programList().filter((p) => p.category !== "study") });
+  await page.goto("/");
+  await page.getByRole("button", { name: "Дети" }).click();
+  await page.getByRole("tab", { name: "Когда время вышло" }).click();
+  await page.getByRole("radio", { name: /Оставить только учёбу/ }).check();
+  const warn = page.locator(".end-mode-warn");
+  await expect(warn).toContainText("Учебных программ и сайтов пока нет: в этом режиме будет закрыто всё");
+  await expect(warn.getByRole("button", { name: "Программы" })).toBeVisible();
+  // Предупреждение внутри карточки «Оставить только учёбу», с отступом от её краёв.
+  const card = await boxOf(page.locator(".end-mode").nth(1));
+  const w = await boxOf(warn);
+  expect(w.bottom).toBeLessThanOrEqual(card.bottom - 8 + 0.5);
+  expect(w.right).toBeLessThanOrEqual(card.right - 8 + 0.5);
+  await endModesApart(page);
+  // Приёмка P2 п.3: на панели ровно одна фраза, одной строкой, без склейки со второй.
+  const bar = page.getByRole("region", { name: "Сохранение изменений" });
+  await expect(bar.locator(".savebar-main")).toHaveText("Есть несохранённые изменения");
+  await expect(bar.getByRole("status")).toHaveCount(0);
+  const barText = bar.locator(".savebar-text");
+  const lines = await barText.evaluate((el) => el.getBoundingClientRect().height / (parseFloat(getComputedStyle(el).lineHeight) || 20));
+  expect(lines, "фраза на панели переносится").toBeLessThan(1.5);
+  await noHorizontalScroll(page);
+  await page.screenshot({ path: `${SCREENS}/s12-end-mode-no-study.png`, fullPage: true });
+});
+
+// s12 — «Когда время вышло» с учебной программой: предупреждения нет, выбран сохранённый «Блокировать экран».
+test("s12 когда время вышло: учебные есть", async ({ page }) => {
+  await mockProgram(page, {
+    mode: "parent",
+    sessionActive: true,
+    children: [child({ limits: gamesWeek() })],
+    programs: programList(),
+  });
+  await page.goto("/");
+  await page.getByRole("button", { name: "Дети" }).click();
+  await page.getByRole("tab", { name: "Когда время вышло" }).click();
+  await expect(page.getByRole("radio", { name: /Блокировать экран/ })).toBeChecked();
+  await expect(page.getByText(/Учебных программ и сайтов пока нет/)).toHaveCount(0);
+  await endModesApart(page);
+  await noHorizontalScroll(page);
+  await page.screenshot({ path: `${SCREENS}/s12-end-mode.png`, fullPage: true });
+});
+
+test("s12 когда время вышло, тёмная тема", async ({ page }) => {
+  await page.emulateMedia({ colorScheme: "dark" });
+  await mockProgram(page, { mode: "parent", sessionActive: true, children: [child({ limits: gamesWeek(), endMode: "study_only" })], programs: [] });
+  await page.goto("/");
+  await page.getByRole("button", { name: "Дети" }).click();
+  await page.getByRole("tab", { name: "Когда время вышло" }).click();
+  await expect(page.locator(".end-mode-warn")).toBeVisible();
+  await page.screenshot({ path: `${SCREENS}/s12-end-mode-dark.png`, fullPage: true });
+});
+
+// s12 — мастер, шаг 4 «Программы» (FR-2): окно мастера 880x680, список найденных программ с выбором.
+test("s12 мастер, шаг программ", async ({ page }) => {
+  await page.setViewportSize({ width: 880, height: 680 });
+  await mockProgram(page, { configured: false, mode: "wizard" });
+  await page.goto("/");
+  await page.getByLabel("Пароль родителя").fill("секрет-123");
+  await page.getByLabel("Повторите пароль").fill("секрет-123");
+  await page.getByRole("button", { name: "Далее" }).click();
+  await page.getByRole("checkbox", { name: /Миша/ }).check();
+  await page.getByRole("button", { name: "Далее" }).click();
+  await expect(page.getByText("Шаг 3 из 4")).toBeVisible();
+  await limitCellsFit(page);
+  await noHorizontalScroll(page);
+  // Шаг целиком, с кнопками внизу; дальше снова окно мастера 880x680.
+  await wholePage(page);
+  await inFrame(page, page.getByRole("button", { name: "Далее" }));
+  await page.screenshot({ path: `${SCREENS}/s12-wizard-time.png`, fullPage: true });
+  await page.setViewportSize({ width: 880, height: 680 });
+  await page.getByRole("button", { name: "Далее" }).click();
+  await expect(page.getByText("Шаг 4 из 4")).toBeVisible();
+  await expect(page.getByRole("table", { name: "Программы на этом компьютере" })).toBeVisible();
+  await expect(page.getByRole("combobox", { name: "Что это: Minecraft Launcher" })).toHaveValue("games");
+  await expect(page.getByText(/Незнакомые программы будут ждать вашего решения/)).toBeVisible();
+  // Кнопки шага в одну строку, одной высоты, под списком.
+  const buttons = ["Назад", "Настрою позже", "Готово"].map((name) => page.getByRole("button", { name, exact: true }));
+  const boxes = await Promise.all(buttons.map((b) => boxOf(b)));
+  for (const b of boxes) {
+    expect(Math.abs(b.top - boxes[0].top)).toBeLessThanOrEqual(0.5);
+    expect(Math.abs(b.height - boxes[0].height)).toBeLessThanOrEqual(0.5);
+  }
+  const list = await boxOf(page.locator(".wizard-programs"));
+  expect(boxes[0].top - list.bottom).toBeGreaterThanOrEqual(8 - 0.5);
+  await nothingSticksOut(page);
+  await noHorizontalScroll(page);
+  await page.screenshot({ path: `${SCREENS}/s12-wizard-programs.png`, fullPage: true });
+});
+
+// s12 — «Сегодня» с играми (8.3.2 п.3): у Миши «Игры 40 мин из 1 ч» под «Использовано».
+test("s12 сегодня с играми", async ({ page }) => {
+  await mockProgram(page, {
+    mode: "parent",
+    sessionActive: true,
+    children: [child({ limits: gamesWeek().map((l) => ({ ...l, gamesMin: 60, gamesUnlimited: false })), usedS: 3600, gamesUsedS: 2400 })],
+  });
+  await page.goto("/");
+  const misha = page.getByRole("article", { name: "Миша" });
+  const games = misha.getByText("Игры 40 мин из 1 ч", { exact: true });
+  await expect(games).toBeVisible();
+  const used = await boxOf(misha.getByText(/^Использовано /));
+  const g = await boxOf(games);
+  expect(g.top).toBeGreaterThanOrEqual(used.bottom - 0.5);
+  await noHorizontalScroll(page);
+  await page.screenshot({ path: `${SCREENS}/s12-today-games.png`, fullPage: true });
 });

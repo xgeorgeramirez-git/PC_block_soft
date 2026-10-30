@@ -20,7 +20,7 @@ import (
 )
 
 // App — методы, которые вызывает интерфейс окна (биндинги Wails: frontend/wailsjs/go/ui/App).
-// Ровно четыре открытых метода: Call, Finish, Mode, Version. Любой новый открытый метод
+// Ровно пять открытых методов: Call, Finish, Mode, StartScreen, Version. Любой новый открытый метод
 // попадает в биндинги, а windows.yml сверяет их с закоммиченными, поэтому вспомогательные
 // методы пишутся с маленькой буквы.
 type App struct {
@@ -134,6 +134,16 @@ func (a *App) Finish(code int) {
 // reset-password или uninstall-gate. По нему интерфейс выбирает экран.
 func (a *App) Mode() string {
 	return a.mode.String()
+}
+
+// StartScreen возвращает экран, на котором открывается окно родителя (ключ --screen, RM3-4):
+// «programs» — «Программы → Ждут решения» после «Попросить сейчас»; пусто — главный экран и у
+// всех окон, кроме окна родителя.
+func (a *App) StartScreen() string {
+	if a.mode != launch.ModeParent {
+		return ""
+	}
+	return a.opts["screen"]
 }
 
 // Version возвращает номер версии программы для показа в окне.

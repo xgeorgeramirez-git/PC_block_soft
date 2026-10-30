@@ -3,7 +3,9 @@
 package guard
 
 import (
+	"fmt"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 	"unsafe"
@@ -43,11 +45,45 @@ func TestReadSensorsIsSane(t *testing.T) {
 		t.Fatalf("время простоя отрицательное: %d", s.LastInputAgoMs)
 	}
 	if s.Foreground != ipc.CatNameOther {
-		t.Fatalf("категория переднего плана %q, в M1 всегда %q", s.Foreground, ipc.CatNameOther)
+		t.Fatalf("категория переднего плана %q, ждали %q: категорию по пути определяет служба", s.Foreground, ipc.CatNameOther)
+	}
+	if n := len([]rune(s.ForegroundPath)); n > ipc.MaxForegroundPathLen {
+		t.Fatalf("путь переднего плана длиннее %d символов: %d", ipc.MaxForegroundPathLen, n)
 	}
 	fast := ReadSensors(now, 10)
 	if fast.LastInputAgoMs < s.LastInputAgoMs {
 		t.Fatalf("при ускорении простой не может стать меньше: %d < %d", fast.LastInputAgoMs, s.LastInputAgoMs)
+	}
+}
+
+var procGetShellWindow = user32.NewProc("GetShellWindow")
+
+// Ловит (R3, R23, PL-9): путь программы окна не читается или читается с 8.3-именами, окно самого
+// стража уходит службе как программа ребёнка, нет окна — не пусто.
+func TestForegroundPathOfWindows(t *testing.T) {
+	if got := foregroundPath(0); got != "" {
+		t.Fatalf("нет окна: %q", got)
+	}
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	p, err := newPlateWindow(nil)
+	if err != nil {
+		t.Skipf("окно создать нельзя (нет рабочего стола): %v", err)
+	}
+	defer func() {
+		p.close()
+		pump(20 * time.Millisecond)
+	}()
+	if got := foregroundPath(p.hwnd); got != "" {
+		t.Fatalf("окно самого стража ушло службе: %q", got)
+	}
+	shell, _, _ := procGetShellWindow.Call()
+	if shell == 0 {
+		t.Skip("нет окна рабочего стола (explorer не запущен)")
+	}
+	got := foregroundPath(shell)
+	if !strings.HasSuffix(strings.ToLower(got), `\explorer.exe`) || strings.Contains(got, "~") {
+		t.Fatalf("путь окна рабочего стола: %q", got)
 	}
 }
 
@@ -158,7 +194,7 @@ func TestWarningPlateShowsAndHides(t *testing.T) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
-	p, err := newPlateWindow()
+	p, err := newPlateWindow(nil)
 	if err != nil {
 		t.Skipf("окно создать нельзя (нет рабочего стола): %v", err)
 	}
@@ -294,6 +330,17 @@ func TestRunStartsOneGuardAndStopsOnClose(t *testing.T) {
 // (окно табло не прячется, текстовая плашка не создаётся или поток окон встаёт), а GuardState
 // после опроса показывает старый кадр.
 func TestBoardThenOneMinuteRealWindows(t *testing.T) {
+	for _, c := range []struct {
+		balance int
+		buttons string
+	}{{0, TargetAskMorePlate}, {45, TargetSpendBonusPlate + "," + TargetAskMorePlate}} {
+		t.Run(fmt.Sprintf("копилка %d", c.balance), func(t *testing.T) { boardThenOneMinute(t, c.balance, c.buttons) })
+	}
+}
+
+// boardThenOneMinute: табло «5», затем плашка 1 мин в настоящих окнах; кнопки плашки 1 мин по
+// балансу копилки (RM3-5), нажатие кнопки через TestGuard доходит до службы без пароля.
+func boardThenOneMinute(t *testing.T, balance int, buttons string) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
@@ -302,6 +349,11 @@ func TestBoardThenOneMinuteRealWindows(t *testing.T) {
 	r.ctl.SetSoundPlayer(func() bool { return true })
 	a := &app{ctl: r.ctl}
 	defer a.shutdown()
+	ctRunningStatus := func(rem int) ipc.ChildStatus {
+		st := ipc.ChildStatusFrom("Миша", runningDecision(rem))
+		st.BonusBalance = balance
+		return st
+	}
 
 	r.svc.status = ctRunningStatus(300)
 	r.svc.warns = []ipc.GuardWarning{ipc.NewGuardWarning(5)}
@@ -335,7 +387,7 @@ func TestBoardThenOneMinuteRealWindows(t *testing.T) {
 	if r2, _, _ := procIsWindowVisible.Call(a.plate.hwnd); r2 == 0 {
 		t.Fatal("окно плашки 1 мин не видно")
 	}
-	if v := r.ctl.View(); v.Warning == nil || v.Warning.Threshold != 1 || len(v.Warning.Buttons) != 0 {
+	if v := r.ctl.View(); v.Warning == nil || v.Warning.Threshold != 1 || buttonNames(v.Warning) != buttons {
 		t.Fatalf("вид после порога 1: %+v", v.Warning)
 	}
 	r.ctl.PushState()
@@ -344,7 +396,77 @@ func TestBoardThenOneMinuteRealWindows(t *testing.T) {
 	if err := calls[len(calls)-1].Into(&st); err != nil {
 		t.Fatal(err)
 	}
-	if len(st.Buttons) != 0 || len(st.Sounds) != 2 || st.UI.Ticks < 5 || st.UI.Panic != "" {
-		t.Fatalf("GuardState: кнопки %v, звуки %v, поток окон %+v", st.Buttons, st.Sounds, st.UI)
+	if strings.Join(st.Buttons, ",") != buttons || st.PlateKind != ipc.PlateOneMinute || len(st.Sounds) != 2 || st.UI.Ticks < 5 || st.UI.Panic != "" {
+		t.Fatalf("GuardState: кнопки %v, вид %q, звуки %v, поток окон %+v", st.Buttons, st.PlateKind, st.Sounds, st.UI)
+	}
+	// Первая кнопка плашки нажимается щелчком в окне (TestGuard click), команда идёт службе.
+	first, _, _ := strings.Cut(buttons, ",")
+	cmd := map[string]string{TargetAskMorePlate: ipc.CmdOpenWindow, TargetSpendBonusPlate: ipc.CmdSpendBonus}[first]
+	a.runTestAction(ipc.TestGuardAction{Action: ipc.TestClick, Target: first})
+	deadline := time.Now().Add(2 * time.Second)
+	for len(r.svc.called(cmd)) == 0 && time.Now().Before(deadline) {
+		pump(20 * time.Millisecond)
+	}
+	if n := len(r.svc.called(cmd)); n != 1 || len(r.svc.called(ipc.CmdLogin)) != 0 {
+		t.Fatalf("щелчок по «%s»: %s вызвана %d раз", first, cmd, n)
+	}
+}
+
+var procGetWindowLong = user32.NewProc("GetWindowLongW")
+
+const (
+	gwlExStyle   = ^uintptr(19) // GWL_EXSTYLE = -20
+	exTopmostBit = 0x00000008
+)
+
+// Ловит (класс B, Review Focus 1): плашка о программе с кнопками забирает фокус при показе или при
+// щелчке по кнопке, щелчок не доходит до стража, повторные кадры снимают «поверх всех»; крестик
+// и «Попросить сейчас» отличаются (не та кнопка).
+func TestBlockedPlateKeepsFocusAndPresses(t *testing.T) {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+
+	var pressed []Button
+	p, err := newPlateWindow(func(b Button) { pressed = append(pressed, b) })
+	if err != nil {
+		t.Skipf("окно создать нельзя (нет рабочего стола): %v", err)
+	}
+	defer func() {
+		p.close()
+		pump(20 * time.Millisecond)
+	}()
+	m := NewModel()
+	m.OnDecision(time.Now(), runningDecision(3600), false, nil)
+	m.OnBlocked(time.Now(), ipc.BlockedPlate{Kind: ipc.BlockedUnknown, Text: "Программа «SuperGame» ждёт разрешения родителя", ShowS: 15, Path: `c:\x.exe`, CanAsk: true})
+	w := m.View(time.Now()).Warning
+	before, _, _ := procGetForegroundWin.Call()
+	for i := 0; i < 3; i++ {
+		p.apply(w) // кадры окна: вид тот же
+		pump(20 * time.Millisecond)
+	}
+	if r, _, _ := procIsWindowVisible.Call(p.hwnd); r == 0 {
+		t.Fatal("плашка не видна")
+	}
+	if ex, _, _ := procGetWindowLong.Call(p.hwnd, gwlExStyle); ex&exTopmostBit == 0 {
+		t.Fatal("плашка не поверх всех окон после повторных кадров")
+	}
+	if after, _, _ := procGetForegroundWin.Call(); after == p.hwnd || after != before {
+		t.Fatalf("фокус ушёл при показе: до %x, после %x, плашка %x", before, after, p.hwnd)
+	}
+	if !p.click(ButtonAskNow) || !p.click(ButtonPlateClose) {
+		t.Fatal("кнопок нет на плашке")
+	}
+	if p.click(ButtonPlateSpendBonus) {
+		t.Fatal("нажалась кнопка, которой на плашке нет")
+	}
+	pump(50 * time.Millisecond)
+	if len(pressed) != 2 || pressed[0] != ButtonAskNow || pressed[1] != ButtonPlateClose {
+		t.Fatalf("нажатия: %v", pressed)
+	}
+	if after, _, _ := procGetForegroundWin.Call(); after == p.hwnd {
+		t.Fatal("щелчок по кнопке активировал плашку")
+	}
+	if title := windowText(p.hwnd); title != w.Text {
+		t.Fatalf("заголовок окна для диктора: %q", title)
 	}
 }

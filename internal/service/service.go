@@ -11,6 +11,7 @@ import (
 
 	"pcblock/internal/core"
 	"pcblock/internal/ipc"
+	"pcblock/internal/programs"
 )
 
 // Сроки службы. Всё, что про людей и процессы, считается по настоящим часам; учёт по часам ядра.
@@ -30,12 +31,10 @@ const (
 
 // Ключи настроек в хранилище.
 const (
-	settingDBNotice          = "notice.db_recovered"
-	settingFirstRunPrefix    = "firstrun.seen."
-	settingHelperParent      = "helper.parent"
-	settingHelperChildPrefix = "helper.child."
-	settingVerboseLogs       = "diag.verbose"      // «Подробные логи для диагностики» (FR-25, D-42)
-	settingBonusRate         = "bonus.rate_per_10" // автобонус N: минут за каждые 10 мин остатка (R25, D-49)
+	settingDBNotice       = "notice.db_recovered"
+	settingFirstRunPrefix = "firstrun.seen."
+	settingVerboseLogs    = "diag.verbose"      // «Подробные логи для диагностики» (FR-25, D-42)
+	settingBonusRate      = "bonus.rate_per_10" // автобонус N: минут за каждые 10 мин остатка (R25, D-49)
 )
 
 // SessionEvent — событие сеанса Windows, которое диспетчер служб передаёт службе.
@@ -91,6 +90,16 @@ type Config struct {
 	// (служба работает в служебном сеансе и свой проводник никому бы не показала): FR-25, D-48,
 	// «Открыть папку с логами». nil: ничего не делает (тесты; в тестовом режиме не вызывается).
 	OpenFolder func(sessionID uint32, path string) error
+	// Программы (M3, RM3-1, RM3-10): сканер Program Files для снимка и мастера, свойства файлов и
+	// корни компьютера (нормализованные programs.Normalize). Scanner nil: снимка нет, список
+	// программ не готов, наблюдатель ничего не закрывает. FileMeta nil: издатель и отпечаток не
+	// известны.
+	Scanner  Scanner
+	FileMeta FileMeta
+	Roots    programs.Roots
+	// Watcher — процессы сеансов для наблюдателя (R12, R13, R5, R8, NFR-6): закрывает незнакомое,
+	// запрещённое и то, что сейчас нельзя. nil: наблюдение выключено, ничего не закрывается.
+	Watcher ProcessWatcher
 }
 
 // pendingWarning — предупреждение, ещё не доставленное стражу.
@@ -124,9 +133,10 @@ type childState struct {
 	haveSample    bool
 	warns         []pendingWarning
 	undo          *undoRec
-	bonusUndo     *undoRec  // отмена последнего начисления копилки на 10 с (FR-22)
-	lastBypass    string    // последняя записанная попытка обхода (дедуп журнала, D-41)
-	lastBypassAt  time.Time // когда записана; страж повторяет сообщение каждую секунду
+	bonusUndo     *undoRec             // отмена последнего начисления копилки на 10 с (FR-22)
+	lastBypass    string               // последняя записанная попытка обхода (дедуп журнала, D-41)
+	lastBypassAt  time.Time            // когда записана; страж повторяет сообщение каждую секунду
+	usage         map[progUsageKey]int // учёт по программам с прошлого сохранения (RM3-6); пишется в saveState
 }
 
 // Service — служба PCBlock без привязки к Windows: логика на портах (doc.go).
@@ -155,6 +165,23 @@ type Service struct {
 	loaded      bool // список детей прочитан из базы
 	verbose     bool // «Подробные логи для диагностики» включены (FR-25, D-42)
 	errAt       map[string]time.Time
+
+	// Программы (M3): классификатор в памяти (RM3-11), готов ли список (снимок сделан и прочитан,
+	// RM3-10), когда пробовали в последний раз, последняя операция для «Отменить».
+	classifier *programs.Classifier
+	progReady  bool
+	progTryAt  time.Time
+	progUndo   *progUndoRec
+	scan       *scanFlight    // идущее сканирование программ (вне s.mu, Д-2); nil — не идёт
+	seeding    bool           // горутина снимка программ работает (не больше одной)
+	seedWG     sync.WaitGroup // горутина снимка (ждут только тесты)
+
+	// Наблюдатель процессов (M3, watch.go): память о процессах (своя блокировка, не s.mu) и
+	// ограничитель повторов журнала и плашек (под s.mu).
+	watch   watchState
+	watchAt map[string]time.Time
+	fpSeen  map[string]string // отпечатки файлов, которые прочитал наблюдатель: путь → отпечаток (для категории секунды)
+	pubSeen map[string]string // издатели файлов в профиле, которые прочитал наблюдатель (RM3-13)
 
 	bypassWait []pendingBypass // гибель стража, значка или окна, о которой ещё не решено, обход ли это (FB-1)
 	logoffs    []logoffMark    // недавние выходы из учёток: гибель рядом с ними в отключённом сеансе ребёнка не обход (FB-5)
@@ -196,12 +223,16 @@ func New(cfg Config) (*Service, error) {
 	if cfg.OpenFolder == nil {
 		cfg.OpenFolder = func(uint32, string) error { return nil }
 	}
+	if cfg.FileMeta == nil {
+		cfg.FileMeta = func(string) (string, string, string) { return "", "", "" }
+	}
 	s := &Service{
 		cfg: cfg, journal: cfg.Journal,
 		children: map[int64]*childState{}, sessions: map[uint32]*sessState{},
 		parents: map[string]*parentSession{}, binds: map[uint32]*guardBind{},
 		guardCmd: map[uint32][]ipc.GuardCommand{}, guardUI: map[uint32]*guardView{},
 		errAt: map[string]time.Time{}, names: map[int64]string{},
+		classifier: programs.NewClassifier(cfg.Roots, programs.DefaultCatalog),
 	}
 	if s.journal == nil {
 		s.journal = StoreJournal{Store: cfg.Store, Clock: cfg.Clock, Loc: cfg.Loc, Logf: cfg.Logf}
@@ -249,6 +280,7 @@ func (s *Service) Start(real time.Time) error {
 		s.startRecovered()
 	}
 	s.loadChildren(real)
+	s.ensurePrograms(real)
 	if v, ok, err := s.cfg.Store.GetSetting(settingVerboseLogs); err == nil && ok && v == "1" {
 		s.verbose = true
 		s.cfg.Logf("Подробные логи для диагностики включены (FR-25, D-42)")
@@ -351,7 +383,9 @@ func (s *Service) addChild(c Child, real time.Time) *childState {
 	return cs
 }
 
-// readRules читает недельные лимиты ребёнка; не прочитались: безопасный режим (R18).
+// readRules читает правила ребёнка целиком: лимиты (общий и игр), расписание и режим «Когда
+// время вышло». Любой путь, который применяет правила, берёт их отсюда (RM3-9: частичная сборка
+// Rules теряет соседние поля). Не прочиталось хоть что-то: безопасный режим (R18).
 func (s *Service) readRules(id int64) core.Rules {
 	week, err := s.cfg.Store.GetDayLimits(id)
 	if err != nil {
@@ -363,7 +397,12 @@ func (s *Service) readRules(id int64) core.Rules {
 		s.logRate(fmt.Sprint("sched", id), "не удалось прочитать расписание ребёнка %d, ограничения не применяются: %v", id, err)
 		return core.Rules{Broken: true}
 	}
-	return core.Rules{Week: week, Schedule: sched}
+	mode, err := s.cfg.Store.GetEndMode(id)
+	if err != nil {
+		s.logRate(fmt.Sprint("endmode", id), "не удалось прочитать режим «Когда время вышло» ребёнка %d, ограничения не применяются: %v", id, err)
+		return core.Rules{Broken: true}
+	}
+	return core.Rules{Week: week, Schedule: sched, EndMode: core.EndModeFromString(mode)}
 }
 
 // exempt сообщает, что для учётки сняты запрет A2 и правило R1 (тестовый режим, ТЗ 10.8).
@@ -412,10 +451,37 @@ func (s *Service) saveState(cs *childState, st core.DayState) {
 	if st.Day == "" {
 		return
 	}
-	if err := s.cfg.Store.SaveDayState(cs.child.ID, st); err != nil {
-		s.logRate(fmt.Sprint("save", cs.child.ID), "состояние дня %s у %s не сохранено: %v", st.Day, cs.child.Name, err)
+	if len(cs.usage) == 0 {
+		if err := s.cfg.Store.SaveDayState(cs.child.ID, st); err != nil {
+			s.logRate(fmt.Sprint("save", cs.child.ID), "состояние дня %s у %s не сохранено: %v", st.Day, cs.child.Name, err)
+		}
+		return
 	}
+	// Учёт по программам — той же транзакцией (RM3-6). Каждая порция несёт свой день: сброс после
+	// полуночи не переносит вчерашние секунды в сегодня (PL-15). Ошибка — накопитель остаётся.
+	rows := make([]UsageRow, 0, len(cs.usage))
+	for k, sec := range cs.usage {
+		rows = append(rows, UsageRow{Day: k.day, Category: k.cat, Kind: usageKindProgram, Subject: k.path, Seconds: sec})
+	}
+	sort.Slice(rows, func(i, j int) bool {
+		a, b := rows[i], rows[j]
+		if a.Day != b.Day {
+			return a.Day < b.Day
+		}
+		if a.Category != b.Category {
+			return a.Category < b.Category
+		}
+		return a.Subject < b.Subject
+	})
+	if err := s.cfg.Store.SaveDayAndUsage(cs.child.ID, st, rows); err != nil {
+		s.logRate(fmt.Sprint("save", cs.child.ID), "состояние дня %s и учёт программ у %s не сохранены: %v", st.Day, cs.child.Name, err)
+		return
+	}
+	cs.usage = nil
 }
+
+// usageKindProgram — вид предмета учёта usage_daily: программа (путь exe).
+const usageKindProgram = "program"
 
 // afterDecision разбирает решение ядра: закрытый день, события, предупреждение.
 func (s *Service) afterDecision(cs *childState, d core.Decision, extra map[string]any) {
@@ -475,6 +541,7 @@ func (s *Service) statusOf(cs *childState) ipc.ChildStatus {
 		st.BonusBalance = bal
 	}
 	st.ForbiddenNote = s.forbiddenNote(cs)
+	st.EndMode = cs.rules.EndMode.String() // правило ребёнка (R8); решение ядра его не несёт
 	return st
 }
 
@@ -511,23 +578,49 @@ func (s *Service) cardOf(cs *childState) ipc.TodayCard {
 		bonus = 0
 	}
 	noForbidden := state.NoForbidden && state.Day == st.Day
+	gamesS := state.GamesS
+	if state.Day != st.Day && st.Day != "" {
+		gamesS = 0
+	}
 	return ipc.TodayCard{
 		ChildID: cs.child.ID, SID: cs.child.SID, Name: cs.child.Name, Status: st,
 		ExtraMin: extra, BonusBalance: bonus, CanClearBlock: bypass != "",
 		NoForbiddenToday: noForbidden,
+		// «Игры 40 мин из 1 ч» (8.3.2 п.3): игры за день ядра и лимит игр из того же решения.
+		GamesText:       ipc.GamesCardText(gamesS, st.GamesLimitS, st.GamesUnlimited),
+		PendingPrograms: s.pendingCount(),
 	}
 }
 
-// rulesView возвращает недельные лимиты в виде команд канала.
+// pendingCount — сколько программ ждут решения родителя (ссылка «Ждут решения: N», 8.3.2 п.5).
+// Не прочиталось: 0, ошибка в журнал работы.
+func (s *Service) pendingCount() int {
+	list, err := s.cfg.Store.ListPending()
+	if err != nil {
+		s.logRate("pending", "не удалось прочитать «Ждут решения»: %v", err)
+		return 0
+	}
+	return len(list)
+}
+
+// rulesView возвращает недельные лимиты и режим «Когда время вышло» в виде команд канала.
 func rulesView(cs *childState) ipc.ChildRules {
-	out := ipc.ChildRules{ChildID: cs.child.ID, Name: cs.child.Name, Limits: make([]ipc.WeekdayLimit, 0, 7)}
+	return ipc.ChildRules{ChildID: cs.child.ID, Name: cs.child.Name, Limits: limitsView(cs.rules), EndMode: cs.rules.EndMode.String()}
+}
+
+// limitsView — семь дней лимитов (общий и игр) в виде канала: правила ребёнка и FR-33.
+func limitsView(r core.Rules) []ipc.WeekdayLimit {
+	out := make([]ipc.WeekdayLimit, 0, 7)
 	for i := 0; i < 7; i++ {
-		l := cs.rules.Week[i]
-		w := ipc.WeekdayLimit{Weekday: i + 1, Unlimited: l.Unlimited()}
+		l := r.Week[i]
+		w := ipc.WeekdayLimit{Weekday: i + 1, Unlimited: l.Unlimited(), GamesUnlimited: l.GamesMin == nil}
 		if !w.Unlimited {
 			w.TotalMin = *l.TotalMin
 		}
-		out.Limits = append(out.Limits, w)
+		if !w.GamesUnlimited {
+			w.GamesMin = *l.GamesMin
+		}
+		out = append(out, w)
 	}
 	return out
 }

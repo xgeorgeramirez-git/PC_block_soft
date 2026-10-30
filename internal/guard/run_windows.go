@@ -334,7 +334,8 @@ func (a *app) applyLock(v View) {
 }
 
 // applyPlate показывает плашку предупреждения или прячет её: табло за 30/15/5 мин — общей
-// карточкой (systray.WarningCard, R-2), плашку 1 мин и «Добавлено N минут» — текстовым окном.
+// карточкой (systray.WarningCard, R-2), плашку 1 мин, «Добавлено N минут» и плашки о закрытых
+// программах — текстовым окном с кнопками.
 func (a *app) applyPlate(v View) {
 	board, text := SplitPlate(v.Warning)
 	if board == nil {
@@ -366,7 +367,7 @@ func (a *app) applyPlate(v View) {
 		return
 	}
 	if a.plate == nil {
-		p, err := newPlateWindow()
+		p, err := newPlateWindow(a.press)
 		if err != nil {
 			return
 		}

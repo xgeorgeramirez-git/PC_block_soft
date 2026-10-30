@@ -1,6 +1,6 @@
 // Тексты окон ребёнка (FR-12, FR-32). Числа и слова приходят из MyToday готовыми: здесь они
 // только раскладываются по строкам окна, ничего не пересчитывается (один источник с значком).
-import type { ChildStatus, MyTodayReply } from "../types";
+import type { ChildStatus, MyRule, MyTodayReply } from "../types";
 import { formatDuration, formatLimit, weekdayOfMs, localOffsetMin } from "./format";
 
 const NO_RULES = ["admin", "safe", "notChild"];
@@ -41,7 +41,48 @@ export interface TodayRow {
   value: string;
 }
 
-const NOT_COUNTED = "Пока не считается";
+/** «Видео и соцсети» появятся в M4. */
+export const NOT_COUNTED = "Пока не считается";
+
+/** «Итоги» по категориям (S13): игры и учёба за сегодня от службы, видео и соцсети - с M4. */
+export function categoryTotals(reply: MyTodayReply): TodayRow[] {
+  return [
+    { label: "Игры", value: formatDuration(reply.gamesS) },
+    { label: "Видео и соцсети", value: NOT_COUNTED },
+    { label: "Учёба", value: formatDuration(reply.studyS) },
+  ];
+}
+
+/** Остаток в минутах тем же правилом, что у значка и табло: вверх (B-5). */
+function upToMinute(seconds: number): number {
+  return Math.ceil(Math.max(0, seconds) / 60) * 60;
+}
+
+/**
+ * Строка «Игры» в «Сколько осталось» (R5): остаток игр из ответа службы, как в подсказке значка
+ * («Игры: 20 мин»), и лимит игр дня с доп. временем. Время вышло или открыта только учёба - 0.
+ */
+export function gamesLeftText(s: ChildStatus): string {
+  if (s.status === "admin" || s.status === "safe") {
+    return "Не действует";
+  }
+  if (s.gamesUnlimited) {
+    return "Без отдельного лимита";
+  }
+  if (s.gamesLimitS <= 0) {
+    return "Сегодня нельзя";
+  }
+  const left = s.lock === "none" && !s.studyOnly ? upToMinute(s.gamesRemainingS) : 0;
+  return `Осталось ${formatDuration(left)} из ${formatLimit(Math.round(s.gamesLimitS / 60))}`;
+}
+
+/** «Мои правила» (R21): дни недели для таблицы и общие правила (лимит игр, «Когда время вышло») строками. */
+export function splitRules(rules: MyRule[]): { days: MyRule[]; general: string[] } {
+  return {
+    days: rules.filter((r) => r.weekday >= 1 && r.weekday <= 7),
+    general: rules.filter((r) => !(r.weekday >= 1 && r.weekday <= 7)).map((r) => r.text),
+  };
+}
 
 /**
  * Строки «Сколько осталось» на «Сегодня» (ТЗ 8.2.6 п.1): остаток общего времени, игр и «Видео и
@@ -58,7 +99,7 @@ export function todayRows(s: ChildStatus): TodayRow[] {
   } else if (s.status === "forbidden") {
     left = "Сейчас нельзя";
   } else {
-    left = formatDuration(s.lock === "none" ? Math.ceil(s.remainingS / 60) * 60 : 0);
+    left = formatDuration(s.lock === "none" ? upToMinute(s.remainingS) : 0);
   }
   let limit: string;
   if (noRules) {
@@ -70,7 +111,7 @@ export function todayRows(s: ChildStatus): TodayRow[] {
   }
   return [
     { label: "Осталось всего", value: left },
-    { label: "Игры", value: NOT_COUNTED },
+    { label: "Игры", value: gamesLeftText(s) },
     { label: "Видео и соцсети", value: NOT_COUNTED },
     { label: "Лимит дня", value: limit },
     { label: "Запретные часы", value: s.forbiddenNote || "Сегодня запретных часов нет" },

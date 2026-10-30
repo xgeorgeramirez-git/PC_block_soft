@@ -7,4 +7,6 @@ export function Finish(arg1:number):Promise<void>;
 
 export function Mode():Promise<string>;
 
+export function StartScreen():Promise<string>;
+
 export function Version():Promise<string>;

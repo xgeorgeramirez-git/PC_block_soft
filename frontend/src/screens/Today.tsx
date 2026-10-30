@@ -3,7 +3,7 @@ import { addExtra, clearExtra, getToday, grantBonus, listEvents, pause, reduceEx
 import Notice from "../components/Notice";
 import PausePicker from "../components/PausePicker";
 import ServiceNotices from "../components/ServiceNotices";
-import HintSlot from "../guidance/HintSlot";
+import UndoLine from "../components/UndoLine";
 import { errorText } from "../lib/errors";
 import { formatDateLong, formatLimit, formatUsed, localOffsetMin } from "../lib/format";
 import { isViolation, startOfDayMs } from "../lib/journal";
@@ -18,6 +18,8 @@ interface Props {
   onOpenChildren?: () => void;
   /** Кнопка «Статистика» на карточке ребёнка (FR-23, D-44). */
   onOpenStats?: (childId: number) => void;
+  /** Ссылка «Ждут решения: N» (8.3.2 п.5). */
+  onOpenPrograms?: () => void;
 }
 
 interface Feedback {
@@ -31,7 +33,7 @@ interface Feedback {
 const EXTRA_BUTTONS = [15, 30, 60];
 
 /** Главная «Сегодня» (FR-15, сценарий 8.3.2): карточки детей и быстрые действия. */
-export default function Today({ onOpenJournal, onOpenSettings, onOpenChildren, onOpenStats }: Props) {
+export default function Today({ onOpenJournal, onOpenSettings, onOpenChildren, onOpenStats, onOpenPrograms }: Props) {
   const [cards, setCards] = useState<TodayCard[] | null>(null);
   const [notices, setNotices] = useState<string[]>([]);
   const [violations, setViolations] = useState<number | null>(null);
@@ -70,6 +72,9 @@ export default function Today({ onOpenJournal, onOpenSettings, onOpenChildren, o
       window.removeEventListener("focus", onFocus);
     };
   }, [load]);
+
+  // Счётчик один на всех детей: решение по программе общее (R12).
+  const pendingPrograms = Math.max(0, ...(cards ?? []).map((c) => c.pendingPrograms ?? 0));
 
   const replaceCard = (card: TodayCard) =>
     setCards((prev) => (prev ?? []).map((c) => (c.childId === card.childId ? card : c)));
@@ -145,11 +150,6 @@ export default function Today({ onOpenJournal, onOpenSettings, onOpenChildren, o
       say(card.childId, reply.message);
     });
 
-  // Подсказка про кнопки «+15» одна на экран: встаёт у первой карточки, где такие кнопки есть.
-  const extraHintChild = cards?.find((c) => canAddTime(c.status.status))?.childId;
-  // Подсказка про «Снять запрет на сегодня» одна на окно: на первой карточке, где есть что снимать (R24).
-  const noForbiddenHintChild = cards?.find((c) => !c.noForbiddenToday && hasForbiddenToday(c))?.childId;
-
   return (
     <section aria-labelledby="today-title">
       <div className="page-head">
@@ -174,11 +174,18 @@ export default function Today({ onOpenJournal, onOpenSettings, onOpenChildren, o
         <p className="panel-text">Загружаю данные</p>
       ) : (
         <>
-          {violations !== null ? (
+          {violations !== null || pendingPrograms > 0 ? (
             <p className="today-links">
-              <button type="button" className="btn btn-small" onClick={() => onOpenJournal?.({ violations: true })}>
-                {`Нарушения сегодня: ${violations}`}
-              </button>
+              {pendingPrograms > 0 ? (
+                <button type="button" className="btn btn-small" onClick={() => onOpenPrograms?.()}>
+                  {`Ждут решения: ${pendingPrograms}`}
+                </button>
+              ) : null}
+              {violations !== null ? (
+                <button type="button" className="btn btn-small" onClick={() => onOpenJournal?.({ violations: true })}>
+                  {`Нарушения сегодня: ${violations}`}
+                </button>
+              ) : null}
             </p>
           ) : null}
 
@@ -198,8 +205,6 @@ export default function Today({ onOpenJournal, onOpenSettings, onOpenChildren, o
                 <ChildCard
                   key={card.childId}
                   card={card}
-                  extraHint={card.childId === extraHintChild}
-                  noForbiddenHint={card.childId === noForbiddenHintChild}
                   feedback={feedback[card.childId]}
                   busy={busy === card.childId}
                   onAdd={(m) => void add(card, m)}
@@ -222,9 +227,6 @@ export default function Today({ onOpenJournal, onOpenSettings, onOpenChildren, o
 
 interface CardProps {
   card: TodayCard;
-  /** Здесь встаёт подсказка про кнопки добавления времени. */
-  extraHint: boolean;
-  noForbiddenHint: boolean;
   feedback: Feedback | undefined;
   busy: boolean;
   onAdd: (minutes: number) => void;
@@ -242,7 +244,7 @@ function hasForbiddenToday(card: TodayCard): boolean {
   return card.status.lock === "forbidden" || card.status.forbiddenNote !== "";
 }
 
-function ChildCard({ card, extraHint, noForbiddenHint, feedback, busy, onAdd, onReduce, onClear, onUndo, onPause, onGrant, onNoForbidden, onStats }: CardProps) {
+function ChildCard({ card, feedback, busy, onAdd, onReduce, onClear, onUndo, onPause, onGrant, onNoForbidden, onStats }: CardProps) {
   const s = card.status;
   const tone = statusTone(s.status);
   const limited = hasTimeLimits(s.status);
@@ -253,7 +255,7 @@ function ChildCard({ card, extraHint, noForbiddenHint, feedback, busy, onAdd, on
   const customN = Number.parseInt(customMin, 10);
   const customValid = Number.isInteger(customN) && customN >= 1 && customN <= 240;
   return (
-    <article className="child-card" aria-labelledby={titleId} data-help-anchor="child-card">
+    <article className="child-card" aria-labelledby={titleId}>
       <header className="child-head">
         <h3 id={titleId} className="child-name">
           {card.name}
@@ -263,9 +265,9 @@ function ChildCard({ card, extraHint, noForbiddenHint, feedback, busy, onAdd, on
         </span>
       </header>
 
-      <HintSlot anchor="child-card" subject={String(card.childId)} name={card.name} />
 
       {limited ? <p className="child-used">{formatUsed(s.usedS, s.limitS, s.unlimited)}</p> : null}
+      {card.gamesText ? <p className="child-used child-games">{card.gamesText}</p> : null}
       {card.extraMin > 0 ? <p className="child-meta">{`Добавлено сегодня: ${card.extraMin} мин`}</p> : null}
       {card.extraMin < 0 ? <p className="child-meta">{`Убрано сегодня: ${-card.extraMin} мин`}</p> : null}
       {card.bonusBalance > 0 ? <p className="child-meta">{`Копилка: ${formatLimit(card.bonusBalance)}`}</p> : null}
@@ -274,7 +276,7 @@ function ChildCard({ card, extraHint, noForbiddenHint, feedback, busy, onAdd, on
 
       <div className="child-actions">
         {extraAllowed ? (
-          <div className="action-group" data-help-anchor="extra-buttons">
+          <div className="action-group">
             <span className="action-group-label">Доп. время</span>
             <div className="action-row">
               {EXTRA_BUTTONS.map((m) => (
@@ -322,15 +324,15 @@ function ChildCard({ card, extraHint, noForbiddenHint, feedback, busy, onAdd, on
 
         <div className="action-row action-row-foot">
           <PausePicker disabled={busy} onPick={onPause} />
-          <button type="button" className="btn" disabled={busy} onClick={() => onGrant(30)} data-help-anchor="child-card-bonus">
+          <button type="button" className="btn" disabled={busy} onClick={() => onGrant(30)}>
             В копилку +30
           </button>
           {card.noForbiddenToday ? (
-            <button type="button" className="btn btn-muted" disabled={busy} onClick={() => onNoForbidden(false)} data-help-anchor="no-forbidden">
+            <button type="button" className="btn btn-muted" disabled={busy} onClick={() => onNoForbidden(false)}>
               Вернуть запретные часы
             </button>
           ) : hasForbiddenToday(card) ? (
-            <button type="button" className="btn" disabled={busy} onClick={() => onNoForbidden(true)} data-help-anchor="no-forbidden">
+            <button type="button" className="btn" disabled={busy} onClick={() => onNoForbidden(true)}>
               Снять запрет на сегодня
             </button>
           ) : null}
@@ -345,37 +347,17 @@ function ChildCard({ card, extraHint, noForbiddenHint, feedback, busy, onAdd, on
         ) : null}
       </div>
 
-      {extraHint ? <HintSlot anchor="extra-buttons" /> : null}
-      {noForbiddenHint ? <HintSlot anchor="no-forbidden" /> : null}
 
-      {feedback ? <FeedbackLine key={feedback.seq} feedback={feedback} onUndo={onUndo} /> : null}
-    </article>
-  );
-}
-
-function FeedbackLine({ feedback, onUndo }: { feedback: Feedback; onUndo: (extraId: string) => void }) {
-  const [canUndo, setCanUndo] = useState(Boolean(feedback.undo));
-  useEffect(() => {
-    if (!feedback.undo) return;
-    const id = setTimeout(() => setCanUndo(false), feedback.undo.ms);
-    return () => clearTimeout(id);
-  }, [feedback]);
-
-  if (feedback.error) {
-    return (
-      <p className="field-error child-feedback" role="alert">
-        {feedback.text}
-      </p>
-    );
-  }
-  return (
-    <div className="child-feedback" role="status">
-      <span>{feedback.text}</span>
-      {canUndo && feedback.undo ? (
-        <button type="button" className="link" onClick={() => onUndo(feedback.undo!.extraId)}>
-          Отменить
-        </button>
+      {feedback ? (
+        <UndoLine
+          key={feedback.seq}
+          className="child-feedback"
+          text={feedback.text}
+          error={feedback.error}
+          undoMs={feedback.undo?.ms}
+          onUndo={feedback.undo ? () => onUndo(feedback.undo!.extraId) : undefined}
+        />
       ) : null}
-    </div>
+    </article>
   );
 }

@@ -159,7 +159,7 @@ func (p *panel) layout() {
 
 // show открывает панель рядом с anchor.
 func (p *panel) show(anchor Rect, haveAnchor bool) {
-	if time.Since(p.hiddenAt) < panelReopenGuard {
+	if tooSoon(p.hiddenAt, time.Now(), panelReopenGuard) {
 		return
 	}
 	if !haveAnchor {
@@ -306,12 +306,12 @@ func panelProc(hwnd, msg, wParam, lParam uintptr) uintptr {
 			p.paint()
 			return 0
 		case wmActivate:
-			if wParam&0xFFFF == waInactive {
+			if hidesOnDeactivate(false, wParam) {
 				p.hide()
 			}
 			return 0
 		case wmTimer:
-			if p.visible && time.Since(p.shownAt) > panelMaxShown {
+			if shownTooLong(p.visible, p.shownAt, time.Now(), panelMaxShown) {
 				p.hide()
 			}
 			return 0

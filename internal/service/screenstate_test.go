@@ -375,3 +375,63 @@ func TestScreenDecisionsAreExplainedInVerboseLog(t *testing.T) {
 		}
 	}
 }
+
+// Ловит (B-26, ревью FB-5 Minor 6): событие сеанса с неизвестным номером или с номером, которого
+// нет в списке Windows, решается вслепую. Безопасная сторона закреплена: подключение с
+// неизвестным номером не снимает удержание отключения сеанса ребёнка (при быстрой смене
+// пользователя это обычно подключение родителя, а список Windows ещё говорит «ребёнок
+// активен»: снятое удержание засчитало бы ребёнку время у чужого экрана, S33); дальше решает
+// список, как только он обновился или удержание кончилось. Событие с номером вне списка
+// ничего не создаёт и не ломает, список, изменившийся между событиями, берётся как есть.
+func TestUnknownSessionNumbersAreSafe(t *testing.T) {
+	t.Run("подключение с неизвестным номером не снимает удержание", func(t *testing.T) {
+		h := newHarness(t, withChild(childSID, "Миша", 120))
+		h.start()
+		h.childSessionIs(ScreenOn)
+		h.svc.OnSession(SessionLogon, childSession, h.real.Now())
+		h.run(3, fullscreenSample)
+		h.svc.OnSession(SessionDisconnect, childSession, h.real.Now()) // список отстаёт: «активен»
+		h.svc.OnSession(SessionConnect, SessionUnknown, h.real.Now())  // подключился кто-то
+		h.run(4, fullscreenSample)
+		if got := h.usedS(); got != 3 {
+			t.Fatalf("за 4 с после отключения учтено %d с; want 3", got)
+		}
+		h.run(4, fullscreenSample) // удержание кончилось, список говорит «активен»
+		if got := h.usedS(); got <= 3 {
+			t.Fatalf("учтено %d с; want больше 3 (через 5 с решает список)", got)
+		}
+		if n := h.bypassCount(); n != 0 {
+			t.Fatalf("записей обхода: %d", n)
+		}
+	})
+	t.Run("номер вне списка, список меняется между событиями", func(t *testing.T) {
+		h := newHarness(t, withChild(childSID, "Миша", 120))
+		h.start()
+		h.childSessionIs(ScreenOn)
+		h.svc.OnSession(SessionLogon, childSession, h.real.Now())
+		h.run(2, fullscreenSample)
+		h.svc.OnSession(SessionDisconnect, 77, h.real.Now()) // сеанса 77 нет в списке
+		h.run(2, fullscreenSample)
+		if got := h.usedS(); got != 4 {
+			t.Fatalf("чужое отключение остановило время ребёнка: %d; want 4", got)
+		}
+		h.childSessionIs(ScreenOff) // список обновился: ребёнок отключён
+		h.svc.OnSession(SessionConnect, 77, h.real.Now())
+		h.run(3, fullscreenSample)
+		if got := h.usedS(); got != 4 {
+			t.Fatalf("после смены списка учтено %d; want 4 (сеанс ребёнка не на экране)", got)
+		}
+		h.childSessionIs(ScreenOn)
+		h.svc.OnSession(SessionConnect, SessionUnknown, h.real.Now())
+		h.run(2, fullscreenSample)
+		if got := h.usedS(); got != 6 {
+			t.Fatalf("после подключения ребёнка учтено %d; want 6", got)
+		}
+		if _, ok := h.svc.sessions[77]; ok {
+			t.Fatal("сеанс 77 появился из события без списка")
+		}
+		if n := h.bypassCount(); n != 0 {
+			t.Fatalf("записей обхода: %d", n)
+		}
+	})
+}

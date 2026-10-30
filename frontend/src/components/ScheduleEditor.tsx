@@ -26,7 +26,7 @@ interface Props {
 /** Запретные часы по дням недели (FR-17, сценарий 8.3.3): список интервалов, полоса суток. */
 export default function ScheduleEditor({ childName, schedule, onChange }: Props) {
   return (
-    <div className="schedule-editor" data-help-anchor="schedule-tab">
+    <div className="schedule-editor">
       <p className="visually-hidden">Запретные часы на каждый день недели, {childName}</p>
       {WEEKDAYS.map((weekday) => (
         <DayRow key={weekday} weekday={weekday} schedule={schedule} onChange={onChange} />
@@ -144,7 +144,7 @@ function IntervalForm({ weekday, initialFrom = "", initialTo = "", submitLabel, 
   };
 
   return (
-    <div className="schedule-add" data-help-anchor={edit ? undefined : "interval-add"}>
+    <div className="schedule-add">
       <label className="field schedule-time">
         <span className="field-label">с</span>
         <input

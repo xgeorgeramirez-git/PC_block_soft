@@ -563,7 +563,8 @@ func TestParentStats(t *testing.T) {
 
 	var ms ipc.MyTodayReply
 	h.ok(adminPeer(), tok, ipc.CmdParentStats, ipc.ParentStatsRequest{ChildID: id}, &ms)
-	if ms.Status.Name != "Миша" || len(ms.Rules) != 7 || len(ms.Today) < 2 {
+	// Семь дней и общая строка «Когда время вышло» (M3, R21).
+	if ms.Status.Name != "Миша" || len(ms.Rules) != 8 || len(ms.Today) < 2 {
 		t.Fatalf("статистика Миши: %+v", ms)
 	}
 	h.ok(adminPeer(), tok, ipc.CmdParentStats, ipc.ParentStatsRequest{ChildID: id2}, &ms)
@@ -882,7 +883,8 @@ func TestMyToday(t *testing.T) {
 	h.run(65, activeSample)
 	var my ipc.MyTodayReply
 	h.ok(childPeer(), "", ipc.CmdMyToday, nil, &my)
-	if my.Status.Name != "Миша" || len(my.Rules) != 7 || my.Rules[0].Day != "пн" || my.Rules[0].Text != "2 ч" {
+	if my.Status.Name != "Миша" || len(my.Rules) != 8 || my.Rules[0].Day != "пн" || my.Rules[0].Text != "2 ч" ||
+		my.Rules[7].Text != "Когда время вышло: экран блокировки" {
 		t.Fatalf("ответ: %+v", my)
 	}
 	if len(my.Today) != 2 || my.Today[1] != "Использовано 1 мин" {
@@ -950,38 +952,24 @@ func TestFirstRunWindowOpensUntilSeen(t *testing.T) {
 	h.fail(tray, "", ipc.CmdOpenWindow, ipc.OpenWindowRequest{Kind: "нет такого"})
 }
 
-// --- Помощник ---------------------------------------------------------------------------------------
+// --- Помощника нет (D-56) ---------------------------------------------------------------------------
 
-// Ловит: профили Помощника родителя и ребёнка смешиваются; непонятный JSON и огромное
-// состояние принимаются; чужому пользователю без сессии отдают профиль.
-func TestHelperStateProfiles(t *testing.T) {
+// Ловит: после удаления Помощника служба по-прежнему принимает его команды и пишет состояние в базу.
+func TestHelperCommandsRejected(t *testing.T) {
 	h := newHarness(t, withChild(childSID, "Миша", 120), configured())
 	h.start()
 	tok := h.login(adminPeer())
-	h.ok(adminPeer(), tok, ipc.CmdSaveHelperState, ipc.HelperState{State: json.RawMessage(`{"enabled":true,"seen":["H-M1-01"]}`)}, nil)
-	h.ok(childPeer(), "", ipc.CmdSaveHelperState, ipc.HelperState{State: json.RawMessage(`{"enabled":false}`)}, nil)
-
-	var p, c ipc.HelperState
-	h.ok(adminPeer(), tok, ipc.CmdGetHelperState, nil, &p)
-	h.ok(childPeer(), "", ipc.CmdGetHelperState, nil, &c)
-	if !strings.Contains(string(p.State), "H-M1-01") || strings.Contains(string(c.State), "H-M1-01") || !strings.Contains(string(c.State), "false") {
-		t.Fatalf("родитель %s, ребёнок %s", p.State, c.State)
+	for _, cmd := range []string{"GetHelperState", "SaveHelperState"} {
+		if rep := h.fail(adminPeer(), tok, cmd, map[string]any{"state": map[string]any{"enabled": true}}); rep.Error != ipc.TextBadRequest {
+			t.Errorf("%s родителем: %q", cmd, rep.Error)
+		}
+		if rep := h.fail(childPeer(), "", cmd, map[string]any{"state": map[string]any{}}); rep.Error != ipc.TextBadRequest {
+			t.Errorf("%s ребёнком: %q", cmd, rep.Error)
+		}
 	}
-	if rep := h.fail(otherPeer(), "", ipc.CmdGetHelperState, nil); rep.Error != textNeedParent {
-		t.Fatalf("чужой без сессии: %q", rep.Error)
-	}
-	h.fail(adminPeer(), tok, ipc.CmdSaveHelperState, ipc.HelperState{State: json.RawMessage(`[1,2]`)})
-	huge := `{"x":"` + strings.Repeat("я", maxHelperState) + `"}`
-	h.fail(adminPeer(), tok, ipc.CmdSaveHelperState, ipc.HelperState{State: json.RawMessage(huge)})
-	rep := h.do(otherPeer(), "", ipc.CmdGetHelperState, nil)
-	_ = rep
-	var empty ipc.HelperState
-	h2 := newHarness(t, configured())
-	h2.start()
-	tok2 := h2.login(adminPeer())
-	rep = h2.do(adminPeer(), tok2, ipc.CmdGetHelperState, nil)
-	_ = rep.Into(&empty)
-	if string(rep.Payload) != `{"state":{}}` {
-		t.Fatalf("пустое состояние: %s", rep.Payload)
+	for key := range h.store.settings {
+		if strings.HasPrefix(key, "helper.") {
+			t.Errorf("в настройках осталась запись Помощника %q", key)
+		}
 	}
 }

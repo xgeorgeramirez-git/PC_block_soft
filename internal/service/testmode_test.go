@@ -162,3 +162,31 @@ func TestParseTestModeLockAutoSwitch(t *testing.T) {
 		}
 	}
 }
+
+// Ловит (RM3-8): WatchDir не читается из реестра (наблюдатель в приёмке ничего не закроет или,
+// хуже, закроет раннер), хранится без нормализации (сравнение с путём процесса не совпадёт по
+// регистру и хвостовому «\»), принимает корень диска или относительный путь (всё внутри).
+func TestParseTestModeWatchDir(t *testing.T) {
+	tm, err := ParseTestMode(map[string]string{"WatchDir": ` C:\Users\RunnerAdmin\AppData\Local\Temp\PCB-Programs\ `}, tzMSK)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := `c:\users\runneradmin\appdata\local\temp\pcb-programs`; tm.WatchDir != want {
+		t.Errorf("WatchDir = %q, want %q", tm.WatchDir, want)
+	}
+	found := false
+	for _, n := range TestModeValueNames {
+		found = found || n == "WatchDir"
+	}
+	if !found {
+		t.Error("WatchDir нет в TestModeValueNames: адаптер не прочитает его из реестра")
+	}
+	for _, bad := range []string{`C:\`, `pcb-programs`, `C:pcb`} {
+		if _, err := ParseTestMode(map[string]string{"WatchDir": bad}, tzMSK); err == nil || !strings.Contains(err.Error(), "WatchDir") {
+			t.Errorf("WatchDir %q: ошибка %v, want отказ с именем значения", bad, err)
+		}
+	}
+	if tm, _ := ParseTestMode(map[string]string{}, tzMSK); tm.WatchDir != "" {
+		t.Errorf("без значения WatchDir = %q, want пусто", tm.WatchDir)
+	}
+}

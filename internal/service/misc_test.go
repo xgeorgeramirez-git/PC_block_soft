@@ -359,7 +359,7 @@ func TestGarbagePayloadIsBadRequest(t *testing.T) {
 	h.childLogsIn()
 	tok := h.login(adminPeer())
 	for _, cmd := range []string{ipc.CmdSaveLimits, ipc.CmdAddExtra, ipc.CmdUndoExtra, ipc.CmdClearBlock, ipc.CmdGetChildRules,
-		ipc.CmdSetChildren, ipc.CmdListEvents, ipc.CmdChangePassword, ipc.CmdSaveHelperState} {
+		ipc.CmdSetChildren, ipc.CmdListEvents, ipc.CmdChangePassword} {
 		rep := h.svc.Handle(adminPeer(), ipc.Msg{Cmd: cmd, Token: tok, Payload: []byte(`[1]`)}, h.real.Now())
 		if rep.OK || rep.Error != ipc.TextBadRequest {
 			t.Errorf("%s: %+v", cmd, rep)

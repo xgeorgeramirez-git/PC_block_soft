@@ -24,6 +24,10 @@ const (
 	TargetSpendBonus      = "spendBonus"             // «Взять из копилки» на экране (FR-11)
 	TargetPromo           = "promo"                  // «Ввести промокод» на экране (FR-35)
 	TargetSubmitPromo     = "submitPromo"            // «Применить» на панели промокода
+	TargetAskNow          = "askNow"                 // «Попросить сейчас» на плашке «ждёт разрешения» (RM3-4)
+	TargetPlateClose      = "plateClose"             // крестик плашки о закрытой программе (FR-13)
+	TargetSpendBonusPlate = "spendBonusPlate"        // «Взять из копилки» на плашке 1 мин (RM3-5)
+	TargetAskMorePlate    = "askMorePlate"           // «Попросить ещё» на плашке 1 мин (RM3-5)
 )
 
 // FieldPasswordID — идентификатор поля пароля в TestGuard (действие type) и в GuardState.Fields.
@@ -51,6 +55,10 @@ var targetNames = map[Button]string{
 	ButtonSpendBonus:      TargetSpendBonus,
 	ButtonPromo:           TargetPromo,
 	ButtonSubmitPromo:     TargetSubmitPromo,
+	ButtonAskNow:          TargetAskNow,
+	ButtonPlateClose:      TargetPlateClose,
+	ButtonPlateSpendBonus: TargetSpendBonusPlate,
+	ButtonPlateAskMore:    TargetAskMorePlate,
 }
 
 // TargetName возвращает имя кнопки для канала связи; у ButtonNone и неизвестного значения пусто.
@@ -67,4 +75,14 @@ func ButtonByTarget(name string) (Button, bool) {
 		}
 	}
 	return ButtonNone, false
+}
+
+// isPlateButton: кнопка текстовой плашки (не экрана блокировки и не табло): её нажимает щелчок в
+// окне плашки.
+func isPlateButton(b Button) bool {
+	switch b {
+	case ButtonAskNow, ButtonPlateClose, ButtonPlateSpendBonus, ButtonPlateAskMore:
+		return true
+	}
+	return false
 }

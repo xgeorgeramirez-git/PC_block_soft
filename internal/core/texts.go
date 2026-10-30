@@ -17,6 +17,16 @@ const (
 	UntilBypass = untilPrefix + "когда родитель снимет блокировку"
 )
 
+// Тексты закрытия программ (R5, R8): плашка ребёнку (CloseReason) и запись журнала о
+// закрытой попытке запуска (DeniedText). Ребёнку на «ты», без длинных тире (NFR-11).
+const (
+	GamesOverPlateText          = "Время на игры на сегодня закончилось"
+	GamesDeniedText             = "Закрыто: время на игры на сегодня закончилось"
+	StudyOnlyPlateText          = "Время вышло. Сейчас доступна только учёба"
+	StudyOnlyForbiddenPlateText = "Сейчас нельзя пользоваться компьютером. Доступна только учёба"
+	StudyOnlyDeniedText         = "Закрыто: время вышло, доступна только учёба"
+)
+
 // FormatClock — момент времени как «21:00» по местному поясу (ТЗ 4).
 func FormatClock(t time.Time) string { return t.Format("15:04") }
 

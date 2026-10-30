@@ -13,7 +13,7 @@ on:
   workflow_dispatch:
     inputs:
       scenario:
-        description: "Что прогнать после сборки: пусто = обычная сборка, smoke = ранний смоук службы (tools/accept/smoke.ps1), accept = приёмка S1...S13, S25...S27, S33, S34, S35, FB1, FB5 (tools/accept/run-all.ps1)"
+        description: "Что прогнать после сборки: пусто = обычная сборка, smoke = ранний смоук службы (tools/accept/smoke.ps1), accept = приёмка S1...S15, S25...S27, S33...S37, LE1, LE2, FB1, FB5 (tools/accept/run-all.ps1)"
         required: false
         default: ""
         type: string
@@ -93,6 +93,18 @@ jobs:
         run: |
           exec > >(tee -a "$RUNNER_TEMP/ci.log") 2>&1
           go test -count=1 -tags desktop,production $(go list ./... | grep -v -E '^pcblock$')
+
+      # Сухой прогон наблюдателя процессов (RM3-8): тест TestWatcherDryRun пишет итог пометкой
+      # ::notice в файл; здесь она выводится, чтобы попасть в пометки сборки и при зелёных тестах.
+      - name: Сухой прогон наблюдателя (пометка)
+        if: always()
+        run: |
+          f="$RUNNER_TEMP/pcb-watch-dryrun.txt"
+          if [ -s "$f" ]; then
+            cat "$f"
+          else
+            echo "::warning title=Сухой прогон наблюдателя::итог не записан: тест TestWatcherDryRun не дошёл до конца"
+          fi
 
       - name: Ошибки — в пометки сборки (их видно без журнала)
         if: failure()
@@ -252,9 +264,9 @@ jobs:
         if: failure() && steps.smoke.conclusion == 'failure'
         run: bash tools/annotate-errors.sh "$RUNNER_TEMP/ci.log" "Смоук службы"
 
-      # Приёмка M1 на настоящей Windows: S1...S13, S25...S27, S34, LE1 и LE2 (выходы с экрана блокировки), FB1 (конец сеанса), FB5 (выход другого сеанса при отключённом сеансе ребёнка), S33 (смена пользователя), каждый на свежей установке и свежей папке данных.
+      # Приёмка на настоящей Windows: S1...S15 (S12...S15 — программы и игры M3: тестовые программы в папке WatchDir, RM3-8), S25...S27, S34...S37, LE1 и LE2 (выходы с экрана блокировки), FB1 (конец сеанса), FB5 (выход другого сеанса при отключённом сеансе ребёнка), S33 (смена пользователя), каждый на свежей установке и свежей папке данных.
       # Идёт по одному сценарию за раз (одна учётка раннера, одна служба, один экран). Снимки sNN-*.png уходят
-      # в ветку screenshots (папка screens/<ветка>); S28 браузерный и идёт в ci.yml.
+      # в ветку screenshots (папка screens/<ветка>).
       - name: Приёмка M1 (ручной запуск, scenario=accept)
         id: accept
         if: github.event_name == 'workflow_dispatch' && inputs.scenario == 'accept'

@@ -6,15 +6,23 @@ package core
 //   name, source — имя эталона (= имя файла) и откуда цифры;
 //   tz_offset_min — смещение местного пояса, моменты "YYYY-MM-DDTHH:MM:SS" — местные;
 //   limits_min — лимиты по дням (mon…sun), нет дня или null — без лимита;
+//   games_limits_min — лимиты игр по дням (как limits_min); нет ключа — игры без лимита (R5);
+//   end_mode — режим окончания (R8): "lock" (по умолчанию) или "study_only";
 //   sessions — сеансы ребёнка [from, to): тик каждую секунду, вне сеансов тиков нет;
 //     end: "logoff" (ядро живёт дальше) или "power_off" (состояние теряется, новое ядро
 //     восстанавливается из последнего сохранения; сохранение — по DueSave перед тиком);
 //   segments — что на экране в [from, to): foreground (other, games, video_social, study),
 //     fullscreen; ввод в моменты from, from+N, …, не позже to (N = input_every_s, 0 — ввода
 //     нет); вне отрезков — «Прочее», обычное окно, без ввода;
-//   expect — warnings (момент и порог), locks (момент появления экрана блокировки и
-//     тексты), checkpoints (общее время к моменту, до тика), power_off (последнее
-//     сохранение перед выключением), days (итоги дней в секундах, остаток).
+//   actions — команды перед тиком момента at: add_extra, spend_bonus (minutes), pause (until),
+//     launch (category: попытка запустить программу; проверяется Current().Allows);
+//   expect — warnings (момент, порог и необязательный event: limit, forbidden, pause_end,
+//     games), locks (момент появления экрана блокировки и тексты), closures (моменты, когда
+//     у решения тика впервые появилось закрытие игр "games" или «только учёба" "study_only",
+//     с текстом плашки; нет ключа — не сравниваются), denied (запрещённые запуски: момент,
+//     категория, необязательный текст; нет ключа — не сравниваются), checkpoints (общее
+//     время к моменту, до тика), power_off (последнее сохранение перед выключением), days
+//     (итоги дней в секундах, остаток общего и игр).
 
 import (
 	"bytes"
@@ -38,6 +46,8 @@ type goldenFile struct {
 	Source      string           `json:"source"`
 	TzOffsetMin *int             `json:"tz_offset_min"`
 	LimitsMin   *goldenLimits    `json:"limits_min"`
+	GamesLimits *goldenLimits    `json:"games_limits_min"`
+	EndMode     *string          `json:"end_mode"`
 	Schedule    []goldenInterval `json:"schedule"`
 	Sessions    []goldenSession  `json:"sessions"`
 	Segments    []goldenSegment  `json:"segments"`
@@ -55,13 +65,15 @@ type goldenInterval struct {
 }
 
 // goldenAction — родительская или детская команда в момент At (местное время): доп. время
-// (add_extra), трата из копилки (spend_bonus) или пауза (pause). Применяется перед тиком
-// момента At. minutes — для add_extra/spend_bonus; until — момент конца паузы (pause).
+// (add_extra), трата из копилки (spend_bonus), пауза (pause) или попытка запуска программы
+// (launch). Применяется перед тиком момента At. minutes — для add_extra/spend_bonus; until —
+// момент конца паузы (pause); category — категория запускаемой программы (launch).
 type goldenAction struct {
-	At      string `json:"at"`
-	Kind    string `json:"kind"`
-	Minutes int    `json:"minutes"`
-	Until   string `json:"until"`
+	At       string `json:"at"`
+	Kind     string `json:"kind"`
+	Minutes  int    `json:"minutes"`
+	Until    string `json:"until"`
+	Category string `json:"category"`
 }
 
 type goldenLimits struct {
@@ -91,14 +103,31 @@ type goldenSegment struct {
 type goldenExpect struct {
 	Warnings    []goldenWarning    `json:"warnings"`
 	Locks       []goldenLock       `json:"locks"`
+	Closures    []goldenClosure    `json:"closures"`
+	Denied      []goldenDenied     `json:"denied"`
 	Checkpoints []goldenCheckpoint `json:"checkpoints"`
 	PowerOff    []goldenPowerOff   `json:"power_off"`
 	Days        []goldenDay        `json:"days"`
 }
 
 type goldenWarning struct {
-	At  string `json:"at"`
-	Min int    `json:"min"`
+	At    string `json:"at"`
+	Min   int    `json:"min"`
+	Event string `json:"event"`
+}
+
+// goldenClosure — момент, когда у решения тика впервые появилось закрытие (R5, R8).
+type goldenClosure struct {
+	At   string `json:"at"`
+	What string `json:"what"`
+	Text string `json:"text"`
+}
+
+// goldenDenied — запрещённая попытка запуска программы (launch) и текст для журнала.
+type goldenDenied struct {
+	At       string `json:"at"`
+	Category string `json:"category"`
+	Text     string `json:"text"`
 }
 
 type goldenLock struct {
@@ -126,11 +155,15 @@ type goldenDay struct {
 	StudyS     *int   `json:"study_s"`
 	ExtraMin   *int   `json:"extra_min"`
 	RemainingS *int   `json:"remaining_s"`
+	GamesRemS  *int   `json:"games_remaining_s"`
 }
 
 var goldenForeground = map[string]Category{
 	"other": CatOther, "games": CatGames, "video_social": CatVideoSocial, "study": CatStudy,
 }
+
+// goldenWarnEvents — допустимые значения expect.warnings[].event (= WarnEvent.String()).
+var goldenWarnEvents = []string{"limit", "forbidden", "pause_end", "games"}
 
 // parseGolden разбирает и проверяет golden-файл.
 func parseGolden(data []byte) (*goldenFile, error) {
@@ -156,6 +189,9 @@ func parseGolden(data []byte) (*goldenFile, error) {
 		return nil, errors.New("нет expect")
 	case g.Expect.Warnings == nil || g.Expect.Locks == nil || len(g.Expect.Days) == 0:
 		return nil, errors.New("в expect нужны warnings, locks и days (пустые — [])")
+	}
+	if g.EndMode != nil && *g.EndMode != "lock" && *g.EndMode != "study_only" {
+		return nil, fmt.Errorf("end_mode %q, want lock или study_only", *g.EndMode)
 	}
 	g.loc = time.FixedZone("golden", *g.TzOffsetMin*60)
 
@@ -191,6 +227,25 @@ func parseGolden(data []byte) (*goldenFile, error) {
 		if _, err := g.at(w.At); err != nil {
 			return nil, err
 		}
+		if w.Event != "" && !slices.Contains(goldenWarnEvents, w.Event) {
+			return nil, fmt.Errorf("предупреждение %s: event %q, want одно из %v", w.At, w.Event, goldenWarnEvents)
+		}
+	}
+	for _, c := range g.Expect.Closures {
+		if _, err := g.at(c.At); err != nil {
+			return nil, err
+		}
+		if c.What != "games" && c.What != "study_only" {
+			return nil, fmt.Errorf("закрытие %s: what %q, want games или study_only", c.At, c.What)
+		}
+	}
+	for _, d := range g.Expect.Denied {
+		if _, err := g.at(d.At); err != nil {
+			return nil, err
+		}
+		if _, ok := goldenForeground[d.Category]; !ok {
+			return nil, fmt.Errorf("запрет %s: category %q", d.At, d.Category)
+		}
 	}
 	for _, l := range g.Expect.Locks {
 		if _, err := g.at(l.At); err != nil {
@@ -219,6 +274,10 @@ func parseGolden(data []byte) (*goldenFile, error) {
 		case "pause":
 			if _, err := g.at(a.Until); err != nil {
 				return nil, fmt.Errorf("action %d (pause): until %w", i, err)
+			}
+		case "launch":
+			if _, ok := goldenForeground[a.Category]; !ok {
+				return nil, fmt.Errorf("action %d (launch): category %q", i, a.Category)
 			}
 		default:
 			return nil, fmt.Errorf("action %d: неизвестный kind %q", i, a.Kind)
@@ -250,12 +309,27 @@ func (g *goldenFile) span(from, to string) (time.Time, time.Time, error) {
 	return f, t, nil
 }
 
+func (l *goldenLimits) days() []*int {
+	return []*int{l.Mon, l.Tue, l.Wed, l.Thu, l.Fri, l.Sat, l.Sun}
+}
+
 func (g *goldenFile) rules() Rules {
 	var r Rules
-	for i, m := range []*int{g.LimitsMin.Mon, g.LimitsMin.Tue, g.LimitsMin.Wed, g.LimitsMin.Thu, g.LimitsMin.Fri, g.LimitsMin.Sat, g.LimitsMin.Sun} {
+	for i, m := range g.LimitsMin.days() {
 		if m != nil {
 			r.Week[i] = LimitOf(*m)
 		}
+	}
+	if g.GamesLimits != nil {
+		for i, m := range g.GamesLimits.days() {
+			if m != nil {
+				v := *m
+				r.Week[i].GamesMin = &v
+			}
+		}
+	}
+	if g.EndMode != nil {
+		r.EndMode = EndModeFromString(*g.EndMode)
 	}
 	for _, iv := range g.Schedule {
 		r.Schedule = append(r.Schedule, Interval{Weekday: Weekday(iv.Weekday), StartMin: iv.StartMin, EndMin: iv.EndMin})
@@ -267,6 +341,8 @@ func (g *goldenFile) rules() Rules {
 type goldenResult struct {
 	warnings    []goldenWarning
 	locks       []goldenLock
+	closures    []goldenClosure
+	denied      []goldenDenied
 	checkpoints map[string]int
 	powerOff    []goldenPowerOff
 	days        map[string]DayState
@@ -277,6 +353,7 @@ type goldenResult struct {
 func runGolden(g *goldenFile) goldenResult {
 	res := goldenResult{
 		warnings: []goldenWarning{}, locks: []goldenLock{}, powerOff: []goldenPowerOff{},
+		closures: []goldenClosure{}, denied: []goldenDenied{},
 		checkpoints: map[string]int{}, days: map[string]DayState{},
 	}
 	wantCP := map[string]bool{}
@@ -312,6 +389,7 @@ func runGolden(g *goldenFile) goldenResult {
 	for _, sess := range g.Sessions {
 		from, to, _ := g.span(sess.From, sess.To)
 		prevLock := LockNone
+		prevGames, prevStudy := false, false
 		for t := from; t.Before(to); t = t.Add(time.Second) {
 			clock.Set(t)
 			for next < len(inputs) && !inputs[next].After(t) {
@@ -357,12 +435,24 @@ func runGolden(g *goldenFile) goldenResult {
 					if _, err := e.Pause(until); err != nil {
 						panic(err)
 					}
+				case "launch":
+					cur := e.Current()
+					if cat := goldenForeground[a.Category]; !cur.Allows(cat) {
+						res.denied = append(res.denied, goldenDenied{At: stamp, Category: a.Category, Text: cur.DeniedText(cat)})
+					}
 				}
 			}
 			d := e.Tick(s)
 			if d.Warning != 0 {
-				res.warnings = append(res.warnings, goldenWarning{At: stamp, Min: d.Warning})
+				res.warnings = append(res.warnings, goldenWarning{At: stamp, Min: d.Warning, Event: d.WarningEvent.String()})
 			}
+			if d.CloseGames && !prevGames {
+				res.closures = append(res.closures, goldenClosure{At: stamp, What: "games", Text: d.CloseReason})
+			}
+			if d.StudyOnly && !prevStudy {
+				res.closures = append(res.closures, goldenClosure{At: stamp, What: "study_only", Text: d.CloseReason})
+			}
+			prevGames, prevStudy = d.CloseGames, d.StudyOnly
 			if d.Lock != LockNone && prevLock == LockNone {
 				res.locks = append(res.locks, goldenLock{At: stamp, Reason: d.Reason, Until: d.Until, Used: d.Used})
 			}
@@ -397,9 +487,9 @@ func TestGolden(t *testing.T) {
 	for _, p := range paths {
 		names = append(names, strings.TrimSuffix(filepath.Base(p), ".json"))
 	}
-	for _, need := range []string{"G1", "G2", "G3", "G6", "G7", "G8", "G9", "G10", "G11"} {
+	for _, need := range []string{"G1", "G2", "G3", "G4", "G5", "G6", "G7", "G8", "G9", "G10", "G11", "G12"} {
 		if !slices.Contains(names, need) {
-			t.Errorf("нет эталона testdata/golden/%s.json (M1: G1,G2,G3,G9,G10; M2: G6,G7,G8,G11)", need)
+			t.Errorf("нет эталона testdata/golden/%s.json (M1: G1,G2,G3,G9,G10; M2: G6,G7,G8,G11; M3: G4,G5,G12)", need)
 		}
 	}
 	for i, p := range paths {
@@ -423,11 +513,17 @@ func TestGolden(t *testing.T) {
 func checkGolden(t *testing.T, g *goldenFile, res goldenResult) {
 	t.Helper()
 	ex := g.Expect
-	if !reflect.DeepEqual(res.warnings, ex.Warnings) {
+	if !warningsMatch(res.warnings, ex.Warnings) {
 		t.Errorf("предупреждения:\n got  %+v\n want %+v", res.warnings, ex.Warnings)
 	}
 	if !reflect.DeepEqual(res.locks, ex.Locks) {
 		t.Errorf("блокировки:\n got  %+v\n want %+v", res.locks, ex.Locks)
+	}
+	if ex.Closures != nil && !reflect.DeepEqual(res.closures, ex.Closures) {
+		t.Errorf("закрытия:\n got  %+v\n want %+v", res.closures, ex.Closures)
+	}
+	if ex.Denied != nil && !deniedMatch(res.denied, ex.Denied) {
+		t.Errorf("запрещённые запуски:\n got  %+v\n want %+v", res.denied, ex.Denied)
 	}
 	for _, c := range ex.Checkpoints {
 		got, ok := res.checkpoints[c.At]
@@ -456,6 +552,7 @@ func checkGolden(t *testing.T, g *goldenFile, res goldenResult) {
 		}
 		day, _ := time.ParseInLocation(time.DateOnly, want.Day, g.loc)
 		rem, _ := RemainingTotalS(rules.For(WeekdayOf(day)), got.ExtraMin, got.TotalS)
+		grem, _ := RemainingGamesS(rules.For(WeekdayOf(day)), got.ExtraMin, got.GamesS)
 		for _, f := range []struct {
 			name string
 			want *int
@@ -467,12 +564,40 @@ func checkGolden(t *testing.T, g *goldenFile, res goldenResult) {
 			{"study_s", want.StudyS, got.StudyS},
 			{"extra_min", want.ExtraMin, got.ExtraMin},
 			{"remaining_s", want.RemainingS, rem},
+			{"games_remaining_s", want.GamesRemS, grem},
 		} {
 			if f.want != nil && *f.want != f.got {
 				t.Errorf("%s %s = %d, want %d", want.Day, f.name, f.got, *f.want)
 			}
 		}
 	}
+}
+
+// warningsMatch сравнивает предупреждения: момент и порог всегда, вид события — если он
+// задан в эталоне (G1…G11 его не задают).
+func warningsMatch(got, want []goldenWarning) bool {
+	if len(got) != len(want) {
+		return false
+	}
+	for i := range want {
+		if got[i].At != want[i].At || got[i].Min != want[i].Min || (want[i].Event != "" && got[i].Event != want[i].Event) {
+			return false
+		}
+	}
+	return true
+}
+
+// deniedMatch сравнивает запрещённые запуски; пустой текст в эталоне не сравнивается.
+func deniedMatch(got, want []goldenDenied) bool {
+	if len(got) != len(want) {
+		return false
+	}
+	for i := range want {
+		if got[i].At != want[i].At || got[i].Category != want[i].Category || (want[i].Text != "" && got[i].Text != want[i].Text) {
+			return false
+		}
+	}
+	return true
 }
 
 // goldenMinimal — минимальный правильный golden-файл для проверок загрузчика.
@@ -495,6 +620,17 @@ func TestGoldenLoaderRejectsBadFiles(t *testing.T) {
 	if res.days["2026-10-19"].TotalS != 10 {
 		t.Fatalf("минимальный файл: итог %+v, want 10 с", res.days)
 	}
+	// Новые поля M3 в правильном виде разбираются (иначе строки ниже падали бы не по своей причине).
+	full := strings.Replace(goldenMinimal, `"limits_min": {"mon": 120},`, `"limits_min": {"mon": 120}, "games_limits_min": {"mon": 60}, "end_mode": "study_only",
+  "actions": [{"at": "2026-10-19T15:00:05", "kind": "launch", "category": "games"}],`, 1)
+	full = strings.Replace(full, `"warnings": [], "locks": [],`, `"warnings": [{"at": "2026-10-19T15:00:01", "min": 1, "event": "games"}], "locks": [],
+  "closures": [{"at": "2026-10-19T15:00:01", "what": "games", "text": ""}], "denied": [{"at": "2026-10-19T15:00:05", "category": "games"}],`, 1)
+	full = strings.Replace(full, `"total_s": 10}`, `"total_s": 10, "games_remaining_s": 3600}`, 1)
+	if gf, err := parseGolden([]byte(full)); err != nil {
+		t.Fatalf("файл с полями M3 не разобран: %v", err)
+	} else if r := gf.rules(); r.EndMode != EndStudyOnly || r.Week[0].GamesMin == nil || *r.Week[0].GamesMin != 60 || r.Week[1].GamesMin != nil {
+		t.Fatalf("правила из файла с полями M3: %+v", r)
+	}
 	bad := []struct{ name, from, to string }{
 		{"неизвестный ключ", `"source"`, `"sorce"`},
 		{"неизвестный ключ лимита", `"mon": 120`, `"monday": 120`},
@@ -507,6 +643,11 @@ func TestGoldenLoaderRejectsBadFiles(t *testing.T) {
 		{"плохая категория", `"other"`, `"games_and_more"`},
 		{"нет total_s", `"total_s": 10`, `"games_s": 10`},
 		{"лишние данные", "", `{}`},
+		{"плохой end_mode", `"limits_min": {"mon": 120},`, `"limits_min": {"mon": 120}, "end_mode": "lock_screen",`},
+		{"плохая категория запуска", `"limits_min": {"mon": 120},`, `"limits_min": {"mon": 120}, "actions": [{"at": "2026-10-19T15:00:05", "kind": "launch", "category": "toys"}],`},
+		{"неизвестный ключ лимита игр", `"limits_min": {"mon": 120},`, `"limits_min": {"mon": 120}, "games_limits_min": {"monday": 60},`},
+		{"плохой вид предупреждения", `"warnings": [],`, `"warnings": [{"at": "2026-10-19T15:00:01", "min": 1, "event": "pause"}],`},
+		{"плохое закрытие", `"locks": [],`, `"locks": [], "closures": [{"at": "2026-10-19T15:00:01", "what": "all", "text": ""}],`},
 	}
 	for _, tc := range bad {
 		src := goldenMinimal + tc.to

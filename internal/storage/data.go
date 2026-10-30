@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"time"
 
 	"pcblock/internal/auth"
 	"pcblock/internal/core"
@@ -17,8 +16,15 @@ type Child struct {
 	SID          string // идентификатор учётки Windows (windows_sid)
 	Name         string // имя, которое видит родитель (display_name)
 	BypassDetail string // блокировка за обход (R17): что произошло; пусто — блокировки нет
+	EndMode      string // «Когда время вышло» (R8, end_mode): EndModeLock или EndModeStudyOnly
 	CreatedAtMs  int64  // UTC, миллисекунды
 }
+
+// Режимы «Когда время вышло» (R8, CHECK children.end_mode). Те же ключи даёт core.EndMode.String.
+const (
+	EndModeLock      = "lock"       // экран блокировки (по умолчанию)
+	EndModeStudyOnly = "study_only" // оставить только учёбу
+)
 
 // UpsertChild добавляет ребёнка или, если учётка с таким SID уже есть, обновляет имя и
 // возвращает учётке отметку «детская» (FR-25: убранный ребёнок возвращается с прежним id и
@@ -39,7 +45,7 @@ func (s *Store) UpsertChild(c Child) (int64, error) {
 
 // ListChildren возвращает детей, отмеченных сейчас (removed_at пуст), по возрастанию id.
 func (s *Store) ListChildren() ([]Child, error) {
-	rows, err := s.db.Query(`SELECT id, windows_sid, display_name, COALESCE(bypass_detail, ''), created_at
+	rows, err := s.db.Query(`SELECT id, windows_sid, display_name, COALESCE(bypass_detail, ''), end_mode, created_at
 		FROM children WHERE removed_at IS NULL ORDER BY id`)
 	if err != nil {
 		return nil, fmt.Errorf("storage: список детей: %w", err)
@@ -48,7 +54,7 @@ func (s *Store) ListChildren() ([]Child, error) {
 	out := []Child{}
 	for rows.Next() {
 		var c Child
-		if err := rows.Scan(&c.ID, &c.SID, &c.Name, &c.BypassDetail, &c.CreatedAtMs); err != nil {
+		if err := rows.Scan(&c.ID, &c.SID, &c.Name, &c.BypassDetail, &c.EndMode, &c.CreatedAtMs); err != nil {
 			return nil, fmt.Errorf("storage: список детей: %w", err)
 		}
 		out = append(out, c)
@@ -78,6 +84,30 @@ func (s *Store) SetBypass(childID int64, detail string) error {
 	return affectedOne(res, err, "записать блокировку за обход")
 }
 
+// SetEndMode записывает режим «Когда время вышло» ребёнка (R8, FR-18): EndModeLock или
+// EndModeStudyOnly; другое значение — ErrInvalid (в базу не попадает), нет такого ребёнка — ErrNotFound.
+func (s *Store) SetEndMode(childID int64, mode string) error {
+	if mode != EndModeLock && mode != EndModeStudyOnly {
+		return fmt.Errorf("%w: режим «Когда время вышло» %q, допустимо %q или %q", ErrInvalid, mode, EndModeLock, EndModeStudyOnly)
+	}
+	res, err := s.db.Exec(`UPDATE children SET end_mode = ? WHERE id = ?`, mode, childID)
+	return affectedOne(res, err, "записать режим «Когда время вышло»")
+}
+
+// GetEndMode читает режим «Когда время вышло» ребёнка (R8). Нет такого ребёнка: EndModeLock и nil
+// («пусто — норма», безопасный режим по умолчанию).
+func (s *Store) GetEndMode(childID int64) (string, error) {
+	var mode string
+	err := s.db.QueryRow(`SELECT end_mode FROM children WHERE id = ?`, childID).Scan(&mode)
+	if errors.Is(err, sql.ErrNoRows) {
+		return EndModeLock, nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("storage: прочитать режим «Когда время вышло»: %w", err)
+	}
+	return mode, nil
+}
+
 // affectedOne превращает результат UPDATE в ошибку: сбой базы или «ни одной строки» (ErrNotFound).
 func affectedOne(res sql.Result, err error, what string) error {
 	if err != nil {
@@ -104,14 +134,17 @@ func boolToInt(b bool) int {
 // maxLimitMin — наибольший лимит дня в минутах (CHECK в схеме).
 const maxLimitMin = 1440
 
-// SetDayLimits сохраняет общие лимиты семи дней недели (индекс 0 = пн, в базе weekday 1…7).
-// Лимит nil записывается как NULL («без лимита»), 0 значит «нельзя». Все семь строк пишутся в
-// одной транзакции; значения вне 0…1440 отклоняются до записи (ErrInvalid). Поля M2
-// (games_min, video_min) не трогаются.
+// SetDayLimits сохраняет лимиты семи дней недели (индекс 0 = пн, в базе weekday 1…7): общий
+// (total_min, R4) и игр (games_min, R5). Лимит nil записывается как NULL («без лимита» / «игры
+// без отдельного лимита»), 0 значит «нельзя». Все семь строк пишутся в одной транзакции; значения
+// вне 0…1440 отклоняются до записи (ErrInvalid). Поле M4 video_min не трогается.
 func (s *Store) SetDayLimits(childID int64, week [7]core.DayLimit) error {
 	for i, l := range week {
 		if l.TotalMin != nil && (*l.TotalMin < 0 || *l.TotalMin > maxLimitMin) {
 			return fmt.Errorf("%w: лимит дня %d равен %d мин, допустимо от 0 до %d", ErrInvalid, i+1, *l.TotalMin, maxLimitMin)
+		}
+		if l.GamesMin != nil && (*l.GamesMin < 0 || *l.GamesMin > maxLimitMin) {
+			return fmt.Errorf("%w: лимит игр дня %d равен %d мин, допустимо от 0 до %d", ErrInvalid, i+1, *l.GamesMin, maxLimitMin)
 		}
 	}
 	tx, err := s.db.Begin()
@@ -120,12 +153,9 @@ func (s *Store) SetDayLimits(childID int64, week [7]core.DayLimit) error {
 	}
 	defer func() { _ = tx.Rollback() }()
 	for i, l := range week {
-		var total any
-		if l.TotalMin != nil {
-			total = int64(*l.TotalMin)
-		}
-		_, err := tx.Exec(`INSERT INTO day_limits (child_id, weekday, total_min) VALUES (?, ?, ?)
-			ON CONFLICT (child_id, weekday) DO UPDATE SET total_min = excluded.total_min`, childID, i+1, total)
+		_, err := tx.Exec(`INSERT INTO day_limits (child_id, weekday, total_min, games_min) VALUES (?, ?, ?, ?)
+			ON CONFLICT (child_id, weekday) DO UPDATE SET total_min = excluded.total_min, games_min = excluded.games_min`,
+			childID, i+1, nullableMin(l.TotalMin), nullableMin(l.GamesMin))
 		if err != nil {
 			return fmt.Errorf("storage: сохранить лимиты: %w", err)
 		}
@@ -136,23 +166,40 @@ func (s *Store) SetDayLimits(childID int64, week [7]core.DayLimit) error {
 	return nil
 }
 
-// GetDayLimits возвращает лимиты семи дней недели (индекс 0 = пн). Дни без строки или с NULL —
-// «без лимита»: у ребёнка без сохранённых лимитов ограничений по времени нет.
+// nullableMin — минуты для INTEGER-столбца: nil уходит как NULL.
+func nullableMin(p *int) any {
+	if p == nil {
+		return nil
+	}
+	return int64(*p)
+}
+
+// GetDayLimits возвращает лимиты семи дней недели (индекс 0 = пн): общий и игр. Дни без строки
+// или с NULL — «без лимита»: у ребёнка без сохранённых лимитов ограничений по времени нет, игры
+// без отдельного лимита.
 func (s *Store) GetDayLimits(childID int64) ([7]core.DayLimit, error) {
 	var week [7]core.DayLimit
-	rows, err := s.db.Query(`SELECT weekday, total_min FROM day_limits WHERE child_id = ?`, childID)
+	rows, err := s.db.Query(`SELECT weekday, total_min, games_min FROM day_limits WHERE child_id = ?`, childID)
 	if err != nil {
 		return [7]core.DayLimit{}, fmt.Errorf("storage: прочитать лимиты: %w", err)
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var weekday int
-		var total sql.NullInt64
-		if err := rows.Scan(&weekday, &total); err != nil {
+		var total, games sql.NullInt64
+		if err := rows.Scan(&weekday, &total, &games); err != nil {
 			return [7]core.DayLimit{}, fmt.Errorf("storage: прочитать лимиты: %w", err)
 		}
-		if weekday >= 1 && weekday <= 7 && total.Valid {
-			week[weekday-1] = core.LimitOf(int(total.Int64))
+		if weekday < 1 || weekday > 7 {
+			continue
+		}
+		if total.Valid {
+			v := int(total.Int64)
+			week[weekday-1].TotalMin = &v
+		}
+		if games.Valid {
+			v := int(games.Int64)
+			week[weekday-1].GamesMin = &v
 		}
 	}
 	if err := rows.Err(); err != nil {
@@ -186,25 +233,30 @@ func (s *Store) LoadDayState(childID int64, day string) (core.DayState, error) {
 
 // SaveDayState записывает состояние дня ребёнка (вставка или замена по паре ребёнок и день).
 // Сохраняет и pause_until (R11): nil уходит как NULL. День должен быть датой YYYY-MM-DD
-// (ErrInvalid).
+// (ErrInvalid). Вместе с учётом по программам — SaveDayAndUsage (одна транзакция).
 func (s *Store) SaveDayState(childID int64, st core.DayState) error {
-	if t, err := time.Parse(time.DateOnly, st.Day); err != nil || t.Format(time.DateOnly) != st.Day {
-		return fmt.Errorf("%w: день %q не дата вида ГГГГ-ММ-ДД", ErrInvalid, st.Day)
+	if err := checkDay(st.Day); err != nil {
+		return err
 	}
+	if err := saveDayState(s.db, childID, st); err != nil {
+		return fmt.Errorf("storage: сохранить состояние дня: %w", err)
+	}
+	return nil
+}
+
+// saveDayState пишет строку day_state через ex (база или транзакция); день уже проверен.
+func saveDayState(ex execer, childID int64, st core.DayState) error {
 	var pause any
 	if st.PauseUntilMs != nil {
 		pause = *st.PauseUntilMs
 	}
-	_, err := s.db.Exec(`INSERT INTO day_state (child_id, day, total_s, games_s, video_s, study_s, extra_min, pause_until, bonus_granted, no_forbidden)
+	_, err := ex.Exec(`INSERT INTO day_state (child_id, day, total_s, games_s, video_s, study_s, extra_min, pause_until, bonus_granted, no_forbidden)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (child_id, day) DO UPDATE SET total_s = excluded.total_s, games_s = excluded.games_s,
 			video_s = excluded.video_s, study_s = excluded.study_s, extra_min = excluded.extra_min,
 			pause_until = excluded.pause_until, bonus_granted = excluded.bonus_granted, no_forbidden = excluded.no_forbidden`,
 		childID, st.Day, st.TotalS, st.GamesS, st.VideoS, st.StudyS, st.ExtraMin, pause, boolToInt(st.BonusGranted), boolToInt(st.NoForbidden))
-	if err != nil {
-		return fmt.Errorf("storage: сохранить состояние дня: %w", err)
-	}
-	return nil
+	return err
 }
 
 // Event — запись журнала (R22, таблица events).

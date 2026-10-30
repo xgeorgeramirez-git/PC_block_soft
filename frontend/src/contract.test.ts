@@ -38,7 +38,7 @@ const CASES: [string, string, (req: any) => Promise<unknown>][] = [
   ["Hello", "Hello", () => api.hello()],
   ["ListAccounts", "ListAccounts", () => api.listAccounts()],
   ["ListAccounts", "ListAccounts#empty", () => api.listAccounts()],
-  ["Setup", "Setup", (r) => api.setup(r.password, r.children)],
+  ["Setup", "Setup", (r) => api.setup(r.password, r.children, r.programs)],
   ["ResetPassword", "ResetPassword", (r) => api.resetPassword(r.newPassword)],
   ["UninstallCheck", "UninstallCheck", (r) => api.uninstallCheck(r.password, r.forgot)],
   ["Login", "Login", (r) => api.login(r.password)],
@@ -49,7 +49,8 @@ const CASES: [string, string, (req: any) => Promise<unknown>][] = [
   ["GetToday", "GetToday#empty", () => api.getToday()],
   ["GetToday", "GetToday#notices", () => api.getToday()],
   ["GetChildRules", "GetChildRules", (r) => api.getChildRules(r.childId)],
-  ["SaveLimits", "SaveLimits", (r) => api.saveLimits(r.childId, r.limits as WeekdayLimit[])],
+  ["SaveLimits", "SaveLimits", (r) => api.saveLimits(r.childId, r.limits as WeekdayLimit[], r.endMode)],
+  ["SaveLimits", "SaveLimits#endMode", (r) => api.saveLimits(r.childId, r.limits as WeekdayLimit[], r.endMode)],
   ["AddExtra", "AddExtra", (r) => api.addExtra(r.childId, r.minutes)],
   ["ReduceExtra", "ReduceExtra", (r) => api.reduceExtra(r.childId, r.minutes)],
   ["ClearExtra", "ClearExtra", (r) => api.clearExtra(r.childId)],
@@ -63,9 +64,6 @@ const CASES: [string, string, (req: any) => Promise<unknown>][] = [
   ["ChangePassword", "ChangePassword", (r) => api.changePassword(r.oldPassword, r.newPassword)],
   ["SetChildren", "SetChildren", (r) => api.setChildren(r)],
   ["SetChildren", "SetChildren#empty", (r) => api.setChildren(r)],
-  ["GetHelperState", "GetHelperState", () => api.getHelperState()],
-  ["GetHelperState", "GetHelperState#empty", () => api.getHelperState()],
-  ["SaveHelperState", "SaveHelperState", (r) => api.saveHelperState(r.state)],
   ["MyToday", "MyToday", () => api.myToday()],
   ["MyToday", "MyToday#empty", () => api.myToday()],
   ["FirstRunSeen", "FirstRunSeen", () => api.firstRunSeen()],
@@ -84,6 +82,16 @@ const CASES: [string, string, (req: any) => Promise<unknown>][] = [
   ["SpendBonus", "SpendBonus", (r) => api.spendBonus(r.childId, r.minutes)],
   ["OpenLogs", "OpenLogs", () => api.openLogs()],
   ["OpenWindow", "OpenWindow", (r) => api.openWindow(r.kind)],
+  ["OpenWindow", "OpenWindow#programs", (r) => api.openWindow(r.kind, r.screen)],
+  ["OpenWindow", "OpenWindow#badScreen", (r) => api.openWindow(r.kind, r.screen)],
+  ["ListPrograms", "ListPrograms", () => api.listPrograms()],
+  ["ListPrograms", "ListPrograms#empty", () => api.listPrograms()],
+  ["DecideProgram", "DecideProgram", (r) => api.decideProgram(r.path, r.category)],
+  ["DecideProgram", "DecideProgram#invalid", (r) => api.decideProgram(r.path, r.category)],
+  ["SetProgramsCategory", "SetProgramsCategory", (r) => api.setProgramsCategory(r.paths, r.category)],
+  ["UndoProgram", "UndoProgram", (r) => api.undoProgram(r.undoId)],
+  ["ScanPrograms", "ScanPrograms", () => api.scanPrograms()],
+  ["ScanPrograms", "ScanPrograms#empty", () => api.scanPrograms()],
   ["SetNoForbidden", "SetNoForbidden", (r) => api.setNoForbidden(r.childId, r.on)],
   ["ClearBonus", "ClearBonus", (r) => api.clearBonus(r.childId)],
   ["ReduceBonus", "ReduceBonus", (r) => api.reduceBonus(r.childId, r.minutes)],
@@ -121,9 +129,6 @@ function payloadOf(command: string, payload: unknown): unknown {
       return p.events;
     case "SetChildren":
       return p.children;
-    case "GetHelperState":
-      return p.state;
-    case "SaveHelperState":
     case "FirstRunSeen":
     case "Logout":
     case "ResetPassword":
@@ -171,6 +176,11 @@ describe("отказы контракта", () => {
 });
 
 describe("полнота", () => {
+  // Ловит: в контракте остались команды удалённого Помощника (D-56).
+  it("команд Помощника в контракте нет", () => {
+    expect(Object.keys(examples).filter((k) => /HelperState/.test(k))).toEqual([]);
+  });
+
   // Ловит: новая команда окна родителя появилась в контракте, а обёртки для неё нет.
   it("у каждой команды окон родителя и ребёнка есть пример и обёртка", () => {
     const wrapped = new Set(CASES.map(([command]) => command));
@@ -193,8 +203,6 @@ describe("полнота", () => {
       "ListEvents",
       "ChangePassword",
       "SetChildren",
-      "GetHelperState",
-      "SaveHelperState",
       "MyToday",
       "FirstRunSeen",
       "OpenLogs",
@@ -207,6 +215,11 @@ describe("полнота", () => {
       "RedeemPromo",
       "GetBonusRate",
       "SetBonusRate",
+      "ListPrograms",
+      "DecideProgram",
+      "SetProgramsCategory",
+      "UndoProgram",
+      "ScanPrograms",
     ]) {
       expect(examples[command], `нет примера ${command}`).toBeDefined();
       expect(wrapped.has(command), `нет обёртки ${command}`).toBe(true);

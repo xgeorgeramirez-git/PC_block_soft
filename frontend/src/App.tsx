@@ -1,13 +1,9 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { finish, hello, login, logout, mode as readMode, sessionState, version as readVersion } from "./api";
+import { useCallback, useEffect, useState } from "react";
+import { finish, hello, login, logout, mode as readMode, sessionState, startScreen, version as readVersion } from "./api";
 import Notice from "./components/Notice";
 import { SaveBarSlotContext } from "./components/SaveBar";
 import { UnsavedGuardProvider, useAttemptNavigation } from "./guard";
-import type { NavigateOptions } from "./guidance/context";
-import { useQuietZone } from "./guidance/context";
-import GuidanceProvider from "./guidance/GuidanceProvider";
-import HelpCenter from "./guidance/HelpCenter";
-import HintSlot from "./guidance/HintSlot";
+import WhatsNew from "./whatsnew/WhatsNew";
 import { errorText } from "./lib/errors";
 import { SESSION_WARNING_TEXT } from "./session";
 import Children from "./screens/Children";
@@ -16,6 +12,7 @@ import Journal from "./screens/Journal";
 import LoginDialog from "./screens/LoginDialog";
 import MyStats from "./screens/MyStats";
 import ParentStats from "./screens/ParentStats";
+import Programs from "./screens/Programs";
 import ResetPassword from "./screens/ResetPassword";
 import Bonus from "./screens/Bonus";
 import Settings from "./screens/Settings";
@@ -23,6 +20,7 @@ import Today from "./screens/Today";
 import UninstallGate from "./screens/UninstallGate";
 import Wizard from "./screens/Wizard";
 import { useSessionWatcher } from "./useSessionWatcher";
+import type { ProgramFilter } from "./lib/programs";
 
 type Phase = "wizard" | "login" | "parent";
 
@@ -30,7 +28,7 @@ type Boot =
   | { kind: "loading" }
   | { kind: "failed"; text: string }
   | { kind: "simple"; mode: "reset-password" | "uninstall-gate" | "mystats" | "firstrun" }
-  | { kind: "ready"; phase: Phase };
+  | { kind: "ready"; phase: Phase; screen: Screen };
 
 const SIMPLE_MODES = ["reset-password", "uninstall-gate", "mystats", "firstrun"] as const;
 
@@ -43,31 +41,24 @@ async function bootstrap(): Promise<Boot> {
   }
   const state = await hello();
   if (!state.configured) {
-    return { kind: "ready", phase: "wizard" };
+    return { kind: "ready", phase: "wizard", screen: "today" };
   }
+  // «Попросить сейчас» на плашке (RM3-4): после пароля окно сразу на «Программах».
+  const screen: Screen = (await startScreen()) === "programs" ? "programs" : "today";
   if (mode === "parent") {
     // Окно открыто из родительской сессии (страж после верного пароля): вход не нужен.
     const session = await sessionState().catch(() => ({ active: false }));
     if (session.active) {
-      return { kind: "ready", phase: "parent" };
+      return { kind: "ready", phase: "parent", screen };
     }
   }
-  return { kind: "ready", phase: "login" };
+  return { kind: "ready", phase: "login", screen };
 }
 
 type VersionState = { kind: "loading" } | { kind: "ready"; value: string } | { kind: "failed" };
 
 /** Заголовок окна. В окнах ребёнка слов «Родительский контроль» нет: он видит только название и версию. */
-function Topbar({
-  onLogout,
-  childWindow = false,
-  anchored = false,
-}: {
-  onLogout?: () => void;
-  childWindow?: boolean;
-  /** Заголовок окна родителя: к нему привязана подсказка и шаг тура. */
-  anchored?: boolean;
-}) {
+function Topbar({ onLogout, childWindow = false }: { onLogout?: () => void; childWindow?: boolean }) {
   const [version, setVersion] = useState<VersionState>({ kind: "loading" });
   useEffect(() => {
     let alive = true;
@@ -80,7 +71,7 @@ function Topbar({
     };
   }, []);
   return (
-    <header className="topbar" data-help-anchor={anchored ? "topbar" : undefined}>
+    <header className="topbar">
       <h1 className="product">PC Block</h1>
       {childWindow ? null : <span className="product-note">Родительский контроль</span>}
       <span className="topbar-spacer" />
@@ -101,6 +92,8 @@ function Topbar({
 export default function App() {
   const [boot, setBoot] = useState<Boot>({ kind: "loading" });
   const [phase, setPhase] = useState<Phase | null>(null);
+  // Первый экран окна родителя; после «Выйти» и нового входа снова «Сегодня».
+  const [firstScreen, setFirstScreen] = useState<Screen>("today");
 
   const start = useCallback(async () => {
     setBoot({ kind: "loading" });
@@ -108,6 +101,7 @@ export default function App() {
       const next = await bootstrap();
       setBoot(next);
       setPhase(next.kind === "ready" ? next.phase : null);
+      setFirstScreen(next.kind === "ready" ? next.screen : "today");
     } catch (e) {
       setBoot({ kind: "failed", text: errorText(e) });
     }
@@ -150,7 +144,9 @@ export default function App() {
   } else if (phase === "parent") {
     return (
       <ParentRoot
+        initialScreen={firstScreen}
         onLoggedOut={() => {
+          setFirstScreen("today");
           setPhase("login");
         }}
       />
@@ -193,51 +189,34 @@ function SimpleScreen({ mode }: { mode: "reset-password" | "uninstall-gate" | "m
   }
 }
 
-type Screen = "today" | "children" | "bonus" | "stats" | "journal" | "settings" | "help";
+type Screen = "today" | "children" | "programs" | "bonus" | "stats" | "journal" | "settings" | "whatsnew";
 
-const MENU: { id: Screen; label: string; anchor?: "menu-today" | "menu-children" | "menu-bonus" }[] = [
-  { id: "today", label: "Сегодня", anchor: "menu-today" },
-  { id: "children", label: "Дети", anchor: "menu-children" },
-  { id: "bonus", label: "Копилка", anchor: "menu-bonus" },
+/** Основные разделы меню; «Что нового» стоит отдельно внизу (ТЗ 8.3.2 п.2). */
+const MENU: { id: Screen; label: string }[] = [
+  { id: "today", label: "Сегодня" },
+  { id: "children", label: "Дети" },
+  { id: "programs", label: "Программы" },
+  { id: "bonus", label: "Копилка" },
   { id: "stats", label: "Статистика" },
   { id: "journal", label: "Журнал" },
   { id: "settings", label: "Настройки" },
 ];
 
-type Go = (next: Screen, opts?: { violations?: boolean; childId?: number }) => void;
+type Go = (next: Screen, opts?: { violations?: boolean; childId?: number; filter?: ProgramFilter }) => void;
 
-/**
- * Окно родителя целиком. Помощник стоит снаружи охраны правок: окно «Сохранить изменения?»
- * тоже должно его заглушать, а переходы Помощника (тур, «Задать лимиты») идут через ту же охрану.
- */
-function ParentRoot({ onLoggedOut }: { onLoggedOut: () => void }) {
-  const [screen, setScreen] = useState<Screen>("today");
-  const goRef = useRef<Go>(() => undefined);
+/** Окно родителя целиком: переходы между разделами идут через охрану несохранённых правок. */
+function ParentRoot({ initialScreen, onLoggedOut }: { initialScreen: Screen; onLoggedOut: () => void }) {
   return (
-    <GuidanceProvider screen={screen} navigate={(next: Screen, opts?: NavigateOptions) => goRef.current(next, opts)}>
-      <UnsavedGuardProvider>
-        <ParentWindow
-          screen={screen}
-          onScreen={setScreen}
-          bindGo={(go) => {
-            goRef.current = go;
-          }}
-          onLoggedOut={onLoggedOut}
-        />
-      </UnsavedGuardProvider>
-    </GuidanceProvider>
+    <UnsavedGuardProvider>
+      <ParentWindow initialScreen={initialScreen} onLoggedOut={onLoggedOut} />
+    </UnsavedGuardProvider>
   );
 }
 
-interface ParentWindowProps {
-  screen: Screen;
-  onScreen: (screen: Screen) => void;
-  bindGo: (go: Go) => void;
-  onLoggedOut: () => void;
-}
-
 /** Окно родителя: меню слева, раздел справа, родительская сессия под присмотром (R19). */
-function ParentWindow({ screen, onScreen, bindGo, onLoggedOut }: ParentWindowProps) {
+function ParentWindow({ initialScreen, onLoggedOut }: { initialScreen: Screen; onLoggedOut: () => void }) {
+  const [screen, setScreen] = useState<Screen>(initialScreen);
+  const [programsFilter, setProgramsFilter] = useState<ProgramFilter>("all");
   const [violationsOnly, setViolationsOnly] = useState(false);
   const [childToOpen, setChildToOpen] = useState<number | undefined>(undefined);
   const [saveSlot, setSaveSlot] = useState<HTMLElement | null>(null);
@@ -248,9 +227,9 @@ function ParentWindow({ screen, onScreen, bindGo, onLoggedOut }: ParentWindowPro
     attempt(() => {
       setViolationsOnly(Boolean(opts.violations));
       setChildToOpen(opts.childId);
-      onScreen(next);
+      setProgramsFilter(opts.filter ?? "all");
+      setScreen(next);
     });
-  useEffect(() => bindGo(go));
 
   const leave = () =>
     attempt(() => {
@@ -261,17 +240,11 @@ function ParentWindow({ screen, onScreen, bindGo, onLoggedOut }: ParentWindowPro
     });
 
   const ended = view.phase === "ended";
-  // Предупреждение о конце сессии и экран входа после неё: Помощник молчит (ТЗ 8.4 п.4).
-  useQuietZone("warning", view.phase === "warning");
-  useQuietZone("lock", ended);
 
   return (
     <SaveBarSlotContext.Provider value={saveSlot}>
       <div className="shell">
-        <Topbar onLogout={leave} anchored />
-        <div className="hint-strip">
-          <HintSlot anchor="topbar" />
-        </div>
+        <Topbar onLogout={leave} />
         <div className="shell-body" inert={ended}>
           <nav className="menu" aria-label="Разделы">
             <ul className="menu-list">
@@ -280,7 +253,6 @@ function ParentWindow({ screen, onScreen, bindGo, onLoggedOut }: ParentWindowPro
                   <button
                     type="button"
                     className="menu-item"
-                    data-help-anchor={item.anchor}
                     aria-current={screen === item.id ? "page" : undefined}
                     onClick={() => go(item.id)}
                   >
@@ -291,11 +263,11 @@ function ParentWindow({ screen, onScreen, bindGo, onLoggedOut }: ParentWindowPro
             </ul>
             <button
               type="button"
-              className="menu-item menu-help"
-              aria-current={screen === "help" ? "page" : undefined}
-              onClick={() => go("help")}
+              className="menu-item menu-foot"
+              aria-current={screen === "whatsnew" ? "page" : undefined}
+              onClick={() => go("whatsnew")}
             >
-              Помощь
+              Что нового
             </button>
           </nav>
           <div className="main-col">
@@ -314,18 +286,20 @@ function ParentWindow({ screen, onScreen, bindGo, onLoggedOut }: ParentWindowPro
                   onOpenSettings={() => go("settings")}
                   onOpenChildren={() => go("children")}
                   onOpenStats={(childId) => go("stats", { childId })}
+                  onOpenPrograms={() => go("programs")}
                 />
               ) : null}
               {screen === "children" ? (
-                <Children initialChildId={childToOpen} onOpenSettings={() => go("settings")} />
+                <Children onOpenSettings={() => go("settings")} onOpenPrograms={() => go("programs", { filter: "study" })} />
               ) : null}
+              {screen === "programs" ? <Programs key={programsFilter} initialFilter={programsFilter} /> : null}
               {screen === "bonus" ? <Bonus /> : null}
               {screen === "stats" ? <ParentStats key={childToOpen} initialChildId={childToOpen} /> : null}
               {screen === "journal" ? <Journal key={String(violationsOnly)} violationsOnly={violationsOnly} /> : null}
               {screen === "settings" ? <Settings onOpenChildren={() => go("children")} /> : null}
-              {screen === "help" ? <HelpCenter /> : null}
+              {screen === "whatsnew" ? <WhatsNew /> : null}
             </main>
-            <div className="savebar-slot" ref={setSaveSlot} data-help-anchor="savebar" />
+            <div className="savebar-slot" ref={setSaveSlot} />
           </div>
         </div>
         {ended ? (

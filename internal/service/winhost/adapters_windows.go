@@ -45,7 +45,7 @@ func (a storeAdapter) ListChildren() ([]service.Child, error) {
 	}
 	out := make([]service.Child, 0, len(list))
 	for _, c := range list {
-		out = append(out, service.Child{ID: c.ID, SID: c.SID, Name: c.Name, BypassDetail: c.BypassDetail})
+		out = append(out, service.Child{ID: c.ID, SID: c.SID, Name: c.Name, BypassDetail: c.BypassDetail, EndMode: c.EndMode})
 	}
 	return out, nil
 }
@@ -62,6 +62,130 @@ func (a storeAdapter) SetDayLimits(childID int64, week [7]core.DayLimit) error {
 
 func (a storeAdapter) GetDayLimits(childID int64) ([7]core.DayLimit, error) {
 	return a.s.GetDayLimits(childID)
+}
+
+func (a storeAdapter) SetEndMode(childID int64, mode string) error {
+	return a.s.SetEndMode(childID, mode)
+}
+
+func (a storeAdapter) GetEndMode(childID int64) (string, error) { return a.s.GetEndMode(childID) }
+
+// --- программы, «Ждут решения» и учёт (M3) ---------------------------------------------
+// service.Program и storage.Program совпадают по полям: преобразование типа без копирования по полю.
+
+func (a storeAdapter) UpsertProgram(p service.Program) error {
+	return a.s.UpsertProgram(storage.Program(p))
+}
+
+func (a storeAdapter) SeedPrograms(ps []service.Program) (int, error) {
+	in := make([]storage.Program, 0, len(ps))
+	for _, p := range ps {
+		in = append(in, storage.Program(p))
+	}
+	return a.s.SeedPrograms(in)
+}
+
+func (a storeAdapter) GetProgram(path string) (service.Program, bool, error) {
+	p, ok, err := a.s.GetProgram(path)
+	return service.Program(p), ok, err
+}
+
+func programsOf(list []storage.Program) []service.Program {
+	out := make([]service.Program, 0, len(list))
+	for _, p := range list {
+		out = append(out, service.Program(p))
+	}
+	return out
+}
+
+func (a storeAdapter) ListPrograms() ([]service.Program, error) {
+	list, err := a.s.ListPrograms()
+	if err != nil {
+		return nil, err
+	}
+	return programsOf(list), nil
+}
+
+func (a storeAdapter) SetProgramsCategory(paths []string, category string, at int64) ([]service.Program, error) {
+	list, err := a.s.SetProgramsCategory(paths, category, at)
+	if err != nil {
+		return nil, err
+	}
+	return programsOf(list), nil
+}
+
+func (a storeAdapter) RestoreProgram(p service.Program) error {
+	return a.s.RestoreProgram(storage.Program(p))
+}
+
+func (a storeAdapter) DeleteProgram(path string) error { return a.s.DeleteProgram(path) }
+
+func pendingOf(p storage.PendingProgram) service.PendingProgram {
+	out := service.PendingProgram{
+		Path: p.Path, Name: p.Name, Publisher: p.Publisher, Description: p.Description, WasCategory: p.WasCategory,
+		FirstChildID: p.FirstChildID, FirstAttemptAt: p.FirstAttemptAt, LastAttemptAt: p.LastAttemptAt, Attempts: p.Attempts,
+		Children: make([]service.PendingChild, 0, len(p.Children)),
+	}
+	for _, c := range p.Children {
+		out.Children = append(out.Children, service.PendingChild(c))
+	}
+	return out
+}
+
+func pendingToStorage(p service.PendingProgram) storage.PendingProgram {
+	out := storage.PendingProgram{
+		Path: p.Path, Name: p.Name, Publisher: p.Publisher, Description: p.Description, WasCategory: p.WasCategory,
+		FirstChildID: p.FirstChildID, FirstAttemptAt: p.FirstAttemptAt, LastAttemptAt: p.LastAttemptAt, Attempts: p.Attempts,
+		Children: make([]storage.PendingChild, 0, len(p.Children)),
+	}
+	for _, c := range p.Children {
+		out.Children = append(out.Children, storage.PendingChild(c))
+	}
+	return out
+}
+
+func (a storeAdapter) AddPendingAttempt(p service.PendingProgram, childID, at int64) (int, error) {
+	return a.s.AddPendingAttempt(pendingToStorage(p), childID, at)
+}
+
+func (a storeAdapter) ListPending() ([]service.PendingProgram, error) {
+	list, err := a.s.ListPending()
+	if err != nil {
+		return nil, err
+	}
+	out := make([]service.PendingProgram, 0, len(list))
+	for _, p := range list {
+		out = append(out, pendingOf(p))
+	}
+	return out, nil
+}
+
+func (a storeAdapter) ResolvePending(path string) (service.PendingProgram, bool, error) {
+	p, ok, err := a.s.ResolvePending(path)
+	if err != nil || !ok {
+		return service.PendingProgram{}, ok, err
+	}
+	return pendingOf(p), true, nil
+}
+
+func (a storeAdapter) RestorePending(p service.PendingProgram) error {
+	return a.s.RestorePending(pendingToStorage(p))
+}
+
+func (a storeAdapter) AddUsage(childID int64, day, category, kind, subject string, seconds int) error {
+	return a.s.AddUsage(childID, day, category, kind, subject, seconds)
+}
+
+func (a storeAdapter) SaveDayAndUsage(childID int64, st core.DayState, usage []service.UsageRow) error {
+	rows := make([]storage.UsageRow, 0, len(usage))
+	for _, u := range usage {
+		rows = append(rows, storage.UsageRow(u))
+	}
+	return a.s.SaveDayAndUsage(childID, st, rows)
+}
+
+func (a storeAdapter) ProgramSeconds(fromDay string) (map[string]int, error) {
+	return a.s.ProgramSeconds(fromDay)
 }
 
 func (a storeAdapter) GetSchedule(childID int64) ([]core.Interval, error) {

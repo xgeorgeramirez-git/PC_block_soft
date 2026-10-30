@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"pcblock/internal/core"
+	"pcblock/internal/ipc"
+	"pcblock/internal/programs"
 )
 
 // evInternalError — вид события журнала о сбое внутри программы: паника при обработке одного
@@ -40,7 +42,9 @@ func (s *Service) tickChild(cs *childState, now time.Time) {
 	if cs.eng.DueSave(now) {
 		s.saveDay(cs)
 	}
-	d := cs.eng.Tick(s.sampleFor(cs))
+	sample, path := s.sampleFor(cs)
+	d := cs.eng.Tick(sample)
+	s.countUsage(cs, d, path)
 	s.afterDecision(cs, d, nil)
 }
 
@@ -93,23 +97,72 @@ func (s *Service) runGuarded(where string, f func()) {
 	f()
 }
 
-// sampleFor возвращает снимок датчиков для тика: свежий снимок стража, иначе «неактивен».
+// sampleFor возвращает снимок датчиков для тика и путь программы переднего плана для учёта по
+// программам («» — не учитывать): свежий снимок стража, иначе «неактивен».
 // Служба ничего не додумывает за стража: нет вестей дольше sampleMaxAge, секунда не идёт.
 // Но и стражу она не верит там, где знает больше него (FB-3, R2): страж в отключённом сеансе
 // не может открыть рабочий стол ввода и считает сеанс незаблокированным, а после выхода из
 // учётки его последний снимок ещё живёт до sampleMaxAge. Сеанса нет, в нём другой пользователь,
 // он отключён или заблокирован: секунда не идёт.
-func (s *Service) sampleFor(cs *childState) core.SessionSample {
+func (s *Service) sampleFor(cs *childState) (core.SessionSample, string) {
 	if !cs.haveSample || s.real.Sub(cs.sampleAt) > sampleMaxAge {
-		return core.SessionSample{}
+		return core.SessionSample{}, ""
 	}
 	ss := s.sessions[cs.sampleSess]
 	if ss == nil || ss.childID != cs.child.ID || ss.offScreen() {
 		s.noteSampleVerdict(cs, "не учитывается", ss)
-		return core.SessionSample{}
+		return core.SessionSample{}, ""
 	}
 	s.noteSampleVerdict(cs, "учитывается", ss)
-	return cs.sample.ToCore()
+	sm := cs.sample.ToCore()
+	var path string
+	sm.Foreground, path = s.foregroundOf(cs.sample)
+	return sm, path
+}
+
+// foregroundOf — категория секунды по программе переднего плана (RM3-1, RM3-7): категорию даёт
+// путь exe через классификатор, слова стража не учитываются (кроме «Видео и соцсети» — сайты M4).
+// Разрешённая программа — её категория; система, незнакомая, запрещённая, пустой или нечитаемый
+// путь — «Прочее» (PL-7/8): незнакомая не успевает засчитаться игрой. Отпечаток файла — тот, что
+// видел наблюдатель (fpSeen), издатель тоже (pubSeen, RM3-13): подменённый файл не засчитывается по старому решению. Путь для
+// учёта — нормализованный, у системы «».
+func (s *Service) foregroundOf(sm ipc.SensorSample) (core.Category, string) {
+	if sm.Foreground == ipc.CatNameVideoSocial {
+		return core.CatVideoSocial, ""
+	}
+	norm := programs.Normalize(sm.ForegroundPath)
+	if norm == "" {
+		return core.CatOther, ""
+	}
+	res := s.classifier.Classify(norm, s.fpSeen[norm], s.pubSeen[norm])
+	switch res.Verdict {
+	case programs.VerdictSystem:
+		return core.CatOther, ""
+	case programs.VerdictAllow:
+		return coreCategory(res.Category), norm
+	}
+	return core.CatOther, norm
+}
+
+// progUsageKey — порция учёта по программам: день, когда секунды засчитаны (PL-15), категория и путь.
+type progUsageKey struct {
+	day, cat, path string
+}
+
+// usageCats — категории учёта по программам (RM3-6); «Видео и соцсети» — сайты, M4.
+var usageCats = map[core.Category]string{core.CatGames: programs.CatGames, core.CatStudy: programs.CatStudy, core.CatOther: programs.CatOther}
+
+// countUsage добавляет засчитанную секунду тика к накопителю ребёнка (RM3-6): в базу он уходит
+// вместе с состоянием дня (saveState).
+func (s *Service) countUsage(cs *childState, d core.Decision, path string) {
+	cat, ok := usageCats[d.CountedCat]
+	if !d.Counted || !ok || path == "" || d.Day == "" {
+		return
+	}
+	if cs.usage == nil {
+		cs.usage = map[progUsageKey]int{}
+	}
+	cs.usage[progUsageKey{day: d.Day, cat: cat, path: path}]++
 }
 
 // noteSampleVerdict пишет в подробный журнал, когда меняется решение «снимок стража учитывается»:
@@ -144,6 +197,7 @@ func (s *Service) Housekeep(real time.Time) {
 		cs := s.children[id]
 		s.guard("housekeep", cs, func() { s.housekeepChild(cs, real) })
 	}
+	s.guard("programs", nil, func() { s.ensurePrograms(real) })
 	s.guard("parents", nil, func() { s.expireParents(real) })
 	s.guard("binds", nil, func() { s.expireBinds(real) })
 	s.guard("sessions", nil, func() { s.syncSessions(real) })
@@ -193,8 +247,14 @@ func (cs *childState) expireWarnings(real time.Time) {
 // TickInterval возвращает настоящий период тика: секунда часов ядра (Ruling 4).
 func (s *Service) TickInterval() time.Duration { return s.cfg.Test.TickInterval() }
 
-// RunLoop крутит тики и обслуживание, пока не отменён ctx. Тик идёт раз в секунду часов ядра, обслуживание раз в настоящую секунду.
+// RunLoop крутит тики и обслуживание, пока не отменён ctx. Тик идёт раз в секунду часов ядра,
+// обслуживание раз в настоящую секунду. Наблюдатель процессов — в своей горутине на своём тикере
+// по настоящим часам (RunWatch, RM3-11): долгий Kill не задерживает тик, а ускорение часов не
+// меняет период опроса. RunLoop возвращается, когда остановлены оба.
 func (s *Service) RunLoop(ctx context.Context) {
+	watchDone := make(chan struct{})
+	go func() { defer close(watchDone); s.RunWatch(ctx) }()
+	defer func() { <-watchDone }()
 	tick := time.NewTicker(s.TickInterval())
 	house := time.NewTicker(time.Second)
 	defer tick.Stop()

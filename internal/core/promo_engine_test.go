@@ -41,3 +41,24 @@ func TestRedeemPromoMinutesRange(t *testing.T) {
 		}
 	}
 }
+
+// Ловит (регресс S36 в M3): промокод расширяет только общий лимит, а лимит игр остаётся прежним
+// (R26: минуты промокода увеличивают и общий лимит, и лимит игр, как доп. время R10), или игры,
+// закрытые по концу лимита игр, после промокода не открываются.
+func TestRedeemPromoMinutesExtendsGames(t *testing.T) {
+	c := &fakeClock{t: at(15, 0, 0)}
+	// Общий лимит 120 мин, игры 30 мин; уже сыграно 30 мин игр, всего 30 мин.
+	e := NewEngine(c, msk, gamesMon(intp(120), intp(30), EndBlock), DayState{Day: monday}, "")
+	run(e, c, at(15, 0, 0), at(15, 30, 0), gameSample())
+	if cur := e.Current(); !cur.CloseGames || cur.GamesRemainingS != 0 {
+		t.Fatalf("до промокода: закрыты игры %v, остаток игр %d; want true, 0", cur.CloseGames, cur.GamesRemainingS)
+	}
+	d, err := e.RedeemPromoMinutes(20)
+	if err != nil {
+		t.Fatalf("RedeemPromoMinutes(20): %v", err)
+	}
+	if d.CloseGames || d.GamesRemainingS != 1200 || d.GamesLimitS != 3000 || d.LimitS != 8400 {
+		t.Fatalf("после промокода 20 мин: закрыты игры %v, остаток игр %d, лимит игр %d, общий %d; want false, 1200, 3000, 8400",
+			d.CloseGames, d.GamesRemainingS, d.GamesLimitS, d.LimitS)
+	}
+}

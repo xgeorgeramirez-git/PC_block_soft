@@ -1,25 +1,50 @@
 import { useCallback, useEffect, useId, useRef, useState, type FormEvent } from "react";
-import { listAccounts, setup } from "../api";
+import { listAccounts, scanPrograms, setup } from "../api";
 import LimitsTable from "../components/LimitsTable";
 import Notice from "../components/Notice";
 import TextField from "../components/TextField";
 import { CallError, errorText } from "../lib/errors";
-import { templateLimits, validateLimits, wireLimits } from "../lib/limits";
+import { limitErrorKey, templateLimits, validateLimits, wireLimits } from "../lib/limits";
 import { validatePasswordPair, type PasswordPairErrors } from "../lib/password";
-import type { Account, WeekdayLimit } from "../types";
+import type { Account, ProgramCategory, ScanProgramDTO, SetupProgram, WeekdayLimit } from "../types";
 
 interface Props {
   /** Кнопка «Открыть настройки» на итоговом экране; получает только что заданный пароль, чтобы войти сразу. */
   onOpenSettings: (password: string) => void;
 }
 
-type Step = 1 | 2 | 3 | "done";
+type Step = 1 | 2 | 3 | 4 | "done";
+const STEPS = 4;
+
+/** Выбор на шаге «Программы» (FR-2): «Запретить» и системное здесь не предлагаются. */
+type WizardCategory = Extract<ProgramCategory, "games" | "study" | "other">;
+const WIZARD_CATEGORIES: { category: WizardCategory; label: string }[] = [
+  { category: "games", label: "Игра" },
+  { category: "study", label: "Учёба" },
+  { category: "other", label: "Прочее" },
+];
+
+/** Предложенная службой категория или «Прочее» (по умолчанию). */
+export function suggestedChoice(p: ScanProgramDTO): WizardCategory {
+  return p.suggestedCategory === "games" || p.suggestedCategory === "study" ? p.suggestedCategory : "other";
+}
+
+/** Что отправить службе: только отметки, изменённые родителем; остальное служба решит сама (снимок). */
+export function changedPrograms(list: ScanProgramDTO[], choices: Record<string, WizardCategory>): SetupProgram[] {
+  return list
+    .filter((p) => choices[p.path] !== undefined && choices[p.path] !== suggestedChoice(p))
+    .map((p) => ({ path: p.path, category: choices[p.path] }));
+}
+
+export const PROGRAMS_NOTE = "Незнакомые программы будут ждать вашего решения. Это можно изменить позже в разделе «Программы»";
+const SCANNING = "Ищу установленные программы";
+const SCAN_EMPTY = "Программы не найдены. Их можно настроить позже в разделе «Программы»";
 
 const ADMIN_NOTE =
   "Администратор: на такой учётке ограничения не работают. Сделайте её обычной в Параметрах Windows и добавьте позже в «Настройки → Детские учётки»";
 const TEMPLATE_LABEL = "Шаблон: будни 2 ч, выходные 4 ч";
 
-/** Мастер первоначальной настройки (FR-1, FR-2, сценарий 8.3.1): пароль, дети, время. */
+/** Мастер первоначальной настройки (FR-1, FR-2, сценарий 8.3.1): пароль, дети, время, программы. */
 export default function Wizard({ onOpenSettings }: Props) {
   const [step, setStep] = useState<Step>(1);
   const [password, setPassword] = useState("");
@@ -32,9 +57,13 @@ export default function Wizard({ onOpenSettings }: Props) {
   const [selected, setSelected] = useState<string[]>([]);
 
   const [limits, setLimits] = useState<Record<string, WeekdayLimit[]>>({});
-  const [limitErrors, setLimitErrors] = useState<Record<number, string>>({});
+  const [limitErrors, setLimitErrors] = useState<Record<string, string>>({});
   const [formError, setFormError] = useState("");
   const [busy, setBusy] = useState(false);
+
+  const [scan, setScan] = useState<ScanProgramDTO[] | null>(null);
+  const [scanError, setScanError] = useState("");
+  const [choices, setChoices] = useState<Record<string, WizardCategory>>({});
 
   const heading = useRef<HTMLHeadingElement>(null);
   const firstStep = useRef(true);
@@ -63,6 +92,33 @@ export default function Wizard({ onOpenSettings }: Props) {
       void loadAccounts();
     }
   }, [step, accounts, accountsError, loadAccounts]);
+
+  const loadPrograms = useCallback(async () => {
+    setScanError("");
+    try {
+      const r = await scanPrograms();
+      setScan(r.programs);
+      setChoices((prev) => {
+        const next: Record<string, WizardCategory> = {};
+        for (const p of r.programs) {
+          next[p.path] = prev[p.path] ?? suggestedChoice(p);
+        }
+        return next;
+      });
+    } catch (e) {
+      setScan(null);
+      setScanError(errorText(e));
+    }
+  }, []);
+
+  // Программы ищутся один раз: «Назад» и снова «Далее» не теряют отметок; после ошибки - «Повторить».
+  const scanAsked = useRef(false);
+  useEffect(() => {
+    if (step === 4 && !scanAsked.current) {
+      scanAsked.current = true;
+      void loadPrograms();
+    }
+  }, [step, loadPrograms]);
 
   const goStep1Next = (e: FormEvent) => {
     e.preventDefault();
@@ -93,13 +149,27 @@ export default function Wizard({ onOpenSettings }: Props) {
 
   const chosen = (accounts ?? []).filter((a) => selected.includes(a.sid));
 
-  const finish = async () => {
-    const problems: Record<number, string> = {};
+  const limitsValid = (): boolean => {
+    const problems: Record<string, string> = {};
     for (const a of chosen) {
       Object.assign(problems, validateLimits(limits[a.sid] ?? []));
     }
     setLimitErrors(problems);
-    if (Object.keys(problems).length > 0) {
+    return Object.keys(problems).length === 0;
+  };
+
+  const goStep4 = () => {
+    if (!limitsValid()) {
+      return;
+    }
+    setFormError("");
+    setStep(4);
+  };
+
+  /** «Готово» отправляет изменённые отметки программ, «Настрою позже» - без программ (FR-2). */
+  const finish = async (withPrograms: boolean) => {
+    if (!limitsValid()) {
+      setStep(3);
       return;
     }
     setBusy(true);
@@ -108,12 +178,13 @@ export default function Wizard({ onOpenSettings }: Props) {
       await setup(
         password,
         chosen.map((a) => ({ sid: a.sid, name: a.name, limits: wireLimits(limits[a.sid] ?? templateLimits()) })),
+        withPrograms ? changedPrograms(scan ?? [], choices) : undefined,
       );
       setStep("done");
     } catch (e) {
       const field = e instanceof CallError ? (e.field ?? "") : "";
       const text = errorText(e);
-      const day = /^limits\.(\d)$/.exec(field);
+      const day = limitErrorKey(field);
       if (field === "password") {
         setPwErrors({ password: text });
         setStep(1);
@@ -121,7 +192,8 @@ export default function Wizard({ onOpenSettings }: Props) {
         setChildrenError(text);
         setStep(2);
       } else if (day) {
-        setLimitErrors({ [Number(day[1])]: text });
+        setLimitErrors({ [day]: text });
+        setStep(3);
       } else {
         setFormError(text);
       }
@@ -146,12 +218,12 @@ export default function Wizard({ onOpenSettings }: Props) {
     );
   }
 
-  const percent = step === 1 ? 33 : step === 2 ? 66 : 100;
-  const titles = { 1: "Пароль родителя", 2: "Кто дети", 3: "Время" } as const;
+  const percent = Math.round((step / STEPS) * 100);
+  const titles = { 1: "Пароль родителя", 2: "Кто дети", 3: "Время", 4: "Программы" } as const;
 
   return (
     <section className="panel wizard" aria-label="Первоначальная настройка">
-      <p className="wizard-progress" aria-live="polite">{`Шаг ${step} из 3`}</p>
+      <p className="wizard-progress" aria-live="polite">{`Шаг ${step} из ${STEPS}`}</p>
       <div className="wizard-bar" aria-hidden="true">
         <span style={{ width: `${percent}%` }} />
       </div>
@@ -280,13 +352,117 @@ export default function Wizard({ onOpenSettings }: Props) {
             <button type="button" className="btn" onClick={() => setStep(2)} disabled={busy}>
               Назад
             </button>
-            <button type="button" className="btn btn-primary" onClick={() => void finish()} disabled={busy}>
+            <button type="button" className="btn btn-primary" onClick={goStep4} disabled={busy}>
+              Далее
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      {step === 4 ? (
+        <div>
+          <p className="panel-text">Отметьте, какие программы игровые, а какие нужны для учёбы. {PROGRAMS_NOTE}.</p>
+          {formError ? (
+            <Notice tone="warn" urgent>
+              {formError}
+            </Notice>
+          ) : null}
+          {scanError ? (
+            <div className="wizard-scan-error">
+              <Notice tone="warn" urgent>
+                {scanError}
+              </Notice>
+              <button type="button" className="btn" onClick={() => void loadPrograms()} disabled={busy}>
+                Повторить
+              </button>
+            </div>
+          ) : scan === null ? (
+            <p className="panel-text wizard-scanning" role="status">
+              <span className="wizard-spinner" aria-hidden="true" />
+              {SCANNING}
+            </p>
+          ) : scan.length === 0 ? (
+            <p className="panel-text">{SCAN_EMPTY}</p>
+          ) : (
+            <ScanList
+              programs={scan}
+              choices={choices}
+              disabled={busy}
+              onChoose={(path, category) => setChoices((prev) => ({ ...prev, [path]: category }))}
+            />
+          )}
+          <div className="form-actions">
+            <button type="button" className="btn" onClick={() => setStep(3)} disabled={busy}>
+              Назад
+            </button>
+            <button type="button" className="btn" onClick={() => void finish(false)} disabled={busy}>
+              Настрою позже
+            </button>
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={() => void finish(true)}
+              disabled={busy}
+            >
               Готово
             </button>
           </div>
         </div>
       ) : null}
     </section>
+  );
+}
+
+interface ScanListProps {
+  programs: ScanProgramDTO[];
+  choices: Record<string, WizardCategory>;
+  disabled: boolean;
+  onChoose: (path: string, category: WizardCategory) => void;
+}
+
+/** Найденные программы: название, издатель и выбор «Игра», «Учёба», «Прочее» (FR-2). */
+function ScanList({ programs, choices, disabled, onChoose }: ScanListProps) {
+  return (
+    <div className="wizard-programs">
+      <table className="programs-table wizard-programs-table">
+        <caption className="visually-hidden">Программы на этом компьютере</caption>
+        <thead>
+          <tr>
+            <th scope="col">Программа</th>
+            <th scope="col" className="col-category">
+              Что это
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {programs.map((p) => (
+            <tr key={p.path}>
+              <td>
+                <div className="program-name">{p.name}</div>
+                <div className="program-meta" title={p.path}>
+                  {p.publisher.trim() || "Без подписи издателя"}
+                </div>
+              </td>
+              <td className="col-category">
+                <select
+                  className="field-input"
+                  aria-label={`Что это: ${p.name}`}
+                  value={choices[p.path] ?? suggestedChoice(p)}
+                  disabled={disabled}
+                  onChange={(e) => onChoose(p.path, e.target.value as WizardCategory)}
+                >
+                  {WIZARD_CATEGORIES.map((o) => (
+                    <option key={o.category} value={o.category}>
+                      {o.label}
+                    </option>
+                  ))}
+                </select>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 

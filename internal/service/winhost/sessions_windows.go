@@ -107,14 +107,11 @@ func (l launcher) Stamp(pid uint32) (uint64, bool) {
 		return 0, false
 	}
 	defer windows.CloseHandle(h)
-	var created, exited, kernel, user windows.Filetime
-	if err := windows.GetProcessTimes(h, &created, &exited, &kernel, &user); err != nil {
+	stamp, exited, err := processCreated(h)
+	if err != nil || exited {
 		return 0, false
 	}
-	if exited.HighDateTime != 0 || exited.LowDateTime != 0 {
-		return 0, false
-	}
-	return uint64(created.HighDateTime)<<32 | uint64(created.LowDateTime), true
+	return stamp, true
 }
 
 // KillStale завершает процесс, оставшийся от прошлого запуска службы, если это тот же

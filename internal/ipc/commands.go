@@ -1,7 +1,5 @@
 package ipc
 
-import "encoding/json"
-
 // Имена команд M1. Права на каждую команду проверяет служба по Peer и родительской сессии
 // (таблица в internal/service); канал только доставляет вызов.
 const (
@@ -34,11 +32,6 @@ const (
 	CmdChangePassword = "ChangePassword"
 	CmdSetChildren    = "SetChildren"
 	CmdParentStats    = "ParentStats" // статистика выбранного ребёнка за сегодня для родителя (FR-23, D-44)
-
-	// Состояние Помощника: профиль родителя (из родительской сессии) или ребёнка
-	// (из его сеанса); какой именно, решает служба по тому, кто спрашивает.
-	CmdGetHelperState  = "GetHelperState"
-	CmdSaveHelperState = "SaveHelperState"
 
 	// Диагностика: подробные логи (FR-25, D-42).
 	CmdGetDiag  = "GetDiag"  // прочитать, включены ли подробные логи
@@ -98,7 +91,7 @@ var AllCommands = []string{
 	CmdListAccounts, CmdSetup, CmdResetPassword, CmdUninstallCheck,
 	CmdLogin, CmdExtendSession, CmdLogout, CmdSessionState, CmdGetToday, CmdGetChildRules,
 	CmdSaveLimits, CmdAddExtra, CmdReduceExtra, CmdClearExtra, CmdUndoExtra, CmdClearBlock, CmdListEvents, CmdChangePassword,
-	CmdSetChildren, CmdParentStats, CmdGetHelperState, CmdSaveHelperState, CmdGetDiag, CmdSetDiag, CmdOpenLogs,
+	CmdSetChildren, CmdParentStats, CmdGetDiag, CmdSetDiag, CmdOpenLogs,
 	CmdSetNoForbidden, CmdClearBonus, CmdReduceBonus, CmdCreatePromo, CmdListPromos, CmdGetBonusRate, CmdSetBonusRate,
 	CmdGetSchedule, CmdSaveSchedule, CmdPause, CmdPauseAll,
 	CmdGrantBonus, CmdUndoBonus, CmdGetBonus, CmdCopyRules,
@@ -106,6 +99,7 @@ var AllCommands = []string{
 	CmdGuardPoll, CmdGuardLogoff, CmdGuardShutdown, CmdGuardSwitchUser, CmdGuardClosing,
 	CmdTrayClosing,
 	CmdTestGuard, CmdTestClock, CmdTestSession, CmdGuardState,
+	CmdListPrograms, CmdDecideProgram, CmdSetProgramsCategory, CmdUndoProgram, CmdScanPrograms, // M3 (commands_m3.go)
 }
 
 // Имена полей, к которым служба привязывает ошибку (Reply.Field, L-121).
@@ -116,14 +110,25 @@ const (
 	FieldChildren    = "children"
 	FieldMinutes     = "minutes"
 	FieldState       = "state"
-	FieldReason      = "reason" // причина начисления копилки (FR-22)
-	FieldStart       = "start"  // начало запретного интервала (R7)
-	FieldEnd         = "end"    // конец запретного интервала (R7)
-	FieldCode        = "code"   // промокод (R26, D-50)
+	FieldReason      = "reason"  // причина начисления копилки (FR-22)
+	FieldStart       = "start"   // начало запретного интервала (R7)
+	FieldEnd         = "end"     // конец запретного интервала (R7)
+	FieldCode        = "code"    // промокод (R26, D-50)
+	FieldEndMode     = "endMode" // режим «Когда время вышло» (R8, FR-18)
 )
 
 // LimitField — имя поля лимита дня недели (1 = пн … 7 = вс) для ошибок SaveLimits и Setup.
 func LimitField(weekday int) string { return "limits." + itoa(weekday) }
+
+// GamesField — имя поля лимита игр дня недели (1 = пн … 7 = вс) для ошибок SaveLimits и Setup (R5, FR-16).
+func GamesField(weekday int) string { return "games." + itoa(weekday) }
+
+// Режимы «Когда время вышло» (R8, D-9) в ChildRules.EndMode, SaveLimitsRequest.EndMode и
+// ChildStatus.EndMode: те же ключи, что core.EndMode.String и children.end_mode.
+const (
+	EndModeLock      = "lock"       // экран блокировки
+	EndModeStudyOnly = "study_only" // оставить только учёбу
+)
 
 // Empty — нагрузка команд без данных; уходит как «{}».
 type Empty struct{}
@@ -155,6 +160,9 @@ const (
 // токен сессии идёт в Msg.Token: служба передаёт сессию окну.
 type OpenWindowRequest struct {
 	Kind string `json:"kind"` // WindowParent, WindowMyStats или WindowFirstRun
+	// Screen — экран окна родителя, на котором оно откроется (RM3-4): ScreenPrograms; «» — главный.
+	// Другое значение — отказ TextBadRequest.
+	Screen string `json:"screen,omitempty"`
 }
 
 // OpenWindowReply — ответ OpenWindow.
@@ -215,6 +223,14 @@ type ChildStatus struct {
 	Used          string `json:"used"`          // «Сегодня: 2 ч 00 мин из 2 ч»
 	BonusBalance  int    `json:"bonusBalance"`  // баланс копилки, мин (M2, для мини-панели ребёнка)
 	ForbiddenNote string `json:"forbiddenNote"` // «Сегодня нельзя с 21:00 до 07:00»; «» — нет ближайшего интервала
+
+	// Игры и режим окончания (M3: R5, R8) — из того же core.Decision.
+	GamesRemainingS int    `json:"gamesRemainingS"` // остаток игр, с; 0 без лимита игр
+	GamesLimitS     int    `json:"gamesLimitS"`     // лимит игр дня с доп. временем, с; 0 без лимита игр
+	GamesUnlimited  bool   `json:"gamesUnlimited"`  // отдельного лимита игр нет (или правила не прочитаны)
+	EndMode         string `json:"endMode"`         // EndModeLock или EndModeStudyOnly (правило ребёнка, R8)
+	CloseGames      bool   `json:"closeGames"`      // игры закрыты: лимит игр исчерпан или экран блокировки
+	StudyOnly       bool   `json:"studyOnly"`       // действует «только учёба»: экрана нет, открыта только учёба
 }
 
 // --- Мастер и администратор --------------------------------------------------
@@ -236,10 +252,15 @@ type ListAccountsReply struct {
 
 // WeekdayLimit — лимит одного дня недели. Weekday 1 = пн … 7 = вс; 0 минут — в этот день
 // пользоваться нельзя (R4); Unlimited — без лимита (тогда TotalMin = 0 и не читается).
+// GamesMin — лимит игр (R5, FR-16): 0 — игры в этот день нельзя; GamesUnlimited — игры без
+// отдельного лимита (ограничены только общим, тогда GamesMin = 0 и не читается). Лимит игр может
+// быть больше общего: тогда раньше кончится общий.
 type WeekdayLimit struct {
-	Weekday   int  `json:"weekday"`
-	TotalMin  int  `json:"totalMin"`
-	Unlimited bool `json:"unlimited"`
+	Weekday        int  `json:"weekday"`
+	TotalMin       int  `json:"totalMin"`
+	Unlimited      bool `json:"unlimited"`
+	GamesMin       int  `json:"gamesMin"`
+	GamesUnlimited bool `json:"gamesUnlimited"`
 }
 
 // SetupChild — ребёнок при первоначальной настройке.
@@ -254,6 +275,9 @@ type SetupChild struct {
 type SetupRequest struct {
 	Password string       `json:"password"`
 	Children []SetupChild `json:"children"`
+	// Programs — категории программ компьютера, выбранные на шаге «Программы» (FR-2, ScanPrograms);
+	// пусто — снимок службы с категориями по умолчанию (RM3-10).
+	Programs []SetupProgram `json:"programs,omitempty"`
 }
 
 // ResetPasswordRequest — сброс пароля (только повышенный администратор, R20).
@@ -311,6 +335,8 @@ type TodayCard struct {
 	BonusBalance     int         `json:"bonusBalance"`     // баланс копилки, мин (M2)
 	CanClearBlock    bool        `json:"canClearBlock"`    // есть блокировка за обход, кнопка «Снять блокировку»
 	NoForbiddenToday bool        `json:"noForbiddenToday"` // запретные часы сняты на сегодня (R24, D-51): показать «Вернуть»
+	GamesText        string      `json:"gamesText"`        // «Игры 40 мин из 1 ч» (8.3.2 п.3); «» — отдельного лимита игр нет
+	PendingPrograms  int         `json:"pendingPrograms"`  // сколько программ ждут решения: ссылка «Ждут решения: N» (8.3.2 п.5)
 }
 
 // GetTodayReply — ответ GetToday. Notices — важные сообщения при входе, например
@@ -325,17 +351,21 @@ type ChildRequest struct {
 	ChildID int64 `json:"childId"`
 }
 
-// ChildRules — недельные лимиты ребёнка.
+// ChildRules — недельные лимиты ребёнка и режим «Когда время вышло».
 type ChildRules struct {
 	ChildID int64          `json:"childId"`
 	Name    string         `json:"name"`
-	Limits  []WeekdayLimit `json:"limits"` // семь дней, пн … вс
+	Limits  []WeekdayLimit `json:"limits"`  // семь дней, пн … вс
+	EndMode string         `json:"endMode"` // EndModeLock или EndModeStudyOnly (R8, FR-18)
 }
 
-// SaveLimitsRequest — сохранить недельные лимиты одного ребёнка. Ошибки по полям: LimitField(n).
+// SaveLimitsRequest — сохранить недельные лимиты одного ребёнка и (необязательно) режим «Когда
+// время вышло». EndMode пусто — режим не меняется; Limits пусто при непустом EndMode — меняется
+// только режим. Ошибки по полям: LimitField(n), GamesField(n), FieldEndMode.
 type SaveLimitsRequest struct {
 	ChildID int64          `json:"childId"`
 	Limits  []WeekdayLimit `json:"limits"`
+	EndMode string         `json:"endMode,omitempty"`
 }
 
 // SaveLimitsReply — ответ SaveLimits: правила уже действуют (FR-19).
@@ -471,30 +501,14 @@ type SetChildrenReply struct {
 	Children []ChildInfo `json:"children"`
 }
 
-// HelperState — состояние Помощника профиля (ТЗ 8.4 п.7). Содержимое определяет каталог
-// Помощника (internal/guidance), канал его не разбирает; пустое состояние — «{}».
-type HelperState struct {
-	State json.RawMessage `json:"state"`
-}
-
-// MarshalJSON не пускает в ответ null вместо объекта.
-func (h HelperState) MarshalJSON() ([]byte, error) {
-	state := h.State
-	if len(state) == 0 {
-		state = json.RawMessage(`{}`)
-	}
-	return json.Marshal(struct {
-		State json.RawMessage `json:"state"`
-	}{state})
-}
-
 // --- Ребёнок о себе -----------------------------------------------------------------
 
-// MyRule — строка «Моих правил»: день недели и лимит текстом.
+// MyRule — строка «Моих правил»: день недели и лимит текстом. Строки после семи дней — общие
+// правила (Weekday 0, Day пусто): лимит игр «Игры: до 1 ч в день» и «Когда время вышло: …» (R21).
 type MyRule struct {
-	Weekday int    `json:"weekday"` // 1 = пн … 7 = вс
-	Day     string `json:"day"`     // «пн»
-	Text    string `json:"text"`    // «2 ч», «Без лимита», «Нельзя»
+	Weekday int    `json:"weekday"` // 1 = пн … 7 = вс; 0 — правило не про день
+	Day     string `json:"day"`     // «пн»; «» у общих правил
+	Text    string `json:"text"`    // «2 ч», «Без лимита», «Нельзя», «Игры: до 1 ч в день»
 }
 
 // MyTodayReply — ответ MyToday: «Сегодня» и «Мои правила» текстом, только чтение.
@@ -502,6 +516,9 @@ type MyTodayReply struct {
 	Status ChildStatus `json:"status"`
 	Today  []string    `json:"today"` // строки «Сегодня»
 	Rules  []MyRule    `json:"rules"`
+	// GamesS, StudyS — игры и учёба за сегодня, с (итоги «Моей статистики», S13); счётчики ядра.
+	GamesS int `json:"gamesS"`
+	StudyS int `json:"studyS"`
 }
 
 // --- Страж --------------------------------------------------------------------------
@@ -523,6 +540,9 @@ type SensorSample struct {
 	LastInputAgoMs int64  `json:"lastInputAgoMs"`
 	Fullscreen     bool   `json:"fullscreen"`
 	Foreground     string `json:"foreground"` // CatName*
+	// ForegroundPath — путь exe программы на переднем плане (R3, M3); «» — не определён. Длиннее
+	// MaxForegroundPathLen символов служба отбрасывает.
+	ForegroundPath string `json:"foregroundPath"`
 }
 
 // Виды событий стража в GuardPollRequest.Events.
@@ -575,6 +595,7 @@ const (
 	WarnEventLimit     = "limit"
 	WarnEventForbidden = "forbidden"
 	WarnEventPause     = "pause"
+	WarnEventGames     = "games" // исчерпание лимита игр (R5): остаток игр службы, как у лимита
 )
 
 // Виды команд стражу в GuardPollReply.Commands.
@@ -582,6 +603,7 @@ const (
 	GuardCmdHideLock = "hideLock" // спрятать экран блокировки: открыта родительская сессия (Ruling 19)
 	GuardCmdNotice   = "notice"   // показать короткое сообщение (Text), например «Добавлено 30 минут»
 	GuardCmdTest     = "test"     // действие TestGuard, только в тестовом режиме (Ruling 5)
+	// GuardCmdBlocked = "blocked" (commands_m3.go): плашка о закрытой программе (Plate, FR-13).
 )
 
 // Действия TestGuard (Ruling 5): страж выполняет их через настоящие сообщения своих окон.
@@ -594,6 +616,10 @@ const (
 	// TestEndSession: страж проходит тот же путь, что при конце сеанса Windows (WM_ENDSESSION):
 	// сообщает службе GuardClosing и завершается. Приёмка проверяет, что это не обход (FB-1).
 	TestEndSession = "endSession"
+	// TestForeground: страж подменяет SensorSample.ForegroundPath путём Text во всех следующих
+	// снимках, пока не придёт новое действие foreground (M3, приёмка S12…S15); пустой Text
+	// возвращает настоящее чтение переднего плана.
+	TestForeground = "foreground"
 )
 
 // TestGuardAction — одно действие стражу.
@@ -608,6 +634,8 @@ type GuardCommand struct {
 	Kind string           `json:"kind"` // GuardCmd*
 	Text string           `json:"text,omitempty"`
 	Test *TestGuardAction `json:"test,omitempty"`
+	// Plate — плашка о закрытой программе для GuardCmdBlocked (FR-13, M3).
+	Plate *BlockedPlate `json:"plate,omitempty"`
 }
 
 // GuardPollReply — ответ GuardPoll: решение для экрана, новые предупреждения, команды стражу.
@@ -692,13 +720,26 @@ type GuardStateReply struct {
 	LockShown bool           `json:"lockShown"` // экран блокировки показан
 	LockKind  string         `json:"lockKind"`  // Lock*
 	Plate     string         `json:"plate"`     // текст видимой плашки или табло предупреждения; пусто — плашки нет
+	PlateKind string         `json:"plateKind"` // вид видимой плашки: Plate* или Blocked*; пусто — плашки нет
 	Buttons   []string       `json:"buttons"`   // видимые кнопки (Button*)
 	Fields    []GuardField   `json:"fields"`    // поля ввода и их текст
 	// Exits — выходы, о которых страж просил службу в тестовом режиме (Exit*), по порядку.
 	// В тестовом режиме служба их не выполняет, а записывает: раннер CI нельзя выключить или
 	// отключить. Заполняет служба при чтении; то, что прислал страж, отбрасывается.
 	Exits []string `json:"exits"`
+	// ForegroundPath — путь переднего плана, который страж отправил службе последним снимком
+	// (M3; подмена TestForeground тоже видна здесь); «» — не определён.
+	ForegroundPath string `json:"foregroundPath"`
 }
+
+// Виды плашек стража для GuardStateReply.PlateKind, кроме плашек о закрытых программах (их вид —
+// BlockedPlate.Kind).
+const (
+	PlateBoard     = "board"     // табло за 30, 15 и 5 мин
+	PlateOneMinute = "oneMinute" // плашка 1 мин с отсчётом
+	PlateAdded     = "added"     // «Добавлено N минут»
+	PlateNotice    = "notice"    // короткое сообщение стража (команда службе не прошла)
+)
 
 // Выходы с экрана блокировки для GuardStateReply.Exits (тестовый режим).
 const (

@@ -5,6 +5,11 @@ describe("журнал", () => {
   // Ловит: «Нарушения сегодня» считает доп. время или снятие блокировки нарушением.
   it("нарушение - попытка обойти защиту", () => {
     expect(isViolation("bypass")).toBe(true);
+    expect(isViolation("program_forbidden_try")).toBe(true);
+    expect(isViolation("program_closed_games")).toBe(false);
+    expect(isViolation("program_closed_study_only")).toBe(false);
+    expect(isViolation("program_pending")).toBe(false);
+    expect(isViolation("program_decided")).toBe(false);
     expect(isViolation("extra_time")).toBe(false);
     expect(isViolation("block_cleared")).toBe(false);
     expect(isViolation("")).toBe(false);

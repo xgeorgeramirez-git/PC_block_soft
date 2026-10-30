@@ -39,6 +39,16 @@ describe("ParentStats", () => {
     expect(screen.queryByRole("spinbutton")).toBeNull();
   });
 
+  // Ловит: родитель видит у игр и учёбы заглушку, а не время за сегодня (S13).
+  it("итоги игр и учёбы за сегодня", async () => {
+    mock = installBackend({ sessionActive: true, children: [mockChild({ gamesUsedS: 1200, studyUsedS: 2400 })] });
+    render(<ParentStats />);
+    const box = await screen.findByRole("region", { name: "Итоги" });
+    const value = (label: string) => within(box).getByText(label).closest("div")?.querySelector("dd")?.textContent;
+    expect(value("Игры")).toBe("20 мин");
+    expect(value("Учёба")).toBe("40 мин");
+  });
+
   it("переключение ребёнка перезапрашивает его статистику", async () => {
     const user = setup(1);
     await screen.findByText("Только просмотр");

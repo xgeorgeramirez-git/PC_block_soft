@@ -60,6 +60,17 @@ export interface ChildStatus {
   used: string;
   bonusBalance: number;
   forbiddenNote: string;
+  /** Остаток игр, с (R5); 0 без лимита игр. */
+  gamesRemainingS: number;
+  /** Лимит игр дня с доп. временем, с; 0 без лимита игр. */
+  gamesLimitS: number;
+  gamesUnlimited: boolean;
+  /** Правило ребёнка «Когда время вышло» (R8). */
+  endMode: EndMode;
+  /** Игры закрыты: лимит игр исчерпан или экран блокировки. */
+  closeGames: boolean;
+  /** Действует «Оставить только учёбу»: экрана блокировки нет, открыта только учёба. */
+  studyOnly: boolean;
 }
 
 export interface Account {
@@ -75,12 +86,21 @@ export interface ListAccountsReply {
   accounts: Account[];
 }
 
-/** Лимит дня недели: 1 = пн … 7 = вс; 0 минут - нельзя; unlimited - без лимита. */
+/**
+ * Лимит дня недели: 1 = пн … 7 = вс; 0 минут - нельзя; unlimited - без лимита. gamesMin - лимит
+ * игр (R5): 0 - игры нельзя; gamesUnlimited - игры без отдельного лимита. Поля игр необязательны,
+ * пока экраны лимитов их не показывают: обёртки saveLimits и setup подставляют «без отдельного лимита».
+ */
 export interface WeekdayLimit {
   weekday: number;
   totalMin: number;
   unlimited: boolean;
+  gamesMin?: number;
+  gamesUnlimited?: boolean;
 }
+
+/** «Когда время вышло» (R8, FR-18): экран блокировки или «Оставить только учёбу». */
+export type EndMode = "lock" | "study_only";
 
 export interface SetupChild {
   sid: string;
@@ -91,6 +111,8 @@ export interface SetupChild {
 export interface SetupRequest {
   password: string;
   children: SetupChild[];
+  /** Категории с шага «Программы» (FR-2); нет - категории по умолчанию. */
+  programs?: SetupProgram[];
 }
 
 export interface ResetPasswordRequest {
@@ -137,6 +159,10 @@ export interface TodayCard {
   bonusBalance: number;
   canClearBlock: boolean;
   noForbiddenToday: boolean;
+  /** «Игры 40 мин из 1 ч» (8.3.2 п.3); "" - отдельного лимита игр нет. */
+  gamesText: string;
+  /** Сколько программ ждут решения: ссылка «Ждут решения: N» (8.3.2 п.5). */
+  pendingPrograms: number;
 }
 
 // Фидбек-раунд 0.2.2.
@@ -206,11 +232,14 @@ export interface ChildRules {
   childId: number;
   name: string;
   limits: WeekdayLimit[];
+  endMode: EndMode;
 }
 
+/** endMode пусто - режим не меняется; limits пусто при endMode - меняется только режим. */
 export interface SaveLimitsRequest {
   childId: number;
   limits: WeekdayLimit[];
+  endMode?: EndMode;
 }
 
 export interface SaveLimitsReply {
@@ -299,18 +328,16 @@ export interface SetChildrenReply {
   children: ChildInfo[];
 }
 
-/** Состояние Помощника: содержимое определяет каталог Помощника (T14), окно его не разбирает. */
-export interface HelperState {
-  state: Record<string, unknown>;
-}
-
-/** Строка «Моих правил»: день недели и лимит текстом (internal/ipc.MyRule). */
+/**
+ * Строка «Моих правил»: день недели и лимит текстом (internal/ipc.MyRule). После семи дней -
+ * общие правила с weekday 0 и пустым day: «Игры: до 1 ч в день», «Когда время вышло: …» (R21).
+ */
 export interface MyRule {
-  /** 1 = пн … 7 = вс. */
+  /** 1 = пн … 7 = вс; 0 - правило не про день. */
   weekday: number;
-  /** «пн». */
+  /** «пн»; "" у общих правил. */
   day: string;
-  /** «2 ч», «Без лимита», «Нельзя». */
+  /** «2 ч», «Без лимита», «Нельзя», «Игры: до 1 ч в день». */
   text: string;
 }
 
@@ -320,6 +347,9 @@ export interface MyTodayReply {
   /** Строки «Сегодня». */
   today: string[];
   rules: MyRule[];
+  /** Игры и учёба за сегодня, с (итоги, S13); счётчики ядра. */
+  gamesS: number;
+  studyS: number;
 }
 
 // --- M2: расписание, пауза, копилка ---------------------------------------
@@ -424,6 +454,7 @@ export interface CopyRulesRequest {
 export interface CopyRulesReply {
   limits: WeekdayLimit[];
   intervals: Interval[];
+  endMode: EndMode;
   message: string;
 }
 
@@ -447,4 +478,93 @@ export interface SpendBonusReply {
   card: TodayCard;
   message: string;
   balanceAfter: number;
+}
+
+// --- M3: программы (FR-20, FR-2) -------------------------------------------
+
+/** Категория программы; «system» родителю как выбор не показывается. */
+export type ProgramCategory = "games" | "study" | "other" | "blocked" | "system";
+export type ProgramSource = "catalog" | "snapshot" | "parent";
+
+/** Экран окна родителя для OpenWindow (RM3-4). */
+export type WindowScreen = "programs";
+
+export interface ChildName {
+  childId: number;
+  name: string;
+}
+
+export interface PendingChildDTO {
+  childId: number;
+  name: string;
+  attempts: number;
+}
+
+/** Строка «Ждут решения»: «SuperGame - Загрузки - 3 попытки - вчера 18:40». */
+export interface PendingProgramDTO {
+  path: string;
+  name: string;
+  publisher: string;
+  description: string;
+  attempts: number;
+  /** Последняя попытка, UTC мс. */
+  lastAttemptAt: number;
+  /** «раньше: Игра» при смене файла; "" - нет. */
+  wasCategory: string;
+  byChild: PendingChildDTO[];
+}
+
+export interface ProgramDTO {
+  path: string;
+  name: string;
+  publisher: string;
+  category: ProgramCategory;
+  source: ProgramSource;
+  /** Время всех детей за 7 дней, с. */
+  weekS: number;
+}
+
+export interface ProgramsReply {
+  pending: PendingProgramDTO[];
+  programs: ProgramDTO[];
+  children: ChildName[];
+}
+
+export interface DecideProgramRequest {
+  path: string;
+  category: ProgramCategory;
+}
+
+export interface SetProgramsCategoryRequest {
+  paths: string[];
+  category: ProgramCategory;
+}
+
+export interface DecideProgramReply {
+  message: string;
+  undoId: string;
+  undoUntilMs: number;
+  programs: ProgramsReply;
+}
+
+export interface UndoProgramReply {
+  message: string;
+  programs: ProgramsReply;
+}
+
+export interface ScanProgramDTO {
+  path: string;
+  name: string;
+  publisher: string;
+  suggestedCategory: ProgramCategory;
+}
+
+export interface ScanProgramsReply {
+  programs: ScanProgramDTO[];
+}
+
+/** Категория программы, выбранная в мастере (SetupRequest.programs). */
+export interface SetupProgram {
+  path: string;
+  category: ProgramCategory;
 }

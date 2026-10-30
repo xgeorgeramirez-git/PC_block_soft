@@ -2,12 +2,14 @@ import { describe, expect, it } from "vitest";
 import {
   ASK_PRESETS,
   askMinutes,
+  categoryTotals,
   firstRunLines,
   spendBlockedNote,
   spendChoices,
   spendConfirmText,
   summaryLines,
   todayRows,
+  splitRules,
   todayRuleWeekday,
 } from "./mytoday";
 import type { ChildStatus, MyTodayReply } from "../types";
@@ -35,12 +37,18 @@ function status(over: Partial<ChildStatus> = {}): ChildStatus {
     bonusBalance: 0,
     forbiddenNote: "",
     used: "Сегодня: 35 мин из 2 ч",
+    gamesRemainingS: 0,
+    gamesLimitS: 0,
+    gamesUnlimited: true,
+    endMode: "lock",
+    closeGames: false,
+    studyOnly: false,
     ...over,
   };
 }
 
 function reply(over: Partial<ChildStatus> = {}, today: string[] = []): MyTodayReply {
-  return { status: status(over), today, rules: [] };
+  return { status: status(over), today, rules: [], gamesS: 0, studyS: 0 };
 }
 
 describe("firstRunLines: пересказ правил на сегодня", () => {
@@ -122,7 +130,7 @@ describe("todayRows: остаток, лимиты, запретные часы, 
   it("обычный день", () => {
     expect(rows({ bonusBalance: 45, forbiddenNote: "Сегодня нельзя с 21:00 до 07:00" })).toEqual({
       "Осталось всего": "1 ч 25 мин",
-      "Игры": "Пока не считается",
+      "Игры": "Без отдельного лимита",
       "Видео и соцсети": "Пока не считается",
       "Лимит дня": "2 ч",
       "Запретные часы": "Сегодня нельзя с 21:00 до 07:00",
@@ -155,6 +163,24 @@ describe("todayRows: остаток, лимиты, запретные часы, 
       expect(r["Осталось всего"], st).toBe("Ограничения не действуют");
       expect(r["Лимит дня"], st).toBe("Не действует");
     }
+  });
+
+  // R5, Review Focus 5: остаток игр тот же, что в подсказке значка «Игры: 20 мин» (вверх до минуты).
+  it("игры с лимитом: остаток из ответа службы и лимит игр дня", () => {
+    const g = { gamesUnlimited: false, gamesLimitS: 3600, gamesRemainingS: 1200 };
+    expect(rows(g)["Игры"]).toBe("Осталось 20 мин из 1 ч");
+    expect(rows({ ...g, gamesRemainingS: 1141 })["Игры"]).toBe("Осталось 20 мин из 1 ч");
+    expect(rows({ ...g, gamesRemainingS: 0, closeGames: true })["Игры"]).toBe("Осталось 0 мин из 1 ч");
+    // Доп. время уже в лимите игр.
+    expect(rows({ ...g, gamesLimitS: 5400 })["Игры"]).toBe("Осталось 20 мин из 1 ч 30 мин");
+  });
+
+  it("игры: 0 минут в лимите - «Сегодня нельзя»; время вышло или только учёба - 0", () => {
+    expect(rows({ gamesUnlimited: false, gamesLimitS: 0, gamesRemainingS: 0 })["Игры"]).toBe("Сегодня нельзя");
+    const g = { gamesUnlimited: false, gamesLimitS: 3600, gamesRemainingS: 1200 };
+    expect(rows({ ...g, status: "timeUp", lock: "timeUp" })["Игры"]).toBe("Осталось 0 мин из 1 ч");
+    expect(rows({ ...g, studyOnly: true })["Игры"]).toBe("Осталось 0 мин из 1 ч");
+    expect(rows({ ...g, status: "admin" })["Игры"]).toBe("Не действует");
   });
 
   it("запретные часы сейчас: остаток не показывается как «0 мин»", () => {
@@ -210,5 +236,33 @@ describe("«Попросить ещё» (FR-10)", () => {
     expect(askMinutes(" 45 ")).toBe(45);
     expect(askMinutes("240")).toBe(240);
     for (const bad of ["", "0", "241", "-5", "1.5", "abc", "12a"]) expect(askMinutes(bad), bad).toBeNull();
+  });
+});
+
+describe("splitRules: «Мои правила» (R21)", () => {
+  it("дни недели в таблицу, общие правила строками по порядку", () => {
+    const got = splitRules([
+      { weekday: 1, day: "пн", text: "2 ч" },
+      { weekday: 7, day: "вс", text: "Без лимита" },
+      { weekday: 0, day: "", text: "Игры: до 1 ч в день" },
+      { weekday: 0, day: "", text: "Когда время вышло: остаётся только учёба" },
+    ]);
+    expect(got.days.map((d) => d.weekday)).toEqual([1, 7]);
+    expect(got.general).toEqual(["Игры: до 1 ч в день", "Когда время вышло: остаётся только учёба"]);
+  });
+});
+
+describe("categoryTotals: «Итоги» по категориям", () => {
+  it("игры и учёба за сегодня как общее время, видео и соцсети пока не считаются", () => {
+    const r = { ...reply(), gamesS: 2 * 3600 + 5 * 60, studyS: 40 * 60 };
+    expect(categoryTotals(r)).toEqual([
+      { label: "Игры", value: "2 ч 05 мин" },
+      { label: "Видео и соцсети", value: "Пока не считается" },
+      { label: "Учёба", value: "40 мин" },
+    ]);
+  });
+
+  it("ничего не было: «0 мин»", () => {
+    expect(categoryTotals({ ...reply(), gamesS: 0, studyS: 0 }).map((r) => r.value)).toEqual(["0 мин", "Пока не считается", "0 мин"]);
   });
 });

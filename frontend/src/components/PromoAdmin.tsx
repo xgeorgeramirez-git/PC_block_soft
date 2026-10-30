@@ -3,7 +3,6 @@ import { createPromo, listPromos } from "../api";
 import { clampDigits } from "../lib/numinput";
 import { CallError, errorText } from "../lib/errors";
 import { formatEventTime, localOffsetMin } from "../lib/format";
-import HintSlot from "../guidance/HintSlot";
 import type { PromoView } from "../types";
 import Notice from "./Notice";
 
@@ -75,13 +74,12 @@ export default function PromoAdmin() {
   const when = (ms: number) => formatEventTime(ms, localOffsetMin(new Date(ms)));
 
   return (
-    <section className="panel promo-admin" aria-label="Промокоды" data-help-anchor="promo-create">
+    <section className="panel promo-admin" aria-label="Промокоды">
       <h3 className="section-title">Промокоды</h3>
       <p className="panel-text">
         Придумайте код из букв и цифр и назначьте минуты. Ребёнок введёт код на экране блокировки или в разделе
         «Бонусы», и время сразу добавится к сегодняшнему дню. Каждый код действует один раз.
       </p>
-      <HintSlot anchor="promo-create" />
       <div className="promo-form">
         <label className="field">
           <span className="field-label">Код</span>

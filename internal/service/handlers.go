@@ -1,7 +1,6 @@
 package service
 
 import (
-	"encoding/json"
 	"path/filepath"
 	"strings"
 	"time"
@@ -13,9 +12,6 @@ import (
 
 // Обработчики команд. Права уже проверены в Handle (commands.go): здесь разбор запроса и
 // действие. Блокировка s.mu снята с вызывающего, обработчик её держит.
-
-// maxHelperState — предел размера состояния Помощника: канал и база не для картинок.
-const maxHelperState = 64 << 10
 
 func bad() ipc.Reply { return ipc.Fail(ipc.TextBadRequest) }
 
@@ -67,17 +63,17 @@ func (s *Service) hOpenWindow(c *callCtx) ipc.Reply {
 	if _, ok := windowFlag(req.Kind); !ok {
 		return ipc.Fail(textWindowKind)
 	}
+	if req.Screen != "" && (req.Screen != ipc.ScreenPrograms || req.Kind != ipc.WindowParent) {
+		return bad() // экран бывает только у окна родителя (RM3-4)
+	}
 	ss := s.sessions[c.peer.SessionID]
-	if c.viaBind {
+	if c.viaBind && req.Kind == ipc.WindowParent {
 		if ss == nil {
 			return ipc.Fail(textRetry)
 		}
 		// Страж просит окно родителя после верного пароля: окно получает родительскую сессию.
-		if req.Kind != ipc.WindowParent {
-			return ipc.Fail(textDenyKind)
-		}
 		s.spendBind(c.peer.SessionID)
-		opened, err := s.openWindow(ss, ipc.WindowParent, true, c.real)
+		opened, err := s.openWindow(ss, ipc.WindowParent, req.Screen, true, c.real)
 		if err != nil {
 			s.logRate("openwin", "окно родителя не открыто: %v", err)
 			return ipc.Fail(textRetry)
@@ -85,6 +81,15 @@ func (s *Service) hOpenWindow(c *callCtx) ipc.Reply {
 		return ipc.OK(ipc.OpenWindowReply{Opened: opened})
 	}
 	cs := s.childBySID(c.peer.SID)
+	if c.kind == kindGuard {
+		// Страж без пароля (кнопки плашек): окно родителя без сессии — пароль спросит окно
+		// («Попросить сейчас», RM3-4) — и «Моя статистика» ребёнка своего сеанса («Попросить ещё»
+		// на плашке 1 мин, RM3-5). Окно первого входа открывает значок, не страж.
+		if req.Kind == ipc.WindowFirstRun || ss == nil || ss.childID == 0 {
+			return ipc.Fail(textDenyKind)
+		}
+		cs = s.children[ss.childID]
+	}
 	if req.Kind != ipc.WindowParent && cs == nil {
 		return ipc.Fail(textNotAChild)
 	}
@@ -94,7 +99,7 @@ func (s *Service) hOpenWindow(c *callCtx) ipc.Reply {
 	if req.Kind == ipc.WindowFirstRun && s.firstRunSeen(cs) {
 		return ipc.OK(ipc.OpenWindowReply{Opened: false})
 	}
-	opened, err := s.openWindow(ss, req.Kind, false, c.real)
+	opened, err := s.openWindow(ss, req.Kind, req.Screen, false, c.real)
 	if err != nil {
 		s.logRate("openwin", "окно %s не открыто: %v", req.Kind, err)
 		return ipc.Fail(textRetry)
@@ -143,8 +148,8 @@ func (s *Service) hListAccounts(c *callCtx) ipc.Reply {
 	return ipc.OK(out)
 }
 
-// weekFromLimits проверяет семь дней лимитов и собирает массив для ядра. При ошибке
-// возвращает поле формы и текст у поля (L-121).
+// weekFromLimits проверяет семь дней лимитов (общий и игр) и собирает массив для ядра. При
+// ошибке возвращает поле формы и текст у поля (L-121).
 func weekFromLimits(ls []ipc.WeekdayLimit) (week [7]core.DayLimit, field, text string) {
 	seen := [7]bool{}
 	for _, l := range ls {
@@ -163,6 +168,17 @@ func weekFromLimits(ls []ipc.WeekdayLimit) (week [7]core.DayLimit, field, text s
 		seen[l.Weekday-1] = true
 		if !l.Unlimited {
 			week[l.Weekday-1] = core.LimitOf(l.TotalMin)
+		}
+		if !l.GamesUnlimited {
+			// Лимит игр (R5, FR-16): не ограничен общим — если больше, раньше кончится общий.
+			switch g := ipc.GamesField(l.Weekday); {
+			case l.GamesMin < 0:
+				return week, g, textLimitNegative
+			case l.GamesMin > 1440:
+				return week, g, textLimitTooBig
+			}
+			games := l.GamesMin
+			week[l.Weekday-1].GamesMin = &games
 		}
 	}
 	for _, ok := range seen {
@@ -217,6 +233,22 @@ func (s *Service) hSetup(c *callCtx) ipc.Reply {
 		}
 		plans = append(plans, plan{ch.SID, name, week})
 	}
+	progs, denial := s.setupPrograms(req.Programs, c.real.UnixMilli())
+	switch denial {
+	case "":
+	case ipc.TextBadRequest:
+		return bad()
+	default:
+		return ipc.FailField(denial, fieldPrograms)
+	}
+	// Свойства программ читались вне блокировки службы: за это время служба могла начать
+	// останавливаться или её настроил другой мастер.
+	if s.stopping {
+		return ipc.Fail(textRetry)
+	}
+	if s.configured() {
+		return ipc.Fail(textAlreadySetup)
+	}
 	hash, err := s.cfg.Hasher.Hash(req.Password)
 	if err != nil {
 		return ipc.FailField(err.Error(), ipc.FieldPassword)
@@ -233,11 +265,17 @@ func (s *Service) hSetup(c *callCtx) ipc.Reply {
 			return ipc.Fail(textSaveFailed)
 		}
 	}
+	// Программы мастера (FR-2) — тоже до пароля: оборвавшаяся настройка проходится заново.
+	if err := s.writeSetupPrograms(progs); err != nil {
+		s.logRate("setup", "программы мастера не записаны: %v", err)
+		return ipc.Fail(textSaveFailed)
+	}
 	if err := s.cfg.Store.SetAuth(Auth{Hash: hash, ChangedAtMs: c.real.UnixMilli()}); err != nil {
 		s.logRate("setup", "пароль родителя не записан: %v", err)
 		return ipc.Fail(textSaveFailed)
 	}
 	s.loadChildren(c.real)
+	s.afterSetupPrograms(c)
 	for _, p := range plans {
 		s.applyPolicy(p.sid, true)
 	}
@@ -393,18 +431,41 @@ func (s *Service) hSaveLimits(c *callCtx) ipc.Reply {
 	if cs == nil {
 		return ipc.Fail(textNoSuchChild)
 	}
-	week, field, text := weekFromLimits(req.Limits)
-	if field != "" {
-		return ipc.FailField(text, field)
+	if req.EndMode != "" && req.EndMode != ipc.EndModeLock && req.EndMode != ipc.EndModeStudyOnly {
+		return ipc.FailField(textEndModeBad, ipc.FieldEndMode)
 	}
-	if err := s.cfg.Store.SetDayLimits(cs.child.ID, week); err != nil {
-		s.logRate("limits", "лимиты не записаны: %v", err)
-		return ipc.Fail(textSaveFailed)
+	// Только режим «Когда время вышло» (вкладка FR-18): лимиты не присланы и не меняются.
+	saveLimits := len(req.Limits) > 0 || req.EndMode == ""
+	var week [7]core.DayLimit
+	if saveLimits {
+		var field, text string
+		if week, field, text = weekFromLimits(req.Limits); field != "" {
+			return ipc.FailField(text, field)
+		}
 	}
-	// FR-19: правила действуют сразу, ближайший ответ стражу уже несёт новое решение.
+	modeChanged := req.EndMode != "" && req.EndMode != cs.rules.EndMode.String()
+	if saveLimits {
+		if err := s.cfg.Store.SetDayLimits(cs.child.ID, week); err != nil {
+			s.logRate("limits", "лимиты не записаны: %v", err)
+			return ipc.Fail(textSaveFailed)
+		}
+	}
+	if modeChanged {
+		if err := s.cfg.Store.SetEndMode(cs.child.ID, req.EndMode); err != nil {
+			s.logRate("endmode", "режим «Когда время вышло» не записан: %v", err)
+			return ipc.Fail(textSaveFailed)
+		}
+	}
+	// FR-19: правила действуют сразу, ближайший ответ стражу уже несёт новое решение. Правила
+	// берутся из базы целиком (RM3-9): лимиты, игры, расписание и режим.
 	cs.rulesAt = c.real
-	s.applyRules(cs, core.Rules{Week: week})
-	s.journal.Write(cs.child.ID, "settings_changed", map[string]any{"text": "изменены лимиты времени"})
+	s.applyRules(cs, s.readRules(cs.child.ID))
+	if saveLimits {
+		s.journal.Write(cs.child.ID, "settings_changed", map[string]any{"text": "изменены лимиты времени"})
+	}
+	if modeChanged {
+		s.journal.Write(cs.child.ID, "settings_changed", map[string]any{"text": "изменён режим, когда время вышло"})
+	}
 	return ipc.OK(ipc.SaveLimitsReply{Rules: rulesView(cs), Card: s.cardOf(cs), Message: textSaved})
 }
 
@@ -739,60 +800,6 @@ func (s *Service) hSetChildren(c *callCtx) ipc.Reply {
 	return ipc.OK(out)
 }
 
-// --- Помощник ----------------------------------------------------------------------------------
-
-// helperKey возвращает ключ состояния Помощника: профиль родителя (из родительской сессии)
-// или профиль ребёнка (из его сеанса); ни того ни другого нет: отказ.
-func (s *Service) helperKey(c *callCtx) (string, bool) {
-	if c.parent != nil {
-		return settingHelperParent, true
-	}
-	if id := s.childIDOf(c.peer); id != 0 && !c.peer.System {
-		return settingHelperChildPrefix + itoa(int(id)), true
-	}
-	return "", false
-}
-
-func (s *Service) hGetHelperState(c *callCtx) ipc.Reply {
-	key, ok := s.helperKey(c)
-	if !ok {
-		return ipc.Fail(textNeedParent)
-	}
-	v, found, err := s.cfg.Store.GetSetting(key)
-	if err != nil {
-		s.logRate("helper", "состояние Помощника не прочитано: %v", err)
-		return ipc.Fail(textRetry)
-	}
-	if !found || !json.Valid([]byte(v)) {
-		return ipc.OK(ipc.HelperState{})
-	}
-	return ipc.OK(ipc.HelperState{State: json.RawMessage(v)})
-}
-
-func (s *Service) hSaveHelperState(c *callCtx) ipc.Reply {
-	key, ok := s.helperKey(c)
-	if !ok {
-		return ipc.Fail(textNeedParent)
-	}
-	var req ipc.HelperState
-	if c.msg.Into(&req) != nil || len(req.State) > maxHelperState {
-		return bad()
-	}
-	state := strings.TrimSpace(string(req.State))
-	if state == "" {
-		state = "{}"
-	}
-	var obj map[string]json.RawMessage
-	if json.Unmarshal([]byte(state), &obj) != nil {
-		return bad()
-	}
-	if err := s.cfg.Store.SetSetting(key, state); err != nil {
-		s.logRate("helper", "состояние Помощника не записано: %v", err)
-		return ipc.Fail(textSaveFailed)
-	}
-	return ipc.OK(ipc.Empty{})
-}
-
 // --- ребёнок о себе -------------------------------------------------------------------------------
 
 var weekdayShort = [7]string{"пн", "вт", "ср", "чт", "пт", "сб", "вс"}
@@ -823,6 +830,11 @@ func (s *Service) myTodayOf(cs *childState) ipc.MyTodayReply {
 	}
 	st := s.statusOf(cs)
 	out := ipc.MyTodayReply{Status: st, Today: []string{st.Summary, "Использовано " + core.FormatDuration(st.UsedS)}, Rules: []ipc.MyRule{}}
+	// Игры и учёба за сегодня — счётчики дня ядра; счётчики прошлого дня (сутки ещё не
+	// сменились в ядре) сегодняшними не считаются.
+	if day, _ := cs.eng.State(); day.Day == core.DayOf(s.cfg.Clock.Now().In(s.cfg.Loc)) {
+		out.GamesS, out.StudyS = day.GamesS, day.StudyS
+	}
 	// Строка «Можно снова…» нужна при любой блокировке: показываем, когда блокировка есть и
 	// ядро назвало срок (B-6).
 	if st.Lock != "" && st.Lock != ipc.LockNone && st.Until != "" {
@@ -843,7 +855,53 @@ func (s *Service) myTodayOf(cs *childState) ipc.MyTodayReply {
 		}
 		out.Rules = append(out.Rules, ipc.MyRule{Weekday: i + 1, Day: weekdayShort[i], Text: text})
 	}
+	// Общие правила (R21): лимит игр и что будет, когда время вышло.
+	if text := gamesRuleText(cs.rules); text != "" {
+		out.Rules = append(out.Rules, ipc.MyRule{Text: text})
+	}
+	out.Rules = append(out.Rules, ipc.MyRule{Text: endModeRuleText(cs.rules.EndMode)})
 	return out
+}
+
+// gamesRuleText — строка «Моих правил» о лимите игр (R5, R21): одинаковый каждый день — «Игры: до
+// 1 ч в день» («Игры: нельзя»), иначе по дням с лимитом — «Игры: пн до 1 ч, ср нельзя». Лимита
+// игр нет ни в один день — пусто.
+func gamesRuleText(r core.Rules) string {
+	word := func(min int) string {
+		if min == 0 {
+			return "нельзя"
+		}
+		return "до " + core.FormatLimit(min)
+	}
+	same, parts := true, []string{}
+	for i := 0; i < 7; i++ {
+		g := r.Week[i].GamesMin
+		if g == nil {
+			same = false
+			continue
+		}
+		if first := r.Week[0].GamesMin; first == nil || *first != *g {
+			same = false
+		}
+		parts = append(parts, weekdayShort[i]+" "+word(*g))
+	}
+	switch {
+	case len(parts) == 0:
+		return ""
+	case same && *r.Week[0].GamesMin == 0:
+		return "Игры: нельзя"
+	case same:
+		return "Игры: " + word(*r.Week[0].GamesMin) + " в день"
+	}
+	return "Игры: " + strings.Join(parts, ", ")
+}
+
+// endModeRuleText — строка «Моих правил» о режиме «Когда время вышло» (R8, R21).
+func endModeRuleText(m core.EndMode) string {
+	if m == core.EndStudyOnly {
+		return "Когда время вышло: остаётся только учёба"
+	}
+	return "Когда время вышло: экран блокировки"
 }
 
 func (s *Service) firstRunSeen(cs *childState) bool {
@@ -876,6 +934,9 @@ func (s *Service) hGuardPoll(c *callCtx) ipc.Reply {
 	cs := s.children[ss.childID]
 	if cs == nil {
 		return ipc.OK(ipc.GuardPollReply{Status: ipc.ChildStatusNotChild(), Warnings: []ipc.GuardWarning{}, Commands: []ipc.GuardCommand{}})
+	}
+	if len([]rune(req.Sample.ForegroundPath)) > ipc.MaxForegroundPathLen {
+		req.Sample.ForegroundPath = "" // мусор от стража: путь не определён
 	}
 	cs.sample, cs.sampleAt, cs.sampleSess, cs.haveSample = req.Sample, c.real, session, true
 	ss.resetLockBySample(req.Sample)

@@ -16,18 +16,27 @@ const day1 = "2026-10-19"
 
 func ptr[T any](v T) *T { return &v }
 
-// weekStr печатает лимиты недели читаемо: минуты или «-» для «без лимита» (в сообщении об
-// ошибке указатели из core.DayLimit были бы адресами).
+// weekStr печатает лимиты недели читаемо: «общее/игры», минуты или «-» для «без лимита» (в
+// сообщении об ошибке указатели из core.DayLimit были бы адресами).
 func weekStr(week [7]core.DayLimit) string {
+	num := func(p *int) string {
+		if p == nil {
+			return "-"
+		}
+		return strconv.Itoa(*p)
+	}
 	parts := make([]string, 0, 7)
 	for _, l := range week {
-		if l.TotalMin == nil {
-			parts = append(parts, "-")
-		} else {
-			parts = append(parts, strconv.Itoa(*l.TotalMin))
-		}
+		parts = append(parts, num(l.TotalMin)+"/"+num(l.GamesMin))
 	}
 	return "[" + strings.Join(parts, " ") + "]"
+}
+
+// limit — лимит дня: общий total и игр games (nil — без отдельного лимита игр).
+func limit(total int, games *int) core.DayLimit {
+	l := core.LimitOf(total)
+	l.GamesMin = games
+	return l
 }
 
 // Ловит: пустой список детей уходит во фронт как null и роняет экран (L-22); порядок списка
@@ -56,8 +65,8 @@ func TestListChildrenEmptyAndOrdered(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []Child{
-		{ID: a, SID: "S-1-5-21-1", Name: "Миша", CreatedAtMs: 5_000},
-		{ID: b, SID: "S-1-5-21-2", Name: "Аня", BypassDetail: "Попытка закрыть защиту", CreatedAtMs: 5_000},
+		{ID: a, SID: "S-1-5-21-1", Name: "Миша", EndMode: "lock", CreatedAtMs: 5_000},
+		{ID: b, SID: "S-1-5-21-2", Name: "Аня", BypassDetail: "Попытка закрыть защиту", EndMode: "lock", CreatedAtMs: 5_000},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("ListChildren = %+v, want %+v", got, want)
@@ -82,7 +91,7 @@ func TestUpsertChildSameSIDKeepsID(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []Child{{ID: id, SID: "S-1-5-21-1", Name: "Михаил", CreatedAtMs: 1_000}}
+	want := []Child{{ID: id, SID: "S-1-5-21-1", Name: "Михаил", EndMode: "lock", CreatedAtMs: 1_000}}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("ListChildren = %+v, want %+v (имя новое, created_at прежний)", got, want)
 	}
@@ -169,7 +178,7 @@ func TestUpsertChildAfterRemoveRestoresSameChild(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []Child{{ID: id, SID: "S-1-5-21-1", Name: "Михаил", CreatedAtMs: 1_000}}
+	want := []Child{{ID: id, SID: "S-1-5-21-1", Name: "Михаил", EndMode: "lock", CreatedAtMs: 1_000}}
 	if !reflect.DeepEqual(kids, want) {
 		t.Fatalf("ListChildren = %+v, want %+v", kids, want)
 	}
@@ -227,6 +236,51 @@ func TestSetBypassStoresAndClears(t *testing.T) {
 	}
 }
 
+// Ловит: режим «Когда время вышло» (R8, children.end_mode) не сохраняется, не читается
+// списком детей или чтением одного ребёнка, по умолчанию не «экран блокировки», принимает
+// мусорное значение (в базе CHECK, у службы безопасный «lock») или молча меняет чужого ребёнка.
+func TestSetGetEndMode(t *testing.T) {
+	s := openTemp(t)
+	a := mustChild(t, s, "S-1-5-21-1", "Миша")
+	b := mustChild(t, s, "S-1-5-21-2", "Аня")
+	if m, err := s.GetEndMode(a); err != nil || m != "lock" {
+		t.Fatalf("GetEndMode по умолчанию = %q, %v; want lock", m, err)
+	}
+	if err := s.SetEndMode(a, "study_only"); err != nil {
+		t.Fatalf("SetEndMode: %v", err)
+	}
+	if m, err := s.GetEndMode(a); err != nil || m != "study_only" {
+		t.Errorf("GetEndMode после записи = %q, %v; want study_only", m, err)
+	}
+	kids, err := s.ListChildren()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(kids) != 2 || kids[0].EndMode != "study_only" || kids[1].EndMode != "lock" {
+		t.Errorf("ListChildren = %+v; want Миша study_only, Аня lock", kids)
+	}
+	for _, bad := range []string{"", "kill", "STUDY_ONLY"} {
+		if err := s.SetEndMode(b, bad); !errors.Is(err, ErrInvalid) {
+			t.Errorf("SetEndMode(%q) = %v, want ErrInvalid", bad, err)
+		}
+	}
+	if m, _ := s.GetEndMode(b); m != "lock" {
+		t.Errorf("режим Ани после отказов = %q, want lock", m)
+	}
+	if err := s.SetEndMode(a, "lock"); err != nil {
+		t.Fatal(err)
+	}
+	if m, _ := s.GetEndMode(a); m != "lock" {
+		t.Errorf("режим после возврата = %q, want lock", m)
+	}
+	if err := s.SetEndMode(999, "lock"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("SetEndMode(999) = %v, want ErrNotFound", err)
+	}
+	if m, err := s.GetEndMode(999); err != nil || m != "lock" {
+		t.Errorf("GetEndMode(999) = %q, %v; want lock, nil (пусто — норма)", m, err)
+	}
+}
+
 // Ловит: у ребёнка без сохранённых лимитов появляется лимит 0 («нельзя») вместо «без лимита»,
 // и первый же вход ребёнка блокируется.
 func TestGetDayLimitsDefaultsToUnlimited(t *testing.T) {
@@ -247,17 +301,19 @@ func TestGetDayLimitsDefaultsToUnlimited(t *testing.T) {
 }
 
 // Ловит: дни недели сдвинуты (пн записан как 0 или вс как 7→1), «без лимита» и 0 минут
-// путаются, повторное сохранение дублирует строки, лимиты одного ребёнка видны другому, а
-// запись затирает поля M2 (games_min, video_min).
+// путаются (и для общего лимита, и для лимита игр R5), повторное сохранение дублирует строки,
+// лимиты одного ребёнка видны другому, запись лимитов теряет игры или затирает video_min (M4).
 func TestSetGetDayLimitsRoundTrip(t *testing.T) {
 	s := openTemp(t)
 	a := mustChild(t, s, "S-1-5-21-1", "Миша")
 	b := mustChild(t, s, "S-1-5-21-2", "Аня")
-	week := [7]core.DayLimit{core.LimitOf(120), {}, core.LimitOf(0), core.LimitOf(30), {}, core.LimitOf(1440), core.LimitOf(5)}
+	week := [7]core.DayLimit{
+		limit(120, ptr(60)), {}, limit(0, ptr(0)), limit(30, nil), {GamesMin: ptr(45)}, limit(1440, ptr(1440)), limit(5, ptr(90)),
+	}
 	if err := s.SetDayLimits(a, week); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.db.Exec(`UPDATE day_limits SET games_min = 45, video_min = 20 WHERE child_id = ? AND weekday = 1`, a); err != nil {
+	if _, err := s.db.Exec(`UPDATE day_limits SET video_min = 20 WHERE child_id = ? AND weekday = 1`, a); err != nil {
 		t.Fatal(err)
 	}
 	got, err := s.GetDayLimits(a)
@@ -276,8 +332,17 @@ func TestSetGetDayLimitsRoundTrip(t *testing.T) {
 	if v := rawNull(t, s, `SELECT total_min FROM day_limits WHERE child_id = ? AND weekday = 7`, a); v.Int64 != 5 {
 		t.Errorf("воскресенье total_min = %d, want 5", v.Int64)
 	}
+	if g := rawNull(t, s, `SELECT games_min FROM day_limits WHERE child_id = ? AND weekday = 1`, a); !g.Valid || g.Int64 != 60 {
+		t.Errorf("games_min понедельника = %+v, want 60", g)
+	}
+	if g := rawNull(t, s, `SELECT games_min FROM day_limits WHERE child_id = ? AND weekday = 4`, a); g.Valid {
+		t.Errorf("четверг без лимита игр записан как %d, want NULL", g.Int64)
+	}
+	if g := rawNull(t, s, `SELECT games_min FROM day_limits WHERE child_id = ? AND weekday = 3`, a); !g.Valid || g.Int64 != 0 {
+		t.Errorf("games_min среды = %+v, want 0 (игры нельзя, не NULL)", g)
+	}
 
-	week2 := [7]core.DayLimit{{}, core.LimitOf(60), {}, {}, {}, {}, {}}
+	week2 := [7]core.DayLimit{{}, limit(60, ptr(20)), {}, {}, {}, {}, {}}
 	if err := s.SetDayLimits(a, week2); err != nil {
 		t.Fatal(err)
 	}
@@ -287,16 +352,19 @@ func TestSetGetDayLimitsRoundTrip(t *testing.T) {
 	if n := rawNull(t, s, `SELECT count(*) FROM day_limits WHERE child_id = ?`, a); n.Int64 != 7 {
 		t.Errorf("строк day_limits после перезаписи = %d, want 7", n.Int64)
 	}
-	if g := rawNull(t, s, `SELECT games_min FROM day_limits WHERE child_id = ? AND weekday = 1`, a); g.Int64 != 45 {
-		t.Errorf("games_min понедельника = %+v, want 45 (поле M2 не трогаем)", g)
+	if g := rawNull(t, s, `SELECT games_min FROM day_limits WHERE child_id = ? AND weekday = 1`, a); g.Valid {
+		t.Errorf("games_min понедельника после перезаписи = %d, want NULL (игры без лимита)", g.Int64)
+	}
+	if v := rawNull(t, s, `SELECT video_min FROM day_limits WHERE child_id = ? AND weekday = 1`, a); v.Int64 != 20 {
+		t.Errorf("video_min понедельника = %+v, want 20 (поле M4 не трогаем)", v)
 	}
 	if got, _ := s.GetDayLimits(b); got != ([7]core.DayLimit{}) {
 		t.Errorf("лимиты второго ребёнка = %s, want все без лимита", weekStr(got))
 	}
 }
 
-// Ловит: лимит вне 0…1440 доходит до базы и даёт сырую ошибку CHECK либо записывает часть
-// недели до ошибки; неизвестный ребёнок принимается.
+// Ловит: лимит (общий или игр) вне 0…1440 доходит до базы и даёт сырую ошибку CHECK либо
+// записывает часть недели до ошибки; неизвестный ребёнок принимается.
 func TestSetDayLimitsRejectsBadInput(t *testing.T) {
 	s := openTemp(t)
 	id := mustChild(t, s, "S-1-5-21-1", "Миша")
@@ -310,6 +378,13 @@ func TestSetDayLimitsRejectsBadInput(t *testing.T) {
 		week[0] = core.LimitOf(10)
 		if err := s.SetDayLimits(id, week); !errors.Is(err, ErrInvalid) {
 			t.Errorf("SetDayLimits с %d мин = %v, want ErrInvalid", bad, err)
+		}
+	}
+	for _, bad := range []int{-1, 1441} {
+		week := good
+		week[2] = limit(60, ptr(bad))
+		if err := s.SetDayLimits(id, week); !errors.Is(err, ErrInvalid) {
+			t.Errorf("SetDayLimits с играми %d мин = %v, want ErrInvalid", bad, err)
 		}
 	}
 	if got, _ := s.GetDayLimits(id); !reflect.DeepEqual(got, good) {
@@ -676,19 +751,19 @@ func TestAuthRoundTripMatchesAttemptsPolicy(t *testing.T) {
 // значение путается с «нет настройки», русский текст портится, пустой ключ принимается.
 func TestSettings(t *testing.T) {
 	s := openTemp(t)
-	if v, ok, err := s.GetSetting("helper"); v != "" || ok || err != nil {
+	if v, ok, err := s.GetSetting("diag.verbose"); v != "" || ok || err != nil {
 		t.Fatalf("GetSetting без записи = %q, %v, %v; want \"\", false, nil", v, ok, err)
 	}
-	if err := s.SetSetting("helper", `{"подсказки":"вкл"}`); err != nil {
+	if err := s.SetSetting("diag.verbose", `{"подробно":"да"}`); err != nil {
 		t.Fatal(err)
 	}
-	if v, ok, err := s.GetSetting("helper"); v != `{"подсказки":"вкл"}` || !ok || err != nil {
+	if v, ok, err := s.GetSetting("diag.verbose"); v != `{"подробно":"да"}` || !ok || err != nil {
 		t.Fatalf("GetSetting = %q, %v, %v", v, ok, err)
 	}
-	if err := s.SetSetting("helper", ""); err != nil {
+	if err := s.SetSetting("diag.verbose", ""); err != nil {
 		t.Fatal(err)
 	}
-	if v, ok, err := s.GetSetting("helper"); v != "" || !ok || err != nil {
+	if v, ok, err := s.GetSetting("diag.verbose"); v != "" || !ok || err != nil {
 		t.Fatalf("пустое значение: %q, %v, %v; want \"\", true, nil", v, ok, err)
 	}
 	if n := rawNull(t, s, `SELECT count(*) FROM settings`); n.Int64 != 1 {
