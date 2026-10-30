@@ -178,13 +178,20 @@ func (s *Service) keepSession(session uint32, gen uint64) {
 
 // watchSnapshot снимает под s.mu то, что нужно проходу: сеансы детей (кроме администраторов, R1),
 // их решения ядра и свои процессы. ok = false — проход ничего не делает: служба не запущена или
-// останавливается, список программ не готов (RM3-10, R18), тестовый режим без WatchDir (RM3-8).
+// останавливается, список программ не готов (RM3-10, R18), не определены папка Windows или
+// каталог установки (класс «система» был бы пуст), тестовый режим без WatchDir (RM3-8).
 // Пауза (R11) и безопасный режим (R18): у ребёнка ничего не закрывается, его сеанс не опрашивается.
 // Сеансы взрослых (R19) и сеансы без пользователя не опрашиваются вовсе.
 func (s *Service) watchSnapshot() ([]watchTarget, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if !s.started || s.stopping || !s.programsReady() {
+		return nil, false
+	}
+	if r := s.classifier.Roots(); r.SystemRoot == "" || r.InstallDir == "" {
+		// Без этих корней класс «система» пуст: всё в папке Windows и окна PC Block стали бы
+		// «незнакомыми» (PL-13). «Не знаю» = «не трогать».
+		s.logRate("watch-roots", "наблюдатель: папка Windows или каталог установки PC Block не определены (%q, %q), ничего не закрывается", r.SystemRoot, r.InstallDir)
 		return nil, false
 	}
 	if s.cfg.Test.Enabled && s.cfg.Test.WatchDir == "" {

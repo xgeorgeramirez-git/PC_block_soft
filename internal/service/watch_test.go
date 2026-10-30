@@ -10,6 +10,7 @@ import (
 
 	"pcblock/internal/core"
 	"pcblock/internal/ipc"
+	"pcblock/internal/programs"
 )
 
 // Пути процессов в тестах наблюдателя (кроме путей programs_test.go).
@@ -546,5 +547,47 @@ func TestWatchKilledButAliveOnePass(t *testing.T) {
 	}
 	if strings.Contains(h.logText(), "не удалось закрыть") {
 		t.Errorf("журнал работы пишет о неудаче, хотя процесс завершается:\n%s", h.logText())
+	}
+}
+
+// Ловит: пустой %SystemRoot% или каталог установки (KnownFolders не прочитались) делает всё в
+// C:\Windows или все компоненты PC Block «незнакомыми», и наблюдатель закрывает систему и свои
+// окна (PL-13). При пустом из двух корней не закрывается ничего, причина — в журнале работы.
+func TestWatchEmptyRootsClosesNothing(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		roots func(r *programs.Roots)
+	}{
+		{"SystemRoot", func(r *programs.Roots) { r.SystemRoot = "" }},
+		{"InstallDir", func(r *programs.Roots) { r.InstallDir = "" }},
+		{"оба", func(r *programs.Roots) { r.SystemRoot, r.InstallDir = "", "" }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			w := newWatcher()
+			r := svcRoots
+			tc.roots(&r)
+			h := watchHarness(t, w, func(h *harness) { h.cfg.Roots = r })
+			procs := []ProcInfo{w.start(childSession, pathNotepad), w.start(childSession, pathPCBlock), w.start(childSession, pathSuperGame)}
+			h.watch()
+			for _, p := range procs {
+				if !w.alive(p) {
+					t.Errorf("закрыт %s при пустом корне", p.Path)
+				}
+			}
+			if n := len(h.store.events); n != 0 {
+				t.Errorf("в журнале родителя %d событий, want 0: %v", n, h.store.eventKinds())
+			}
+			if !strings.Contains(h.logText(), "папка Windows или каталог установки PC Block не определены") {
+				t.Errorf("журнал работы молчит о пустых корнях:\n%s", h.logText())
+			}
+		})
+	}
+	// Контроль: при обоих корнях незнакомая программа закрывается.
+	w := newWatcher()
+	h := watchHarness(t, w)
+	game := w.start(childSession, pathSuperGame)
+	h.watch()
+	if w.alive(game) {
+		t.Error("при обоих корнях незнакомая программа не закрыта")
 	}
 }
