@@ -514,6 +514,18 @@ describe("ChildLimits: «Когда время вышло» (FR-18, R8)", () => 
     expect(screen.getAllByText(/Учебных программ и сайтов пока нет/)).toHaveLength(1);
   });
 
+  // Ловит: в нижней панели склеиваются две фразы или искажено «Есть несохранённые изменения»
+  // (приёмка P2 п.3, кадр s12-end-mode-no-study): после выбора режима на панели ровно одна фраза.
+  it("выбран «Оставить только учёбу»: на панели ровно «Есть несохранённые изменения» и две кнопки", async () => {
+    const user = setup();
+    await openEnd(user);
+    await user.click(studyRadio());
+    const bar = screen.getByRole("region", { name: "Сохранение изменений" });
+    expect(bar.querySelector(".savebar-main")?.textContent).toBe("Есть несохранённые изменения");
+    expect(within(bar).queryByRole("status")).toBeNull();
+    expect(within(bar).getAllByRole("button").map((b) => b.textContent)).toEqual(["Отменить изменения", "Сохранить"]);
+  });
+
   it("есть учебная программа: предупреждения нет", async () => {
     const user = setup({
       programs: [{ path: "c:\\program files\\geo\\geo.exe", name: "ГеоКласс", publisher: "Школа", category: "study", source: "parent", weekS: 0 }],
