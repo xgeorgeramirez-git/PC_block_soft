@@ -90,6 +90,24 @@ Skills to load: dev-methodology, git-guru, uiux-design, usability-heuristics; we
 
 ---
 
+## M3 — продолжение (новый чат после лимитов, 30.10.2026)
+
+```text
+Используй скиллы dev-methodology (вход B, веха уже идёт) и git-guru. Ты — оркестратор вехи M3 «Программы и игры» проекта PC_block_soft (родительский контроль для Windows 11). Репозиторий https://github.com/xgeorgeramirez-git/PC_block_soft — подключи с правом записи (add_repo, access push), клонируй, переключись на ветку feature/m3-programs (она на GitHub; клон неглубокий — git fetch origin +feature/m3-programs:refs/remotes/origin/feature/m3-programs, git checkout -b feature/m3-programs origin/feature/m3-programs). Я — заказчик, не программист: общайся по-русски, простыми словами, технические подробности — в файлах репозитория.
+
+Это продолжение: прошлый чат закончился по лимитам на середине вехи. Сначала прочитай plans/M3-HANDOFF.md — там всё: что сделано (T1…T6b, P1 — проверено и запушено), что в работе (T7 приёмка S12…S15 — проверь по git log, что из сценариев уже закоммичено, остальное доделай по plans/packets/M3-T7-accept.md), что осталось по порядку (приёмка на windows-latest и фиксы, P2 правки интерфейса plans/packets/M3-P2-polish.md, визуальная приёмка кадров стража, ревью диффа свежим агентом, R4, закрытие 0.3.0, PR, слияние, выпуск, отчёт). Затем CLAUDE.md (правила, среда песочницы), plans/2026-10-29-M3.md (план вехи: Global Constraints, Ruling RM3-1…RM3-13, Review Focus), plans/M3-agents.md (реестр; агенты прошлого чата недоступны — запускай новых по тем же пакетам), docs/LESSONS.md.
+
+Skills to load: dev-methodology, git-guru; uiux-design — только писателям интерфейса (P2); web-design-guidelines — на ревью UI-диффа; usability-heuristics — на UX-аудите экрана «Программы». in-app-guidance НЕ грузить (D-56).
+
+Порядок работы прежний: конвейер «два слота» (один писатель за раз, читатель готовит следующее), пакеты писателям в plans/packets/, реестр plans/M3-agents.md; TDD (RED прежде кода, мутационная проверка); лестница R0–R4; приёмка только в CI на windows-latest в тестовом режиме (тестовые программы — копии системной программы во временной папке WatchDir); снимки разбирает visual-reviewer, зазоры мерить программно; регресс аварийного выхода (S3, S7, S25, S26) и предупреждений (S2, S35), плюс S36. Ревью диффа свежим агентом до слияния. Писатели коммитят пути явно и не пушат; пушишь ты.
+
+Закрытие: версия 0.3.0 (internal/version/version.go и wails.json вместе), CHANGELOG, «Что нового» 0.3.0 уже в frontend/src/whatsnew/entries.ts, bash tools/codemap.sh, README «Отклонения от ТЗ» (RM3-2, RM3-3, RM3-4, подделка издателя RM3-13), уроки в docs/LESSONS.md, запись в docs/HISTORY.md, CLAUDE.md «Состояние», plans/BACKLOG.md (список правок — в M3-HANDOFF.md); PR через gh api → зелёные ci.yml и windows.yml → слить в main самому (REST) → сборка main выпустит установщик 0.3.0 в Releases.
+
+Среда: репозиторий публичный; self-hosted runner заказчика к workflow НЕ привязывать; на МОЁМ компьютере ничего не устанавливать и блокировки не запускать — только машины GitHub. Go 1.27 поставь из релизов actions/go-versions в ~/.local/go1.27 (CLAUDE.md). GraphQL закрыт: PR и слияние через gh api (CLAUDE.md). Журналы Actions не скачиваются — пометки сборки. Известный нестабильный тест B-20 — перезапусти только упавшее. Трейлеры коммитов: Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com> и Claude-Session со ссылкой этой сессии.
+
+Работай сам; спрашивай только при неясном объёме, при изменении требований и перед разрушительным действием. Готово значит: S12…S15, G4, G5, G12 и регресс прошлых вех зелёные, R4 зелёная, выпуск 0.3.0 в Releases; короткий отчёт мне простыми словами (что нового, что проверить руками, что в бэклоге) и ссылка на установщик.
+```
+
 ## M4 «Сайты и Brave»
 
 ```text
