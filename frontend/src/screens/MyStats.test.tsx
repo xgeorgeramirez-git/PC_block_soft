@@ -109,14 +109,15 @@ describe("MyStats: Итоги", () => {
     expect(left?.textContent).toContain("1 ч 25 мин");
   });
 
-  // Ловит: итоги игр и учёбы показаны нулями или выдуманы: окну приходит только остаток игр.
-  it("итоги игр и учёбы «Появится позже», видео и соцсети «Пока не считается»", async () => {
-    setup();
+  // Ловит: итоги игр и учёбы не из ответа службы (S13: «в статистике Учёба 40 мин»).
+  it("итоги: игры и учёба за сегодня от службы, видео и соцсети «Пока не считается»", async () => {
+    setup({ children: [mockChild({ usedS: 2100, gamesUsedS: 1200, studyUsedS: 2400 })] });
     const box = await screen.findByRole("region", { name: "Итоги" });
     const value = (label: string) => within(box).getByText(label).closest("div")?.querySelector("dd")?.textContent;
-    expect(value("Игры")).toBe("Появится позже");
-    expect(value("Учёба")).toBe("Появится позже");
+    expect(value("Игры")).toBe("20 мин");
+    expect(value("Учёба")).toBe("40 мин");
     expect(value("Видео и соцсети")).toBe("Пока не считается");
+    expect(within(box).queryByText("Появится позже")).toBeNull();
   });
 
   it("время вышло: видно, когда можно снова", async () => {

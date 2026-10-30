@@ -7,7 +7,7 @@ import SpendBonusDialog from "../components/SpendBonusDialog";
 import { historyText } from "../lib/bonus";
 import { childErrorText } from "../lib/errors";
 import { formatDuration, formatEventTime, formatLimit, weekdayName } from "../lib/format";
-import { NOT_COUNTED, NOT_SHOWN, spendBlockedNote, splitRules, summaryLines, todayRows, todayRuleWeekday } from "../lib/mytoday";
+import { NOT_COUNTED, categoryTotals, spendBlockedNote, splitRules, summaryLines, todayRows, todayRuleWeekday } from "../lib/mytoday";
 import type { GetBonusReply, MyTodayReply } from "../types";
 
 const LOAD_ERROR = "Не удалось получить данные. Попробуй через минуту";
@@ -15,12 +15,6 @@ const NO_DATA = "За этот период пока нет данных";
 const PERIODS = ["Сегодня", "Неделя", "Месяц", "Год", "Всё время"] as const;
 const PERIODS_NOTE = "Неделя, месяц, год и всё время появятся в полной статистике";
 const OPEN_FAILED = "Не получилось открыть окно. Попробуй ещё раз";
-/** Итоги по категориям: игры и учёба считаются с 0.3.0, видео и соцсети - с M4. */
-const CATEGORY_TOTALS: { label: string; value: string }[] = [
-  { label: "Игры", value: NOT_SHOWN },
-  { label: "Видео и соцсети", value: NOT_COUNTED },
-  { label: "Учёба", value: NOT_SHOWN },
-];
 
 /** Окно «Моя статистика» (FR-12, R21, сценарий 8.2.6): только просмотр, свои данные, в M1 - сегодня и правила. */
 export default function MyStats() {
@@ -231,8 +225,8 @@ export function Totals({ data }: { data: MyTodayReply }) {
               <dt>Использовано сегодня</dt>
               <dd>{formatDuration(data.status.usedS)}</dd>
             </div>
-            {CATEGORY_TOTALS.map((c) => (
-              <div key={c.label} className="stat-row stat-row-muted">
+            {categoryTotals(data).map((c) => (
+              <div key={c.label} className={c.value === NOT_COUNTED ? "stat-row stat-row-muted" : "stat-row"}>
                 <dt>{c.label}</dt>
                 <dd>{c.value}</dd>
               </div>

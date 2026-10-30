@@ -291,6 +291,7 @@ func examples() map[string]example {
 				{Weekday: 7, Day: "вс", Text: "Без лимита"},
 				{Text: "Игры: до 1 ч в день"}, {Text: "Когда время вышло: экран блокировки"},
 			},
+			GamesS: 1200, StudyS: 2400,
 		}),
 		"MyToday#empty": ok(nil, MyTodayReply{Status: ChildStatusNotChild()}),
 		CmdParentStats: ok(ParentStatsRequest{ChildID: 1}, MyTodayReply{
@@ -302,6 +303,7 @@ func examples() map[string]example {
 				{Weekday: 7, Day: "вс", Text: "Без лимита"},
 				{Text: "Игры: до 1 ч в день"}, {Text: "Когда время вышло: экран блокировки"},
 			},
+			GamesS: 1200, StudyS: 2400,
 		}),
 		CmdFirstRunSeen: ok(nil, Empty{}),
 

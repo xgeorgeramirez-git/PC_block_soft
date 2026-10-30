@@ -516,6 +516,9 @@ type MyTodayReply struct {
 	Status ChildStatus `json:"status"`
 	Today  []string    `json:"today"` // строки «Сегодня»
 	Rules  []MyRule    `json:"rules"`
+	// GamesS, StudyS — игры и учёба за сегодня, с (итоги «Моей статистики», S13); счётчики ядра.
+	GamesS int `json:"gamesS"`
+	StudyS int `json:"studyS"`
 }
 
 // --- Страж --------------------------------------------------------------------------

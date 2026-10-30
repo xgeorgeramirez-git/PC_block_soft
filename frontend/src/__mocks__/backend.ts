@@ -65,6 +65,8 @@ export interface MockChild {
   endMode?: EndMode;
   /** Игры за сегодня, секунды (R5); входят и в usedS. */
   gamesUsedS?: number;
+  /** Учёба за сегодня, секунды (R3); в usedS не входит. */
+  studyUsedS?: number;
 }
 
 /** Промокод в подменной программе (R26, D-50). */
@@ -450,7 +452,7 @@ function myToday(child: MockChild | undefined, nowMs: number): MyTodayReply {
   if (status.lock === "timeUp" && status.until) {
     today.push(status.until);
   }
-  return { status, today, rules: myRules(child) };
+  return { status, today, rules: myRules(child), gamesS: child.gamesUsedS ?? 0, studyS: child.studyUsedS ?? 0 };
 }
 
 const PARENT_COMMANDS = new Set([

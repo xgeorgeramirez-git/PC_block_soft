@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   ASK_PRESETS,
   askMinutes,
+  categoryTotals,
   firstRunLines,
   spendBlockedNote,
   spendChoices,
@@ -47,7 +48,7 @@ function status(over: Partial<ChildStatus> = {}): ChildStatus {
 }
 
 function reply(over: Partial<ChildStatus> = {}, today: string[] = []): MyTodayReply {
-  return { status: status(over), today, rules: [] };
+  return { status: status(over), today, rules: [], gamesS: 0, studyS: 0 };
 }
 
 describe("firstRunLines: пересказ правил на сегодня", () => {
@@ -248,5 +249,20 @@ describe("splitRules: «Мои правила» (R21)", () => {
     ]);
     expect(got.days.map((d) => d.weekday)).toEqual([1, 7]);
     expect(got.general).toEqual(["Игры: до 1 ч в день", "Когда время вышло: остаётся только учёба"]);
+  });
+});
+
+describe("categoryTotals: «Итоги» по категориям", () => {
+  it("игры и учёба за сегодня как общее время, видео и соцсети пока не считаются", () => {
+    const r = { ...reply(), gamesS: 2 * 3600 + 5 * 60, studyS: 40 * 60 };
+    expect(categoryTotals(r)).toEqual([
+      { label: "Игры", value: "2 ч 05 мин" },
+      { label: "Видео и соцсети", value: "Пока не считается" },
+      { label: "Учёба", value: "40 мин" },
+    ]);
+  });
+
+  it("ничего не было: «0 мин»", () => {
+    expect(categoryTotals({ ...reply(), gamesS: 0, studyS: 0 }).map((r) => r.value)).toEqual(["0 мин", "Пока не считается", "0 мин"]);
   });
 });

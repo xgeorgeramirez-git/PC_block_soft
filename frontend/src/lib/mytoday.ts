@@ -43,8 +43,15 @@ export interface TodayRow {
 
 /** «Видео и соцсети» появятся в M4. */
 export const NOT_COUNTED = "Пока не считается";
-/** Игры и учёба за день считаются, но окну их время пока не приходит (MyToday: только остаток игр). */
-export const NOT_SHOWN = "Появится позже";
+
+/** «Итоги» по категориям (S13): игры и учёба за сегодня от службы, видео и соцсети - с M4. */
+export function categoryTotals(reply: MyTodayReply): TodayRow[] {
+  return [
+    { label: "Игры", value: formatDuration(reply.gamesS) },
+    { label: "Видео и соцсети", value: NOT_COUNTED },
+    { label: "Учёба", value: formatDuration(reply.studyS) },
+  ];
+}
 
 /** Остаток в минутах тем же правилом, что у значка и табло: вверх (B-5). */
 function upToMinute(seconds: number): number {

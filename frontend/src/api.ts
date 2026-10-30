@@ -244,7 +244,7 @@ export function clearBlock(childId: number): Promise<CardReply> {
 /** Статистика выбранного ребёнка за сегодня для родителя (FR-23, D-44). */
 export async function parentStats(childId: number): Promise<MyTodayReply> {
   const r = await call<object, Partial<MyTodayReply>>("ParentStats", { childId });
-  return { status: r.status as MyTodayReply["status"], today: r.today ?? [], rules: r.rules ?? [] };
+  return myTodayOf(r);
 }
 
 /** Прочитать состояние переключателя подробных логов (FR-25, D-42). */
@@ -283,7 +283,18 @@ export async function setChildren(req: Partial<SetChildrenRequest>): Promise<Chi
 /** «Сегодня» и «Мои правила» ребёнка. Пустые списки приходят как null: приводим к []. */
 export async function myToday(): Promise<MyTodayReply> {
   const r = await call<object, Partial<MyTodayReply>>("MyToday");
-  return { status: r.status as MyTodayReply["status"], today: r.today ?? [], rules: r.rules ?? [] };
+  return myTodayOf(r);
+}
+
+/** Пустые списки приходят как null, у старой службы нет итогов игр и учёбы: приводим к [] и 0. */
+function myTodayOf(r: Partial<MyTodayReply>): MyTodayReply {
+  return {
+    status: r.status as MyTodayReply["status"],
+    today: r.today ?? [],
+    rules: r.rules ?? [],
+    gamesS: r.gamesS ?? 0,
+    studyS: r.studyS ?? 0,
+  };
 }
 
 /** Ребёнок прочитал окно первого входа: больше его не показывать. */

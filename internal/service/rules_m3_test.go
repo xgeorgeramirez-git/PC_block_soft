@@ -3,6 +3,7 @@ package service
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"pcblock/internal/core"
 	"pcblock/internal/ipc"
@@ -378,5 +379,36 @@ func TestGuardPollForegroundPathLimit(t *testing.T) {
 	h.poll(s)
 	if cs.sample.ForegroundPath != "" {
 		t.Errorf("путь %d символов принят, want «не определён»", len([]rune(s.ForegroundPath)))
+	}
+}
+
+// Ловит: «Итоги» статистики показывают у игр и учёбы «Появится позже» (S13: «Учёба 40 мин»);
+// цифры берутся не из счётчиков ядра за сегодня; вчерашние счётчики выдаются за сегодняшние.
+func TestMyTodayGamesAndStudySeconds(t *testing.T) {
+	h := newHarness(t, configured(), withChild(childSID, "Миша", 120), withChild(otherSID, "Даша", 120))
+	misha, dasha := h.childID(childSID), h.childID(otherSID)
+	h.store.days[dayKey(misha, "2026-10-19")] = core.DayState{Day: "2026-10-19", TotalS: 1500, GamesS: 1200, StudyS: 2400}
+	h.store.days[dayKey(dasha, "2026-10-18")] = core.DayState{Day: "2026-10-18", TotalS: 900, GamesS: 600, StudyS: 300}
+	h.start()
+	var my ipc.MyTodayReply
+	h.ok(childPeer(), "", ipc.CmdMyToday, nil, &my)
+	if my.GamesS != 1200 || my.StudyS != 2400 {
+		t.Errorf("«Моя статистика»: игры %d, учёба %d; want 1200, 2400", my.GamesS, my.StudyS)
+	}
+	tok := h.login(adminPeer())
+	var ps ipc.MyTodayReply
+	h.ok(adminPeer(), tok, ipc.CmdParentStats, ipc.ParentStatsRequest{ChildID: misha}, &ps)
+	if ps.GamesS != 1200 || ps.StudyS != 2400 {
+		t.Errorf("статистика родителя: игры %d, учёба %d; want 1200, 2400", ps.GamesS, ps.StudyS)
+	}
+	h.ok(adminPeer(), tok, ipc.CmdParentStats, ipc.ParentStatsRequest{ChildID: dasha}, &ps)
+	if ps.GamesS != 0 || ps.StudyS != 0 {
+		t.Errorf("Даша, счётчики вчера: игры %d, учёба %d; want 0, 0", ps.GamesS, ps.StudyS)
+	}
+	// Полночь прошла, а тика ядра ещё не было: вчерашние игры и учёба сегодняшними не считаются.
+	h.clock.Advance(10 * time.Hour)
+	h.ok(childPeer(), "", ipc.CmdMyToday, nil, &my)
+	if my.GamesS != 0 || my.StudyS != 0 {
+		t.Errorf("после полуночи до тика: игры %d, учёба %d; want 0, 0", my.GamesS, my.StudyS)
 	}
 }
