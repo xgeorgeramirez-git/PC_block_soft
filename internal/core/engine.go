@@ -104,6 +104,7 @@ type Engine struct {
 	saveSlot int       // последний 30-секундный отрезок, на который ответили «сохранить»
 
 	pauseWasActive bool // пауза была активна на прошлом тике (для события EvPauseEnd)
+	saveNow        bool // момент последней минуты только что поставлен: сохранить на ближайшем DueSave (RF12-3)
 }
 
 // NewEngine создаёт ядро ребёнка. loc — местный пояс (сутки и дни недели; nil —
@@ -133,6 +134,7 @@ func (e *Engine) Tick(s SessionSample) Decision {
 	}
 	closed := e.advance(now)
 	e.checkPauseEnd(now)
+	e.pullUp(now)
 	cat := CategoryOf(s)
 	e.fg = cat
 	d := e.decide(e.acc.State(), true)
@@ -169,6 +171,7 @@ func (e *Engine) AddExtra(min int) (Decision, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	closed := e.advance(e.now())
+	e.cancelLastMinute()
 	e.acc.AddExtra(min)
 	e.rearm()
 	e.pending = append(e.pending, Event{Kind: EvExtraTime, Details: map[string]any{"minutes": min, "text": ExtraText(min)}})
@@ -188,6 +191,7 @@ func (e *Engine) RedeemPromoMinutes(min int) (Decision, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	closed := e.advance(e.now())
+	e.cancelLastMinute()
 	e.acc.AddExtra(min)
 	e.rearm()
 	e.pending = append(e.pending, Event{Kind: EvPromoRedeem, Details: map[string]any{"minutes": min, "text": PromoRedeemText(min)}})
@@ -205,6 +209,7 @@ func (e *Engine) ReduceExtra(min int) (Decision, int, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	closed := e.advance(e.now())
+	e.pullUp(e.now())
 	st := e.acc.State()
 	lim, _ := e.limitFor(st.Day)
 	newExtra := st.ExtraMin - min
@@ -213,7 +218,9 @@ func (e *Engine) ReduceExtra(min int) (Decision, int, error) {
 	}
 	removed := st.ExtraMin - newExtra
 	if removed != 0 {
+		oldS, oldUnl := e.totalLimitS(e.acc.State())
 		e.acc.SetExtra(newExtra)
+		e.limitChanged(oldS, oldUnl)
 		e.rearm()
 		e.pending = append(e.pending, Event{Kind: EvExtraTime, Details: map[string]any{"minutes": -removed, "text": ExtraRemovedText(removed)}})
 	}
@@ -227,10 +234,13 @@ func (e *Engine) ClearExtra() (Decision, int) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	closed := e.advance(e.now())
+	e.pullUp(e.now())
 	st := e.acc.State()
 	removed := st.ExtraMin
 	if removed != 0 {
+		oldS, oldUnl := e.totalLimitS(st)
 		e.acc.SetExtra(0)
+		e.limitChanged(oldS, oldUnl)
 		e.rearm()
 		e.pending = append(e.pending, Event{Kind: EvExtraTime, Details: map[string]any{"minutes": -removed, "text": ExtraClearedText}})
 	}
@@ -257,6 +267,7 @@ func (e *Engine) Pause(until time.Time) (Decision, error) {
 		return e.finish(e.decide(e.acc.State(), false), closed), ErrPausePast
 	}
 	ms := until.UnixMilli()
+	e.cancelLastMinute()
 	e.acc.SetPause(&ms)
 	e.pauseWasActive = true
 	e.rearm()
@@ -275,6 +286,7 @@ func (e *Engine) SpendBonus(min int) (Decision, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	closed := e.advance(e.now())
+	e.cancelLastMinute()
 	e.acc.AddExtra(min)
 	e.rearm()
 	e.pending = append(e.pending, Event{Kind: EvBonusSpent, Details: map[string]any{"minutes": min, "text": BonusSpentText(min)}})
@@ -339,7 +351,10 @@ func (e *Engine) SetRules(r Rules) Decision {
 	if r.Broken && !e.rules.Broken {
 		e.pending = append(e.pending, safeModeEvent())
 	}
+	e.pullUp(e.now())
+	oldS, oldUnl := e.totalLimitS(e.acc.State())
 	e.rules = r
+	e.limitChanged(oldS, oldUnl)
 	e.rearm()
 	return e.finish(e.decide(e.acc.State(), false), closed)
 }
@@ -352,7 +367,9 @@ func (e *Engine) State() (DayState, string) {
 }
 
 // DueSave сообщает, что пора сохранить State(): не реже раза в 30 с часов ядра, отсчёт
-// от первого тика (G10). На каждый 30-секундный отрезок отвечает true один раз.
+// от первого тика (G10). На каждый 30-секундный отрезок отвечает true один раз. Кроме того —
+// один раз сразу после того, как тик поставил момент последней минуты (R2, D-60, RF12-3):
+// выключение питания в последнюю минуту не должно его терять.
 // Вызывать перед Tick того же момента: тогда снимок отражает учёт ровно до now
 // (сохранение в 15:40:00 содержит 40:00, как в эталоне G10).
 func (e *Engine) DueSave(now time.Time) bool {
@@ -361,12 +378,13 @@ func (e *Engine) DueSave(now time.Time) bool {
 	if e.started.IsZero() {
 		return false
 	}
-	slot := int(now.Sub(e.started) / SaveEvery)
-	if slot <= e.saveSlot {
-		return false
+	due := e.saveNow // момент последней минуты сохраняется сразу (RF12-3)
+	e.saveNow = false
+	if slot := int(now.Sub(e.started) / SaveEvery); slot > e.saveSlot {
+		e.saveSlot = slot
+		due = true
 	}
-	e.saveSlot = slot
-	return true
+	return due
 }
 
 func (e *Engine) now() time.Time { return e.clock.Now().In(e.loc) }
@@ -374,6 +392,13 @@ func (e *Engine) now() time.Time { return e.clock.Now().In(e.loc) }
 // advance меняет сутки (R16): пороги взводятся заново, закрытый день уходит в событие
 // day_closed и возвращается для Decision.ClosedDay.
 func (e *Engine) advance(now time.Time) *DayState {
+	if st := e.acc.State(); st.LastMinuteEndMs != nil && laterDay(DayOf(now), st.Day) {
+		// Последняя минута закрываемого дня идёт по часам до его полуночи (R2, D-60): секунды
+		// после полуночи — уже новый день, а он начинается с нуля и без отсчёта (R16).
+		if day, err := time.ParseInLocation(time.DateOnly, st.Day, e.loc); err == nil {
+			e.pullUp(day.AddDate(0, 0, 1)) // now уже позже этой полуночи
+		}
+	}
 	if !e.acc.Advance(now) {
 		return nil
 	}
@@ -423,8 +448,8 @@ func (e *Engine) limitFor(day string) (DayLimit, Weekday) {
 // паузы (если активна). Вид этого события кладётся в warnings для текста предупреждения.
 // Второй набор порогов — по остатку игр (R5): взводится тем же строгим правилом.
 func (e *Engine) rearm() {
-	st := e.acc.State()
 	now := e.now()
+	st := e.effective(e.acc.State(), now)
 	deltaS, ev, limited := e.nextEvent(st, now)
 	e.warn.arm(deltaS, ev, limited)
 	gamesS, gamesLimited := e.nextGames(st, now)
@@ -485,6 +510,7 @@ func (e *Engine) pauseUntil(st DayState) (time.Time, bool) {
 
 // decide строит решение по состоянию дня st; fire — тик: сработавший порог гасится.
 func (e *Engine) decide(st DayState, fire bool) Decision {
+	st = e.effective(st, e.now()) // последняя минута идёт по часам и без тиков (R2, D-60)
 	d := Decision{Day: st.Day, UsedS: st.TotalS, Events: []Event{}}
 	if e.rules.Broken {
 		d.Status, d.Unlimited, d.GamesUnlimited = StatusSafe, true, true
@@ -590,6 +616,12 @@ func (e *Engine) fireWarnings(d *Decision, st DayState, now time.Time, grem int,
 	if d.Warning != 0 {
 		d.WarningS = deltaS
 	}
+	if d.Warning == 1 && d.WarningEvent == WarnLimit && st.LastMinuteEndMs == nil {
+		// Последняя минута общего лимита (R2, D-60): дальше остаток идёт по часам до нуля.
+		ms := now.Add(time.Duration(deltaS) * time.Second).UnixMilli()
+		e.acc.SetLastMinute(&ms)
+		e.saveNow = true
+	}
 	if gunl || (e.fg != CatGames && !d.CloseGames) {
 		return
 	}
@@ -599,6 +631,88 @@ func (e *Engine) fireWarnings(d *Decision, st DayState, now time.Time, grem int,
 	}
 	if d.Warning == 0 || grem < deltaS {
 		d.Warning, d.WarningEvent, d.WarningS = gw, WarnGames, grem
+	}
+}
+
+// totalLimitS — суммарный лимит дня st (лимит + доп. время) в секундах; unlimited — лимита нет
+// или правила не прочитаны (R18).
+func (e *Engine) totalLimitS(st DayState) (limitS int, unlimited bool) {
+	if e.rules.Broken {
+		return 0, true
+	}
+	lim, _ := e.limitFor(st.Day)
+	if lim.Unlimited() {
+		return 0, true
+	}
+	return (*lim.TotalMin + st.ExtraMin) * 60, false
+}
+
+// effective — состояние дня с учётом последней минуты (R2, D-60): пока момент «конец по часам»
+// задан, общее время не меньше «лимит + доп. − секунды до момента» (после момента — весь лимит).
+// Дотяжка идёт в общее время («Прочее»), игры, видео и учёба по R2 как обычно. Без лимита, в
+// безопасном режиме и в паузе момент не действует. Общее время только растёт, не убавляется.
+func (e *Engine) effective(st DayState, now time.Time) DayState {
+	if st.LastMinuteEndMs == nil {
+		return st
+	}
+	if until, ok := e.pauseUntil(st); ok && now.Before(until) {
+		return st
+	}
+	limS, unl := e.totalLimitS(st)
+	if unl {
+		return st
+	}
+	left := time.UnixMilli(*st.LastMinuteEndMs).Sub(now)
+	leftS := 0
+	if left > 0 {
+		leftS = int((left + time.Second - 1) / time.Second) // вверх: ноль не раньше момента
+	}
+	if target := limS - leftS; st.TotalS < target {
+		st.TotalS = target
+	}
+	return st
+}
+
+// pullUp дотягивает накопленное общее время до последней минуты на момент now (R2, D-60).
+// Момент, который уже наступил, после дотяжки снимается: время вышло и учтено целиком, а
+// дальше (доп. время, новые правила) время снова идёт по R2 до следующего порога 1 мин.
+func (e *Engine) pullUp(now time.Time) {
+	st := e.acc.State()
+	if st.LastMinuteEndMs == nil {
+		return
+	}
+	eff := e.effective(st, now)
+	if eff.TotalS != st.TotalS {
+		e.acc.SetTotal(eff.TotalS)
+	}
+	if limS, unl := e.totalLimitS(eff); !unl && eff.TotalS >= limS && !now.Before(time.UnixMilli(*st.LastMinuteEndMs)) {
+		e.acc.SetLastMinute(nil)
+	}
+}
+
+// cancelLastMinute снимает отсчёт последней минуты (RF12-2: добавилось время или пауза):
+// прошедшие по часам секунды остаются учтёнными, дальше время снова по R2.
+func (e *Engine) cancelLastMinute() {
+	e.pullUp(e.now())
+	e.acc.SetLastMinute(nil)
+}
+
+// limitChanged после смены суммарного лимита (правила, убавление и обнуление доп. времени)
+// поправляет момент последней минуты: лимит вырос или снят — отсчёт отменяется (RF12-2); лимит
+// уменьшился — момент сдвигается раньше на разницу (Ruling FB12-1: выход не возвращает время);
+// не изменился — момент прежний. Перед вызовом общее время дотянуто по старому лимиту.
+func (e *Engine) limitChanged(oldS int, oldUnl bool) {
+	st := e.acc.State()
+	if st.LastMinuteEndMs == nil {
+		return
+	}
+	newS, newUnl := e.totalLimitS(st)
+	switch {
+	case oldUnl || newUnl || newS > oldS:
+		e.acc.SetLastMinute(nil)
+	case newS < oldS:
+		ms := *st.LastMinuteEndMs - int64(oldS-newS)*1000
+		e.acc.SetLastMinute(&ms)
 	}
 }
 
