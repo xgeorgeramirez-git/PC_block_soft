@@ -208,13 +208,13 @@ func TestWatchLeavesHidden(t *testing.T) {
 					}
 				}
 			}
-			// «Показать» — следующий запуск запускалки закрыт.
+			// «Показать» — уже запущенная и следующий запуск запускалки закрыты (S38).
 			h.hide(tok, false, pathLauncher)
 			again := w.start(childSession, pathLauncher)
 			h.real.Advance(time.Second)
 			h.watch()
-			if w.alive(again) {
-				t.Error("после «Показать» запускалка не закрыта")
+			if w.alive(procs[pathLauncher]) || w.alive(again) {
+				t.Errorf("после «Показать»: запущенная жива %v, новый запуск жив %v; want обе закрыты", w.alive(procs[pathLauncher]), w.alive(again))
 			}
 		})
 	}
