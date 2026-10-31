@@ -90,6 +90,8 @@ const CASES: [string, string, (req: any) => Promise<unknown>][] = [
   ["DecideProgram", "DecideProgram#invalid", (r) => api.decideProgram(r.path, r.category)],
   ["SetProgramsCategory", "SetProgramsCategory", (r) => api.setProgramsCategory(r.paths, r.category)],
   ["SetProgramsHidden", "SetProgramsHidden", (r) => api.setProgramsHidden(r.paths, r.hidden)],
+  ["RenameProgram", "RenameProgram", (r) => api.renameProgram(r.path, r.name)],
+  ["RenameProgram", "RenameProgram#tooLong", (r) => api.renameProgram(r.path, r.name)],
   ["UndoProgram", "UndoProgram", (r) => api.undoProgram(r.undoId)],
   ["ScanPrograms", "ScanPrograms", () => api.scanPrograms()],
   ["ScanPrograms", "ScanPrograms#empty", () => api.scanPrograms()],
@@ -221,6 +223,7 @@ describe("полнота", () => {
       "SetProgramsCategory",
       "UndoProgram",
       "SetProgramsHidden",
+      "RenameProgram",
       "ScanPrograms",
     ]) {
       expect(examples[command], `нет примера ${command}`).toBeDefined();

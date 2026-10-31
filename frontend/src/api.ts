@@ -464,6 +464,12 @@ export async function setProgramsHidden(paths: string[], hidden: boolean): Promi
   return { ...r, programs: programsOf(r.programs) };
 }
 
+/** «Переименовать» программу (D-59): своё название, "" - снова из файла; ответ с «Отменить» 10 с. */
+export async function renameProgram(path: string, name: string): Promise<DecideProgramReply> {
+  const r = await call<object, DecideProgramReply>("RenameProgram", { path, name });
+  return { ...r, programs: programsOf(r.programs) };
+}
+
 /** «Отменить» решения по программам (10 с). */
 export async function undoProgram(undoId: string): Promise<UndoProgramReply> {
   const r = await call<object, UndoProgramReply>("UndoProgram", { undoId });

@@ -67,6 +67,20 @@ export function hiddenMessage(name: string, hidden: boolean): string {
   return hidden ? `${name} скрыта` : `${name} снова в списке`;
 }
 
+/** Наибольшая длина своего названия в символах (D-59). */
+export const MAX_NAME_CHARS = 60;
+export const NAME_TOO_LONG = "Название до 60 символов";
+
+/**
+ * Ошибка своего названия, как её проверит служба (D-59): после обрезки пробелов не длиннее 60
+ * символов и без переводов строки; пустое - сброс к названию из файла (не ошибка). "" - годится.
+ */
+export function nameError(draft: string): string {
+  const t = draft.trim();
+  if (/[\u0000-\u001f\u007f-\u009f]/.test(t) || Array.from(t).length > MAX_NAME_CHARS) return NAME_TOO_LONG;
+  return "";
+}
+
 /** «SuperGame: игра» (8.3.4 п.2); служба присылает такое же, это запасной текст. */
 export function decisionMessage(name: string, category: ParentCategory): string {
   return `${name}: ${CATEGORY_WORD[category]}`;
@@ -195,7 +209,10 @@ export function visiblePrograms(list: ProgramDTO[], view: ProgramView): ProgramD
     (p) =>
       p.category !== "system" &&
       matchesFilter(p, view.filter) &&
-      (q === "" || p.name.toLowerCase().includes(q) || p.path.toLowerCase().includes(q)),
+      (q === "" ||
+        p.name.toLowerCase().includes(q) ||
+        (p.fileName ?? "").toLowerCase().includes(q) ||
+        p.path.toLowerCase().includes(q)),
   );
   const sign = view.sort.dir === "asc" ? 1 : -1;
   return shown.sort((a, b) => {

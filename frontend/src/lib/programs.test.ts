@@ -9,6 +9,7 @@ import {
   publisherText,
   fitPath,
   hiddenMessage,
+  nameError,
   shortenPath,
   timesWord,
   visiblePrograms,
@@ -265,6 +266,16 @@ describe("список: поиск, фильтр, сортировка", () => {
     expect(hiddenMessage("Stalker2", false)).toBe("Stalker2 снова в списке");
   });
 
+  // Ловит (D-59): поиск не находит переименованную по названию из файла (родитель помнит старое).
+  it("поиск и по своему названию, и по названию из файла", () => {
+    const renamed: ProgramDTO[] = [
+      ...list,
+      prog({ path: "c:\\program files\\epic\\shipping.exe", name: "Сталкер 2", fileName: "Stalker2-Win64-Shipping", category: "games" }),
+    ];
+    expect(names(visiblePrograms(renamed, { ...base, query: "сталкер" }))).toEqual(["Сталкер 2"]);
+    expect(names(visiblePrograms(renamed, { ...base, query: "win64-SHIPPING" }))).toEqual(["Сталкер 2"]);
+  });
+
   it("поиск и фильтр вместе", () => {
     expect(names(visiblePrograms(list, { ...base, query: "downloads", filter: "study" }))).toEqual(["Учи.ру"]);
   });
@@ -300,5 +311,17 @@ describe("список: поиск, фильтр, сортировка", () => {
     const copy = list.map((p) => ({ ...p }));
     visiblePrograms(list, { ...base, sort: { key: "week", dir: "desc" } });
     expect(list).toEqual(copy);
+  });
+});
+
+// Ловит (D-59): поле названия пропускает 61 символ или перевод строки; считает байты, а не
+// символы; не обрезает пробелы; пустое не считается сбросом.
+describe("своё название", () => {
+  it("1–60 символов после обрезки пробелов, пустое — сброс", () => {
+    expect(nameError("Сталкер 2")).toBe("");
+    expect(nameError("   ")).toBe("");
+    expect(nameError(" " + "я".repeat(60) + " ")).toBe("");
+    expect(nameError("я".repeat(61))).toBe("Название до 60 символов");
+    expect(nameError("Моя\nигра")).toBe("Название до 60 символов");
   });
 });

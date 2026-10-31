@@ -600,3 +600,89 @@ describe("Программы: скрытые (D-57, 8.3.4 п.4)", () => {
     expect(g.counter.calls).toBe(1);
   });
 });
+
+describe("Программы: своё название (D-59, 8.3.4 п.5)", () => {
+  const SHIPPING = "c:\\program files\\epic games\\stalker2\\binaries\\win64\\stalker2-win64-shipping.exe";
+  const withShipping = (): ProgramDTO[] => [
+    ...programs(),
+    { path: SHIPPING, name: "Stalker2-Win64-Shipping", publisher: "GSC Game World", category: "games", source: "catalog", weekS: 7200 },
+  ];
+  const renameButton = (name: string) =>
+    within(rowOf(name)).getByRole("button", { name: `Переименовать «${name}»` });
+
+  // Ловит: «Переименовать» не открывает поле на месте названия, в поле не текущее название или
+  // оно не выделено, фокус не в поле; «Сохранить» не шлёт RenameProgram; строка не показывает своё
+  // название и «из файла: …»; нет «Название изменено» с «Отменить»; «Отменить» не возвращает.
+  it("«Переименовать» → поле → «Сохранить»: своё название и «из файла: …»", async () => {
+    const user = setup({ programs: withShipping() });
+    await screen.findByRole("region", { name: "Все программы" });
+    await user.click(renameButton("Stalker2-Win64-Shipping"));
+
+    const field = within(rowOf("Stalker2-Win64-Shipping")).getByRole("textbox", { name: "Новое название для «Stalker2-Win64-Shipping»" }) as HTMLInputElement;
+    expect(document.activeElement).toBe(field);
+    expect(field.value).toBe("Stalker2-Win64-Shipping");
+    expect([field.selectionStart, field.selectionEnd]).toEqual([0, "Stalker2-Win64-Shipping".length]);
+    await user.keyboard("Сталкер 2");
+    await user.click(within(rowOf("Stalker2-Win64-Shipping")).getByRole("button", { name: "Сохранить" }));
+
+    expect(await screen.findByText("Название изменено")).toBeTruthy();
+    expect(mock.calls.filter((c) => c.command === "RenameProgram").map((c) => c.payload)).toEqual([
+      { path: SHIPPING, name: "Сталкер 2" },
+    ]);
+    const row = rowOf("Сталкер 2");
+    expect(within(row).getByText("из файла: Stalker2-Win64-Shipping")).toBeTruthy();
+    expect(within(row).queryByRole("textbox")).toBeNull();
+    expect(mock.state.events.map((e) => e.text)).toContain("Вы переименовали «Stalker2-Win64-Shipping» в «Сталкер 2»");
+    expect(document.activeElement).toBe(renameButton("Сталкер 2"));
+
+    await user.click(screen.getByRole("button", { name: "Отменить" }));
+    expect(await screen.findByText("Решение отменено")).toBeTruthy();
+    expect(within(rowOf("Stalker2-Win64-Shipping")).queryByText(/^из файла:/)).toBeNull();
+  });
+
+  // Ловит: Enter не сохраняет, Escape не закрывает поле без запроса или теряет фокус; пустое поле
+  // не сбрасывает к названию из файла.
+  it("Enter сохраняет, Escape отменяет, пустое возвращает название из файла", async () => {
+    const list = withShipping();
+    list[4] = { ...list[4], name: "Сталкер 2", fileName: "Stalker2-Win64-Shipping" };
+    const user = setup({ programs: list });
+    await screen.findByRole("region", { name: "Все программы" });
+
+    await user.click(renameButton("Сталкер 2"));
+    await user.keyboard("Другое{Escape}");
+    expect(within(rowOf("Сталкер 2")).queryByRole("textbox")).toBeNull();
+    expect(mock.calls.filter((c) => c.command === "RenameProgram")).toEqual([]);
+    expect(document.activeElement).toBe(renameButton("Сталкер 2"));
+
+    await user.click(renameButton("Сталкер 2"));
+    await user.clear(within(rowOf("Сталкер 2")).getByRole("textbox"));
+    await user.keyboard("{Enter}");
+    expect(await screen.findByText("Название изменено")).toBeTruthy();
+    expect(mock.calls.filter((c) => c.command === "RenameProgram").map((c) => c.payload)).toEqual([{ path: SHIPPING, name: "" }]);
+    expect(rowNames()).toContain("Stalker2-Win64-Shipping");
+  });
+
+  // Ловит: длинное название уходит в службу; ошибка не у поля (aria-invalid, aria-describedby);
+  // ошибка службы не показывается у поля.
+  it("длиннее 60 символов: «Название до 60 символов» у поля, запроса нет", async () => {
+    const user = setup({ programs: withShipping() });
+    await screen.findByRole("region", { name: "Все программы" });
+    await user.click(renameButton("Brave"));
+    const field = within(rowOf("Brave")).getByRole("textbox");
+    await user.clear(field);
+    await user.type(field, "я".repeat(61));
+    await user.keyboard("{Enter}");
+    expect(within(rowOf("Brave")).getByText("Название до 60 символов")).toBeTruthy();
+    expect(field.getAttribute("aria-invalid")).toBe("true");
+    expect(field.getAttribute("aria-describedby")).toBeTruthy();
+    expect(document.getElementById(field.getAttribute("aria-describedby")!)?.textContent).toBe("Название до 60 символов");
+    expect(mock.calls.filter((c) => c.command === "RenameProgram")).toEqual([]);
+
+    mock.override("RenameProgram", { ok: false, error: "Не удалось сохранить. Попробуйте ещё раз", field: "name" }, 1);
+    await user.clear(field);
+    await user.type(field, "Браузер");
+    await user.click(within(rowOf("Brave")).getByRole("button", { name: "Сохранить" }));
+    expect(await within(rowOf("Brave")).findByText("Не удалось сохранить. Попробуйте ещё раз")).toBeTruthy();
+    expect(within(rowOf("Brave")).getByRole("textbox")).toBeTruthy();
+  });
+});

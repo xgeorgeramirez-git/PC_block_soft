@@ -492,6 +492,7 @@ const PARENT_COMMANDS = new Set([
   "DecideProgram",
   "SetProgramsCategory",
   "SetProgramsHidden",
+  "RenameProgram",
   "UndoProgram",
 ]);
 
@@ -1136,6 +1137,25 @@ export function createBackend(opts: MockOptions = {}): MockBackend {
           ? `Скрыто программ: ${changed.length}`
           : `Снова в списке программ: ${changed.length}`;
       return okReply({ message, ...undo, programs: programsReply() });
+    },
+
+    // Как служба (D-59): своё название 1–60 символов, пустое — снова из файла.
+    RenameProgram: (req, now) => {
+      const name = String(req.name ?? "").trim();
+      if (/[\u0000-\u001f\u007f-\u009f]/.test(name) || Array.from(name).length > 60) return fail("Название до 60 символов", "name");
+      const p = state.programs.find((x) => x.path === String(req.path ?? "").toLowerCase() && x.category !== "system");
+      if (!p) return fail("Такой программы нет в списке");
+      const undo = rememberUndo(now);
+      const file = p.fileName || p.name;
+      const from = p.name;
+      const to = name || file;
+      p.name = to;
+      if (to === file) delete p.fileName;
+      else p.fileName = file;
+      if (from !== to) {
+        addEvent(now, undefined, "program_renamed", name ? `Вы переименовали «${from}» в «${to}»` : `Вы вернули «${from}» название из файла «${to}»`);
+      }
+      return okReply({ message: "Название изменено", ...undo, programs: programsReply() });
     },
 
     UndoProgram: (req, now) => {

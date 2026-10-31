@@ -516,7 +516,10 @@ export interface PendingProgramDTO {
 
 export interface ProgramDTO {
   path: string;
+  /** Как программа называется везде: своё название родителя, иначе из файла (D-59). */
   name: string;
+  /** Название из файла, если родитель дал своё («из файла: …»); нет или "" - своего нет. */
+  fileName?: string;
   publisher: string;
   category: ProgramCategory;
   source: ProgramSource;
@@ -546,6 +549,12 @@ export interface SetProgramsCategoryRequest {
 export interface SetProgramsHiddenRequest {
   paths: string[];
   hidden: boolean;
+}
+
+/** «Переименовать» (D-59): своё название 1–60 символов, "" - снова название из файла. */
+export interface RenameProgramRequest {
+  path: string;
+  name: string;
 }
 
 export interface DecideProgramReply {

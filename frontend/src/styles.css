@@ -1489,6 +1489,63 @@ html:has(.shell-child) body {
   margin: var(--space-2) 0 0;
 }
 
+/* Своё название (D-59): «Переименовать» рядом с названием, поле правки на месте названия. */
+.program-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-1) var(--space-3);
+  min-width: 0;
+}
+
+.program-title .program-name {
+  min-width: 0;
+}
+
+.program-rename {
+  color: var(--text-muted);
+  font-size: 14px;
+  white-space: nowrap;
+}
+
+.program-rename:hover:not(:disabled),
+.program-rename:focus-visible {
+  color: var(--text);
+}
+
+.program-rename:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.program-filename {
+  font-style: italic;
+}
+
+.name-editor {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+  margin-bottom: var(--space-1);
+}
+
+.name-editor .name-input {
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.name-editor .name-hint,
+.name-editor .name-error {
+  margin-top: 0;
+}
+
+.name-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
 .sort-button {
   display: inline-flex;
   align-items: center;

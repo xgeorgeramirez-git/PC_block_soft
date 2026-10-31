@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { decideProgram, listPrograms, setProgramsCategory, setProgramsHidden, undoProgram } from "../api";
+import { decideProgram, listPrograms, renameProgram, setProgramsCategory, setProgramsHidden, undoProgram } from "../api";
 import Notice from "../components/Notice";
 import UndoLine from "../components/UndoLine";
 import { errorText } from "../lib/errors";
@@ -13,6 +13,7 @@ import {
   decisionMessage,
   hiddenMessage,
   fitPath,
+  nameError,
   publisherText,
   shortenPath,
   visiblePrograms,
@@ -54,7 +55,8 @@ type Busy =
 type FocusTo =
   | { to: "pending"; index: number }
   | { to: "path"; path: string; category?: ParentCategory; index?: number }
-  | { to: "selectAll" };
+  | { to: "selectAll" }
+  | { to: "rename"; path: string };
 
 /** Последняя отменяемая операция: куда вернуть фокус после «Отменить». */
 type LastOp = { kind: "one"; path: string } | { kind: "bulk" };
@@ -71,6 +73,8 @@ export default function Programs({ initialFilter = "all" }: Props) {
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const [bulkCategory, setBulkCategory] = useState<ParentCategory | "">("");
   const [bulkError, setBulkError] = useState("");
+  /** Строка, где сейчас поле названия (D-59): одна за раз; ошибка — у поля. */
+  const [editing, setEditing] = useState<{ path: string; error: string } | null>(null);
   const alive = useRef(true);
   const seq = useRef(0);
   const busyRef = useRef(false);
@@ -193,6 +197,40 @@ export default function Programs({ initialFilter = "all" }: Props) {
       },
       { to: "path", path: p.path, index },
     );
+
+  /** «Сохранить» в поле названия (D-59, 8.3.4 п.5): ошибка — у поля, поле остаётся открытым. */
+  const saveName = (p: ProgramDTO, draft: string) => {
+    const err = nameError(draft);
+    if (err) {
+      setEditing({ path: p.path, error: err });
+      return;
+    }
+    void run(
+      { kind: "row", path: p.path },
+      async () => {
+        try {
+          const reply = await renameProgram(p.path, draft.trim());
+          if (!alive.current) return null;
+          applyReply(reply.programs);
+          setEditing(null);
+          lastOp.current = { kind: "one", path: p.path };
+          sayDecided("list", reply, "Название изменено");
+          return { to: "rename", path: p.path };
+        } catch (e) {
+          if (!alive.current) return null;
+          setEditing({ path: p.path, error: errorText(e) });
+          return { to: "rename", path: p.path }; // поле открыто: фокус снова в нём
+        }
+      },
+      null,
+    );
+  };
+
+  /** «Отмена» и Escape: поле закрыто, фокус на «Переименовать». */
+  const cancelName = (p: ProgramDTO) => {
+    setEditing(null);
+    focusTo.current = { to: "rename", path: p.path };
+  };
 
   /** «Скрыть» / «Показать» для отмеченных строк. */
   const hideBulk = (paths: string[], hidden: boolean) =>
@@ -496,6 +534,14 @@ export default function Programs({ initialFilter = "all" }: Props) {
                             onToggle={() => toggleOne(p.path)}
                             onCategory={(c) => changeRow(p, c, i)}
                             onHide={(hidden) => hideRow(p, hidden, i)}
+                            editing={editing?.path === p.path}
+                            nameErr={editing && editing.path === p.path ? editing.error : ""}
+                            onRename={() => {
+                              setEditing({ path: p.path, error: "" });
+                            }}
+                            onSaveName={(draft) => saveName(p, draft)}
+                            onCancelName={() => cancelName(p)}
+                            onDraft={() => setEditing((e) => (e && e.path === p.path && e.error ? { ...e, error: "" } : e))}
                           />
                         ))}
                       </tbody>
@@ -532,6 +578,9 @@ function placeFocus(root: HTMLElement, req: FocusTo) {
       target = rowControl(rows[Math.min(req.index, rows.length - 1)]);
     }
     target = target ?? heading();
+  } else if (req.to === "rename") {
+    const row = rows.find((el) => el.dataset.path === req.path);
+    target = row?.querySelector<HTMLElement>("input.name-input") ?? row?.querySelector<HTMLElement>('[data-focus="rename"]') ?? heading();
   } else {
     target = root.querySelector<HTMLElement>('[data-focus="select-all"]') ?? heading();
   }
@@ -540,7 +589,7 @@ function placeFocus(root: HTMLElement, req: FocusTo) {
 
 /** Куда фокус в строке: выбор категории, а у скрытой (выбора нет) кнопка «Показать». */
 function rowControl(row: HTMLElement): HTMLElement | null {
-  return row.querySelector<HTMLElement>("select") ?? row.querySelector<HTMLElement>("button");
+  return row.querySelector<HTMLElement>("select") ?? row.querySelector<HTMLElement>(".col-action button");
 }
 
 /** Общий значок программы (RM3-3): окно приложения, без цвета статуса. */
@@ -679,18 +728,51 @@ interface RowProps {
   onCategory: (category: ParentCategory) => void;
   /** «Скрыть» (true) или «Показать» (false), D-57. */
   onHide: (hidden: boolean) => void;
+  /** Поле названия открыто в этой строке (D-59). */
+  editing: boolean;
+  nameErr: string;
+  onRename: () => void;
+  onSaveName: (draft: string) => void;
+  onCancelName: () => void;
+  onDraft: () => void;
 }
 
-function ProgramRow({ program: p, checked, busy, onToggle, onCategory, onHide }: RowProps) {
+function ProgramRow(props: RowProps) {
+  const { program: p, checked, busy, onToggle, onCategory, onHide } = props;
   const saving = busy?.kind === "row" && busy.path === p.path;
   const hidden = p.hidden === true;
+  const fileName = (p.fileName ?? "").trim();
   return (
     <tr aria-label={p.name} data-path={p.path}>
       <td className="col-check">
         <input type="checkbox" aria-label={`Отметить «${p.name}»`} checked={checked} disabled={busy !== null} onChange={onToggle} />
       </td>
       <td>
-        <p className="program-name">{p.name}</p>
+        {props.editing ? (
+          <NameEditor
+            program={p}
+            error={props.nameErr}
+            busy={busy !== null}
+            onSave={props.onSaveName}
+            onCancel={props.onCancelName}
+            onDraft={props.onDraft}
+          />
+        ) : (
+          <div className="program-title">
+            <p className="program-name">{p.name}</p>
+            <button
+              type="button"
+              className="link program-rename"
+              data-focus="rename"
+              aria-label={`Переименовать «${p.name}»`}
+              disabled={busy !== null}
+              onClick={props.onRename}
+            >
+              Переименовать
+            </button>
+          </div>
+        )}
+        {fileName && fileName !== p.name ? <p className="program-meta program-filename">{`из файла: ${fileName}`}</p> : null}
         <p className="program-meta">{publisherText(p.publisher)}</p>
         <p className="program-meta">
           <PathText path={p.path} max={ROW_PATH_MAX} />
@@ -729,5 +811,76 @@ function ProgramRow({ program: p, checked, busy, onToggle, onCategory, onHide }:
         </button>
       </td>
     </tr>
+  );
+}
+
+interface NameEditorProps {
+  program: ProgramDTO;
+  error: string;
+  busy: boolean;
+  onSave: (draft: string) => void;
+  onCancel: () => void;
+  onDraft: () => void;
+}
+
+/**
+ * Поле названия на месте названия (D-59, 8.3.4 п.5): текущее название выделено, фокус в поле,
+ * Enter — «Сохранить», Escape — «Отмена». Пустое поле вернёт название из файла.
+ */
+function NameEditor({ program: p, error, busy, onSave, onCancel, onDraft }: NameEditorProps) {
+  const [draft, setDraft] = useState(p.name);
+  const input = useRef<HTMLInputElement>(null);
+  const errId = `rename-error-${p.path.replace(/[^a-z0-9]/gi, "_")}`;
+  const hintId = `${errId}-hint`;
+  useLayoutEffect(() => {
+    const el = input.current;
+    if (!el) return;
+    el.focus();
+    el.setSelectionRange(0, el.value.length); // текущее название выделено: ввод заменяет его
+  }, []);
+  return (
+    <div className="name-editor">
+      <input
+        ref={input}
+        type="text"
+        className="field-input name-input"
+        aria-label={`Новое название для «${p.name}»`}
+        aria-invalid={error ? true : undefined}
+        aria-describedby={error ? errId : hintId}
+        value={draft}
+        disabled={busy}
+        onChange={(e) => {
+          setDraft(e.target.value);
+          onDraft();
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            if (!busy) onSave(draft);
+          } else if (e.key === "Escape") {
+            e.preventDefault();
+            e.stopPropagation();
+            onCancel();
+          }
+        }}
+      />
+      {error ? (
+        <p id={errId} className="field-error name-error">
+          {error}
+        </p>
+      ) : (
+        <p id={hintId} className="field-hint name-hint">
+          До 60 символов. Пустое поле вернёт название из файла
+        </p>
+      )}
+      <div className="name-actions">
+        <button type="button" className="btn btn-small btn-primary" disabled={busy} onClick={() => onSave(draft)}>
+          {busy ? "Сохраняю…" : "Сохранить"}
+        </button>
+        <button type="button" className="btn btn-small" disabled={busy} onClick={onCancel}>
+          Отмена
+        </button>
+      </div>
+    </div>
   );
 }

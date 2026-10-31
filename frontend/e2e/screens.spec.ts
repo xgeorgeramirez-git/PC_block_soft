@@ -846,6 +846,58 @@ test("s11 программы: фильтр «Скрытые»", async ({ page })
   await page.screenshot({ path: `${SCREENS}/s11-programs-hidden.png`, fullPage: true });
 });
 
+/** Строка в режиме правки названия не налезает на колонки: поле и кнопки внутри своей ячейки (D-59). */
+async function editorInCell(page: Page) {
+  const bad = await page.evaluate(() => {
+    const out: string[] = [];
+    const editor = document.querySelector<HTMLElement>(".name-editor");
+    const cell = editor?.closest("td")?.getBoundingClientRect();
+    const cat = editor?.closest("tr")?.querySelector<HTMLElement>(".col-category")?.getBoundingClientRect();
+    if (!editor || !cell || !cat) return ["нет поля названия"];
+    for (const el of Array.from(editor.querySelectorAll<HTMLElement>("input, button, p"))) {
+      const r = el.getBoundingClientRect();
+      if (r.right > cell.right + 0.5 || r.left < cell.left - 0.5) out.push(`вылезает из ячейки: ${el.tagName} ${el.textContent?.slice(0, 30)}`);
+      if (r.right > cat.left + 0.5) out.push(`налезает на категорию: ${el.tagName} ${el.textContent?.slice(0, 30)}`);
+    }
+    return out;
+  });
+  expect(bad).toEqual([]);
+}
+
+// s11 — «Переименовать» (D-59, 8.3.4 п.5): поле на месте названия с «Сохранить»/«Отмена», затем
+// своё название с «из файла: …» и «Название изменено» с «Отменить».
+test("s11 программы: переименование", async ({ page }) => {
+  await tallWindow(page, 1300);
+  const list = [
+    ...programList(),
+    { path: "c:\\program files\\epic games\\stalker2\\binaries\\win64\\stalker2-win64-shipping.exe", name: "Stalker2-Win64-Shipping", publisher: "GSC Game World", category: "games" as const, source: "catalog" as const, weekS: 9000 },
+  ];
+  await openPrograms(page, { pending: [], programs: list });
+  const all = page.getByRole("region", { name: "Все программы" });
+  const row = all.getByRole("row", { name: "Stalker2-Win64-Shipping", exact: true });
+  // Точное имя внутри своей строки: имена соседних кнопок содержат название программы.
+  await row.getByRole("button", { name: "Переименовать «Stalker2-Win64-Shipping»", exact: true }).click();
+  const field = row.getByRole("textbox", { name: "Новое название для «Stalker2-Win64-Shipping»", exact: true });
+  await expect(field).toBeFocused();
+  await editorInCell(page);
+  await hideButtonsInColumn(page);
+  await noHorizontalScroll(page);
+  await page.screenshot({ path: `${SCREENS}/s11-programs-rename-edit.png`, fullPage: true });
+
+  await field.fill("Сталкер 2");
+  await row.getByRole("button", { name: "Сохранить", exact: true }).click();
+  await expect(page.getByText("Название изменено")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Отменить", exact: true })).toBeVisible();
+  const renamed = all.getByRole("row", { name: "Сталкер 2", exact: true });
+  await expect(renamed.getByText("из файла: Stalker2-Win64-Shipping", { exact: true })).toBeVisible();
+  await hideButtonsInColumn(page);
+  await nothingSticksOut(page);
+  await pathsOneLine(page);
+  await blocksApart(page);
+  await noHorizontalScroll(page);
+  await page.screenshot({ path: `${SCREENS}/s11-programs-rename.png`, fullPage: true });
+});
+
 // s11 — «Программы» пустой: никто ничего не запускал.
 test("s11 программы: пусто", async ({ page }) => {
   await openPrograms(page, { pending: [], programs: [] });
