@@ -770,8 +770,8 @@ test("s11 программы: ждут решения и список", async ({
   await nothingSticksOut(page);
   await pathsOneLine(page);
   await rowsEven(page);
-  const longName = page.getByRole("region", { name: "Все программы" }).locator(".program-name[title]");
-  await expect(longName).toHaveAttribute("title", "Очень длинное название игры с пробелами и цифрами 2026");
+  const longName = page.getByRole("region", { name: "Все программы" }).locator('.program-name[title="Очень длинное название игры с пробелами и цифрами 2026"]');
+  await expect(longName).toHaveCount(1);
   await expect(longName).toContainText("…");
   await noHorizontalScroll(page);
   await page.screenshot({ path: `${SCREENS}/s11-programs.png`, fullPage: true });
