@@ -44,13 +44,82 @@ export interface TodayRow {
 /** «Видео и соцсети» появятся в M4. */
 export const NOT_COUNTED = "Пока не считается";
 
-/** «Итоги» по категориям (S13): игры и учёба за сегодня от службы, видео и соцсети - с M4. */
-export function categoryTotals(reply: MyTodayReply): TodayRow[] {
-  return [
-    { label: "Игры", value: formatDuration(reply.gamesS) },
-    { label: "Видео и соцсети", value: NOT_COUNTED },
-    { label: "Учёба", value: formatDuration(reply.studyS) },
-  ];
+/** Вкладка «Итогов» (D-58): «Всего» или категория учёта программ. */
+export type TotalsTab = "all" | "games" | "study" | "other";
+
+/** Строки-вкладки «Итогов» по порядку (8.2.6 п.3); «Видео и соцсети» - строка без вкладки (M4). */
+export const TOTALS_TABS: { id: TotalsTab; label: string }[] = [
+  { id: "all", label: "Всего" },
+  { id: "games", label: "Игры" },
+  { id: "study", label: "Учёба" },
+  { id: "other", label: "Прочее" },
+];
+
+/** Пустая вкладка. */
+export const EMPTY_TAB = "Пока ничего не запускалось";
+
+/** Сумма вкладки за сегодня, секунды: счётчики службы, а не сумма строк (одно число - одно место). */
+export function tabSeconds(reply: MyTodayReply, tab: TotalsTab): number {
+  switch (tab) {
+    case "all":
+      return reply.allS;
+    case "games":
+      return reply.gamesS;
+    case "study":
+      return reply.studyS;
+    case "other":
+      return reply.otherS;
+  }
+}
+
+/** Строка вкладки: название, время и доля от суммы вкладки. */
+export interface TabRow {
+  key: string;
+  name: string;
+  time: string;
+  share: string;
+  /** Строка «Другое»: время без программы, всегда последняя. */
+  rest: boolean;
+}
+
+/** Время строки: меньше минуты - словами, иначе как везде в окне. */
+function rowTime(seconds: number): string {
+  return seconds > 0 && seconds < 60 ? "меньше 1 мин" : formatDuration(seconds);
+}
+
+/**
+ * Строки вкладки (D-58, S39): программы самые долгие сверху, «Другое» (время без программы)
+ * последней. «Всего» - все программы, одна программа одной строкой, даже если её секунды в двух
+ * категориях. Доля - целые проценты от суммы вкладки, каждая округлена сама: сумма долей может
+ * быть 99-101, подгонки нет.
+ */
+export function tabRows(reply: MyTodayReply, tab: TotalsTab): TabRow[] {
+  const merged = new Map<string, { name: string; seconds: number; rest: boolean }>();
+  for (const p of reply.programs) {
+    if (tab !== "all" && p.category !== tab) continue;
+    if (tab === "all" && p.category === "video_social") continue;
+    const key = p.path === "" ? "" : p.path;
+    const cur = merged.get(key);
+    if (cur) cur.seconds += p.seconds;
+    else merged.set(key, { name: p.name, seconds: p.seconds, rest: p.path === "" });
+  }
+  const rows = [...merged.entries()].filter(([, v]) => v.seconds > 0);
+  const total = tabSeconds(reply, tab) || rows.reduce((n, [, v]) => n + v.seconds, 0);
+  rows.sort(([ka, a], [kb, b]) => {
+    if (a.rest !== b.rest) return a.rest ? 1 : -1;
+    if (a.seconds !== b.seconds) return b.seconds - a.seconds;
+    const na = a.name.toLowerCase();
+    const nb = b.name.toLowerCase();
+    if (na !== nb) return na < nb ? -1 : 1;
+    return ka < kb ? -1 : 1;
+  });
+  return rows.map(([key, v]) => ({
+    key: key === "" ? "rest" : key,
+    name: v.name,
+    time: rowTime(v.seconds),
+    share: `${total > 0 ? Math.round((v.seconds * 100) / total) : 0}%`,
+    rest: v.rest,
+  }));
 }
 
 /** Остаток в минутах тем же правилом, что у значка и табло: вверх (B-5). */

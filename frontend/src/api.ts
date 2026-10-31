@@ -286,7 +286,7 @@ export async function myToday(): Promise<MyTodayReply> {
   return myTodayOf(r);
 }
 
-/** Пустые списки приходят как null, у старой службы нет итогов игр и учёбы: приводим к [] и 0. */
+/** Пустые списки приходят как null, у старой службы нет итогов и времени программ: приводим к [] и 0. */
 function myTodayOf(r: Partial<MyTodayReply>): MyTodayReply {
   return {
     status: r.status as MyTodayReply["status"],
@@ -294,6 +294,9 @@ function myTodayOf(r: Partial<MyTodayReply>): MyTodayReply {
     rules: r.rules ?? [],
     gamesS: r.gamesS ?? 0,
     studyS: r.studyS ?? 0,
+    otherS: r.otherS ?? 0,
+    allS: r.allS ?? 0,
+    programs: r.programs ?? [],
   };
 }
 

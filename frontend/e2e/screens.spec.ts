@@ -542,6 +542,117 @@ for (const dsf of [1, 1.5]) {
   });
 }
 
+// Вкладки «Итогов» (D-58, S39): game 10 мин, game2 5 мин, study 3 мин; длинное название игры, чтобы
+// замер видел обрезку, и «Другое» (время без программы) последней строкой.
+const S39_LONG = "Очень длинное название игры с пробелами и цифрами 2026";
+const s39Programs = [
+  { path: "c:\\games\\game.exe", name: "game", category: "games" as const, seconds: 600 },
+  { path: "c:\\games\\game2.exe", name: "game2", category: "games" as const, seconds: 300 },
+  { path: "c:\\games\\long.exe", name: S39_LONG, category: "games" as const, seconds: 120 },
+  { path: "c:\\school\\study.exe", name: "study", category: "study" as const, seconds: 180 },
+  { path: "", name: "Другое", category: "other" as const, seconds: 300 },
+];
+const s39Child = () => child({ usedS: 1320, gamesUsedS: 1020, studyUsedS: 180, programsToday: s39Programs });
+
+/**
+ * Замер списка выбранной вкладки (8.2.6 п.3): строки не налезают друг на друга, название, время и доля
+ * внутри своей строки и не пересекаются, время и доля выровнены по правому краю во всех строках,
+ * список не шире панели. При сбое все размеры в одной строке ошибки (журналы Actions недоступны).
+ */
+async function tabListFits(page: Page, where: string) {
+  // Окно ребёнка само лежит в панели вкладки «Сегодня»: панель «Итогов» ищем внутри «Итогов».
+  const report = await page.getByRole("region", { name: "Итоги" }).getByRole("tabpanel").evaluate((panel) => {
+    const r = (el: Element | null) => {
+      const b = el!.getBoundingClientRect();
+      return { l: Math.round(b.left * 10) / 10, r: Math.round(b.right * 10) / 10, t: Math.round(b.top * 10) / 10, b: Math.round(b.bottom * 10) / 10 };
+    };
+    const items = [...panel.querySelectorAll(".totals-item")].map((li) => ({
+      text: li.textContent ?? "",
+      row: r(li),
+      name: r(li.querySelector(".totals-name")),
+      nameScroll: (li.querySelector(".totals-name") as HTMLElement).scrollWidth,
+      nameClient: (li.querySelector(".totals-name") as HTMLElement).clientWidth,
+      time: r(li.querySelector(".totals-time")),
+      share: r(li.querySelector(".totals-share")),
+    }));
+    return { panel: r(panel), items };
+  });
+  const problems: string[] = [];
+  const { panel, items } = report;
+  if (items.length === 0) problems.push("в списке нет строк");
+  items.forEach((it, i) => {
+    if (it.row.l < panel.l - 0.5 || it.row.r > panel.r + 0.5) problems.push(`строка ${i} шире панели`);
+    for (const [n, c] of [["название", it.name], ["время", it.time], ["доля", it.share]] as const) {
+      if (c.l < it.row.l - 0.5 || c.r > it.row.r + 0.5 || c.t < it.row.t - 0.5 || c.b > it.row.b + 0.5) problems.push(`строка ${i}: ${n} вне строки`);
+    }
+    if (it.name.r > it.time.l + 0.5) problems.push(`строка ${i}: название налезает на время`);
+    if (it.time.r > it.share.l + 0.5) problems.push(`строка ${i}: время налезает на долю`);
+    if (it.nameScroll > it.nameClient + 2) problems.push(`строка ${i}: название не помещается (${it.nameScroll} > ${it.nameClient})`);
+    if (i > 0 && it.row.t < items[i - 1].row.b - 0.5) problems.push(`строки ${i - 1} и ${i} налезают`);
+    if (i > 0 && Math.abs(it.share.r - items[0].share.r) > 0.5) problems.push(`строка ${i}: доля не выровнена`);
+    if (i > 0 && Math.abs(it.time.r - items[0].time.r) > 0.5) problems.push(`строка ${i}: время не выровнено`);
+  });
+  expect(problems, `${where}: ${problems.join("; ")} | ${JSON.stringify(report)}`).toEqual([]);
+}
+
+// s06 — вкладка «Игры» в окне ребёнка (D-58, S39): сумма игр и каждая игра «название, время, доля»;
+// замер на всех размерах окна, включая самые узкие 800 x 480 и 640 x 520.
+for (const [w, h] of [
+  [800, 640],
+  [800, 480],
+  [640, 520],
+]) {
+  test(`s06 моя статистика: вкладка «Игры» в окне ${w} x ${h}`, async ({ page }) => {
+    await page.setViewportSize({ width: w, height: h });
+    await mockProgram(page, { mode: "mystats", children: [s39Child()], myChildId: 1 });
+    await page.goto("/");
+    const totals = page.getByRole("region", { name: "Итоги" });
+    const tabs = totals.getByRole("tablist", { name: "Итоги по категориям" });
+    await expect(tabs.getByRole("tab")).toHaveCount(4);
+    await tabs.getByRole("tab", { name: "Игры", exact: true }).click();
+    await expect(tabs.getByRole("tab", { name: "Игры", exact: true })).toHaveAttribute("aria-selected", "true");
+    const panel = totals.getByRole("tabpanel");
+    await expect(panel.getByText("Игры за сегодня: 17 мин", { exact: true })).toBeVisible();
+    const list = panel.getByRole("list", { name: "Игры: по программам" });
+    await expect(list.getByRole("listitem")).toHaveCount(3);
+    await expect(list.getByRole("listitem").nth(0)).toHaveText("game10 мин59%");
+    await expect(list.getByRole("listitem").nth(1)).toHaveText("game25 мин29%");
+    // Длинное название одной строкой (fitName, PL-22): целиком или обрезано одним «…» с полным в подсказке.
+    const long = await list.getByRole("listitem").nth(2).locator(".totals-name").evaluate((el) => ({
+      title: el.getAttribute("title"),
+      shown: el.querySelector('[aria-hidden="true"]')?.textContent ?? el.textContent,
+      width: el.clientWidth,
+    }));
+    const longOk = long.title === null ? long.shown === S39_LONG : long.title === S39_LONG && long.shown!.endsWith("…") && long.shown!.split("…").length === 2;
+    expect(longOk, `длинное название в окне ${w} x ${h}: ${JSON.stringify(long)}`).toBe(true);
+    await tabListFits(page, `окно ${w} x ${h}`);
+    await noHorizontalScroll(page);
+    await totals.scrollIntoViewIfNeeded();
+    if (w === 800 && h === 640) await page.screenshot({ path: `${SCREENS}/s06-my-stats-games.png`, fullPage: true });
+    if (w === 640) await page.screenshot({ path: `${SCREENS}/s06-my-stats-games-small.png` });
+  });
+}
+
+// s31 — статистика родителя, вкладка «Игры» (FR-23, D-58, S39): те же строки, что у ребёнка.
+test("s31 статистика родителя: вкладка «Игры»", async ({ page }) => {
+  await tallWindow(page, 900);
+  await mockProgram(page, { mode: "parent", sessionActive: true, children: [s39Child(), child({ childId: 2, sid: "S-1-5-21-111-222-333-1002", name: "Даша", usedS: 600 })] });
+  await page.goto("/");
+  await page.getByRole("article", { name: "Миша" }).getByRole("button", { name: "Статистика" }).click();
+  const totals = page.getByRole("region", { name: "Итоги" });
+  const tabs = totals.getByRole("tablist", { name: "Итоги по категориям" });
+  await tabs.getByRole("tab", { name: "Игры", exact: true }).click();
+  const panel = totals.getByRole("tabpanel");
+  await expect(panel.getByText("Игры за сегодня: 17 мин", { exact: true })).toBeVisible();
+  await expect(panel.getByRole("list", { name: "Игры: по программам" }).getByRole("listitem").nth(0)).toHaveText("game10 мин59%");
+  await tabListFits(page, "статистика родителя");
+  await noHorizontalScroll(page);
+  await page.screenshot({ path: `${SCREENS}/s31-parent-stats-games.png`, fullPage: true });
+  // Учёба: study 3 мин.
+  await tabs.getByRole("tab", { name: "Учёба", exact: true }).click();
+  await expect(panel.getByRole("list", { name: "Учёба: по программам" }).getByRole("listitem")).toHaveText(["study3 мин100%"]);
+});
+
 // s06 — панель «Позови родителя» (FR-10): пароль родителя и +15 / +30 / +60 / своё число.
 test("s06 панель «Позови родителя»", async ({ page }) => {
   await mockProgram(page, { mode: "mystats", children: [child({ bonusBalance: 45 })], myChildId: 1 });

@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   ASK_PRESETS,
   askMinutes,
-  categoryTotals,
+  EMPTY_TAB,
+  TOTALS_TABS,
   firstRunLines,
   spendBlockedNote,
   spendChoices,
@@ -10,9 +11,12 @@ import {
   summaryLines,
   todayRows,
   splitRules,
+  tabRows,
+  tabSeconds,
   todayRuleWeekday,
 } from "./mytoday";
-import type { ChildStatus, MyTodayReply } from "../types";
+import { formatDuration } from "./format";
+import type { ChildStatus, MyTodayReply, ProgramTime } from "../types";
 
 // Окна ребёнка (FR-12, FR-32): тексты собираются из ответа MyToday, а не пересчитываются.
 
@@ -48,7 +52,7 @@ function status(over: Partial<ChildStatus> = {}): ChildStatus {
 }
 
 function reply(over: Partial<ChildStatus> = {}, today: string[] = []): MyTodayReply {
-  return { status: status(over), today, rules: [], gamesS: 0, studyS: 0 };
+  return { status: status(over), today, rules: [], gamesS: 0, studyS: 0, otherS: 0, allS: 0, programs: [] };
 }
 
 describe("firstRunLines: пересказ правил на сегодня", () => {
@@ -252,17 +256,81 @@ describe("splitRules: «Мои правила» (R21)", () => {
   });
 });
 
-describe("categoryTotals: «Итоги» по категориям", () => {
-  it("игры и учёба за сегодня как общее время, видео и соцсети пока не считаются", () => {
-    const r = { ...reply(), gamesS: 2 * 3600 + 5 * 60, studyS: 40 * 60 };
-    expect(categoryTotals(r)).toEqual([
-      { label: "Игры", value: "2 ч 05 мин" },
-      { label: "Видео и соцсети", value: "Пока не считается" },
-      { label: "Учёба", value: "40 мин" },
+// Вкладки «Итогов» (D-58, S39): сумма категории и каждая программа «название - время - доля».
+function totalsReply(programs: ProgramTime[], over: Partial<MyTodayReply> = {}): MyTodayReply {
+  return { ...reply(), gamesS: 900, studyS: 180, otherS: 300, allS: 1380, programs, ...over };
+}
+
+const S39: ProgramTime[] = [
+  { path: "c:\\games\\game.exe", name: "game", category: "games", seconds: 600 },
+  { path: "c:\\games\\game2.exe", name: "game2", category: "games", seconds: 300 },
+  { path: "c:\\school\\study.exe", name: "study", category: "study", seconds: 180 },
+  { path: "c:\\tools\\brave.exe", name: "Brave", category: "other", seconds: 120 },
+  { path: "", name: "Другое", category: "other", seconds: 180 },
+];
+
+describe("вкладки «Итогов»", () => {
+  it("вкладки «Всего», «Игры», «Учёба», «Прочее» с суммами от службы", () => {
+    const r = totalsReply(S39);
+    expect(TOTALS_TABS.map((t) => [t.label, formatDuration(tabSeconds(r, t.id))])).toEqual([
+      ["Всего", "23 мин"],
+      ["Игры", "15 мин"],
+      ["Учёба", "3 мин"],
+      ["Прочее", "5 мин"],
     ]);
   });
 
-  it("ничего не было: «0 мин»", () => {
-    expect(categoryTotals({ ...reply(), gamesS: 0, studyS: 0 }).map((r) => r.value)).toEqual(["0 мин", "Пока не считается", "0 мин"]);
+  // Ловит (S39): доля не от суммы категории, проценты дробные или не округлены; не по убыванию.
+  it("«Игры»: game 10 мин 67%, game2 5 мин 33%", () => {
+    expect(tabRows(totalsReply(S39), "games").map((x) => [x.name, x.time, x.share])).toEqual([
+      ["game", "10 мин", "67%"],
+      ["game2", "5 мин", "33%"],
+    ]);
+  });
+
+  it("«Учёба»: study 3 мин 100%", () => {
+    expect(tabRows(totalsReply(S39), "study").map((x) => [x.name, x.time, x.share])).toEqual([["study", "3 мин", "100%"]]);
+  });
+
+  // Ловит: «Другое» встаёт по времени выше программы (это не программа) или пропадает.
+  it("«Прочее»: «Другое» последней строкой, даже если дольше", () => {
+    expect(tabRows(totalsReply(S39), "other").map((x) => [x.name, x.time, x.share])).toEqual([
+      ["Brave", "2 мин", "40%"],
+      ["Другое", "3 мин", "60%"],
+    ]);
+  });
+
+  // Ловит: «Всего» показывает «Другое» каждой категории отдельной строкой, программа из двух
+  // категорий (сменили категорию днём) идёт двумя строками, доли не от «Всего».
+  it("«Всего»: все программы, одна программа одной строкой, «Другое» одно и последнее", () => {
+    const rows = [
+      ...S39,
+      { path: "c:\\games\\game.exe", name: "game", category: "other" as const, seconds: 60 },
+      { path: "", name: "Другое", category: "games" as const, seconds: 60 },
+    ];
+    expect(tabRows(totalsReply(rows, { allS: 1500 }), "all").map((x) => [x.name, x.time, x.share])).toEqual([
+      ["game", "11 мин", "44%"],
+      ["game2", "5 мин", "20%"],
+      ["study", "3 мин", "12%"],
+      ["Brave", "2 мин", "8%"],
+      ["Другое", "4 мин", "16%"],
+    ]);
+  });
+
+  // Ловит: сумма округлённых долей обязана быть 100 и подгоняется (8.2.6: округление честное, 99-101).
+  it("три равные программы: по 33%, сумма 99", () => {
+    const three: ProgramTime[] = ["a", "b", "c"].map((n) => ({ path: `c:\\${n}.exe`, name: n, category: "games" as const, seconds: 200 }));
+    expect(tabRows(totalsReply(three, { gamesS: 600 }), "games").map((x) => x.share)).toEqual(["33%", "33%", "33%"]);
+  });
+
+  it("меньше минуты: «меньше 1 мин», а не «0 мин»", () => {
+    const one: ProgramTime[] = [{ path: "c:\\a.exe", name: "a", category: "games", seconds: 59 }];
+    expect(tabRows(totalsReply(one, { gamesS: 59 }), "games").map((x) => [x.time, x.share])).toEqual([["меньше 1 мин", "100%"]]);
+  });
+
+  it("пустая категория и старая служба без списка: строк нет", () => {
+    expect(tabRows(totalsReply([], { gamesS: 0 }), "games")).toEqual([]);
+    expect(tabRows(totalsReply(S39.filter((x) => x.category !== "study"), { studyS: 0 }), "study")).toEqual([]);
+    expect(EMPTY_TAB).toBe("Пока ничего не запускалось");
   });
 });

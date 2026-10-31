@@ -3,6 +3,7 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import MyStats from "./MyStats";
 import { DEFAULT_PASSWORD, installBackend, mockChild, uninstallBackend, type MockBackend } from "../__mocks__/backend";
+import type { ProgramTime } from "../types";
 
 // FR-12, R21, сценарий 8.2.6: окно «Моя статистика» только для чтения, в M1 - «Сегодня» и «Мои правила».
 
@@ -74,7 +75,7 @@ describe("MyStats: окно только для чтения (R21)", () => {
 describe("MyStats: периоды", () => {
   it("пять периодов, выбран «Сегодня»", async () => {
     setup();
-    const tabs = await screen.findAllByRole("tab");
+    const tabs = within(await screen.findByRole("tablist", { name: "Период" })).getAllByRole("tab");
     expect(tabs.map((t) => t.textContent)).toEqual(["Сегодня", "Неделя", "Месяц", "Год", "Всё время"]);
     expect(screen.getByRole("tab", { name: "Сегодня" }).getAttribute("aria-selected")).toBe("true");
   });
@@ -102,7 +103,8 @@ describe("MyStats: Итоги", () => {
     const box = await screen.findByRole("region", { name: "Итоги" });
     const total = within(box).getByText("Использовано сегодня").closest("div");
     expect(total?.textContent).toContain("35 мин");
-    expect(within(box).queryByText("Всего")).toBeNull();
+    // «Всего» - только вкладка (D-58) со своей подписью «Всего за сегодня», не безымянная строка.
+    expect(within(box).getAllByText("Всего").every((el) => el.closest('[role="tab"]') !== null)).toBe(true);
     expect(within(box).queryByText(/осталось/i)).toBeNull();
     expect(within(box).queryByText("Использовано 35 мин")).toBeNull();
     const left = within(screen.getByRole("region", { name: "Сколько осталось" })).getByText("Осталось всего").closest("div");
@@ -113,10 +115,14 @@ describe("MyStats: Итоги", () => {
   it("итоги: игры и учёба за сегодня от службы, видео и соцсети «Пока не считается»", async () => {
     setup({ children: [mockChild({ usedS: 2100, gamesUsedS: 1200, studyUsedS: 2400 })] });
     const box = await screen.findByRole("region", { name: "Итоги" });
-    const value = (label: string) => within(box).getByText(label).closest("div")?.querySelector("dd")?.textContent;
+    const tabs = within(within(box).getByRole("tablist", { name: "Итоги по категориям" }));
+    const value = (label: string) => tabs.getByRole("tab", { name: label }).querySelector(".totals-tab-value")?.textContent;
+    expect(value("Всего")).toBe("1 ч 15 мин");
     expect(value("Игры")).toBe("20 мин");
     expect(value("Учёба")).toBe("40 мин");
-    expect(value("Видео и соцсети")).toBe("Пока не считается");
+    expect(value("Прочее")).toBe("15 мин");
+    expect(within(box).getByText("Видео и соцсети").closest("div")?.querySelector("dd")?.textContent).toBe("Пока не считается");
+    expect(within(box).queryByRole("tab", { name: "Видео и соцсети" })).toBeNull();
     expect(within(box).queryByText("Появится позже")).toBeNull();
   });
 
@@ -139,6 +145,86 @@ describe("MyStats: Итоги", () => {
     const box = await screen.findByRole("region", { name: "Итоги" });
     expect(within(box).getByText("За этот период пока нет данных")).toBeTruthy();
     expect(within(box).queryByText("Использовано сегодня")).toBeNull();
+  });
+});
+
+// Вкладки «Итогов» (D-58, S39): сумма категории и каждая программа «название, время, доля».
+const S39_PROGRAMS: ProgramTime[] = [
+  { path: "c:\\games\\game.exe", name: "game", category: "games", seconds: 600 },
+  { path: "c:\\games\\game2.exe", name: "game2", category: "games", seconds: 300 },
+  { path: "c:\\school\\study.exe", name: "study", category: "study", seconds: 180 },
+  { path: "", name: "Другое", category: "other", seconds: 300 },
+];
+
+function s39Child() {
+  return mockChild({ usedS: 1200, gamesUsedS: 900, studyUsedS: 180, programsToday: S39_PROGRAMS });
+}
+
+/** Строки списка выбранной вкладки: [название, время, доля]. */
+function listRows(box: HTMLElement): string[][] {
+  const list = within(box).queryByRole("list", { name: /по программам$/ });
+  if (!list) return [];
+  return within(list)
+    .getAllByRole("listitem")
+    .map((li) => [".totals-name", ".totals-time", ".totals-share"].map((c) => li.querySelector(c)?.textContent ?? ""));
+}
+
+describe("MyStats: вкладки «Итогов»", () => {
+  // Ловит (S39): нажатие «Игры» не показывает сумму и игры по отдельности, доли не 67% и 33%.
+  it("«Игры»: сумма 15 мин, game 10 мин 67%, game2 5 мин 33%", async () => {
+    const user = setup({ children: [s39Child()] });
+    const box = await screen.findByRole("region", { name: "Итоги" });
+    const tabs = within(within(box).getByRole("tablist", { name: "Итоги по категориям" }));
+    expect(tabs.getAllByRole("tab").map((t) => t.querySelector(".totals-tab-label")?.textContent)).toEqual(["Всего", "Игры", "Учёба", "Прочее"]);
+    await user.click(tabs.getByRole("tab", { name: "Игры" }));
+    expect(tabs.getByRole("tab", { name: "Игры" }).getAttribute("aria-selected")).toBe("true");
+    expect(tabs.getByRole("tab", { name: "Всего" }).getAttribute("aria-selected")).toBe("false");
+    const panel = within(box).getByRole("tabpanel");
+    expect(panel.getAttribute("aria-labelledby")).toBe("totals-tab-games");
+    expect(tabs.getByRole("tab", { name: "Игры" }).getAttribute("aria-controls")).toBe(panel.id);
+    expect(within(panel).getByText("Игры за сегодня: 15 мин")).toBeTruthy();
+    expect(listRows(panel)).toEqual([
+      ["game", "10 мин", "67%"],
+      ["game2", "5 мин", "33%"],
+    ]);
+  });
+
+  it("«Учёба»: study 3 мин; «Всего» по умолчанию со всеми программами", async () => {
+    const user = setup({ children: [s39Child()] });
+    const box = await screen.findByRole("region", { name: "Итоги" });
+    expect(within(box).getByText("Всего за сегодня: 23 мин")).toBeTruthy();
+    expect(listRows(box).map((r) => r[0])).toEqual(["game", "game2", "study", "Другое"]);
+    await user.click(within(box).getByRole("tab", { name: "Учёба" }));
+    expect(listRows(box)).toEqual([["study", "3 мин", "100%"]]);
+  });
+
+  // Ловит: пустая категория показывает пустой список или ноль без объяснения (8.2.6 п.3).
+  it("пустая категория: «Пока ничего не запускалось»", async () => {
+    const user = setup({ children: [mockChild({ usedS: 0, gamesUsedS: 0, studyUsedS: 0 })] });
+    const box = await screen.findByRole("region", { name: "Итоги" });
+    await user.click(within(box).getByRole("tab", { name: "Игры" }));
+    expect(within(box).getByText("Пока ничего не запускалось")).toBeTruthy();
+    expect(within(box).queryByRole("list", { name: /по программам$/ })).toBeNull();
+  });
+
+  // Ловит: вкладки не переключаются стрелками, фокус не идёт за выбором (доступность вкладок).
+  it("стрелки, Home и End переключают вкладки и переносят фокус", async () => {
+    const user = setup({ children: [s39Child()] });
+    const box = await screen.findByRole("region", { name: "Итоги" });
+    const tab = (name: string) => within(box).getByRole("tab", { name });
+    expect(tab("Всего").tabIndex).toBe(0);
+    expect(tab("Игры").tabIndex).toBe(-1);
+    tab("Всего").focus();
+    await user.keyboard("{ArrowRight}");
+    expect(document.activeElement).toBe(tab("Игры"));
+    expect(tab("Игры").getAttribute("aria-selected")).toBe("true");
+    await user.keyboard("{ArrowLeft}{ArrowLeft}");
+    expect(document.activeElement).toBe(tab("Прочее"));
+    await user.keyboard("{Home}");
+    expect(tab("Всего").getAttribute("aria-selected")).toBe("true");
+    await user.keyboard("{End}");
+    expect(tab("Прочее").getAttribute("aria-selected")).toBe("true");
+    expect(listRows(box)).toEqual([["Другое", "5 мин", "100%"]]);
   });
 });
 

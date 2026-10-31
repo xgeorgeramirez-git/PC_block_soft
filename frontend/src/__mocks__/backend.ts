@@ -25,6 +25,7 @@ import type {
   ProgramCategory,
   ProgramDTO,
   ProgramsReply,
+  ProgramTime,
 } from "../types";
 
 export const DEFAULT_PASSWORD = "секрет-123";
@@ -67,6 +68,11 @@ export interface MockChild {
   gamesUsedS?: number;
   /** Учёба за сегодня, секунды (R3); в usedS не входит. */
   studyUsedS?: number;
+  /**
+   * Время программ за сегодня для вкладок «Итогов» (D-58), как отдаёт служба: скрытых нет, время
+   * без программы - строка «Другое» без пути. Нет - пустой список.
+   */
+  programsToday?: ProgramTime[];
 }
 
 /** Промокод в подменной программе (R26, D-50). */
@@ -452,7 +458,17 @@ function myToday(child: MockChild | undefined, nowMs: number): MyTodayReply {
   if (status.lock === "timeUp" && status.until) {
     today.push(status.until);
   }
-  return { status, today, rules: myRules(child), gamesS: child.gamesUsedS ?? 0, studyS: child.studyUsedS ?? 0 };
+  const gamesS = child.gamesUsedS ?? 0;
+  const studyS = child.studyUsedS ?? 0;
+  // «Прочее» и «Всего» - как у службы: общее время без игр (видео в M3 нет) и общее плюс учёба.
+  const otherS = Math.max(0, status.usedS - gamesS);
+  const programs = (child.programsToday ?? []).map((p) => ({ ...p }));
+  // Как служба: время категории, не названное строками, - строка «Другое» (сумма строк = итог).
+  for (const [category, total] of [["games", gamesS], ["study", studyS], ["other", otherS]] as const) {
+    const named = programs.filter((p) => p.category === category).reduce((n, p) => n + p.seconds, 0);
+    if (total > named) programs.push({ path: "", name: "Другое", category, seconds: total - named });
+  }
+  return { status, today, rules: myRules(child), gamesS, studyS, otherS, allS: status.usedS + studyS, programs };
 }
 
 const PARENT_COMMANDS = new Set([

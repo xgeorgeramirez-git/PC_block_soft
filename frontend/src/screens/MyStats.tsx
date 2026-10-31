@@ -1,13 +1,26 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type KeyboardEvent } from "react";
 import { getBonus, myToday, openWindow } from "../api";
 import AskMoreDialog from "../components/AskMoreDialog";
+import { LineText } from "../components/FitText";
 import Notice from "../components/Notice";
 import PromoRedeem from "../components/PromoRedeem";
 import SpendBonusDialog from "../components/SpendBonusDialog";
 import { historyText } from "../lib/bonus";
 import { childErrorText } from "../lib/errors";
 import { formatDuration, formatEventTime, formatLimit, weekdayName } from "../lib/format";
-import { NOT_COUNTED, categoryTotals, spendBlockedNote, splitRules, summaryLines, todayRows, todayRuleWeekday } from "../lib/mytoday";
+import {
+  EMPTY_TAB,
+  NOT_COUNTED,
+  TOTALS_TABS,
+  spendBlockedNote,
+  splitRules,
+  summaryLines,
+  tabRows,
+  tabSeconds,
+  todayRows,
+  todayRuleWeekday,
+  type TotalsTab,
+} from "../lib/mytoday";
 import type { GetBonusReply, MyTodayReply } from "../types";
 
 const LOAD_ERROR = "Не удалось получить данные. Попробуй через минуту";
@@ -204,8 +217,30 @@ export function Remaining({ data, onAsk, onSpend }: { data: MyTodayReply; onAsk:
   );
 }
 
+/**
+ * «Итоги» (8.2.6 п.3, D-58): строки «Всего», «Игры», «Учёба», «Прочее» - вкладки; выбранная
+ * показывает сумму и каждую программу «название, время, доля», самые долгие сверху. «Видео и
+ * соцсети» - строка без вкладки (сайты, M4). Общий для окна ребёнка и статистики родителя.
+ */
 export function Totals({ data }: { data: MyTodayReply }) {
   const empty = data.status.status === "notChild" || data.today.length === 0;
+  const [tab, setTab] = useState<TotalsTab>("all");
+  const tabs = useRef(new Map<TotalsTab, HTMLButtonElement>());
+  const onKey = (e: KeyboardEvent<HTMLButtonElement>, index: number) => {
+    const last = TOTALS_TABS.length - 1;
+    let next: number;
+    if (e.key === "ArrowRight" || e.key === "ArrowDown") next = index === last ? 0 : index + 1;
+    else if (e.key === "ArrowLeft" || e.key === "ArrowUp") next = index === 0 ? last : index - 1;
+    else if (e.key === "Home") next = 0;
+    else if (e.key === "End") next = last;
+    else return;
+    e.preventDefault();
+    const id = TOTALS_TABS[next].id;
+    setTab(id);
+    tabs.current.get(id)?.focus();
+  };
+  const current = TOTALS_TABS.find((t) => t.id === tab) ?? TOTALS_TABS[0];
+  const rows = empty ? [] : tabRows(data, current.id);
   return (
     <section className="panel stat-panel" aria-labelledby="my-totals">
       <h3 id="my-totals" className="section-title">
@@ -225,13 +260,53 @@ export function Totals({ data }: { data: MyTodayReply }) {
               <dt>Использовано сегодня</dt>
               <dd>{formatDuration(data.status.usedS)}</dd>
             </div>
-            {categoryTotals(data).map((c) => (
-              <div key={c.label} className={c.value === NOT_COUNTED ? "stat-row stat-row-muted" : "stat-row"}>
-                <dt>{c.label}</dt>
-                <dd>{c.value}</dd>
-              </div>
-            ))}
+            <div className="stat-row stat-row-muted">
+              <dt>Видео и соцсети</dt>
+              <dd>{NOT_COUNTED}</dd>
+            </div>
           </dl>
+          <div className="totals-tabs" role="tablist" aria-label="Итоги по категориям">
+            {TOTALS_TABS.map((t, i) => (
+              <button
+                key={t.id}
+                ref={(el) => {
+                  if (el) tabs.current.set(t.id, el);
+                  else tabs.current.delete(t.id);
+                }}
+                id={`totals-tab-${t.id}`}
+                type="button"
+                role="tab"
+                className="totals-tab"
+                aria-selected={t.id === current.id}
+                aria-controls="totals-panel"
+                aria-describedby={`totals-value-${t.id}`}
+                tabIndex={t.id === current.id ? 0 : -1}
+                onClick={() => setTab(t.id)}
+                onKeyDown={(e) => onKey(e, i)}
+              >
+                <span className="totals-tab-label">{t.label}</span>
+                <span id={`totals-value-${t.id}`} className="totals-tab-value" aria-hidden="true">
+                  {formatDuration(tabSeconds(data, t.id))}
+                </span>
+              </button>
+            ))}
+          </div>
+          <div id="totals-panel" className="totals-panel" role="tabpanel" aria-labelledby={`totals-tab-${current.id}`}>
+            <p className="totals-sum">{`${current.label} за сегодня: ${formatDuration(tabSeconds(data, current.id))}`}</p>
+            {rows.length === 0 ? (
+              <p className="panel-text totals-empty">{EMPTY_TAB}</p>
+            ) : (
+              <ul className="totals-list" aria-label={`${current.label}: по программам`}>
+                {rows.map((r) => (
+                  <li key={r.key} className={r.rest ? "totals-item totals-item-rest" : "totals-item"} style={{ "--share": r.share } as CSSProperties}>
+                    <LineText className="totals-name" text={r.name} />
+                    <span className="totals-time">{r.time}</span>
+                    <span className="totals-share">{r.share}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
         </>
       )}
     </section>
