@@ -428,6 +428,7 @@ func TestProgramMethodsReturnErrorsWhenStoreClosed(t *testing.T) {
 		"GetProgram":          func() error { _, _, err := s.GetProgram(pathBrave); return err },
 		"ListPrograms":        func() error { _, err := s.ListPrograms(); return err },
 		"SetProgramsCategory": func() error { _, err := s.SetProgramsCategory([]string{pathBrave}, ProgramGames, 1); return err },
+		"SetProgramsHidden":   func() error { _, err := s.SetProgramsHidden([]string{pathBrave}, true); return err },
 		"RestoreProgram":      func() error { return s.RestoreProgram(p) },
 		"DeleteProgram":       func() error { return s.DeleteProgram(pathBrave) },
 		"AddPendingAttempt": func() error {

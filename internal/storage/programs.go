@@ -65,6 +65,7 @@ type Program struct {
 	Fingerprint string // «размер:время изменения» для решения родителя вне доверенных каталогов (RM3-12); пусто — не нужен
 	AppRoot     string // корень приложения «<доверенный корень>\<первая папка>» (RM3-1 п.3); пусто — нет
 	DecidedAt   int64  // момент решения родителя, UTC мс; 0 — нет (NULL)
+	Hidden      bool   // родитель скрыл программу (D-57, RF9-1); категория сохраняется
 }
 
 func checkProgram(p Program) error {
@@ -90,13 +91,13 @@ func nullableMs(ms int64) any {
 	return ms
 }
 
-const programColumns = `id, exe_path, display_name, publisher, category, source, fingerprint, app_root, decided_at`
+const programColumns = `id, exe_path, display_name, publisher, category, source, fingerprint, app_root, decided_at, hidden`
 
 // scanProgram читает строку programColumns.
 func scanProgram(sc interface{ Scan(...any) error }) (Program, error) {
 	var p Program
 	var decided sql.NullInt64
-	if err := sc.Scan(&p.ID, &p.Path, &p.Name, &p.Publisher, &p.Category, &p.Source, &p.Fingerprint, &p.AppRoot, &decided); err != nil {
+	if err := sc.Scan(&p.ID, &p.Path, &p.Name, &p.Publisher, &p.Category, &p.Source, &p.Fingerprint, &p.AppRoot, &decided, &p.Hidden); err != nil {
 		return Program{}, err
 	}
 	p.DecidedAt = decided.Int64
@@ -105,12 +106,12 @@ func scanProgram(sc interface{ Scan(...any) error }) (Program, error) {
 
 // upsertProgram записывает программу целиком (вставка или замена всех полей по пути).
 func upsertProgram(ex execer, p Program) error {
-	_, err := ex.Exec(`INSERT INTO programs (exe_path, display_name, publisher, category, source, fingerprint, app_root, decided_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+	_, err := ex.Exec(`INSERT INTO programs (exe_path, display_name, publisher, category, source, fingerprint, app_root, decided_at, hidden)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (exe_path) DO UPDATE SET display_name = excluded.display_name, publisher = excluded.publisher,
 			category = excluded.category, source = excluded.source, fingerprint = excluded.fingerprint,
-			app_root = excluded.app_root, decided_at = excluded.decided_at`,
-		p.Path, p.Name, p.Publisher, p.Category, p.Source, p.Fingerprint, p.AppRoot, nullableMs(p.DecidedAt))
+			app_root = excluded.app_root, decided_at = excluded.decided_at, hidden = excluded.hidden`,
+		p.Path, p.Name, p.Publisher, p.Category, p.Source, p.Fingerprint, p.AppRoot, nullableMs(p.DecidedAt), p.Hidden)
 	return err
 }
 
@@ -230,6 +231,40 @@ func (s *Store) SetProgramsCategory(paths []string, category string, at int64) (
 	}
 	if err := tx.Commit(); err != nil {
 		return nil, fmt.Errorf("storage: сменить категорию программ: %w", err)
+	}
+	return changed, nil
+}
+
+// SetProgramsHidden скрывает (hidden = true) или снова показывает программы по списку путей
+// (D-57, RF9-1): меняется только флаг, категория, источник и момент решения остаются. Пути,
+// которых нет в списке, «системные» программы и программы, у которых флаг уже такой, не
+// трогаются. Одной транзакцией; возвращает прежние значения изменённых (для «Отменить»), без
+// изменений — []Program{}.
+func (s *Store) SetProgramsHidden(paths []string, hidden bool) ([]Program, error) {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return nil, fmt.Errorf("storage: скрыть программы: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	changed := []Program{}
+	for _, path := range paths {
+		p, err := scanProgram(tx.QueryRow(`SELECT `+programColumns+` FROM programs WHERE exe_path = ?`, path))
+		if errors.Is(err, sql.ErrNoRows) {
+			continue
+		}
+		if err != nil {
+			return nil, fmt.Errorf("storage: скрыть программы: %w", err)
+		}
+		if p.Hidden == hidden || p.Category == ProgramSystem {
+			continue
+		}
+		if _, err := tx.Exec(`UPDATE programs SET hidden = ? WHERE id = ?`, hidden, p.ID); err != nil {
+			return nil, fmt.Errorf("storage: скрыть программы: %w", err)
+		}
+		changed = append(changed, p)
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("storage: скрыть программы: %w", err)
 	}
 	return changed, nil
 }
@@ -539,12 +574,14 @@ func (s *Store) SaveDayAndUsage(childID int64, st core.DayState, usage []UsageRo
 }
 
 // ProgramSeconds возвращает секунды по каждой программе (путь exe) у всех детей за дни с fromDay
-// включительно: «время за неделю» в «Программах» (FR-20). Нет учёта: пустая карта, не nil.
+// включительно: «время за неделю» в «Программах» (FR-20). Скрытых программ здесь нет (D-57):
+// их учёт не удаляется и снова виден после «Показать». Нет учёта: пустая карта, не nil.
 func (s *Store) ProgramSeconds(fromDay string) (map[string]int, error) {
 	if err := checkDay(fromDay); err != nil {
 		return nil, err
 	}
-	rows, err := s.db.Query(`SELECT subject, sum(seconds) FROM usage_daily WHERE subject_kind = ? AND day >= ? GROUP BY subject`,
+	rows, err := s.db.Query(`SELECT subject, sum(seconds) FROM usage_daily WHERE subject_kind = ? AND day >= ?
+		AND subject NOT IN (SELECT exe_path FROM programs WHERE hidden = 1) GROUP BY subject`,
 		SubjectProgram, fromDay)
 	if err != nil {
 		return nil, fmt.Errorf("storage: время по программам: %w", err)
