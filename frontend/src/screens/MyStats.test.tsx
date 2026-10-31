@@ -153,7 +153,7 @@ const S39_PROGRAMS: ProgramTime[] = [
   { path: "c:\\games\\game.exe", name: "game", category: "games", seconds: 600 },
   { path: "c:\\games\\game2.exe", name: "game2", category: "games", seconds: 300 },
   { path: "c:\\school\\study.exe", name: "study", category: "study", seconds: 180 },
-  { path: "", name: "Другое", category: "other", seconds: 300 },
+  { path: "", name: "Остальное время", category: "other", seconds: 300 },
 ];
 
 function s39Child() {
@@ -193,9 +193,26 @@ describe("MyStats: вкладки «Итогов»", () => {
     const user = setup({ children: [s39Child()] });
     const box = await screen.findByRole("region", { name: "Итоги" });
     expect(within(box).getByText("Всего за сегодня: 23 мин")).toBeTruthy();
-    expect(listRows(box).map((r) => r[0])).toEqual(["game", "game2", "study", "Другое"]);
+    expect(listRows(box).map((r) => r[0])).toEqual(["game", "game2", "study", "Остальное время"]);
     await user.click(within(box).getByRole("tab", { name: "Учёба" }));
     expect(listRows(box)).toEqual([["study", "3 мин", "100%"]]);
+  });
+
+  // Ловит: «Всего» больше «Использовано сегодня» без объяснения (учёба вне лимита, D-7); пояснение
+  // висит и на других вкладках или без учёбы.
+  it("«Всего» с учёбой: пояснение под суммой; без учёбы и на других вкладках его нет", async () => {
+    const user = setup({ children: [s39Child()] });
+    const box = await screen.findByRole("region", { name: "Итоги" });
+    expect(within(box).getByText("вместе с учёбой, она не входит в лимит")).toBeTruthy();
+    await user.click(within(box).getByRole("tab", { name: "Игры" }));
+    expect(within(box).queryByText("вместе с учёбой, она не входит в лимит")).toBeNull();
+  });
+
+  it("«Всего» без учёбы: пояснения нет", async () => {
+    setup({ children: [mockChild({ usedS: 600, studyUsedS: 0 })] });
+    const box = await screen.findByRole("region", { name: "Итоги" });
+    expect(within(box).getByText("Всего за сегодня: 10 мин")).toBeTruthy();
+    expect(within(box).queryByText("вместе с учёбой, она не входит в лимит")).toBeNull();
   });
 
   // Ловит: пустая категория показывает пустой список или ноль без объяснения (8.2.6 п.3).
@@ -224,7 +241,7 @@ describe("MyStats: вкладки «Итогов»", () => {
     expect(tab("Всего").getAttribute("aria-selected")).toBe("true");
     await user.keyboard("{End}");
     expect(tab("Прочее").getAttribute("aria-selected")).toBe("true");
-    expect(listRows(box)).toEqual([["Другое", "5 мин", "100%"]]);
+    expect(listRows(box)).toEqual([["Остальное время", "5 мин", "100%"]]);
   });
 });
 

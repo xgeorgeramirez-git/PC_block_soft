@@ -70,7 +70,7 @@ export interface MockChild {
   studyUsedS?: number;
   /**
    * Время программ за сегодня для вкладок «Итогов» (D-58), как отдаёт служба: скрытых нет, время
-   * без программы - строка «Другое» без пути. Нет - пустой список.
+   * без программы - строка «Остальное время» без пути. Нет - пустой список.
    */
   programsToday?: ProgramTime[];
 }
@@ -463,10 +463,10 @@ function myToday(child: MockChild | undefined, nowMs: number): MyTodayReply {
   // «Прочее» и «Всего» - как у службы: общее время без игр (видео в M3 нет) и общее плюс учёба.
   const otherS = Math.max(0, status.usedS - gamesS);
   const programs = (child.programsToday ?? []).map((p) => ({ ...p }));
-  // Как служба: время категории, не названное строками, - строка «Другое» (сумма строк = итог).
+  // Как служба: время категории, не названное строками, - строка «Остальное время» (сумма строк = итог).
   for (const [category, total] of [["games", gamesS], ["study", studyS], ["other", otherS]] as const) {
     const named = programs.filter((p) => p.category === category).reduce((n, p) => n + p.seconds, 0);
-    if (total > named) programs.push({ path: "", name: "Другое", category, seconds: total - named });
+    if (total > named) programs.push({ path: "", name: "Остальное время", category, seconds: total - named });
   }
   return { status, today, rules: myRules(child), gamesS, studyS, otherS, allS: status.usedS + studyS, programs };
 }

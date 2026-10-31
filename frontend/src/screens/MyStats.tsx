@@ -9,6 +9,7 @@ import { historyText } from "../lib/bonus";
 import { childErrorText } from "../lib/errors";
 import { formatDuration, formatEventTime, formatLimit, weekdayName } from "../lib/format";
 import {
+  ALL_WITH_STUDY,
   EMPTY_TAB,
   NOT_COUNTED,
   TOTALS_TABS,
@@ -293,6 +294,7 @@ export function Totals({ data }: { data: MyTodayReply }) {
           </div>
           <div id="totals-panel" className="totals-panel" role="tabpanel" aria-labelledby={`totals-tab-${current.id}`}>
             <p className="totals-sum">{`${current.label} за сегодня: ${formatDuration(tabSeconds(data, current.id))}`}</p>
+            {current.id === "all" && data.studyS > 0 ? <p className="field-hint totals-note">{ALL_WITH_STUDY}</p> : null}
             {rows.length === 0 ? (
               <p className="panel-text totals-empty">{EMPTY_TAB}</p>
             ) : (

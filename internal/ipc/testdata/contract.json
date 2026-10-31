@@ -1601,7 +1601,7 @@
           },
           {
             "path": "",
-            "name": "Другое",
+            "name": "Остальное время",
             "category": "other",
             "seconds": 300
           }
@@ -1809,7 +1809,7 @@
           },
           {
             "path": "",
-            "name": "Другое",
+            "name": "Остальное время",
             "category": "other",
             "seconds": 300
           }

@@ -543,14 +543,14 @@ for (const dsf of [1, 1.5]) {
 }
 
 // Вкладки «Итогов» (D-58, S39): game 10 мин, game2 5 мин, study 3 мин; длинное название игры, чтобы
-// замер видел обрезку, и «Другое» (время без программы) последней строкой.
+// замер видел обрезку, и «Остальное время» (время без программы) последней строкой.
 const S39_LONG = "Очень длинное название игры с пробелами и цифрами 2026";
 const s39Programs = [
   { path: "c:\\games\\game.exe", name: "game", category: "games" as const, seconds: 600 },
   { path: "c:\\games\\game2.exe", name: "game2", category: "games" as const, seconds: 300 },
   { path: "c:\\games\\long.exe", name: S39_LONG, category: "games" as const, seconds: 120 },
   { path: "c:\\school\\study.exe", name: "study", category: "study" as const, seconds: 180 },
-  { path: "", name: "Другое", category: "other" as const, seconds: 300 },
+  { path: "", name: "Остальное время", category: "other" as const, seconds: 300 },
 ];
 const s39Child = () => child({ usedS: 1320, gamesUsedS: 1020, studyUsedS: 180, programsToday: s39Programs });
 
@@ -595,6 +595,114 @@ async function tabListFits(page: Page, where: string) {
   expect(problems, `${where}: ${problems.join("; ")} | ${JSON.stringify(report)}`).toEqual([]);
 }
 
+/**
+ * Состояние вкладок «Итогов» замером (возврат 1 FB-10): заливку основным цветом, жирную подпись и черту
+ * снизу имеет ровно та вкладка, у которой aria-selected, у остальных фон панели; панель подписана
+ * выбранной вкладкой. Указатель уводится, чтобы наведение не мешало замеру. Всё в одной строке ошибки.
+ */
+async function tabsState(page: Page, want: string, where: string) {
+  await page.mouse.move(1, 1);
+  const totals = page.getByRole("region", { name: "Итоги" });
+  const report = await totals.evaluate((box) => {
+    const tabs = [...box.querySelectorAll('[role="tab"]')].map((t) => {
+      const cs = getComputedStyle(t);
+      return {
+        id: t.id,
+        label: t.querySelector(".totals-tab-label")?.textContent ?? "",
+        selected: t.getAttribute("aria-selected"),
+        bg: cs.backgroundColor,
+        shadow: cs.boxShadow,
+        weight: getComputedStyle(t.querySelector(".totals-tab-label")!).fontWeight,
+      };
+    });
+    const panel = box.querySelector('[role="tabpanel"]');
+    const sum = box.querySelector(".totals-sum")?.textContent ?? "";
+    const surface = getComputedStyle(box).backgroundColor;
+    return { tabs, labelledBy: panel?.getAttribute("aria-labelledby"), sum, surface };
+  });
+  const problems: string[] = [];
+  const sel = report.tabs.filter((t) => t.selected === "true");
+  if (sel.length !== 1 || sel[0].label !== want) problems.push(`выбрана не одна «${want}»`);
+  for (const t of report.tabs) {
+    const on = t.selected === "true";
+    if (on && (t.bg === report.surface || t.shadow === "none" || Number(t.weight) < 700)) problems.push(`«${t.label}» выбрана, но выглядит невыбранной`);
+    if (!on && (t.bg !== report.surface || t.shadow !== "none" || Number(t.weight) >= 700)) problems.push(`«${t.label}» не выбрана, но выглядит выбранной`);
+  }
+  if (!report.sum.startsWith(`${want} за сегодня`)) problems.push(`заголовок списка «${report.sum}»`);
+  if (report.labelledBy !== sel[0]?.id) problems.push("панель подписана не выбранной вкладкой");
+  expect(problems, `${where}: ${problems.join("; ")} | ${JSON.stringify(report)}`).toEqual([]);
+}
+
+/**
+ * Контраст текста вкладок и строк списка к фону (WCAG 2.1 AA, не меньше 4,5:1): фон ищется вверх по
+ * предкам до непрозрачного, у строк учитывается полоса доли (::before с прозрачностью). Подписи и суммы
+ * каждой вкладки замеряются в выбранном и невыбранном виде: перебор всех вкладок кликом.
+ */
+async function textContrast(page: Page, where: string) {
+  await page.mouse.move(1, 1);
+  const totals = page.getByRole("region", { name: "Итоги" });
+  const bad: string[] = [];
+  const tabs = totals.getByRole("tablist", { name: "Итоги по категориям" }).getByRole("tab");
+  const n = await tabs.count();
+  for (let i = 0; i < n; i++) {
+    await tabs.nth(i).click();
+    await page.mouse.move(1, 1);
+    const found = await totals.evaluate((box) => {
+      const rgba = (c: string) => {
+        const m = c.match(/[\d.]+/g)!.map(Number);
+        return [m[0], m[1], m[2], m.length > 3 ? m[3] : 1];
+      };
+      const over = (top: number[], under: number[]) => top.slice(0, 3).map((v, k) => v * top[3] + under[k] * (1 - top[3]));
+      const bgOf = (el: Element | null): number[] => {
+        const chain: number[][] = [];
+        for (let e = el; e; e = e.parentElement) {
+          const c = rgba(getComputedStyle(e).backgroundColor);
+          if (c[3] > 0) chain.push(c);
+          if (c[3] >= 1) break;
+        }
+        let acc = [255, 255, 255];
+        for (const c of chain.reverse()) acc = over(c, acc);
+        return acc;
+      };
+      const lum = (c: number[]) => {
+        const [r, g, b] = c.map((v) => {
+          const x = v / 255;
+          return x <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4;
+        });
+        return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+      };
+      const ratio = (a: number[], b: number[]) => {
+        const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p);
+        return (x + 0.05) / (y + 0.05);
+      };
+      const out: string[] = [];
+      const check = (el: Element, bg: number[], what: string) => {
+        const fg = over(rgba(getComputedStyle(el).color), bg);
+        const r = ratio(fg, bg);
+        if (r < 4.5) out.push(`${what} «${el.textContent}» ${r.toFixed(2)}:1 (${getComputedStyle(el).color} на rgb(${bg.map(Math.round).join(",")}))`);
+      };
+      for (const t of box.querySelectorAll('[role="tab"]')) {
+        const state = t.getAttribute("aria-selected") === "true" ? "выбранная" : "невыбранная";
+        for (const part of t.querySelectorAll(".totals-tab-label, .totals-tab-value")) check(part, bgOf(t), `вкладка ${state}`);
+      }
+      for (const el of box.querySelectorAll(".totals-sum, .totals-note, .totals-empty")) check(el, bgOf(el), "панель");
+      for (const li of box.querySelectorAll(".totals-item")) {
+        const row = bgOf(li);
+        const bar = getComputedStyle(li, "::before");
+        const barC = rgba(bar.backgroundColor);
+        const withBar = over([barC[0], barC[1], barC[2], barC[3] * Number(bar.opacity)], row);
+        for (const part of li.querySelectorAll(".totals-name, .totals-time, .totals-share")) {
+          check(part, row, "строка");
+          check(part, withBar, "строка на полосе");
+        }
+      }
+      return out;
+    });
+    bad.push(...found);
+  }
+  expect(bad, `${where}: ${bad.join("; ")}`).toEqual([]);
+}
+
 // s06 — вкладка «Игры» в окне ребёнка (D-58, S39): сумма игр и каждая игра «название, время, доля»;
 // замер на всех размерах окна, включая самые узкие 800 x 480 и 640 x 520.
 for (const [w, h] of [
@@ -626,7 +734,20 @@ for (const [w, h] of [
     const longOk = long.title === null ? long.shown === S39_LONG : long.title === S39_LONG && long.shown!.endsWith("…") && long.shown!.split("…").length === 2;
     expect(longOk, `длинное название в окне ${w} x ${h}: ${JSON.stringify(long)}`).toBe(true);
     await tabListFits(page, `окно ${w} x ${h}`);
+    await tabsState(page, "Игры", `окно ${w} x ${h}`);
     await noHorizontalScroll(page);
+    await totals.scrollIntoViewIfNeeded();
+    // Кадр - окно (прокручивается область main.content, не документ): «Бонусы» ниже «Итогов» в той же
+    // прокрутке и достижимы ею, а не обрезаны вёрсткой.
+    const below = await page.evaluate(() => {
+      const sc = document.querySelector("main.content")!;
+      const tot = document.querySelector('[aria-labelledby="my-totals"]')!.getBoundingClientRect();
+      const bon = document.querySelector('[aria-labelledby="my-bonuses"]')!.getBoundingClientRect();
+      return { totalsBottom: tot.bottom, bonusesTop: bon.top, scrollH: sc.scrollHeight, clientH: sc.clientHeight, docScroll: document.documentElement.scrollHeight - document.documentElement.clientHeight };
+    });
+    expect(below.bonusesTop >= below.totalsBottom - 0.5 && below.docScroll <= 1, `«Бонусы» в окне ${w} x ${h}: ${JSON.stringify(below)}`).toBe(true);
+    await page.getByRole("region", { name: "Бонусы" }).scrollIntoViewIfNeeded();
+    await expect(page.getByRole("region", { name: "Бонусы" })).toBeInViewport();
     await totals.scrollIntoViewIfNeeded();
     if (w === 800 && h === 640) await page.screenshot({ path: `${SCREENS}/s06-my-stats-games.png`, fullPage: true });
     if (w === 640) await page.screenshot({ path: `${SCREENS}/s06-my-stats-games-small.png` });
@@ -646,11 +767,55 @@ test("s31 статистика родителя: вкладка «Игры»", a
   await expect(panel.getByText("Игры за сегодня: 17 мин", { exact: true })).toBeVisible();
   await expect(panel.getByRole("list", { name: "Игры: по программам" }).getByRole("listitem").nth(0)).toHaveText("game10 мин59%");
   await tabListFits(page, "статистика родителя");
+  await tabsState(page, "Игры", "статистика родителя");
   await noHorizontalScroll(page);
   await page.screenshot({ path: `${SCREENS}/s31-parent-stats-games.png`, fullPage: true });
   // Учёба: study 3 мин.
   await tabs.getByRole("tab", { name: "Учёба", exact: true }).click();
   await expect(panel.getByRole("list", { name: "Учёба: по программам" }).getByRole("listitem")).toHaveText(["study3 мин100%"]);
+});
+
+// Контраст текста вкладок и строк (WCAG AA 4,5:1) в светлой и тёмной теме, все вкладки по очереди.
+for (const scheme of ["light", "dark"] as const) {
+  test(`s06 моя статистика: контраст вкладок «Итогов», тема ${scheme}`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: scheme });
+    await mockProgram(page, { mode: "mystats", children: [s39Child()], myChildId: 1 });
+    await page.goto("/");
+    await expect(page.getByRole("region", { name: "Итоги" }).getByRole("tab")).toHaveCount(4);
+    await textContrast(page, `тема ${scheme}`);
+    await tabsState(page, "Прочее", `тема ${scheme}, после перебора`);
+  });
+}
+
+// «Всего» больше «Использовано сегодня» на учёбу: под суммой пояснение, только если учёба была.
+test("s06 моя статистика: пояснение «Всего» про учёбу", async ({ page }) => {
+  await mockProgram(page, { mode: "mystats", children: [s39Child()], myChildId: 1 });
+  await page.goto("/");
+  const panel = page.getByRole("region", { name: "Итоги" }).getByRole("tabpanel");
+  await expect(panel.getByText("Всего за сегодня: 25 мин", { exact: true })).toBeVisible();
+  await expect(panel.getByText("вместе с учёбой, она не входит в лимит", { exact: true })).toBeVisible();
+  await page.getByRole("region", { name: "Итоги" }).getByRole("tab", { name: "Игры", exact: true }).click();
+  await expect(panel.getByText("вместе с учёбой, она не входит в лимит", { exact: true })).toHaveCount(0);
+});
+
+// Пустая вкладка (8.2.6 п.3): «Пока ничего не запускалось», списка нет; снимок s06-my-stats-empty-tab.
+test("s06 моя статистика: пустая вкладка", async ({ page }) => {
+  await mockProgram(page, {
+    mode: "mystats",
+    children: [child({ usedS: 600, gamesUsedS: 0, studyUsedS: 0, programsToday: [{ path: "c:\\tools\\brave.exe", name: "Brave", category: "other", seconds: 600 }] })],
+    myChildId: 1,
+  });
+  await page.goto("/");
+  const totals = page.getByRole("region", { name: "Итоги" });
+  await totals.getByRole("tab", { name: "Игры", exact: true }).click();
+  const panel = totals.getByRole("tabpanel");
+  await expect(panel.getByText("Игры за сегодня: 0 мин", { exact: true })).toBeVisible();
+  await expect(panel.getByText("Пока ничего не запускалось", { exact: true })).toBeVisible();
+  await expect(panel.getByRole("list")).toHaveCount(0);
+  await expect(panel.getByText("вместе с учёбой, она не входит в лимит", { exact: true })).toHaveCount(0);
+  await tabsState(page, "Игры", "пустая вкладка");
+  await totals.scrollIntoViewIfNeeded();
+  await page.screenshot({ path: `${SCREENS}/s06-my-stats-empty-tab.png` });
 });
 
 // s06 — панель «Позови родителя» (FR-10): пароль родителя и +15 / +30 / +60 / своё число.

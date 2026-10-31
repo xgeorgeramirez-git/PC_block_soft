@@ -441,14 +441,14 @@ func TestContractHasEveryCommand(t *testing.T) {
 }
 
 // s39Programs — строки вкладок «Итогов» из S39 (D-58): game 10 мин, game2 5 мин, study 3 мин;
-// «Другое» — время без программы (рабочий стол, системные, скрытые).
+// «Остальное время» — время без программы (рабочий стол, системные, скрытые).
 func s39Programs() []ProgramTime {
 	return []ProgramTime{
 		{Path: `c:\games\game.exe`, Name: "game", Category: ProgramCatGames, Seconds: 600},
 		{Path: `c:\games\game2.exe`, Name: "game2", Category: ProgramCatGames, Seconds: 300},
 		{Path: `c:\school\study.exe`, Name: "study", Category: ProgramCatStudy, Seconds: 180},
 		{Path: `c:\program files\brave software\brave-browser\application\brave.exe`, Name: "Brave", Category: ProgramCatOther, Seconds: 900},
-		{Name: "Другое", Category: ProgramCatOther, Seconds: 300},
+		{Name: "Остальное время", Category: ProgramCatOther, Seconds: 300},
 	}
 }
 

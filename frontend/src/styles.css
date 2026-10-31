@@ -753,14 +753,21 @@ p {
   transition: background-color 150ms ease, border-color 150ms ease;
 }
 
-.totals-tab:hover:not([aria-selected="true"]) {
-  background: var(--bg);
+/* Наведение меняет только рамку: заливку даёт одно лишь aria-selected, поэтому выбранная вкладка
+   однозначна. Выбранная отличается не только цветом: жирная подпись и черта снизу. */
+.totals-tab:hover {
+  border-color: var(--text);
 }
 
 .totals-tab[aria-selected="true"] {
   background: var(--primary);
   border-color: var(--primary);
   color: var(--primary-text);
+  box-shadow: inset 0 -3px 0 var(--primary-text);
+}
+
+.totals-tab[aria-selected="true"] .totals-tab-label {
+  font-weight: 700;
 }
 
 .totals-tab-label {
@@ -781,6 +788,10 @@ p {
 
 .totals-sum {
   font-weight: 600;
+}
+
+.totals-note {
+  margin-top: 2px;
 }
 
 .totals-empty {

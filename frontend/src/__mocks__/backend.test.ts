@@ -304,7 +304,7 @@ describe("ребёнок о себе: MyToday, FirstRunSeen, Finish", () => {
   });
 
   // Ловит: подмена считает «Прочее» и «Всего» не как служба (D-7: учёба вне общего, но во «Всего»),
-  // теряет время без программы (у службы это строка «Другое»).
+  // теряет время без программы (у службы это строка «Остальное время»).
   it("MyToday: итоги вкладок и время программ как у службы", async () => {
     const programsToday = [{ path: "c:\\games\\game.exe", name: "game", category: "games" as const, seconds: 600 }];
     installBackend({ children: [mockChild({ usedS: 1200, gamesUsedS: 900, studyUsedS: 180, programsToday })] });
@@ -312,9 +312,9 @@ describe("ребёнок о себе: MyToday, FirstRunSeen, Finish", () => {
     expect([mine.gamesS, mine.studyS, mine.otherS, mine.allS]).toEqual([900, 180, 300, 1380]);
     expect(mine.programs).toEqual([
       ...programsToday,
-      { path: "", name: "Другое", category: "games", seconds: 300 },
-      { path: "", name: "Другое", category: "study", seconds: 180 },
-      { path: "", name: "Другое", category: "other", seconds: 300 },
+      { path: "", name: "Остальное время", category: "games", seconds: 300 },
+      { path: "", name: "Остальное время", category: "study", seconds: 180 },
+      { path: "", name: "Остальное время", category: "other", seconds: 300 },
     ]);
   });
 

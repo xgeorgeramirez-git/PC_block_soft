@@ -38,7 +38,7 @@ func rowsOf(rows []ipc.ProgramTime, cat string) []string {
 // сбрасывается раз в 30 с), не попадают в список, и сумма игр меньше итога «Игры»; список не по
 // убыванию; имя не то, что в списке программ и журнале (своё название, D-59); время рабочего
 // стола и системных программ («Прочее» без программы, дотяжка последней минуты) пропадает, а не
-// идёт строкой «Другое»; скрытая программа (D-57) видна по имени; родитель видит другое, чем ребёнок.
+// идёт строкой «Остальное время»; скрытая программа (D-57) видна по имени; родитель видит иное, чем ребёнок.
 func TestMyTodayProgramsByCategory(t *testing.T) {
 	h := newHarness(t, configured(), withChild(childSID, "Миша", 120), withPrograms(typicalScan()), withStalker())
 	h.start()
@@ -64,7 +64,7 @@ func TestMyTodayProgramsByCategory(t *testing.T) {
 	want := map[string][]string{
 		"games": {"Сталкер=50", "Stalker2=25"},
 		"study": {"GeoGebra Classic=15"},
-		"other": {"Brave=10", "Другое=20"}, // «Другое» последней, хотя дольше Brave
+		"other": {"Brave=10", "Остальное время=20"}, // «Остальное время» последней, хотя дольше Brave
 	}
 	for cat, w := range want {
 		if got := rowsOf(my.Programs, cat); strings.Join(got, ", ") != strings.Join(w, ", ") {
@@ -81,22 +81,22 @@ func TestMyTodayProgramsByCategory(t *testing.T) {
 		t.Errorf("сумма всех строк %d, итог «Всего» %d", s, my.AllS)
 	}
 	for _, r := range my.Programs {
-		if (r.Name == "Другое") != (r.Path == "") {
-			t.Errorf("строка без программы не «Другое» или программа без пути: %+v", r)
+		if (r.Name == "Остальное время") != (r.Path == "") {
+			t.Errorf("строка без программы не «Остальное время» или программа без пути: %+v", r)
 		}
 	}
 
 	var ps ipc.MyTodayReply
 	h.ok(adminPeer(), tok, ipc.CmdParentStats, ipc.ParentStatsRequest{ChildID: h.childID(childSID)}, &ps)
 	if jsonOf(t, ps.Programs) != jsonOf(t, my.Programs) || ps.AllS != my.AllS || ps.OtherS != my.OtherS {
-		t.Errorf("родитель видит другое:\n%s\nребёнок:\n%s", jsonOf(t, ps.Programs), jsonOf(t, my.Programs))
+		t.Errorf("родитель видит иное:\n%s\nребёнок:\n%s", jsonOf(t, ps.Programs), jsonOf(t, my.Programs))
 	}
 
-	// Скрыли запускалку после игры: её имени нет, её секунды в играх остаются строкой «Другое».
+	// Скрыли запускалку после игры: её имени нет, её секунды в играх остаются строкой «Остальное время».
 	h.hide(tok, true, pathLauncher)
 	h.ok(childPeer(), "", ipc.CmdMyToday, nil, &my)
-	if got := strings.Join(rowsOf(my.Programs, "games"), ", "); got != "Сталкер=50, Другое=25" {
-		t.Errorf("игры после скрытия Stalker2: %s, want «Сталкер=50, Другое=25»", got)
+	if got := strings.Join(rowsOf(my.Programs, "games"), ", "); got != "Сталкер=50, Остальное время=25" {
+		t.Errorf("игры после скрытия Stalker2: %s, want «Сталкер=50, Остальное время=25»", got)
 	}
 	for _, r := range my.Programs {
 		if r.Path == pathLauncher || r.Name == "Stalker2" {

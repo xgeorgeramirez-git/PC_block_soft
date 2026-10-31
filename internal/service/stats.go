@@ -14,7 +14,7 @@ import (
 // textOtherTime — строка вкладки для времени без программы: рабочий стол, системные и скрытые
 // программы, дотяжка последней минуты (R2, D-60). Без неё сумма строк не сходилась бы с итогом
 // категории (класс A).
-const textOtherTime = "Другое"
+const textOtherTime = "Остальное время"
 
 // usageCatVideo — категория учёта «Видео и соцсети» (сайты, M4): программ в ней нет.
 const usageCatVideo = "video_social"
@@ -25,9 +25,9 @@ var statsCatOrder = map[string]int{programs.CatGames: 0, usageCatVideo: 1, progr
 // programTimes собирает строки вкладок за день состояния day: сохранённый учёт по программам
 // (DayUsage) и ещё не сохранённый накопитель службы (cs.usage, сброс раз в 30 с). Название —
 // то же, что в списке программ и журнале (displayName, D-59); скрытая (D-57) имени не получает,
-// её секунды идут в «Другое» своей категории. «Другое» — итог категории минус названные строки:
-// сумма строк категории равна итогу категории. Внутри категории самые долгие сверху, «Другое»
-// последней. Ошибка чтения учёта — всё время категории в «Другое» (время не пропадает).
+// её секунды идут в «Остальное время» своей категории. «Остальное время» — итог категории минус названные строки:
+// сумма строк категории равна итогу категории. Внутри категории самые долгие сверху, «Остальное время»
+// последней. Ошибка чтения учёта — всё время категории в «Остальное время» (время не пропадает).
 func (s *Service) programTimes(cs *childState, day core.DayState) []ipc.ProgramTime {
 	type key struct{ cat, path string }
 	secs := map[key]int{}
@@ -73,7 +73,7 @@ func (s *Service) programTimes(cs *childState, day core.DayState) []ipc.ProgramT
 		var name string
 		if p, ok := known[k.path]; ok {
 			if p.Hidden {
-				continue // секунды скрытой остаются в «Другое» категории
+				continue // секунды скрытой остаются в «Остальное время» категории
 			}
 			name = displayName(p)
 		} else if pn, ok := pending[k.path]; ok {
@@ -95,7 +95,7 @@ func (s *Service) programTimes(cs *childState, day core.DayState) []ipc.ProgramT
 			return statsCatOrder[a.Category] < statsCatOrder[b.Category]
 		}
 		if (a.Path == "") != (b.Path == "") {
-			return b.Path == "" // «Другое» последней
+			return b.Path == "" // «Остальное время» последней
 		}
 		if a.Seconds != b.Seconds {
 			return a.Seconds > b.Seconds
