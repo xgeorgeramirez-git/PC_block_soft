@@ -801,29 +801,37 @@ test("s11 программы: решение, фильтр и массовая �
 });
 
 /**
- * Строки таблицы программ ровные (замер, не глазом): название и «из файла: …» в одну строку с одним
- * «…» (полное в title), строка с длинным названием не выше обычной (±2 px), у каждой строки центры
- * по вертикали времени за неделю, списка категории (или текста у скрытой) и кнопки «Скрыть» совпадают
- * (±2 px). Строка в режиме правки названия из сравнения высоты исключена (она выше по задаче).
+ * Строки таблицы программ ровные (замер, не глазом): название, «из файла: …» и издатель в одну
+ * строку с одним «…» (полное в title), видимый текст не шире строки; строка с длинным названием не
+ * выше обычной (±2 px); у каждой строки центры по вертикали времени за неделю, списка категории (или
+ * текста у скрытой) и кнопки «Скрыть» совпадают (±2 px). Обычная строка — без своего названия и не в
+ * режиме правки: подпись «из файла» и поле правки добавляют строку по задаче. При сбое все
+ * подробности — в тексте ошибки одной строкой (пометки сборки видят только её, PL-1).
  */
 async function rowsEven(page: Page) {
-  const bad = await page.evaluate(() => {
-    const out: string[] = [];
-    const heights: { name: string; h: number; editing: boolean; long: boolean }[] = [];
-    for (const row of Array.from(document.querySelectorAll<HTMLElement>(".programs-table tbody tr"))) {
+  const problems = await page.evaluate(() => {
+    const out: { row: number; name: string; what: string; px?: Record<string, number | null> }[] = [];
+    const rows = Array.from(document.querySelectorAll<HTMLElement>(".programs-table tbody tr"));
+    const info = rows.map((row, i) => {
       const name = row.getAttribute("aria-label") ?? "";
       const editing = row.querySelector(".name-editor") !== null;
+      const renamed = row.querySelector(".program-filename") !== null;
       for (const line of Array.from(row.querySelectorAll<HTMLElement>(".line-fit"))) {
+        const visible = line.querySelector<HTMLElement>('[aria-hidden="true"]');
+        const shown = (visible ?? line).textContent ?? "";
         const lh = parseFloat(getComputedStyle(line).lineHeight) || 20;
-        if (line.getBoundingClientRect().height > lh * 1.5) out.push(`перенос названия: ${name}`);
-        const shown = line.querySelector('[aria-hidden="true"]')?.textContent ?? line.textContent ?? "";
-        if ((shown.match(/…/g) ?? []).length > 1) out.push(`два «…»: ${shown}`);
-        if (shown.endsWith("…") && !line.title) out.push(`обрезано без подсказки: ${shown}`);
-        if (line.scrollWidth > line.clientWidth + 1) out.push(`текст шире строки: ${shown}`);
+        const lr = line.getBoundingClientRect();
+        if (lr.height > lh * 1.5) out.push({ row: i, name, what: `перенос «${shown}»`, px: { height: lr.height, line: lh } });
+        if ((shown.match(/…/g) ?? []).length > 1) out.push({ row: i, name, what: `два «…» в «${shown}»` });
+        if (shown.endsWith("…") && !line.title) out.push({ row: i, name, what: `обрезано без подсказки «${shown}»` });
+        // Видимый текст (без копии для диктора) не шире строки и строка не нулевой ширины.
+        const range = document.createRange();
+        range.selectNodeContents(visible ?? line);
+        const tw = range.getBoundingClientRect().width;
+        if (lr.width < 8) out.push({ row: i, name, what: `строка названия сжата до нуля «${shown}»`, px: { width: lr.width } });
+        else if (tw > lr.width + 1) out.push({ row: i, name, what: `текст шире строки «${shown}»`, px: { text: tw, box: lr.width } });
       }
-      const nameCell = row.querySelectorAll<HTMLElement>("td")[1];
-      heights.push({ name, h: row.getBoundingClientRect().height, editing, long: (nameCell?.querySelector(".program-name")?.getAttribute("title") ?? "") !== "" });
-      const centerOf = (el: Element | null | undefined) => {
+      const centerOf = (el: Element | null) => {
         if (!el) return null;
         const r = el.getBoundingClientRect();
         return r.height > 0 ? r.top + r.height / 2 : null;
@@ -840,19 +848,21 @@ async function rowsEven(page: Page) {
       const btn = centerOf(row.querySelector(".col-action button"));
       const centers = [week, cat, btn].filter((v): v is number => v !== null);
       if (centers.length >= 2 && Math.max(...centers) - Math.min(...centers) > 2) {
-        out.push(`разная высота в строке ${name}: время ${week?.toFixed(1)}, категория ${cat?.toFixed(1)}, кнопка ${btn?.toFixed(1)}`);
+        out.push({ row: i, name, what: "центры ячеек на разной высоте", px: { week, category: cat, button: btn } });
       }
-    }
-    const plain = heights.filter((x) => !x.editing && !x.long);
+      const long = row.querySelector(".program-name[title]") !== null;
+      return { i, name, h: row.getBoundingClientRect().height, plain: !editing && !renamed, long };
+    });
+    const plain = info.filter((x) => x.plain && !x.long);
     if (plain.length > 0) {
       const base = Math.min(...plain.map((x) => x.h));
-      for (const x of heights.filter((y) => !y.editing && y.long)) {
-        if (Math.abs(x.h - base) > 2) out.push(`строка с длинным названием выше обычной: ${x.name} ${x.h.toFixed(1)} против ${base.toFixed(1)}`);
+      for (const x of info.filter((y) => y.plain)) {
+        if (Math.abs(x.h - base) > 2) out.push({ row: x.i, name: x.name, what: "строка выше обычной", px: { height: x.h, base } });
       }
     }
     return out;
   });
-  expect(bad, "строки таблицы программ неровные").toEqual([]);
+  if (problems.length > 0) throw new Error(`строки таблицы программ неровные: ${JSON.stringify(problems)}`);
 }
 
 /** Кнопка «Скрыть» / «Показать» в своей колонке: не налезает на категорию и время за неделю (D-57). */

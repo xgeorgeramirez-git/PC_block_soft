@@ -1491,10 +1491,11 @@ html:has(.shell-child) body {
 }
 
 /* Своё название (D-59): «Переименовать» рядом с названием, поле правки на месте названия. */
+/* Название и значок «Переименовать» одной строкой: название занимает всё, что осталось. */
 .program-title {
   display: flex;
-  align-items: baseline;
-  gap: var(--space-3);
+  align-items: center;
+  gap: var(--space-1);
   min-width: 0;
 }
 
@@ -1512,9 +1513,21 @@ html:has(.shell-child) body {
 
 .program-rename {
   flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  background: none;
+  border: 0;
+  border-radius: var(--radius-control);
   color: var(--text-muted);
-  font-size: 14px;
-  white-space: nowrap;
+  cursor: pointer;
+}
+
+.program-rename:hover:not(:disabled) {
+  background: var(--bg);
 }
 
 .program-rename:hover:not(:disabled),

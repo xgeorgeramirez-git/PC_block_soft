@@ -605,6 +605,16 @@ function AppIcon() {
   );
 }
 
+/** Значок «Переименовать»: карандаш. */
+function PencilIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+      <path d="M11.2 2.3l2.5 2.5-8.4 8.4-3.1.6.6-3.1 8.4-8.4z" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+      <path d="M9.7 3.8l2.5 2.5" stroke="currentColor" strokeWidth="1.5" />
+    </svg>
+  );
+}
+
 /** Делит показанный путь на начало и «\имя файла» (имя файла не разрывается). */
 function splitPath(shown: string): [string, string] {
   const at = shown.lastIndexOf("\\");
@@ -796,22 +806,26 @@ function ProgramRow(props: RowProps) {
             onDraft={props.onDraft}
           />
         ) : (
+          // «Переименовать» — кнопка-значок рядом с названием: колонка названия узкая (186 px при окне
+          // 960), ссылка словом отнимала у названия больше половины ширины. Имя для диктора и подсказка
+          // — «Переименовать «X»».
           <div className="program-title">
             <LineText className="program-name" text={p.name} />
             <button
               type="button"
-              className="link program-rename"
+              className="program-rename"
               data-focus="rename"
               aria-label={`Переименовать «${p.name}»`}
+              title="Переименовать"
               disabled={busy !== null}
               onClick={props.onRename}
             >
-              Переименовать
+              <PencilIcon />
             </button>
           </div>
         )}
         {fileName && fileName !== p.name ? <LineText className="program-meta program-filename" text={`из файла: ${fileName}`} /> : null}
-        <p className="program-meta">{publisherText(p.publisher)}</p>
+        <LineText className="program-meta" text={publisherText(p.publisher)} />
         <p className="program-meta">
           <PathText path={p.path} max={ROW_PATH_MAX} />
         </p>
