@@ -15,7 +15,7 @@ S39 в `tools/accept/s39-stats-tabs.ps1` по образцу `s13-study.ps1` (о
 ## Правила
 TDD (RED по ожидаемой причине → GREEN; литералы; мутационная проверка). Go 1.27: `export PATH=~/.local/go1.27/bin:$PATH`; локально `GOFLAGS=-mod=mod GOPROXY=off go test -race -count=1 ./internal/<пакет>/...`; SQLite/Wails/Windows — CI. npm может быть закрыт (403) — тогда фронт проверяет CI. gofmt. Коммиты Conventional Commits по-русски, только явные пути, НЕ пушить. Трейлеры:
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
-Claude-Session: https://claude.ai/code/session_01S7we7qUEtDUsQ6Yfhud6Mc
+Claude-Session: https://claude.ai/code/session_01S7we7tKsBBneFXCBD36qGg
 Не трогай: версию, CHANGELOG, «Что нового», README, docs кроме `06_Приёмка.md`.
 
 Вердикт ≤30 строк: Status; Diff (sha + заголовок); Evidence; Mutation; Rulings; Escalations; Lesson-кандидат; Open.
