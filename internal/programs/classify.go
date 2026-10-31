@@ -36,7 +36,8 @@ func (v Verdict) String() string {
 // Entry — программа из списка (таблица programs) для классификатора.
 type Entry struct {
 	Path        string // путь exe (нормализуется при Reload)
-	Name        string // имя для людей
+	Name        string // название из файла
+	CustomName  string // своё название родителя (D-59); пусто — название из файла
 	Category    string // Cat*
 	Fingerprint string // «размер:время изменения» (RM3-12); пусто — сверять не нужно
 	Publisher   string // издатель (CompanyName) решения в профиле: по нему решение переходит на новые версии (RM3-13)
@@ -48,7 +49,7 @@ type Result struct {
 	Verdict     Verdict
 	Category    string // категория для VerdictAllow и VerdictForbidden («blocked»), «system» по списку, «other» у VerdictHidden
 	Known       bool   // путь есть в списке программ (точное совпадение, отпечаток не разошёлся)
-	Name        string // имя из списка или из пути (не длиннее MaxNameLen)
+	Name        string // название для людей (DisplayName: своё, из списка или из пути; не длиннее MaxNameLen)
 	WasCategory string // VerdictUnknown после подмены файла: прежняя категория («раньше: Игра», RM3-12)
 }
 
@@ -225,9 +226,7 @@ func (c *Classifier) Classify(path, fingerprint, publisher string) Result {
 	rules := c.profile[pkey]
 	c.mu.RUnlock()
 	if known {
-		if e.Name != "" {
-			name = ClipName(e.Name)
-		}
+		name = DisplayName(e.CustomName, e.Name, path)
 		if e.Fingerprint != "" && fingerprint != e.Fingerprint {
 			// В корне профиля файл мог обновиться на месте: решение действует, если совпали имя
 			// файла и непустой издатель (сам этот путь — тоже кандидат). Вне профиля — подмена.

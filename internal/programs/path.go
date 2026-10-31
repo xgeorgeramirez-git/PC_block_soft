@@ -284,3 +284,35 @@ func ClipName(s string) string {
 	}
 	return s
 }
+
+// MaxCustomNameLen — наибольшая длина своего названия программы в символах (D-59, FR-20).
+const MaxCustomNameLen = 60
+
+// DisplayName — единственное место, которое решает, как программа называется для людей (D-59):
+// своё название родителя, иначе название из файла, иначе имя файла из пути. Его используют все
+// показы: список программ, журнал, плашки ребёнку, статистика, классификатор. Не длиннее MaxNameLen.
+func DisplayName(custom, file, path string) string {
+	if n := ClipName(custom); n != "" {
+		return n
+	}
+	if n := ClipName(file); n != "" {
+		return n
+	}
+	return NameFromPath(path)
+}
+
+// CustomName проверяет своё название, которое ввёл родитель (D-59): пробелы по краям обрезаются,
+// пустое — сброс к названию из файла (ok = true, ""); длиннее MaxCustomNameLen символов или с
+// управляющими символами — ok = false.
+func CustomName(s string) (string, bool) {
+	s = strings.TrimSpace(s)
+	for _, r := range s {
+		if unicode.IsControl(r) {
+			return "", false
+		}
+	}
+	if len([]rune(s)) > MaxCustomNameLen {
+		return "", false
+	}
+	return s, true
+}
