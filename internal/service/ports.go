@@ -144,6 +144,8 @@ type Store interface {
 	ListPrograms() ([]Program, error)
 	// SetProgramsCategory — решение родителя: возвращает прежние значения изменённых (для «Отменить»).
 	SetProgramsCategory(paths []string, category string, at int64) (changed []Program, err error)
+	// SetProgramsHidden — скрыть или снова показать (D-57): меняется только флаг; прежние значения изменённых.
+	SetProgramsHidden(paths []string, hidden bool) (changed []Program, err error)
 	RestoreProgram(p Program) error
 	DeleteProgram(path string) error
 	AddPendingAttempt(p PendingProgram, childID, at int64) (attempts int, err error)

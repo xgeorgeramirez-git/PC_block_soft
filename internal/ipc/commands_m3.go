@@ -10,6 +10,7 @@ const (
 	CmdDecideProgram       = "DecideProgram"       // решение по ждущей программе (родитель)
 	CmdSetProgramsCategory = "SetProgramsCategory" // смена категории одной или нескольких программ (родитель)
 	CmdUndoProgram         = "UndoProgram"         // «Отменить» решения 10 с (родитель)
+	CmdSetProgramsHidden   = "SetProgramsHidden"   // скрыть или снова показать программы (родитель, D-57)
 	CmdScanPrograms        = "ScanPrograms"        // мастер до первого входа: программы компьютера (FR-2)
 )
 
@@ -96,7 +97,8 @@ type ProgramDTO struct {
 	Publisher string `json:"publisher"`
 	Category  string `json:"category"` // ProgramCat*
 	Source    string `json:"source"`   // ProgramSource*
-	WeekS     int    `json:"weekS"`    // время всех детей за 7 дней, с
+	WeekS     int    `json:"weekS"`    // время всех детей за 7 дней, с; у скрытой 0
+	Hidden    bool   `json:"hidden"`   // скрыта родителем (D-57): только в фильтре «Скрытые»
 }
 
 // ProgramsReply — ответ ListPrograms и состояние «Программ» после решения.
@@ -118,7 +120,15 @@ type SetProgramsCategoryRequest struct {
 	Category string   `json:"category"`
 }
 
-// DecideProgramReply — ответ DecideProgram и SetProgramsCategory: сообщение, «Отменить» 10 с и
+// SetProgramsHiddenRequest — скрыть (hidden = true) или снова показать (false) программы списка
+// (FR-20, D-57): «Скрыть» в строке и для отмеченных, «Показать» в фильтре «Скрытые». Ответ —
+// DecideProgramReply с «Отменить» 10 с.
+type SetProgramsHiddenRequest struct {
+	Paths  []string `json:"paths"`
+	Hidden bool     `json:"hidden"`
+}
+
+// DecideProgramReply — ответ DecideProgram, SetProgramsCategory и SetProgramsHidden: сообщение, «Отменить» 10 с и
 // «Программы» после изменения.
 type DecideProgramReply struct {
 	Message     string        `json:"message"`     // «SuperGame: игра»

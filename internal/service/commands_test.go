@@ -120,7 +120,7 @@ func wantAllowed(cmd, kind, tok string, test, configured bool) bool {
 	case ipc.CmdSpendBonus:
 		// «Взять из копилки»: ребёнок своего сеанса без пароля (childSelf, FR-11).
 		return kind == "child" || kind == "guard"
-	case ipc.CmdListPrograms, ipc.CmdDecideProgram, ipc.CmdSetProgramsCategory, ipc.CmdUndoProgram:
+	case ipc.CmdListPrograms, ipc.CmdDecideProgram, ipc.CmdSetProgramsCategory, ipc.CmdUndoProgram, ipc.CmdSetProgramsHidden:
 		// «Программы» (FR-20): только родитель своим токеном; ребёнок не читает и не меняет.
 		return user && own
 	case ipc.CmdScanPrograms:

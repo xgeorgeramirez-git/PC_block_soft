@@ -46,6 +46,10 @@ const (
 	textTooManyPrograms = "Можно изменить не больше 200 программ за раз"
 	textProgramsChanged = "Изменено программ: %d"
 	textProgramUndone   = "Решение отменено"
+	textProgramHidden   = "%s скрыта"
+	textProgramsHidden  = "Скрыто программ: %d"
+	textProgramShown    = "%s снова в списке"
+	textProgramsShown   = "Снова в списке программ: %d"
 	textScanFailed      = "Не удалось найти программы. Их можно настроить позже в разделе «Программы»"
 	// Плашки ребёнку о закрытой программе (FR-13, 8.2.4): на «ты»; закрытие по лимиту игр и в
 	// режиме «только учёба» берёт текст ядра (Decision.CloseReason).

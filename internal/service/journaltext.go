@@ -83,6 +83,10 @@ func eventText(kind, name string, d map[string]any) string {
 		body = decidedText(d)
 	case evProgramUndone:
 		body = "решение по программам отменено"
+	case evProgramHidden:
+		body = "вы скрыли " + hiddenSubject(d)
+	case evProgramShown:
+		body = "вы снова показали " + hiddenSubject(d)
 	case evProgramPending:
 		body = "программа «" + eventProgram(d) + "» ждёт решения"
 	case evProgramForbiddenTry:
@@ -123,6 +127,14 @@ func decidedText(d map[string]any) string {
 		return "вы запретили " + subject
 	}
 	return "вы отнесли " + subject + " к категории «" + categoryTitle[cat] + "»"
+}
+
+// hiddenSubject — «Stalker2» в кавычках для одной программы, «3 программы» для нескольких.
+func hiddenSubject(d map[string]any) string {
+	if n := detInt(d, "count"); n > 1 || eventProgram(d) == "" {
+		return fmt.Sprintf("%d %s", n, programsWord(n))
+	}
+	return "«" + eventProgram(d) + "»"
 }
 
 // programsWord — «программу», «программы», «программ» для числа n (винительный падеж).

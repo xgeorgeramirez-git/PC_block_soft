@@ -18,6 +18,8 @@ import (
 const (
 	evProgramDecided         = "program_decided"
 	evProgramUndone          = "program_undone"
+	evProgramHidden          = "program_hidden" // вы скрыли программу (D-57)
+	evProgramShown           = "program_shown"  // вы снова показали программу (D-57)
 	evProgramPending         = "program_pending"
 	evProgramForbiddenTry    = "program_forbidden_try"
 	evProgramClosedGames     = "program_closed_games"
@@ -124,7 +126,7 @@ func (s *Service) programsView() (ipc.ProgramsReply, bool) {
 		}
 		out.Programs = append(out.Programs, ipc.ProgramDTO{
 			Path: p.Path, Name: programName(p.Name, p.Path), Publisher: publisherOrStub(p.Publisher),
-			Category: p.Category, Source: p.Source, WeekS: secs[p.Path],
+			Category: p.Category, Source: p.Source, WeekS: secs[p.Path], Hidden: p.Hidden,
 		})
 	}
 	sort.SliceStable(out.Programs, func(i, j int) bool {
@@ -354,6 +356,80 @@ func (s *Service) hSetProgramsCategory(c *callCtx) ipc.Reply {
 	return ipc.OK(ipc.DecideProgramReply{
 		Message: fmt.Sprintf(textProgramsChanged, len(changed)), UndoID: rec.id, UndoUntilMs: rec.until.UnixMilli(), Programs: view,
 	})
+}
+
+// hSetProgramsHidden — «Скрыть» и «Показать» (FR-20, D-57, RF9-1): меняется только флаг, категория
+// остаётся; одна запись журнала на операцию, «Отменить» 10 с, классификатор перечитывается сразу.
+// Скрывать можно только программы списка, кроме «системных» (RF9-1). Плашек ребёнку нет.
+func (s *Service) hSetProgramsHidden(c *callCtx) ipc.Reply {
+	var req ipc.SetProgramsHiddenRequest
+	if c.msg.Into(&req) != nil {
+		return bad()
+	}
+	if len(req.Paths) > maxProgramsPerChange {
+		return ipc.Fail(textTooManyPrograms)
+	}
+	paths := make([]string, 0, len(req.Paths))
+	seen := map[string]bool{}
+	known := 0
+	for _, raw := range req.Paths {
+		p := programs.Normalize(raw)
+		if p == "" || seen[p] {
+			continue
+		}
+		seen[p] = true
+		paths = append(paths, p)
+		prog, ok, err := s.cfg.Store.GetProgram(p)
+		if err != nil {
+			s.logRate("hide", "список программ не прочитан: %v", err)
+			return ipc.Fail(textRetry)
+		}
+		if ok && prog.Category != programs.CatSystem {
+			known++
+		}
+	}
+	if known == 0 {
+		return ipc.Fail(textNoProgram)
+	}
+	changed, err := s.cfg.Store.SetProgramsHidden(paths, req.Hidden)
+	if err != nil {
+		s.logRate("hide", "скрытие программ не записано: %v", err)
+		return ipc.Fail(textSaveFailed)
+	}
+	s.reloadPrograms()
+	if len(changed) > 0 {
+		kind := evProgramShown
+		if req.Hidden {
+			kind = evProgramHidden
+		}
+		d := map[string]any{"count": len(changed)}
+		if len(changed) == 1 {
+			d["name"], d["path"] = programName(changed[0].Name, changed[0].Path), changed[0].Path
+		}
+		s.journal.Write(0, kind, d)
+	}
+	rec := &progUndoRec{programs: changed}
+	s.rememberProgramsUndo(rec, c)
+	view, _ := s.programsView()
+	return ipc.OK(ipc.DecideProgramReply{
+		Message: hiddenMessage(changed, req.Hidden), UndoID: rec.id, UndoUntilMs: rec.until.UnixMilli(), Programs: view,
+	})
+}
+
+// hiddenMessage — «Stalker2 скрыта», «Скрыто программ: 3», «Stalker2 снова в списке»,
+// «Снова в списке программ: 2» (8.3.4 п.4).
+func hiddenMessage(changed []Program, hidden bool) string {
+	if len(changed) == 1 {
+		name := programName(changed[0].Name, changed[0].Path)
+		if hidden {
+			return fmt.Sprintf(textProgramHidden, name)
+		}
+		return fmt.Sprintf(textProgramShown, name)
+	}
+	if hidden {
+		return fmt.Sprintf(textProgramsHidden, len(changed))
+	}
+	return fmt.Sprintf(textProgramsShown, len(changed))
 }
 
 func (s *Service) hUndoProgram(c *callCtx) ipc.Reply {

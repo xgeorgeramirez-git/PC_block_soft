@@ -183,6 +183,24 @@ func (f *fakeStore) SetProgramsCategory(paths []string, category string, at int6
 	return changed, nil
 }
 
+// SetProgramsHidden — как storage.SetProgramsHidden: только флаг; нет в списке, системные и уже
+// такие не трогаются; прежние значения изменённых.
+func (f *fakeStore) SetProgramsHidden(paths []string, hidden bool) ([]Program, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	changed := []Program{}
+	for _, path := range paths {
+		p, ok := f.programs[path]
+		if !ok || p.Hidden == hidden || p.Category == "system" {
+			continue
+		}
+		changed = append(changed, p)
+		p.Hidden = hidden
+		f.programs[path] = p
+	}
+	return changed, nil
+}
+
 func (f *fakeStore) DeleteProgram(path string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -360,7 +378,7 @@ func (f *fakeStore) ProgramSeconds(fromDay string) (map[string]int, error) {
 	out := map[string]int{}
 	for k, sec := range f.usage {
 		parts := strings.SplitN(k, "|", 5)
-		if parts[3] == "program" && parts[1] >= fromDay {
+		if parts[3] == "program" && parts[1] >= fromDay && !f.programs[parts[4]].Hidden {
 			out[parts[4]] += sec
 		}
 	}

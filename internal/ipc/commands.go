@@ -100,6 +100,7 @@ var AllCommands = []string{
 	CmdTrayClosing,
 	CmdTestGuard, CmdTestClock, CmdTestSession, CmdGuardState,
 	CmdListPrograms, CmdDecideProgram, CmdSetProgramsCategory, CmdUndoProgram, CmdScanPrograms, // M3 (commands_m3.go)
+	CmdSetProgramsHidden, // фидбек-раунд 0.3.1 (D-57)
 }
 
 // Имена полей, к которым служба привязывает ошибку (Reply.Field, L-121).

@@ -282,8 +282,8 @@ func (s *Service) watchDecide(t *watchTarget, p ProcInfo, gen uint64) (*watchAct
 		e.fpRead, e.pubRead = true, true
 	}
 	res := c.Classify(e.path, e.fp, e.pub)
-	if res.Verdict == programs.VerdictSystem {
-		return nil, skipNone
+	if res.Verdict == programs.VerdictSystem || res.Verdict == programs.VerdictHidden {
+		return nil, skipNone // скрытую родителем не закрывает ни одно правило (D-57, RF9-2)
 	}
 	a := &watchAct{t: t, p: p, e: e, res: res, again: e.closed}
 	switch res.Verdict {

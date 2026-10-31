@@ -120,6 +120,8 @@ func programsReply() ProgramsReply {
 				Category: ProgramCatOther, Source: ProgramSourceSnapshot, WeekS: 5400},
 			{Path: `c:\program files\minecraft launcher\minecraftlauncher.exe`, Name: "Minecraft Launcher", Publisher: "Mojang",
 				Category: ProgramCatGames, Source: ProgramSourceCatalog, WeekS: 0},
+			{Path: `c:\program files\epic games\stalker2\stalker2.exe`, Name: "Stalker2", Publisher: "Epic Games",
+				Category: ProgramCatGames, Source: ProgramSourceParent, WeekS: 0, Hidden: true},
 		},
 		Children: []ChildName{{ChildID: 1, Name: "Миша"}, {ChildID: 2, Name: "Даша"}},
 	}
@@ -364,6 +366,8 @@ func examples() map[string]example {
 		"DecideProgram#invalid": fail(DecideProgramRequest{Path: `c:\x.exe`, Category: ProgramCatSystem}, "Выберите: игра, учёба, прочее или запретить", "category", nil),
 		CmdSetProgramsCategory: ok(SetProgramsCategoryRequest{Paths: []string{`c:\program files\bravesoftware\brave-browser\application\brave.exe`}, Category: ProgramCatStudy},
 			DecideProgramReply{Message: "Изменено программ: 1", UndoID: "p-4", UndoUntilMs: t0 + 10_000, Programs: programsReply()}),
+		CmdSetProgramsHidden: ok(SetProgramsHiddenRequest{Paths: []string{`c:\program files\epic games\stalker2\stalker2.exe`}, Hidden: true},
+			DecideProgramReply{Message: "Stalker2 скрыта", UndoID: "p-5", UndoUntilMs: t0 + 10_000, Programs: programsReply()}),
 		CmdUndoProgram: ok(UndoProgramRequest{UndoID: "p-4"}, UndoProgramReply{Message: "Решение отменено", Programs: programsReply()}),
 		CmdScanPrograms: ok(nil, ScanProgramsReply{Programs: []ScanProgramDTO{
 			{Path: `c:\program files\minecraft launcher\minecraftlauncher.exe`, Name: "Minecraft Launcher", Publisher: "Mojang", SuggestedCategory: ProgramCatGames},
@@ -426,8 +430,8 @@ func TestContractHasEveryCommand(t *testing.T) {
 			t.Errorf("пример для %s есть, а в AllCommands её нет", c)
 		}
 	}
-	if len(AllCommands) != 62 {
-		t.Errorf("команд %d, ждали 62 (46 из M1/M2/0.2.1 без команд Помощника, 9 из фидбек-раунда 0.2.2: OpenLogs, SetNoForbidden, ClearBonus, ReduceBonus, CreatePromo, ListPromos, RedeemPromo, GetBonusRate, SetBonusRate, GuardClosing из раунда 0.2.3, тестовая TestSession из 0.2.5 и 5 программ M3: ListPrograms, DecideProgram, SetProgramsCategory, UndoProgram, ScanPrograms)", len(AllCommands))
+	if len(AllCommands) != 63 {
+		t.Errorf("команд %d, ждали 63 (46 из M1/M2/0.2.1 без команд Помощника, 9 из фидбек-раунда 0.2.2: OpenLogs, SetNoForbidden, ClearBonus, ReduceBonus, CreatePromo, ListPromos, RedeemPromo, GetBonusRate, SetBonusRate, GuardClosing из раунда 0.2.3, тестовая TestSession из 0.2.5 и 5 программ M3: ListPrograms, DecideProgram, SetProgramsCategory, UndoProgram, ScanPrograms; SetProgramsHidden из раунда 0.3.1)", len(AllCommands))
 	}
 }
 

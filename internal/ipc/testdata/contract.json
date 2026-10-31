@@ -392,7 +392,8 @@
               "publisher": "Brave Software, Inc.",
               "category": "other",
               "source": "snapshot",
-              "weekS": 5400
+              "weekS": 5400,
+              "hidden": false
             },
             {
               "path": "c:\\program files\\minecraft launcher\\minecraftlauncher.exe",
@@ -400,7 +401,17 @@
               "publisher": "Mojang",
               "category": "games",
               "source": "catalog",
-              "weekS": 0
+              "weekS": 0,
+              "hidden": false
+            },
+            {
+              "path": "c:\\program files\\epic games\\stalker2\\stalker2.exe",
+              "name": "Stalker2",
+              "publisher": "Epic Games",
+              "category": "games",
+              "source": "parent",
+              "weekS": 0,
+              "hidden": true
             }
           ],
           "children": [
@@ -1324,7 +1335,8 @@
             "publisher": "Brave Software, Inc.",
             "category": "other",
             "source": "snapshot",
-            "weekS": 5400
+            "weekS": 5400,
+            "hidden": false
           },
           {
             "path": "c:\\program files\\minecraft launcher\\minecraftlauncher.exe",
@@ -1332,7 +1344,17 @@
             "publisher": "Mojang",
             "category": "games",
             "source": "catalog",
-            "weekS": 0
+            "weekS": 0,
+            "hidden": false
+          },
+          {
+            "path": "c:\\program files\\epic games\\stalker2\\stalker2.exe",
+            "name": "Stalker2",
+            "publisher": "Epic Games",
+            "category": "games",
+            "source": "parent",
+            "weekS": 0,
+            "hidden": true
           }
         ],
         "children": [
@@ -2526,7 +2548,8 @@
               "publisher": "Brave Software, Inc.",
               "category": "other",
               "source": "snapshot",
-              "weekS": 5400
+              "weekS": 5400,
+              "hidden": false
             },
             {
               "path": "c:\\program files\\minecraft launcher\\minecraftlauncher.exe",
@@ -2534,7 +2557,97 @@
               "publisher": "Mojang",
               "category": "games",
               "source": "catalog",
-              "weekS": 0
+              "weekS": 0,
+              "hidden": false
+            },
+            {
+              "path": "c:\\program files\\epic games\\stalker2\\stalker2.exe",
+              "name": "Stalker2",
+              "publisher": "Epic Games",
+              "category": "games",
+              "source": "parent",
+              "weekS": 0,
+              "hidden": true
+            }
+          ],
+          "children": [
+            {
+              "childId": 1,
+              "name": "Миша"
+            },
+            {
+              "childId": 2,
+              "name": "Даша"
+            }
+          ]
+        }
+      }
+    }
+  },
+  "SetProgramsHidden": {
+    "request": {
+      "paths": [
+        "c:\\program files\\epic games\\stalker2\\stalker2.exe"
+      ],
+      "hidden": true
+    },
+    "reply": {
+      "ok": true,
+      "payload": {
+        "message": "Stalker2 скрыта",
+        "undoId": "p-5",
+        "undoUntilMs": 1760000010000,
+        "programs": {
+          "pending": [
+            {
+              "path": "c:\\users\\миша\\downloads\\supergame.exe",
+              "name": "SuperGame",
+              "publisher": "Без подписи издателя",
+              "description": "Super Game",
+              "attempts": 4,
+              "lastAttemptAt": 1759996400000,
+              "wasCategory": "games",
+              "byChild": [
+                {
+                  "childId": 1,
+                  "name": "Миша",
+                  "attempts": 3
+                },
+                {
+                  "childId": 2,
+                  "name": "Даша",
+                  "attempts": 1
+                }
+              ]
+            }
+          ],
+          "programs": [
+            {
+              "path": "c:\\program files\\bravesoftware\\brave-browser\\application\\brave.exe",
+              "name": "Brave",
+              "publisher": "Brave Software, Inc.",
+              "category": "other",
+              "source": "snapshot",
+              "weekS": 5400,
+              "hidden": false
+            },
+            {
+              "path": "c:\\program files\\minecraft launcher\\minecraftlauncher.exe",
+              "name": "Minecraft Launcher",
+              "publisher": "Mojang",
+              "category": "games",
+              "source": "catalog",
+              "weekS": 0,
+              "hidden": false
+            },
+            {
+              "path": "c:\\program files\\epic games\\stalker2\\stalker2.exe",
+              "name": "Stalker2",
+              "publisher": "Epic Games",
+              "category": "games",
+              "source": "parent",
+              "weekS": 0,
+              "hidden": true
             }
           ],
           "children": [
@@ -2853,7 +2966,8 @@
               "publisher": "Brave Software, Inc.",
               "category": "other",
               "source": "snapshot",
-              "weekS": 5400
+              "weekS": 5400,
+              "hidden": false
             },
             {
               "path": "c:\\program files\\minecraft launcher\\minecraftlauncher.exe",
@@ -2861,7 +2975,17 @@
               "publisher": "Mojang",
               "category": "games",
               "source": "catalog",
-              "weekS": 0
+              "weekS": 0,
+              "hidden": false
+            },
+            {
+              "path": "c:\\program files\\epic games\\stalker2\\stalker2.exe",
+              "name": "Stalker2",
+              "publisher": "Epic Games",
+              "category": "games",
+              "source": "parent",
+              "weekS": 0,
+              "hidden": true
             }
           ],
           "children": [

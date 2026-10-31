@@ -114,6 +114,14 @@ func (a storeAdapter) SetProgramsCategory(paths []string, category string, at in
 	return programsOf(list), nil
 }
 
+func (a storeAdapter) SetProgramsHidden(paths []string, hidden bool) ([]service.Program, error) {
+	list, err := a.s.SetProgramsHidden(paths, hidden)
+	if err != nil {
+		return nil, err
+	}
+	return programsOf(list), nil
+}
+
 func (a storeAdapter) RestoreProgram(p service.Program) error {
 	return a.s.RestoreProgram(storage.Program(p))
 }
