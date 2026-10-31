@@ -596,12 +596,27 @@ async function tabListFits(page: Page, where: string) {
 }
 
 /**
+ * Ждёт конца переходов CSS в «Итогах» (заливка вкладки идёт 150 мс): замер и снимок сразу после клика
+ * видят промежуточный серый, и выбранная вкладка выглядит невыбранной (возврат 2 FB-10).
+ */
+async function settled(page: Page) {
+  const left = await page.getByRole("region", { name: "Итоги" }).evaluate(async (box) => {
+    const all = box.getAnimations({ subtree: true });
+    const done = Promise.all(all.map((a) => a.finished.catch(() => undefined)));
+    await Promise.race([done, new Promise((r) => setTimeout(r, 2000))]);
+    return box.getAnimations({ subtree: true }).filter((a) => a.playState === "running").length;
+  });
+  expect(left, "переходы в «Итогах» не закончились за 2 с").toBe(0);
+}
+
+/**
  * Состояние вкладок «Итогов» замером (возврат 1 FB-10): заливку основным цветом, жирную подпись и черту
  * снизу имеет ровно та вкладка, у которой aria-selected, у остальных фон панели; панель подписана
  * выбранной вкладкой. Указатель уводится, чтобы наведение не мешало замеру. Всё в одной строке ошибки.
  */
 async function tabsState(page: Page, want: string, where: string) {
   await page.mouse.move(1, 1);
+  await settled(page);
   const totals = page.getByRole("region", { name: "Итоги" });
   const report = await totals.evaluate((box) => {
     const tabs = [...box.querySelectorAll('[role="tab"]')].map((t) => {
@@ -647,6 +662,7 @@ async function textContrast(page: Page, where: string) {
   for (let i = 0; i < n; i++) {
     await tabs.nth(i).click();
     await page.mouse.move(1, 1);
+    await settled(page);
     const found = await totals.evaluate((box) => {
       const rgba = (c: string) => {
         const m = c.match(/[\d.]+/g)!.map(Number);
@@ -749,6 +765,7 @@ for (const [w, h] of [
     await page.getByRole("region", { name: "Бонусы" }).scrollIntoViewIfNeeded();
     await expect(page.getByRole("region", { name: "Бонусы" })).toBeInViewport();
     await totals.scrollIntoViewIfNeeded();
+    await settled(page);
     if (w === 800 && h === 640) await page.screenshot({ path: `${SCREENS}/s06-my-stats-games.png`, fullPage: true });
     if (w === 640) await page.screenshot({ path: `${SCREENS}/s06-my-stats-games-small.png` });
   });
@@ -769,6 +786,7 @@ test("s31 статистика родителя: вкладка «Игры»", a
   await tabListFits(page, "статистика родителя");
   await tabsState(page, "Игры", "статистика родителя");
   await noHorizontalScroll(page);
+  await settled(page);
   await page.screenshot({ path: `${SCREENS}/s31-parent-stats-games.png`, fullPage: true });
   // Учёба: study 3 мин.
   await tabs.getByRole("tab", { name: "Учёба", exact: true }).click();
@@ -815,6 +833,7 @@ test("s06 моя статистика: пустая вкладка", async ({ pa
   await expect(panel.getByText("вместе с учёбой, она не входит в лимит", { exact: true })).toHaveCount(0);
   await tabsState(page, "Игры", "пустая вкладка");
   await totals.scrollIntoViewIfNeeded();
+  await settled(page);
   await page.screenshot({ path: `${SCREENS}/s06-my-stats-empty-tab.png` });
 });
 

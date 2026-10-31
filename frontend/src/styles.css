@@ -770,6 +770,12 @@ p {
   font-weight: 700;
 }
 
+@media (prefers-reduced-motion: reduce) {
+  .totals-tab {
+    transition: none;
+  }
+}
+
 .totals-tab-label {
   font-size: 14px;
 }
