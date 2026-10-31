@@ -147,6 +147,8 @@ type Store interface {
 	SetProgramsCategory(paths []string, category string, at int64) (changed []Program, err error)
 	// SetProgramsHidden — скрыть или снова показать (D-57): меняется только флаг; прежние значения изменённых.
 	SetProgramsHidden(paths []string, hidden bool) (changed []Program, err error)
+	// SetProgramName — своё название (D-59): меняется только оно; прежнее значение; нет программы — ok = false.
+	SetProgramName(path, name string) (prev Program, ok bool, err error)
 	RestoreProgram(p Program) error
 	DeleteProgram(path string) error
 	AddPendingAttempt(p PendingProgram, childID, at int64) (attempts int, err error)

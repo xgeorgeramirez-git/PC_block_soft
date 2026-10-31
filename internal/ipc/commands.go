@@ -100,7 +100,7 @@ var AllCommands = []string{
 	CmdTrayClosing,
 	CmdTestGuard, CmdTestClock, CmdTestSession, CmdGuardState,
 	CmdListPrograms, CmdDecideProgram, CmdSetProgramsCategory, CmdUndoProgram, CmdScanPrograms, // M3 (commands_m3.go)
-	CmdSetProgramsHidden, // фидбек-раунд 0.3.1 (D-57)
+	CmdSetProgramsHidden, CmdRenameProgram, // фидбек-раунд 0.3.1 (D-57, D-59)
 }
 
 // Имена полей, к которым служба привязывает ошибку (Reply.Field, L-121).
@@ -116,6 +116,7 @@ const (
 	FieldEnd         = "end"     // конец запретного интервала (R7)
 	FieldCode        = "code"    // промокод (R26, D-50)
 	FieldEndMode     = "endMode" // режим «Когда время вышло» (R8, FR-18)
+	FieldName        = "name"    // своё название программы (D-59)
 )
 
 // LimitField — имя поля лимита дня недели (1 = пн … 7 = вс) для ошибок SaveLimits и Setup.

@@ -18,8 +18,9 @@ import (
 const (
 	evProgramDecided         = "program_decided"
 	evProgramUndone          = "program_undone"
-	evProgramHidden          = "program_hidden" // вы скрыли программу (D-57)
-	evProgramShown           = "program_shown"  // вы снова показали программу (D-57)
+	evProgramHidden          = "program_hidden"  // вы скрыли программу (D-57)
+	evProgramShown           = "program_shown"   // вы снова показали программу (D-57)
+	evProgramRenamed         = "program_renamed" // вы переименовали программу (D-59)
 	evProgramPending         = "program_pending"
 	evProgramForbiddenTry    = "program_forbidden_try"
 	evProgramClosedGames     = "program_closed_games"
@@ -124,10 +125,14 @@ func (s *Service) programsView() (ipc.ProgramsReply, bool) {
 		if p.Category == programs.CatSystem {
 			continue
 		}
-		out.Programs = append(out.Programs, ipc.ProgramDTO{
-			Path: p.Path, Name: programName(p.Name, p.Path), Publisher: publisherOrStub(p.Publisher),
+		dto := ipc.ProgramDTO{
+			Path: p.Path, Name: displayName(p), Publisher: publisherOrStub(p.Publisher),
 			Category: p.Category, Source: p.Source, WeekS: secs[p.Path], Hidden: p.Hidden,
-		})
+		}
+		if file := programName(p.Name, p.Path); dto.Name != file {
+			dto.FileName = file // «из файла: …» под своим названием (D-59)
+		}
+		out.Programs = append(out.Programs, dto)
 	}
 	sort.SliceStable(out.Programs, func(i, j int) bool {
 		a, b := strings.ToLower(out.Programs[i].Name), strings.ToLower(out.Programs[j].Name)
@@ -176,8 +181,11 @@ func (s *Service) hDecideProgram(c *callCtx) ipc.Reply {
 	switch {
 	case waiting:
 		p := s.decidedProgram(path, pend.Name, pend.Publisher, req.Category, at, metas[path])
-		if p.Publisher == "" && existed {
-			p.Publisher = prev.Publisher
+		if existed {
+			if p.Publisher == "" {
+				p.Publisher = prev.Publisher
+			}
+			p.CustomName, p.Hidden = prev.CustomName, prev.Hidden // своё название переживает подмену файла (D-59)
 		}
 		if err := s.cfg.Store.UpsertProgram(p); err != nil {
 			s.restorePendingAfterFailure(true, pend)
@@ -190,7 +198,7 @@ func (s *Service) hDecideProgram(c *callCtx) ipc.Reply {
 		} else {
 			rec.added = []string{path}
 		}
-		name = p.Name
+		name = displayName(p)
 	case existed:
 		changed, err := s.cfg.Store.SetProgramsCategory([]string{path}, req.Category, at)
 		if err != nil {
@@ -198,7 +206,7 @@ func (s *Service) hDecideProgram(c *callCtx) ipc.Reply {
 			return ipc.Fail(textSaveFailed)
 		}
 		rec.programs = changed
-		name = programName(prev.Name, path)
+		name = displayName(prev)
 	default:
 		return ipc.Fail(textNoProgram)
 	}
@@ -346,7 +354,7 @@ func (s *Service) hSetProgramsCategory(c *callCtx) ipc.Reply {
 	if len(changed) > 0 {
 		d := map[string]any{"category": req.Category, "count": len(changed)}
 		if len(changed) == 1 {
-			d["name"], d["path"] = programName(changed[0].Name, changed[0].Path), changed[0].Path
+			d["name"], d["path"] = displayName(changed[0]), changed[0].Path
 		}
 		s.journal.Write(0, evProgramDecided, d)
 	}
@@ -404,7 +412,7 @@ func (s *Service) hSetProgramsHidden(c *callCtx) ipc.Reply {
 		}
 		d := map[string]any{"count": len(changed)}
 		if len(changed) == 1 {
-			d["name"], d["path"] = programName(changed[0].Name, changed[0].Path), changed[0].Path
+			d["name"], d["path"] = displayName(changed[0]), changed[0].Path
 		}
 		s.journal.Write(0, kind, d)
 	}
@@ -420,7 +428,7 @@ func (s *Service) hSetProgramsHidden(c *callCtx) ipc.Reply {
 // «Снова в списке программ: 2» (8.3.4 п.4).
 func hiddenMessage(changed []Program, hidden bool) string {
 	if len(changed) == 1 {
-		name := programName(changed[0].Name, changed[0].Path)
+		name := displayName(changed[0])
 		if hidden {
 			return fmt.Sprintf(textProgramHidden, name)
 		}
@@ -430,6 +438,57 @@ func hiddenMessage(changed []Program, hidden bool) string {
 		return fmt.Sprintf(textProgramsHidden, len(changed))
 	}
 	return fmt.Sprintf(textProgramsShown, len(changed))
+}
+
+// hRenameProgram — «Переименовать» (FR-20, D-59, 8.3.4 п.5): своё название 1–60 символов после
+// обрезки пробелов, пустое — снова название из файла. Меняется только своё название; классификатор
+// перечитывается сразу (плашки и журнал наблюдателя берут его оттуда); одна запись журнала, если
+// название изменилось; «Отменить» 10 с. Плашек ребёнку нет.
+func (s *Service) hRenameProgram(c *callCtx) ipc.Reply {
+	var req ipc.RenameProgramRequest
+	if c.msg.Into(&req) != nil {
+		return bad()
+	}
+	name, ok := programs.CustomName(req.Name)
+	if !ok {
+		return ipc.FailField(textNameTooLong, ipc.FieldName)
+	}
+	path := programs.Normalize(req.Path)
+	if path == "" {
+		return ipc.Fail(textNoProgram)
+	}
+	cur, known, err := s.cfg.Store.GetProgram(path)
+	if err != nil {
+		s.logRate("rename", "список программ не прочитан: %v", err)
+		return ipc.Fail(textRetry)
+	}
+	if !known || cur.Category == programs.CatSystem {
+		return ipc.Fail(textNoProgram)
+	}
+	prev, ok, err := s.cfg.Store.SetProgramName(path, name)
+	if err != nil {
+		s.logRate("rename", "название программы не записано: %v", err)
+		return ipc.Fail(textSaveFailed)
+	}
+	if !ok {
+		return ipc.Fail(textNoProgram)
+	}
+	s.reloadPrograms()
+	next := prev
+	next.CustomName = name
+	if from, to := displayName(prev), displayName(next); from != to {
+		d := map[string]any{"from": from, "to": to, "path": path}
+		if name == "" {
+			d["reset"] = true
+		}
+		s.journal.Write(0, evProgramRenamed, d)
+	}
+	rec := &progUndoRec{programs: []Program{prev}}
+	s.rememberProgramsUndo(rec, c)
+	view, _ := s.programsView()
+	return ipc.OK(ipc.DecideProgramReply{
+		Message: textProgramRenamed, UndoID: rec.id, UndoUntilMs: rec.until.UnixMilli(), Programs: view,
+	})
 }
 
 func (s *Service) hUndoProgram(c *callCtx) ipc.Reply {

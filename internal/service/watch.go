@@ -367,7 +367,13 @@ func (s *Service) recordClosed(cs *childState, a *watchAct, real time.Time) {
 	case ipc.BlockedUnknown:
 		kind, text = evProgramPending, ""
 		plate.Text, plate.CanAsk, plate.ShowS = fmt.Sprintf(textPlateUnknown, name), true, unknownPlateShowS
-		pend := PendingProgram{Path: a.e.norm, Name: name, Publisher: a.publisher, Description: a.descr, WasCategory: a.res.WasCategory}
+		// В «Ждут решения» своих названий нет (D-59): название из файла, иначе решение родителя
+		// записало бы своё название как название из файла.
+		pendName := name
+		if p, ok, err := s.cfg.Store.GetProgram(a.e.norm); err == nil && ok {
+			pendName = programName(p.Name, p.Path)
+		}
+		pend := PendingProgram{Path: a.e.norm, Name: pendName, Publisher: a.publisher, Description: a.descr, WasCategory: a.res.WasCategory}
 		if _, err := s.cfg.Store.AddPendingAttempt(pend, cs.child.ID, real.UnixMilli()); err != nil {
 			s.logRate("pending-add", "попытка запуска %s не записана в «Ждут решения»: %v", a.e.norm, err)
 		}

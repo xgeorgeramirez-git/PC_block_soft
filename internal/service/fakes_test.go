@@ -1324,3 +1324,20 @@ func (w *fakeWatcher) releaseKill() {
 		close(g)
 	}
 }
+
+// SetProgramName — как storage.SetProgramName: только своё название; прежнее значение.
+func (f *fakeStore) SetProgramName(path, name string) (Program, bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	p, ok := f.programs[path]
+	if !ok {
+		return Program{}, false, nil
+	}
+	if len([]rune(name)) > 60 {
+		return Program{}, false, errFake
+	}
+	prev := p
+	p.CustomName = name
+	f.programs[path] = p
+	return prev, true, nil
+}

@@ -211,7 +211,10 @@ const (
 	ProgramSourceParent   = "parent"
 )
 
-// programName — имя программы для списка: из свойств файла, иначе из пути.
+// displayName — как программа называется во всех показах (D-59): одно место, programs.DisplayName.
+func displayName(p Program) string { return programs.DisplayName(p.CustomName, p.Name, p.Path) }
+
+// programName — название из файла для списка: из свойств файла, иначе из пути (без своего названия).
 func programName(name, path string) string {
 	if n := programs.ClipName(name); n != "" {
 		return n
@@ -229,7 +232,7 @@ func (s *Service) reloadPrograms() bool {
 	}
 	entries := make([]programs.Entry, 0, len(list))
 	for _, p := range list {
-		entries = append(entries, programs.Entry{Path: p.Path, Name: p.Name, Category: p.Category, Fingerprint: p.Fingerprint, Publisher: p.Publisher, Hidden: p.Hidden})
+		entries = append(entries, programs.Entry{Path: p.Path, Name: p.Name, CustomName: p.CustomName, Category: p.Category, Fingerprint: p.Fingerprint, Publisher: p.Publisher, Hidden: p.Hidden})
 	}
 	s.classifier.Reload(entries)
 	return true

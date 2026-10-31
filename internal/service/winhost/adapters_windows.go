@@ -122,6 +122,11 @@ func (a storeAdapter) SetProgramsHidden(paths []string, hidden bool) ([]service.
 	return programsOf(list), nil
 }
 
+func (a storeAdapter) SetProgramName(path, name string) (service.Program, bool, error) {
+	p, ok, err := a.s.SetProgramName(path, name)
+	return service.Program(p), ok, err
+}
+
 func (a storeAdapter) RestoreProgram(p service.Program) error {
 	return a.s.RestoreProgram(storage.Program(p))
 }

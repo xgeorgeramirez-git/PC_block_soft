@@ -122,6 +122,8 @@ func programsReply() ProgramsReply {
 				Category: ProgramCatGames, Source: ProgramSourceCatalog, WeekS: 0},
 			{Path: `c:\program files\epic games\stalker2\stalker2.exe`, Name: "Stalker2", Publisher: "Epic Games",
 				Category: ProgramCatGames, Source: ProgramSourceParent, WeekS: 0, Hidden: true},
+			{Path: `c:\program files\epic games\stalker2\binaries\win64\stalker2-win64-shipping.exe`, Name: "Сталкер 2",
+				FileName: "Stalker2-Win64-Shipping", Publisher: "GSC Game World", Category: ProgramCatGames, Source: ProgramSourceCatalog, WeekS: 7200},
 		},
 		Children: []ChildName{{ChildID: 1, Name: "Миша"}, {ChildID: 2, Name: "Даша"}},
 	}
@@ -368,7 +370,10 @@ func examples() map[string]example {
 			DecideProgramReply{Message: "Изменено программ: 1", UndoID: "p-4", UndoUntilMs: t0 + 10_000, Programs: programsReply()}),
 		CmdSetProgramsHidden: ok(SetProgramsHiddenRequest{Paths: []string{`c:\program files\epic games\stalker2\stalker2.exe`}, Hidden: true},
 			DecideProgramReply{Message: "Stalker2 скрыта", UndoID: "p-5", UndoUntilMs: t0 + 10_000, Programs: programsReply()}),
-		CmdUndoProgram: ok(UndoProgramRequest{UndoID: "p-4"}, UndoProgramReply{Message: "Решение отменено", Programs: programsReply()}),
+		CmdRenameProgram: ok(RenameProgramRequest{Path: `c:\program files\epic games\stalker2\binaries\win64\stalker2-win64-shipping.exe`, Name: "Сталкер 2"},
+			DecideProgramReply{Message: "Название изменено", UndoID: "p-6", UndoUntilMs: t0 + 10_000, Programs: programsReply()}),
+		"RenameProgram#tooLong": fail(RenameProgramRequest{Path: `c:\x.exe`, Name: "Очень длинное название"}, "Название до 60 символов", "name", nil),
+		CmdUndoProgram:          ok(UndoProgramRequest{UndoID: "p-4"}, UndoProgramReply{Message: "Решение отменено", Programs: programsReply()}),
 		CmdScanPrograms: ok(nil, ScanProgramsReply{Programs: []ScanProgramDTO{
 			{Path: `c:\program files\minecraft launcher\minecraftlauncher.exe`, Name: "Minecraft Launcher", Publisher: "Mojang", SuggestedCategory: ProgramCatGames},
 			{Path: `c:\program files\bravesoftware\brave-browser\application\brave.exe`, Name: "Brave", Publisher: "Brave Software, Inc.", SuggestedCategory: ProgramCatOther},
@@ -430,8 +435,8 @@ func TestContractHasEveryCommand(t *testing.T) {
 			t.Errorf("пример для %s есть, а в AllCommands её нет", c)
 		}
 	}
-	if len(AllCommands) != 63 {
-		t.Errorf("команд %d, ждали 63 (46 из M1/M2/0.2.1 без команд Помощника, 9 из фидбек-раунда 0.2.2: OpenLogs, SetNoForbidden, ClearBonus, ReduceBonus, CreatePromo, ListPromos, RedeemPromo, GetBonusRate, SetBonusRate, GuardClosing из раунда 0.2.3, тестовая TestSession из 0.2.5 и 5 программ M3: ListPrograms, DecideProgram, SetProgramsCategory, UndoProgram, ScanPrograms; SetProgramsHidden из раунда 0.3.1)", len(AllCommands))
+	if len(AllCommands) != 64 {
+		t.Errorf("команд %d, ждали 64 (46 из M1/M2/0.2.1 без команд Помощника, 9 из фидбек-раунда 0.2.2: OpenLogs, SetNoForbidden, ClearBonus, ReduceBonus, CreatePromo, ListPromos, RedeemPromo, GetBonusRate, SetBonusRate, GuardClosing из раунда 0.2.3, тестовая TestSession из 0.2.5 и 5 программ M3: ListPrograms, DecideProgram, SetProgramsCategory, UndoProgram, ScanPrograms; SetProgramsHidden и RenameProgram из раунда 0.3.1)", len(AllCommands))
 	}
 }
 

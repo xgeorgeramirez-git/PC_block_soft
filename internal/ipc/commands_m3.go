@@ -11,6 +11,7 @@ const (
 	CmdSetProgramsCategory = "SetProgramsCategory" // смена категории одной или нескольких программ (родитель)
 	CmdUndoProgram         = "UndoProgram"         // «Отменить» решения 10 с (родитель)
 	CmdSetProgramsHidden   = "SetProgramsHidden"   // скрыть или снова показать программы (родитель, D-57)
+	CmdRenameProgram       = "RenameProgram"       // своё название программы (родитель, D-59)
 	CmdScanPrograms        = "ScanPrograms"        // мастер до первого входа: программы компьютера (FR-2)
 )
 
@@ -93,7 +94,8 @@ type PendingProgramDTO struct {
 // ProgramDTO — строка списка всех программ (FR-20) с временем за неделю.
 type ProgramDTO struct {
 	Path      string `json:"path"`
-	Name      string `json:"name"`
+	Name      string `json:"name"`     // как программа называется везде (своё название, иначе из файла, D-59)
+	FileName  string `json:"fileName"` // название из файла, если родитель дал своё («из файла: …»); иначе ""
 	Publisher string `json:"publisher"`
 	Category  string `json:"category"` // ProgramCat*
 	Source    string `json:"source"`   // ProgramSource*
@@ -128,7 +130,15 @@ type SetProgramsHiddenRequest struct {
 	Hidden bool     `json:"hidden"`
 }
 
-// DecideProgramReply — ответ DecideProgram, SetProgramsCategory и SetProgramsHidden: сообщение, «Отменить» 10 с и
+// RenameProgramRequest — своё название программы списка (FR-20, D-59): 1–60 символов после обрезки
+// пробелов, "" — снова название из файла. Ответ — DecideProgramReply «Название изменено» с
+// «Отменить» 10 с; длиннее или с управляющими символами — отказ у поля FieldName.
+type RenameProgramRequest struct {
+	Path string `json:"path"`
+	Name string `json:"name"`
+}
+
+// DecideProgramReply — ответ DecideProgram, SetProgramsCategory, SetProgramsHidden и RenameProgram: сообщение, «Отменить» 10 с и
 // «Программы» после изменения.
 type DecideProgramReply struct {
 	Message     string        `json:"message"`     // «SuperGame: игра»

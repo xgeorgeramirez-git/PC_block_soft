@@ -87,6 +87,12 @@ func eventText(kind, name string, d map[string]any) string {
 		body = "вы скрыли " + hiddenSubject(d)
 	case evProgramShown:
 		body = "вы снова показали " + hiddenSubject(d)
+	case evProgramRenamed:
+		if d["reset"] == true {
+			body = "вы вернули «" + programs.ClipName(detStr(d, "from")) + "» название из файла «" + programs.ClipName(detStr(d, "to")) + "»"
+		} else {
+			body = "вы переименовали «" + programs.ClipName(detStr(d, "from")) + "» в «" + programs.ClipName(detStr(d, "to")) + "»"
+		}
 	case evProgramPending:
 		body = "программа «" + eventProgram(d) + "» ждёт решения"
 	case evProgramForbiddenTry:
