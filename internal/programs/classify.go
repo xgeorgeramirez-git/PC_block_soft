@@ -13,6 +13,7 @@ const (
 	VerdictAllow                    // разрешена, категория в Result.Category
 	VerdictForbidden                // запрещена родителем (R13)
 	VerdictUnknown                  // незнакомая: ждёт решения родителя (R12)
+	VerdictHidden                   // скрыта родителем (D-57, RF9-2): не закрывать, секунда — «Прочее»
 )
 
 // String — вердикт для журнала работы.
@@ -26,6 +27,8 @@ func (v Verdict) String() string {
 		return "запрещена"
 	case VerdictUnknown:
 		return "незнакомая"
+	case VerdictHidden:
+		return "скрыта"
 	}
 	return "?"
 }
@@ -37,12 +40,13 @@ type Entry struct {
 	Category    string // Cat*
 	Fingerprint string // «размер:время изменения» (RM3-12); пусто — сверять не нужно
 	Publisher   string // издатель (CompanyName) решения в профиле: по нему решение переходит на новые версии (RM3-13)
+	Hidden      bool   // скрыта родителем (D-57): не закрывается и ничего не передаёт корню и профилю (RF9-2)
 }
 
 // Result — итог классификации.
 type Result struct {
 	Verdict     Verdict
-	Category    string // категория для VerdictAllow и VerdictForbidden («blocked»), «system» по списку
+	Category    string // категория для VerdictAllow и VerdictForbidden («blocked»), «system» по списку, «other» у VerdictHidden
 	Known       bool   // путь есть в списке программ (точное совпадение, отпечаток не разошёлся)
 	Name        string // имя из списка или из пути (не длиннее MaxNameLen)
 	WasCategory string // VerdictUnknown после подмены файла: прежняя категория («раньше: Игра», RM3-12)
@@ -120,7 +124,9 @@ var inheritRank = map[string]int{CatOther: 1, CatStudy: 1, CatGames: 2, CatBlock
 
 // Reload заменяет список программ (после снимка и решений родителя). Пустой и непригодный путь
 // пропускается. Корень приложения считается по корням классификатора, а не берётся из базы:
-// наследование возможно только внутри Program Files.
+// наследование возможно только внутри Program Files. Скрытая программа (D-57) известна по
+// точному пути, но не передаёт категорию корню приложения и профилю (RF9-2): иначе скрытие
+// запускалки решало бы судьбу соседних exe, в том числе самой игры.
 func (c *Classifier) Reload(entries []Entry) {
 	exact := make(map[string]Entry, len(entries))
 	rank := map[string]int{}
@@ -132,6 +138,9 @@ func (c *Classifier) Reload(entries []Entry) {
 		}
 		e.Path = p
 		exact[p] = e
+		if e.Hidden {
+			continue
+		}
 		if key, ok := c.profileKey(p); ok {
 			// В профиле решение наследуется только по имени файла и издателю (RM3-13).
 			if pub := publisherKey(e.Publisher); pub != "" && profileRank[e.Category] > 0 {
@@ -189,10 +198,11 @@ func (c *Classifier) NeedsFingerprint(path string) bool {
 // Classify определяет вердикт для пути exe строго в порядке RM3-1:
 //  1. пустой или непригодный путь — «система» (PL-9: «не знаю» = «не трогать»);
 //  2. класс «система» (папка Windows, PC Block, WebView2, пакеты компонентов Windows);
-//  3. точный путь в списке: категория программы; для записи с отпечатком при другом или
+//  3. точный путь в списке: категория программы (скрытая родителем — «скрыта», D-57); для записи с отпечатком при другом или
 //     непрочитанном отпечатке (fingerprint "") — «незнакомая» с прежней категорией, кроме корня
 //     профиля, где файл обновился на месте с тем же издателем (RM3-13) (RM3-12, Д-1:
-//     иначе ребёнок закроет системе доступ к свойствам своего файла и подменит exe). Это закрытие
+//     иначе ребёнок закроет системе доступ к свойствам своего файла и подменит exe; подмена
+//     важнее скрытия: скрытая тоже снова «ждёт решения»). Это закрытие
 //     одной программы, а не блокировка компьютера (R18 не нарушается);
 //  4. корень приложения в профиле пользователя (RM3-13): категория решения с тем же именем файла
 //     и тем же издателем (publisher; пустой — не наследуется), иначе «незнакомая»;
@@ -225,6 +235,9 @@ func (c *Classifier) Classify(path, fingerprint, publisher string) Result {
 				return verdictOf(best, false, name)
 			}
 			return Result{Verdict: VerdictUnknown, Name: name, WasCategory: e.Category}
+		}
+		if e.Hidden {
+			return Result{Verdict: VerdictHidden, Category: CatOther, Known: true, Name: name}
 		}
 		return verdictOf(e.Category, true, name)
 	}

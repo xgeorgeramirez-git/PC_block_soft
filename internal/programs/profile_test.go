@@ -191,3 +191,78 @@ func TestProfileOldDecisionExactPath(t *testing.T) {
 		t.Errorf("старое решение по точному пути: %+v", got)
 	}
 }
+
+// Скрытые родителем программы (D-57, RF9-2, Review Focus 1–2).
+var hiddenEntries = []Entry{
+	// Запускалка игры скрыта; в корне Epic Games больше ничего нет.
+	{Path: `c:\program files\epic games\launcher\stalker2.exe`, Name: "Stalker2", Category: "games", Hidden: true},
+	// Корень Steam: скрытая «Прочее» и видимая игра.
+	{Path: `c:\program files (x86)\steam\steamwebhelper.exe`, Name: "Steam Helper", Category: "other", Hidden: true},
+	{Path: `c:\program files (x86)\steam\steamapps\common\game\game.exe`, Name: "Game", Category: "games"},
+	// Скрытая запрещённая: сама не закрывается, но запрет корню не передаёт и не теряет его у соседей.
+	{Path: `c:\program files\roblox\versions\version-1\robloxplayerbeta.exe`, Name: "Roblox", Category: "blocked", Hidden: true},
+	// Вне доверенных каталогов с отпечатком.
+	{Path: `c:\users\миша\downloads\launcher.exe`, Name: "Launcher", Category: "games", Fingerprint: "10:1", Hidden: true},
+	// В профиле: скрытая запускалка с издателем.
+	{Path: `c:\users\миша\appdata\local\epiclauncher\v1\epiclauncher.exe`, Name: "Epic Launcher", Category: "other",
+		Publisher: "Epic Games", Fingerprint: "30:3", Hidden: true},
+}
+
+// Ловит: скрытая программа закрывается (вердикт не «скрыта»), передаёт свою категорию корню
+// приложения или профилю (соседний exe игры стал бы разрешённым или «игрой» по скрытой
+// запускалке, Review Focus 1), остаётся скрытой после подмены файла вне доверенных каталогов
+// (Review Focus 2: подмена важнее скрытия, снова «ждёт решения»).
+func TestClassifyHidden(t *testing.T) {
+	c := NewClassifier(testRoots, DefaultCatalog)
+	c.Reload(hiddenEntries)
+	cases := []struct {
+		name, path, fp, pub string
+		want                Result
+	}{
+		{"скрытая запускалка по точному пути", `C:\Program Files\Epic Games\Launcher\Stalker2.exe`, "", "",
+			Result{Verdict: VerdictHidden, Category: "other", Known: true, Name: "Stalker2"}},
+		{"сосед скрытой: корень не наследуется, незнакомая", `c:\program files\epic games\stalker2\binaries\win64\stalker2-win64-shipping.exe`, "", "",
+			Result{Verdict: VerdictUnknown, Name: "stalker2-win64-shipping"}},
+		{"скрытая «Прочее» в корне игры", `c:\program files (x86)\steam\steamwebhelper.exe`, "", "",
+			Result{Verdict: VerdictHidden, Category: "other", Known: true, Name: "Steam Helper"}},
+		{"сосед в корне Steam: «Игры» от видимой игры", `c:\program files (x86)\steam\steamapps\common\other\other.exe`, "", "",
+			Result{Verdict: VerdictAllow, Category: "games", Name: "other"}},
+		{"скрытая запрещённая не закрывается", `c:\program files\roblox\versions\version-1\robloxplayerbeta.exe`, "", "",
+			Result{Verdict: VerdictHidden, Category: "other", Known: true, Name: "Roblox"}},
+		{"новая версия скрытой запрещённой: не скрыта, по каталогу игра", `c:\program files\roblox\versions\version-2\robloxplayerbeta.exe`, "", "",
+			Result{Verdict: VerdictAllow, Category: "games", Name: "robloxplayerbeta"}},
+		{"вне доверенных: отпечаток совпал — скрыта", `c:\users\миша\downloads\launcher.exe`, "10:1", "",
+			Result{Verdict: VerdictHidden, Category: "other", Known: true, Name: "Launcher"}},
+		{"вне доверенных: подмена файла — ждёт решения", `c:\users\миша\downloads\launcher.exe`, "99:9", "",
+			Result{Verdict: VerdictUnknown, Name: "Launcher", WasCategory: "games"}},
+		{"вне доверенных: отпечаток не прочитан — ждёт решения", `c:\users\миша\downloads\launcher.exe`, "", "",
+			Result{Verdict: VerdictUnknown, Name: "Launcher", WasCategory: "games"}},
+		{"профиль: скрытая, отпечаток совпал", `c:\users\миша\appdata\local\epiclauncher\v1\epiclauncher.exe`, "30:3", "Epic Games",
+			Result{Verdict: VerdictHidden, Category: "other", Known: true, Name: "Epic Launcher"}},
+		{"профиль: обновление на месте у скрытой — ждёт решения", `c:\users\миша\appdata\local\epiclauncher\v1\epiclauncher.exe`, "31:4", "Epic Games",
+			Result{Verdict: VerdictUnknown, Name: "Epic Launcher", WasCategory: "other"}},
+		{"профиль: новая версия скрытой не наследует", `c:\users\миша\appdata\local\epiclauncher\v2\epiclauncher.exe`, "", "Epic Games",
+			Result{Verdict: VerdictUnknown, Name: "epiclauncher"}},
+	}
+	for _, k := range cases {
+		if got := c.Classify(k.path, k.fp, k.pub); got != k.want {
+			t.Errorf("%s: Classify(%q) = %+v, want %+v", k.name, k.path, got, k.want)
+		}
+	}
+	if c.NeedsPublisher(`c:\users\миша\appdata\local\epiclauncher\v2\epiclauncher.exe`) {
+		t.Error("NeedsPublisher: скрытая запускалка дала решение в профиле")
+	}
+	if !c.NeedsFingerprint(`c:\users\миша\downloads\launcher.exe`) {
+		t.Error("NeedsFingerprint скрытой с отпечатком = false: подмена не была бы замечена")
+	}
+	// «Показать»: та же запись без флага снова по своей категории и снова наследуется корнем.
+	shown := append([]Entry(nil), hiddenEntries...)
+	shown[0].Hidden = false
+	c.Reload(shown)
+	if got, want := c.Classify(`c:\program files\epic games\launcher\stalker2.exe`, "", ""), (Result{Verdict: VerdictAllow, Category: "games", Known: true, Name: "Stalker2"}); got != want {
+		t.Errorf("после «Показать» = %+v, want %+v", got, want)
+	}
+	if got := c.Classify(`c:\program files\epic games\stalker2\x.exe`, "", ""); got.Verdict != VerdictAllow || got.Category != "games" {
+		t.Errorf("сосед после «Показать» = %+v, want игра по корню", got)
+	}
+}
