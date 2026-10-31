@@ -37,6 +37,7 @@ type Program struct {
 	Fingerprint string // «размер:время изменения» (RM3-12); пусто — не нужен
 	AppRoot     string // корень приложения (RM3-1 п.3); пусто — нет
 	DecidedAt   int64  // момент решения родителя, UTC мс; 0 — нет
+	Hidden      bool   // родитель скрыл программу (D-57, RF9-1); категория сохраняется
 }
 
 // PendingChild — попытки одного ребёнка запустить ждущую решения программу (storage.PendingChild).
