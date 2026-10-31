@@ -69,7 +69,7 @@ func TestOpenCreatesFullSchema(t *testing.T) {
 		"pending_attempts":   {"exe_path", "child_id", "attempts", "last_attempt_at"},
 		"site_rules":         {"id", "domain", "kind"},
 		"usage_daily":        {"child_id", "day", "category", "subject_kind", "subject", "seconds"},
-		"day_state":          {"child_id", "day", "total_s", "games_s", "video_s", "study_s", "extra_min", "pause_until", "bonus_granted", "no_forbidden"},
+		"day_state":          {"child_id", "day", "total_s", "games_s", "video_s", "study_s", "extra_min", "pause_until", "bonus_granted", "no_forbidden", "last_minute_end"},
 		"bonus_ledger":       {"id", "child_id", "at", "delta_min", "reason", "balance_after"},
 		"events":             {"id", "child_id", "at", "tz_offset_min", "kind", "details"},
 		"promo_codes":        {"id", "code_norm", "code_display", "minutes", "created_at", "used_at", "used_by_child"},
@@ -204,16 +204,16 @@ func TestOpenTwiceKeepsDataAndMigrationOnce(t *testing.T) {
 		t.Fatalf("второе Open: %v", err)
 	}
 	defer s2.Close()
-	if n := rawNull(t, s2, `SELECT count(*) FROM schema_migrations`); n.Int64 != 5 {
-		t.Errorf("строк schema_migrations = %d, want 5", n.Int64)
+	if n := rawNull(t, s2, `SELECT count(*) FROM schema_migrations`); n.Int64 != 6 {
+		t.Errorf("строк schema_migrations = %d, want 6", n.Int64)
 	}
-	if v := rawNull(t, s2, `SELECT max(version) FROM schema_migrations`); v.Int64 != 5 {
-		t.Errorf("последняя миграция = %d, want 5", v.Int64)
+	if v := rawNull(t, s2, `SELECT max(version) FROM schema_migrations`); v.Int64 != 6 {
+		t.Errorf("последняя миграция = %d, want 6", v.Int64)
 	}
 	if at := rawNull(t, s2, `SELECT applied_at FROM schema_migrations WHERE version = 1`); at.Int64 != 1_000 {
 		t.Errorf("applied_at миграции 1 = %d, want 1000 (момент первого применения)", at.Int64)
 	}
-	for _, v := range []int{2, 3, 4} {
+	for _, v := range []int{2, 3, 4, 5, 6} {
 		if at := rawNull(t, s2, `SELECT applied_at FROM schema_migrations WHERE version = ?`, v); at.Int64 != 1_000 {
 			t.Errorf("applied_at миграции %d = %d, want 1000 (все применяются при первом открытии, не повторно)", v, at.Int64)
 		}
