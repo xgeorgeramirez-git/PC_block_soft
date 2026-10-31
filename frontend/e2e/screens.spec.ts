@@ -781,8 +781,10 @@ test("s11 программы: решение, фильтр и массовая �
   await expect(page.getByText("SuperGame: игра")).toBeVisible();
   await expect(page.getByRole("button", { name: "Отменить" })).toBeVisible();
   const all = page.getByRole("region", { name: "Все программы" });
-  await all.getByRole("group", { name: "Показать" }).getByRole("button", { name: "Игры" }).click();
-  await expect(all.getByRole("button", { name: "Игры" })).toHaveAttribute("aria-pressed", "true");
+  // Точное имя: у Playwright имя ищется подстрокой, а «Скрыть «Очень длинное название игры…»» содержит «игры».
+  const games = all.getByRole("group", { name: "Показать" }).getByRole("button", { name: "Игры", exact: true });
+  await games.click();
+  await expect(games).toHaveAttribute("aria-pressed", "true");
   await all.getByRole("checkbox", { name: "Выбрать всё в списке" }).check();
   await expect(all.getByText("Выбрано: 3")).toBeVisible();
   await decisionButtonsEven(page);
@@ -825,17 +827,17 @@ test("s11 программы: фильтр «Скрытые»", async ({ page })
   ];
   await openPrograms(page, { pending: [], programs: list });
   const all = page.getByRole("region", { name: "Все программы" });
-  await expect(all.getByRole("row", { name: "Stalker2-Win64-Shipping" })).toBeVisible();
+  await expect(all.getByRole("row", { name: "Stalker2-Win64-Shipping", exact: true })).toBeVisible();
   await expect(all.getByRole("row", { name: "Stalker2", exact: true })).toHaveCount(0);
   await hideButtonsInColumn(page);
   await nothingSticksOut(page);
   const filters = all.getByRole("group", { name: "Показать" });
-  const first = await boxOf(filters.getByRole("button", { name: "Все" }));
-  const last = await boxOf(filters.getByRole("button", { name: "Скрытые" }));
+  const first = await boxOf(filters.getByRole("button", { name: "Все", exact: true }));
+  const last = await boxOf(filters.getByRole("button", { name: "Скрытые", exact: true }));
   expect(Math.abs(last.top - first.top), "фильтр «Скрытые» перенёсся на новую строку").toBeLessThanOrEqual(0.5);
-  await filters.getByRole("button", { name: "Скрытые" }).click();
+  await filters.getByRole("button", { name: "Скрытые", exact: true }).click();
   await expect(all.getByRole("row", { name: "Stalker2", exact: true })).toBeVisible();
-  await expect(all.getByRole("button", { name: "Показать «Stalker2»" })).toBeVisible();
+  await expect(all.getByRole("button", { name: "Показать «Stalker2»", exact: true })).toBeVisible();
   await hideButtonsInColumn(page);
   await blocksApart(page);
   await nothingSticksOut(page);
