@@ -1443,7 +1443,7 @@ html:has(.shell-child) body {
   padding: var(--space-2) var(--space-3);
   border-bottom: 1px solid var(--line);
   text-align: left;
-  vertical-align: top;
+  vertical-align: middle; /* время, список категории и кнопка — на одной высоте */
 }
 
 .programs-table thead th {
@@ -1463,7 +1463,8 @@ html:has(.shell-child) body {
 .programs-table .col-check input {
   width: 18px;
   height: 18px;
-  margin: var(--space-1) 0 0;
+  margin: 0;
+  vertical-align: middle;
 }
 
 .programs-table .col-category {
@@ -1486,23 +1487,31 @@ html:has(.shell-child) body {
 }
 
 .program-category {
-  margin: var(--space-2) 0 0;
+  margin: 0;
 }
 
 /* Своё название (D-59): «Переименовать» рядом с названием, поле правки на месте названия. */
 .program-title {
   display: flex;
-  flex-wrap: wrap;
   align-items: baseline;
-  gap: var(--space-1) var(--space-3);
+  gap: var(--space-3);
   min-width: 0;
 }
 
 .program-title .program-name {
+  flex: 1 1 auto;
   min-width: 0;
 }
 
+/* Одна строка без переноса: обрезку делает fitName (одно «…», PL-22), CSS не обрезает. */
+.line-fit {
+  overflow: hidden;
+  white-space: nowrap;
+  overflow-wrap: normal;
+}
+
 .program-rename {
+  flex: none;
   color: var(--text-muted);
   font-size: 14px;
   white-space: nowrap;

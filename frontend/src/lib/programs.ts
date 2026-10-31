@@ -128,6 +128,30 @@ export function fitPath(path: string, max: number, fits: (shown: string) => bool
   return shortenPath(path, MIN_PATH_CHARS);
 }
 
+/** Короче этого название не обрезается: несколько букв и «…». */
+const MIN_NAME_CHARS = 4;
+
+/** Название не длиннее n знаков: длинное обрезано с конца, «…» одно, пробел перед ним убран. */
+export function clipName(name: string, n: number): string {
+  const chars = Array.from(name);
+  if (chars.length <= n) return name;
+  return `${chars.slice(0, Math.max(n - 1, 1)).join("").trimEnd()}…`;
+}
+
+/**
+ * Название под ширину строки (одна строка): целиком, если помещается, иначе самый длинный вид
+ * clipName, для которого fits отвечает «помещается». Единственный способ обрезки названий на экране
+ * (PL-22): CSS-многоточие поверх дало бы второе «…». Не помещается ничего — самый короткий.
+ */
+export function fitName(name: string, fits: (shown: string) => boolean): string {
+  if (fits(name)) return name;
+  for (let n = Array.from(name).length - 1; n >= MIN_NAME_CHARS; n--) {
+    const shown = clipName(name, n);
+    if (fits(shown)) return shown;
+  }
+  return clipName(name, MIN_NAME_CHARS);
+}
+
 /** «1 раз», «2 раза», «5 раз». */
 export function timesWord(n: number): string {
   const mod100 = n % 100;

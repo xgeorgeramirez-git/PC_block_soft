@@ -10,6 +10,8 @@ import {
   fitPath,
   hiddenMessage,
   nameError,
+  clipName,
+  fitName,
   shortenPath,
   timesWord,
   visiblePrograms,
@@ -323,5 +325,25 @@ describe("своё название", () => {
     expect(nameError(" " + "я".repeat(60) + " ")).toBe("");
     expect(nameError("я".repeat(61))).toBe("Название до 60 символов");
     expect(nameError("Моя\nигра")).toBe("Название до 60 символов");
+  });
+});
+
+// Ловит: длинное название не обрезается (переносится на несколько строк), «…» два или пробел перед
+// ним, короткое трогается, буквы считаются байтами.
+describe("обрезка названия", () => {
+  it("clipName: с конца, одно «…», без пробела перед ним", () => {
+    expect(clipName("Очень длинное название", 6)).toBe("Очень…");
+    expect(clipName("Очень длинное", 7)).toBe("Очень…");
+    expect(clipName("Игра", 4)).toBe("Игра");
+    expect(clipName("Игра 2", 10)).toBe("Игра 2");
+  });
+
+  it("fitName: целиком, если помещается; иначе самое длинное, что помещается", () => {
+    const name = "Очень длинное название игры с пробелами и цифрами 2026";
+    expect(fitName("Brave", () => false)).toBe("Bra…");
+    expect(fitName(name, (s) => s.length <= 100)).toBe(name);
+    expect(fitName(name, (s) => s.length <= 20)).toBe("Очень длинное назва…");
+    expect(fitName(name, (s) => s.length <= 20).length).toBeLessThanOrEqual(20);
+    expect(fitName(name, () => false)).toBe("Оче…");
   });
 });

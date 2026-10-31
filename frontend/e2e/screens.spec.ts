@@ -769,6 +769,10 @@ test("s11 программы: ждут решения и список", async ({
   await blocksApart(page);
   await nothingSticksOut(page);
   await pathsOneLine(page);
+  await rowsEven(page);
+  const longName = page.getByRole("region", { name: "Все программы" }).locator(".program-name[title]");
+  await expect(longName).toHaveAttribute("title", "Очень длинное название игры с пробелами и цифрами 2026");
+  await expect(longName).toContainText("…");
   await noHorizontalScroll(page);
   await page.screenshot({ path: `${SCREENS}/s11-programs.png`, fullPage: true });
 });
@@ -787,6 +791,7 @@ test("s11 программы: решение, фильтр и массовая �
   await expect(games).toHaveAttribute("aria-pressed", "true");
   await all.getByRole("checkbox", { name: "Выбрать всё в списке" }).check();
   await expect(all.getByText("Выбрано: 3")).toBeVisible();
+  await rowsEven(page);
   await decisionButtonsEven(page);
   await blocksApart(page);
   await nothingSticksOut(page);
@@ -794,6 +799,61 @@ test("s11 программы: решение, фильтр и массовая �
   await noHorizontalScroll(page);
   await page.screenshot({ path: `${SCREENS}/s11-programs-filtered.png`, fullPage: true });
 });
+
+/**
+ * Строки таблицы программ ровные (замер, не глазом): название и «из файла: …» в одну строку с одним
+ * «…» (полное в title), строка с длинным названием не выше обычной (±2 px), у каждой строки центры
+ * по вертикали времени за неделю, списка категории (или текста у скрытой) и кнопки «Скрыть» совпадают
+ * (±2 px). Строка в режиме правки названия из сравнения высоты исключена (она выше по задаче).
+ */
+async function rowsEven(page: Page) {
+  const bad = await page.evaluate(() => {
+    const out: string[] = [];
+    const heights: { name: string; h: number; editing: boolean; long: boolean }[] = [];
+    for (const row of Array.from(document.querySelectorAll<HTMLElement>(".programs-table tbody tr"))) {
+      const name = row.getAttribute("aria-label") ?? "";
+      const editing = row.querySelector(".name-editor") !== null;
+      for (const line of Array.from(row.querySelectorAll<HTMLElement>(".line-fit"))) {
+        const lh = parseFloat(getComputedStyle(line).lineHeight) || 20;
+        if (line.getBoundingClientRect().height > lh * 1.5) out.push(`перенос названия: ${name}`);
+        const shown = line.querySelector('[aria-hidden="true"]')?.textContent ?? line.textContent ?? "";
+        if ((shown.match(/…/g) ?? []).length > 1) out.push(`два «…»: ${shown}`);
+        if (shown.endsWith("…") && !line.title) out.push(`обрезано без подсказки: ${shown}`);
+        if (line.scrollWidth > line.clientWidth + 1) out.push(`текст шире строки: ${shown}`);
+      }
+      const nameCell = row.querySelectorAll<HTMLElement>("td")[1];
+      heights.push({ name, h: row.getBoundingClientRect().height, editing, long: (nameCell?.querySelector(".program-name")?.getAttribute("title") ?? "") !== "" });
+      const centerOf = (el: Element | null | undefined) => {
+        if (!el) return null;
+        const r = el.getBoundingClientRect();
+        return r.height > 0 ? r.top + r.height / 2 : null;
+      };
+      const weekCell = row.querySelector<HTMLElement>(".col-week");
+      let week: number | null = null;
+      if (weekCell && weekCell.textContent?.trim()) {
+        const range = document.createRange();
+        range.selectNodeContents(weekCell);
+        const r = range.getBoundingClientRect();
+        week = r.top + r.height / 2;
+      }
+      const cat = centerOf(row.querySelector(".col-category select, .col-category .program-category"));
+      const btn = centerOf(row.querySelector(".col-action button"));
+      const centers = [week, cat, btn].filter((v): v is number => v !== null);
+      if (centers.length >= 2 && Math.max(...centers) - Math.min(...centers) > 2) {
+        out.push(`разная высота в строке ${name}: время ${week?.toFixed(1)}, категория ${cat?.toFixed(1)}, кнопка ${btn?.toFixed(1)}`);
+      }
+    }
+    const plain = heights.filter((x) => !x.editing && !x.long);
+    if (plain.length > 0) {
+      const base = Math.min(...plain.map((x) => x.h));
+      for (const x of heights.filter((y) => !y.editing && y.long)) {
+        if (Math.abs(x.h - base) > 2) out.push(`строка с длинным названием выше обычной: ${x.name} ${x.h.toFixed(1)} против ${base.toFixed(1)}`);
+      }
+    }
+    return out;
+  });
+  expect(bad, "строки таблицы программ неровные").toEqual([]);
+}
 
 /** Кнопка «Скрыть» / «Показать» в своей колонке: не налезает на категорию и время за неделю (D-57). */
 async function hideButtonsInColumn(page: Page) {
@@ -830,6 +890,7 @@ test("s11 программы: фильтр «Скрытые»", async ({ page })
   await expect(all.getByRole("row", { name: "Stalker2-Win64-Shipping", exact: true })).toBeVisible();
   await expect(all.getByRole("row", { name: "Stalker2", exact: true })).toHaveCount(0);
   await hideButtonsInColumn(page);
+  await rowsEven(page);
   await nothingSticksOut(page);
   const filters = all.getByRole("group", { name: "Показать" });
   const first = await boxOf(filters.getByRole("button", { name: "Все", exact: true }));
@@ -839,6 +900,7 @@ test("s11 программы: фильтр «Скрытые»", async ({ page })
   await expect(all.getByRole("row", { name: "Stalker2", exact: true })).toBeVisible();
   await expect(all.getByRole("button", { name: "Показать «Stalker2»", exact: true })).toBeVisible();
   await hideButtonsInColumn(page);
+  await rowsEven(page);
   await blocksApart(page);
   await nothingSticksOut(page);
   await pathsOneLine(page);
@@ -881,6 +943,7 @@ test("s11 программы: переименование", async ({ page }) =>
   await expect(field).toBeFocused();
   await editorInCell(page);
   await hideButtonsInColumn(page);
+  await rowsEven(page);
   await noHorizontalScroll(page);
   await page.screenshot({ path: `${SCREENS}/s11-programs-rename-edit.png`, fullPage: true });
 
@@ -891,6 +954,7 @@ test("s11 программы: переименование", async ({ page }) =>
   const renamed = all.getByRole("row", { name: "Сталкер 2", exact: true });
   await expect(renamed.getByText("из файла: Stalker2-Win64-Shipping", { exact: true })).toBeVisible();
   await hideButtonsInColumn(page);
+  await rowsEven(page);
   await nothingSticksOut(page);
   await pathsOneLine(page);
   await blocksApart(page);
