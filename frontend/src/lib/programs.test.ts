@@ -8,6 +8,7 @@ import {
   decisionMessage,
   publisherText,
   fitPath,
+  hiddenMessage,
   shortenPath,
   timesWord,
   visiblePrograms,
@@ -53,8 +54,8 @@ describe("подписи категорий", () => {
   });
 
   it("фильтр: Все, Игры, Учёба, Прочее, Запрещено", () => {
-    expect(FILTERS.map((f) => f.label)).toEqual(["Все", "Игры", "Учёба", "Прочее", "Запрещено"]);
-    expect(FILTERS.map((f) => f.id)).toEqual(["all", "games", "study", "other", "blocked"]);
+    expect(FILTERS.map((f) => f.label)).toEqual(["Все", "Игры", "Учёба", "Прочее", "Запрещено", "Скрытые"]);
+    expect(FILTERS.map((f) => f.id)).toEqual(["all", "games", "study", "other", "blocked", "hidden"]);
   });
 
   it("название категории для строки", () => {
@@ -242,6 +243,26 @@ describe("список: поиск, фильтр, сортировка", () => {
     expect(names(visiblePrograms(list, { ...base, query: "учи" }))).toEqual(["Учи.ру"]);
     // Блокнот системный: по поиску тоже не находится.
     expect(names(visiblePrograms(list, { ...base, query: "notepad" }))).toEqual([]);
+  });
+
+  // Ловит (D-57, RF9-4): скрытая видна в «Все» или в своей категории; фильтр «Скрытые» показывает
+  // не скрытые; системная скрытая попадает в «Скрытые».
+  it("скрытые только в фильтре «Скрытые»", () => {
+    const withHidden: ProgramDTO[] = [
+      ...list,
+      { path: "c:\\program files\\epic\\stalker2.exe", name: "Stalker2", publisher: "Epic Games", category: "games", source: "parent", weekS: 0, hidden: true },
+      { path: "c:\\program files\\vendor\\driver.exe", name: "Драйвер", publisher: "", category: "system", source: "parent", weekS: 0, hidden: true },
+    ];
+    expect(names(visiblePrograms(withHidden, base))).toEqual(["Bad", "Brave", "Minecraft Launcher", "Учи.ру"]);
+    expect(names(visiblePrograms(withHidden, { ...base, filter: "games" }))).toEqual(["Minecraft Launcher"]);
+    expect(names(visiblePrograms(withHidden, { ...base, filter: "hidden" }))).toEqual(["Stalker2"]);
+    expect(names(visiblePrograms(withHidden, { ...base, filter: "hidden", query: "brave" }))).toEqual([]);
+    expect(names(visiblePrograms(list, { ...base, filter: "hidden" }))).toEqual([]);
+  });
+
+  it("сообщение о скрытии и показе", () => {
+    expect(hiddenMessage("Stalker2", true)).toBe("Stalker2 скрыта");
+    expect(hiddenMessage("Stalker2", false)).toBe("Stalker2 снова в списке");
   });
 
   it("поиск и фильтр вместе", () => {

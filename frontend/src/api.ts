@@ -458,6 +458,12 @@ export async function setProgramsCategory(paths: string[], category: ProgramCate
   return { ...r, programs: programsOf(r.programs) };
 }
 
+/** «Скрыть» или «Показать» программы списка (D-57); ответ с «Отменить» 10 с. */
+export async function setProgramsHidden(paths: string[], hidden: boolean): Promise<DecideProgramReply> {
+  const r = await call<object, DecideProgramReply>("SetProgramsHidden", { paths, hidden });
+  return { ...r, programs: programsOf(r.programs) };
+}
+
 /** «Отменить» решения по программам (10 с). */
 export async function undoProgram(undoId: string): Promise<UndoProgramReply> {
   const r = await call<object, UndoProgramReply>("UndoProgram", { undoId });

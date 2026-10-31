@@ -1475,6 +1475,20 @@ html:has(.shell-child) body {
   white-space: nowrap;
 }
 
+/* «Скрыть» / «Показать» (D-57): своя узкая колонка, кнопка не налезает на соседние. */
+.programs-table .col-action {
+  width: 128px;
+  text-align: right;
+}
+
+.programs-table .col-action .btn {
+  max-width: 100%;
+}
+
+.program-category {
+  margin: var(--space-2) 0 0;
+}
+
 .sort-button {
   display: inline-flex;
   align-items: center;

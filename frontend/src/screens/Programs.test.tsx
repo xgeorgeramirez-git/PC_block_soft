@@ -357,7 +357,7 @@ describe("Программы: все программы", () => {
     const user = setup();
     await screen.findByRole("region", { name: "Все программы" });
     const filters = within(allBlock()).getByRole("group", { name: "Показать" });
-    expect(within(filters).getAllByRole("button").map((b) => b.textContent)).toEqual(["Все", "Игры", "Учёба", "Прочее", "Запрещено"]);
+    expect(within(filters).getAllByRole("button").map((b) => b.textContent)).toEqual(["Все", "Игры", "Учёба", "Прочее", "Запрещено", "Скрытые"]);
     expect(within(filters).getByRole("button", { name: "Все" }).getAttribute("aria-pressed")).toBe("true");
 
     await user.click(within(filters).getByRole("button", { name: "Игры" }));
@@ -500,6 +500,103 @@ describe("Программы: массовая смена категории", (
     expect(g.counter.calls).toBe(1);
     await g.open();
     expect(await screen.findByText("Изменено программ: 1")).toBeTruthy();
+    expect(g.counter.calls).toBe(1);
+  });
+});
+
+describe("Программы: скрытые (D-57, 8.3.4 п.4)", () => {
+  const STALKER = "c:\\program files\\epic games\\stalker2\\stalker2.exe";
+  const SHIPPING = "c:\\program files\\epic games\\stalker2\\binaries\\win64\\stalker2-win64-shipping.exe";
+  const withStalker = (): ProgramDTO[] => [
+    ...programs(),
+    { path: STALKER, name: "Stalker2", publisher: "Epic Games", category: "games", source: "parent", weekS: 600 },
+    { path: SHIPPING, name: "Stalker2-Win64-Shipping", publisher: "GSC Game World", category: "games", source: "catalog", weekS: 7200 },
+  ];
+  const filterButton = (name: string) => within(within(allBlock()).getByRole("group", { name: "Показать" })).getByRole("button", { name });
+
+  // Ловит: «Скрыть» не шлёт SetProgramsHidden, строка остаётся в списке, сообщение не «Stalker2
+  // скрыта», «Отменить» не возвращает строку, фокус теряется.
+  it("«Скрыть» в строке: строка пропала, «Stalker2 скрыта» с «Отменить»", async () => {
+    const user = setup({ programs: withStalker() });
+    await screen.findByRole("region", { name: "Все программы" });
+    await user.click(within(rowOf("Stalker2$")).getByRole("button", { name: "Скрыть «Stalker2»" }));
+
+    expect(await screen.findByText("Stalker2 скрыта")).toBeTruthy();
+    expect(mock.calls.filter((c) => c.command === "SetProgramsHidden").map((c) => c.payload)).toEqual([
+      { paths: [STALKER], hidden: true },
+    ]);
+    expect(rowNames()).toEqual(["Brave", "Minecraft Launcher", "Stalker2-Win64-Shipping", "Учи.ру"]);
+    expect(mock.state.events.map((e) => e.text)).toContain("Вы скрыли «Stalker2»");
+    // Фокус на соседней строке, а не на потерянном элементе.
+    expect(document.activeElement?.closest("tr")?.getAttribute("aria-label")).toBe("Stalker2-Win64-Shipping");
+
+    await user.click(screen.getByRole("button", { name: "Отменить" }));
+    expect(await screen.findByText("Решение отменено")).toBeTruthy();
+    expect(rowNames()).toEqual(["Brave", "Minecraft Launcher", "Stalker2", "Stalker2-Win64-Shipping", "Учи.ру"]);
+  });
+
+  // Ловит: скрытая видна в «Все» и в своей категории; в «Скрытых» у неё выбор категории и время
+  // за неделю; «Показать» не возвращает программу в прежнюю категорию.
+  it("фильтр «Скрытые»: только скрытые, категория текстом, «Показать» возвращает в «Игры»", async () => {
+    const list = withStalker();
+    list[4] = { ...list[4], hidden: true };
+    const user = setup({ programs: list });
+    await screen.findByRole("region", { name: "Все программы" });
+    expect(rowNames()).toEqual(["Brave", "Minecraft Launcher", "Stalker2-Win64-Shipping", "Учи.ру"]);
+    await user.click(filterButton("Игры"));
+    expect(rowNames()).toEqual(["Minecraft Launcher", "Stalker2-Win64-Shipping"]);
+
+    await user.click(filterButton("Скрытые"));
+    expect(rowNames()).toEqual(["Stalker2"]);
+    const row = rowOf("Stalker2$");
+    expect(within(row).queryByRole("combobox")).toBeNull();
+    expect(within(row).getByText("Игры")).toBeTruthy();
+    expect(within(row).queryByText("нет")).toBeNull();
+
+    await user.click(within(row).getByRole("button", { name: "Показать «Stalker2»" }));
+    expect(await screen.findByText("Stalker2 снова в списке")).toBeTruthy();
+    expect(mock.calls.filter((c) => c.command === "SetProgramsHidden").map((c) => c.payload)).toEqual([
+      { paths: [STALKER], hidden: false },
+    ]);
+    expect(screen.getByText("Скрытых программ нет")).toBeTruthy();
+    await user.click(filterButton("Игры"));
+    expect(rowNames()).toEqual(["Minecraft Launcher", "Stalker2", "Stalker2-Win64-Shipping"]);
+    expect((within(rowOf("Stalker2$")).getByRole("combobox") as HTMLSelectElement).value).toBe("games");
+  });
+
+  // Ловит: для отмеченных строк нет «Скрыть»; в «Скрытых» вместо «Показать» предлагается смена
+  // категории (её у скрытой не видно).
+  it("отмеченные: «Скрыть отмеченные», в «Скрытых» «Показать отмеченные» без выбора категории", async () => {
+    const user = setup({ programs: withStalker() });
+    await screen.findByRole("region", { name: "Все программы" });
+    await user.click(within(rowOf("Brave")).getByRole("checkbox"));
+    await user.click(within(rowOf("Stalker2$")).getByRole("checkbox", { name: "Отметить «Stalker2»" }));
+    await user.click(screen.getByRole("button", { name: "Скрыть отмеченные" }));
+    expect(await screen.findByText("Скрыто программ: 2")).toBeTruthy();
+    expect(mock.calls.filter((c) => c.command === "SetProgramsHidden").map((c) => c.payload)).toEqual([
+      { paths: [BRAVE, STALKER], hidden: true },
+    ]);
+    expect(screen.queryByText(/^Выбрано:/)).toBeNull();
+
+    await user.click(filterButton("Скрытые"));
+    expect(rowNames()).toEqual(["Brave", "Stalker2"]);
+    await user.click(screen.getByRole("checkbox", { name: "Выбрать всё в списке" }));
+    expect(screen.queryByRole("combobox", { name: "Новая категория для отмеченных" })).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Показать отмеченные" }));
+    expect(await screen.findByText("Снова в списке программ: 2")).toBeTruthy();
+    expect(screen.getByText("Скрытых программ нет")).toBeTruthy();
+  });
+
+  it("пока скрытие в пути: повторно не нажать", async () => {
+    const user = setup({ programs: withStalker() });
+    await screen.findByRole("region", { name: "Все программы" });
+    const g = gate("SetProgramsHidden");
+    const hide = within(rowOf("Stalker2$")).getByRole("button", { name: "Скрыть «Stalker2»" });
+    await user.click(hide);
+    expect(within(rowOf("Stalker2$")).getByText("Сохраняю…")).toBeTruthy();
+    expect((hide as HTMLButtonElement).disabled).toBe(true);
+    await g.open();
+    expect(await screen.findByText("Stalker2 скрыта")).toBeTruthy();
     expect(g.counter.calls).toBe(1);
   });
 });

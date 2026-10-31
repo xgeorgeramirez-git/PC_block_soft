@@ -793,6 +793,57 @@ test("s11 программы: решение, фильтр и массовая �
   await page.screenshot({ path: `${SCREENS}/s11-programs-filtered.png`, fullPage: true });
 });
 
+/** Кнопка «Скрыть» / «Показать» в своей колонке: не налезает на категорию и время за неделю (D-57). */
+async function hideButtonsInColumn(page: Page) {
+  const bad = await page.evaluate(() => {
+    const out: string[] = [];
+    for (const row of Array.from(document.querySelectorAll<HTMLElement>(".programs-table tbody tr"))) {
+      const btn = row.querySelector<HTMLElement>(".col-action button");
+      const cat = row.querySelector<HTMLElement>(".col-category")?.getBoundingClientRect();
+      const week = row.querySelector<HTMLElement>(".col-week")?.getBoundingClientRect();
+      if (!btn || !cat || !week) {
+        out.push(`нет кнопки или колонок: ${row.getAttribute("aria-label")}`);
+        continue;
+      }
+      const b = btn.getBoundingClientRect();
+      if (b.left < week.right - 0.5 || b.left < cat.right - 0.5) out.push(`кнопка налезает: ${row.getAttribute("aria-label")}`);
+      if (b.height > 48) out.push(`кнопка в две строки: ${row.getAttribute("aria-label")}`);
+    }
+    return out;
+  });
+  expect(bad).toEqual([]);
+}
+
+// s11 — фильтр «Скрытые» (D-57, 8.3.4 п.4): скрыта запускалка Stalker2, в строке категория текстом
+// и «Показать»; в «Все» её нет. Фильтры помещаются в ряд с поиском.
+test("s11 программы: фильтр «Скрытые»", async ({ page }) => {
+  await tallWindow(page, 1300);
+  const list = [
+    ...programList(),
+    { path: "c:\\program files\\epic games\\stalker2\\stalker2.exe", name: "Stalker2", publisher: "Epic Games", category: "games" as const, source: "parent" as const, weekS: 0, hidden: true },
+    { path: "c:\\program files\\epic games\\stalker2\\binaries\\win64\\stalker2-win64-shipping.exe", name: "Stalker2-Win64-Shipping", publisher: "GSC Game World", category: "games" as const, source: "catalog" as const, weekS: 9000 },
+  ];
+  await openPrograms(page, { pending: [], programs: list });
+  const all = page.getByRole("region", { name: "Все программы" });
+  await expect(all.getByRole("row", { name: "Stalker2-Win64-Shipping" })).toBeVisible();
+  await expect(all.getByRole("row", { name: "Stalker2", exact: true })).toHaveCount(0);
+  await hideButtonsInColumn(page);
+  await nothingSticksOut(page);
+  const filters = all.getByRole("group", { name: "Показать" });
+  const first = await boxOf(filters.getByRole("button", { name: "Все" }));
+  const last = await boxOf(filters.getByRole("button", { name: "Скрытые" }));
+  expect(Math.abs(last.top - first.top), "фильтр «Скрытые» перенёсся на новую строку").toBeLessThanOrEqual(0.5);
+  await filters.getByRole("button", { name: "Скрытые" }).click();
+  await expect(all.getByRole("row", { name: "Stalker2", exact: true })).toBeVisible();
+  await expect(all.getByRole("button", { name: "Показать «Stalker2»" })).toBeVisible();
+  await hideButtonsInColumn(page);
+  await blocksApart(page);
+  await nothingSticksOut(page);
+  await pathsOneLine(page);
+  await noHorizontalScroll(page);
+  await page.screenshot({ path: `${SCREENS}/s11-programs-hidden.png`, fullPage: true });
+});
+
 // s11 — «Программы» пустой: никто ничего не запускал.
 test("s11 программы: пусто", async ({ page }) => {
   await openPrograms(page, { pending: [], programs: [] });

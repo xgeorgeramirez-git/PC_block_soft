@@ -101,7 +101,7 @@ export default function ChildLimits({ childId, others = [], onSaved, onOpenProgr
     // правила от этого не зависят.
     try {
       const progs = await listPrograms();
-      if (alive.current) setHasStudy(progs.programs.some((p) => p.category === "study"));
+      if (alive.current) setHasStudy(progs.programs.some((p) => p.category === "study" && p.hidden !== true));
     } catch {
       if (alive.current) setHasStudy(null);
     }

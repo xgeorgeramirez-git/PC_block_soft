@@ -22,11 +22,13 @@ export const CATEGORY_OPTIONS: { category: ParentCategory; label: string }[] = [
   { category: "blocked", label: "Запрещено" },
 ];
 
-export type ProgramFilter = "all" | ParentCategory;
+/** Фильтр списка: «Все», категория или «Скрытые» (D-57: скрытые видны только там). */
+export type ProgramFilter = "all" | ParentCategory | "hidden";
 
 export const FILTERS: { id: ProgramFilter; label: string }[] = [
   { id: "all", label: "Все" },
   ...CATEGORY_OPTIONS.map((o) => ({ id: o.category, label: o.label })),
+  { id: "hidden", label: "Скрытые" },
 ];
 
 /** Слово категории в сообщении «SuperGame: игра» и в пометке «Раньше было: игра». */
@@ -58,6 +60,11 @@ export function wasCategoryText(was: string): string {
 export function publisherText(publisher: string): string {
   const p = publisher.trim();
   return p === "" ? "Без подписи издателя" : p;
+}
+
+/** «Stalker2 скрыта» / «Stalker2 снова в списке» (8.3.4 п.4); служба присылает такое же, это запасной текст. */
+export function hiddenMessage(name: string, hidden: boolean): string {
+  return hidden ? `${name} скрыта` : `${name} снова в списке`;
 }
 
 /** «SuperGame: игра» (8.3.4 п.2); служба присылает такое же, это запасной текст. */
@@ -174,13 +181,20 @@ function byName(a: ProgramDTO, b: ProgramDTO): number {
   return a.name.localeCompare(b.name, "en", { sensitivity: "base" }) || a.path.localeCompare(b.path, "en");
 }
 
+/** Строка подходит фильтру: скрытые только в «Скрытых», в остальных фильтрах их нет (D-57). */
+function matchesFilter(p: ProgramDTO, filter: ProgramFilter): boolean {
+  if (filter === "hidden") return p.hidden === true;
+  if (p.hidden === true) return false;
+  return filter === "all" || p.category === filter;
+}
+
 /** Строки списка «Все программы»: без системных, с поиском, фильтром и сортировкой. */
 export function visiblePrograms(list: ProgramDTO[], view: ProgramView): ProgramDTO[] {
   const q = view.query.trim().toLowerCase();
   const shown = list.filter(
     (p) =>
       p.category !== "system" &&
-      (view.filter === "all" || p.category === view.filter) &&
+      matchesFilter(p, view.filter) &&
       (q === "" || p.name.toLowerCase().includes(q) || p.path.toLowerCase().includes(q)),
   );
   const sign = view.sort.dir === "asc" ? 1 : -1;

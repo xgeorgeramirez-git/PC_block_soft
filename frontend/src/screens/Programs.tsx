@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { decideProgram, listPrograms, setProgramsCategory, undoProgram } from "../api";
+import { decideProgram, listPrograms, setProgramsCategory, setProgramsHidden, undoProgram } from "../api";
 import Notice from "../components/Notice";
 import UndoLine from "../components/UndoLine";
 import { errorText } from "../lib/errors";
@@ -9,7 +9,9 @@ import {
   DECISIONS,
   FILTERS,
   attemptsText,
+  categoryTitle,
   decisionMessage,
+  hiddenMessage,
   fitPath,
   publisherText,
   shortenPath,
@@ -45,7 +47,7 @@ interface Feedback {
 type Busy =
   | { kind: "decide"; path: string; category: ParentCategory }
   | { kind: "row"; path: string }
-  | { kind: "bulk" }
+  | { kind: "bulk"; hide?: boolean }
   | { kind: "undo" };
 
 /** Куда поставить фокус после ответа: элемент, на котором он был, мог исчезнуть. */
@@ -172,6 +174,44 @@ export default function Programs({ initialFilter = "all" }: Props) {
       { to: "path", path: p.path, index },
     );
 
+  /** «Скрыть» / «Показать» в строке (D-57): строка уходит из текущего фильтра, фокус на соседнюю. */
+  const hideRow = (p: ProgramDTO, hidden: boolean, index: number) =>
+    void run(
+      { kind: "row", path: p.path },
+      async () => {
+        const reply = await setProgramsHidden([p.path], hidden);
+        if (!alive.current) return null;
+        applyReply(reply.programs);
+        setSelected((prev) => {
+          const next = new Set(prev);
+          next.delete(p.path);
+          return next;
+        });
+        lastOp.current = { kind: "one", path: p.path };
+        sayDecided("list", reply, hiddenMessage(p.name, hidden));
+        return { to: "path", path: p.path, index };
+      },
+      { to: "path", path: p.path, index },
+    );
+
+  /** «Скрыть» / «Показать» для отмеченных строк. */
+  const hideBulk = (paths: string[], hidden: boolean) =>
+    void run(
+      { kind: "bulk", hide: true },
+      async () => {
+        const reply = await setProgramsHidden(paths, hidden);
+        if (!alive.current) return null;
+        applyReply(reply.programs);
+        setSelected(new Set());
+        setBulkCategory("");
+        setBulkError("");
+        lastOp.current = { kind: "bulk" };
+        sayDecided("list", reply, "");
+        return { to: "selectAll" };
+      },
+      { to: "selectAll" },
+    );
+
   const applyBulk = (paths: string[]) => {
     if (bulkCategory === "") {
       setBulkError("Выберите категорию");
@@ -214,7 +254,9 @@ export default function Programs({ initialFilter = "all" }: Props) {
     setFilter("all");
   };
 
-  const list = data ? visiblePrograms(data.programs, { query: "", filter: "all", sort }) : [];
+  const hiddenView = filter === "hidden";
+  // «Программ пока нет» только когда нет ни видимых, ни скрытых: иначе пропал бы фильтр «Скрытые».
+  const list = data ? data.programs.filter((p) => p.category !== "system") : [];
   const shown = data ? visiblePrograms(data.programs, { query, filter, sort }) : [];
   const pending = data?.pending ?? [];
   const selectedShown = shown.filter((p) => selected.has(p.path));
@@ -345,7 +387,11 @@ export default function Programs({ initialFilter = "all" }: Props) {
                 </div>
 
                 {message("list")}
-                {shown.length === 0 ? (
+                {shown.length === 0 && hiddenView && query.trim() === "" ? (
+                  <div className="programs-empty">
+                    <p className="panel-text">Скрытых программ нет</p>
+                  </div>
+                ) : shown.length === 0 ? (
                   <div className="programs-empty">
                     <p className="panel-text">Ничего не найдено</p>
                     <button type="button" className="btn" onClick={resetSearch}>
@@ -371,32 +417,45 @@ export default function Programs({ initialFilter = "all" }: Props) {
                       {selectedShown.length > 0 ? (
                         <div className="bulk-actions">
                           <span className="bulk-count">{`Выбрано: ${selectedShown.length}`}</span>
-                          <select
-                            className="field-input bulk-select"
-                            aria-label="Новая категория для отмеченных"
-                            aria-invalid={bulkError ? true : undefined}
-                            aria-describedby={bulkError ? "bulk-error" : undefined}
-                            value={bulkCategory}
-                            disabled={busy !== null}
-                            onChange={(e) => {
-                              setBulkCategory(e.target.value as ParentCategory | "");
-                              setBulkError("");
-                            }}
-                          >
-                            <option value="">Категория…</option>
-                            {CATEGORY_OPTIONS.map((o) => (
-                              <option key={o.category} value={o.category}>
-                                {o.label}
-                              </option>
-                            ))}
-                          </select>
+                          {hiddenView ? null : (
+                            <>
+                              <select
+                                className="field-input bulk-select"
+                                aria-label="Новая категория для отмеченных"
+                                aria-invalid={bulkError ? true : undefined}
+                                aria-describedby={bulkError ? "bulk-error" : undefined}
+                                value={bulkCategory}
+                                disabled={busy !== null}
+                                onChange={(e) => {
+                                  setBulkCategory(e.target.value as ParentCategory | "");
+                                  setBulkError("");
+                                }}
+                              >
+                                <option value="">Категория…</option>
+                                {CATEGORY_OPTIONS.map((o) => (
+                                  <option key={o.category} value={o.category}>
+                                    {o.label}
+                                  </option>
+                                ))}
+                              </select>
+                              <button
+                                type="button"
+                                className="btn btn-primary"
+                                aria-disabled={busy !== null || undefined}
+                                onClick={() => (busy ? undefined : applyBulk(selectedShown.map((p) => p.path)))}
+                              >
+                                {busy?.kind === "bulk" && !busy.hide ? "Сохраняю…" : "Применить"}
+                              </button>
+                            </>
+                          )}
                           <button
                             type="button"
-                            className="btn btn-primary"
+                            className="btn"
+                            aria-label={hiddenView ? "Показать отмеченные" : "Скрыть отмеченные"}
                             aria-disabled={busy !== null || undefined}
-                            onClick={() => (busy ? undefined : applyBulk(selectedShown.map((p) => p.path)))}
+                            onClick={() => (busy ? undefined : hideBulk(selectedShown.map((p) => p.path), !hiddenView))}
                           >
-                            {busy?.kind === "bulk" ? "Сохраняю…" : "Применить"}
+                            {busy?.kind === "bulk" && busy.hide ? "Сохраняю…" : hiddenView ? "Показать" : "Скрыть"}
                           </button>
                           {bulkError ? (
                             <span id="bulk-error" className="field-error bulk-error">
@@ -422,6 +481,9 @@ export default function Programs({ initialFilter = "all" }: Props) {
                           <th scope="col" className="col-week" aria-sort={ariaSort("week")}>
                             <SortButton label="За неделю" dir={sort.key === "week" ? sort.dir : null} onClick={() => sortBy("week")} />
                           </th>
+                          <th scope="col" className="col-action">
+                            <span className="visually-hidden">Действие</span>
+                          </th>
                         </tr>
                       </thead>
                       <tbody>
@@ -433,6 +495,7 @@ export default function Programs({ initialFilter = "all" }: Props) {
                             busy={busy}
                             onToggle={() => toggleOne(p.path)}
                             onCategory={(c) => changeRow(p, c, i)}
+                            onHide={(hidden) => hideRow(p, hidden, i)}
                           />
                         ))}
                       </tbody>
@@ -464,15 +527,20 @@ function placeFocus(root: HTMLElement, req: FocusTo) {
         (req.category && item.querySelector<HTMLElement>(`button[data-category="${req.category}"]`)) ||
         item.querySelector<HTMLElement>("button");
     } else if (row) {
-      target = row.querySelector<HTMLElement>("select");
+      target = rowControl(row);
     } else if (req.index !== undefined && rows.length > 0) {
-      target = rows[Math.min(req.index, rows.length - 1)].querySelector<HTMLElement>("select");
+      target = rowControl(rows[Math.min(req.index, rows.length - 1)]);
     }
     target = target ?? heading();
   } else {
     target = root.querySelector<HTMLElement>('[data-focus="select-all"]') ?? heading();
   }
   target?.focus();
+}
+
+/** Куда фокус в строке: выбор категории, а у скрытой (выбора нет) кнопка «Показать». */
+function rowControl(row: HTMLElement): HTMLElement | null {
+  return row.querySelector<HTMLElement>("select") ?? row.querySelector<HTMLElement>("button");
 }
 
 /** Общий значок программы (RM3-3): окно приложения, без цвета статуса. */
@@ -609,10 +677,13 @@ interface RowProps {
   busy: Busy | null;
   onToggle: () => void;
   onCategory: (category: ParentCategory) => void;
+  /** «Скрыть» (true) или «Показать» (false), D-57. */
+  onHide: (hidden: boolean) => void;
 }
 
-function ProgramRow({ program: p, checked, busy, onToggle, onCategory }: RowProps) {
+function ProgramRow({ program: p, checked, busy, onToggle, onCategory, onHide }: RowProps) {
   const saving = busy?.kind === "row" && busy.path === p.path;
+  const hidden = p.hidden === true;
   return (
     <tr aria-label={p.name} data-path={p.path}>
       <td className="col-check">
@@ -626,22 +697,37 @@ function ProgramRow({ program: p, checked, busy, onToggle, onCategory }: RowProp
         </p>
       </td>
       <td className="col-category">
-        <select
-          className="field-input"
-          aria-label={`Категория для «${p.name}»`}
-          value={p.category}
-          disabled={busy !== null}
-          onChange={(e) => onCategory(e.target.value as ParentCategory)}
-        >
-          {CATEGORY_OPTIONS.map((o) => (
-            <option key={o.category} value={o.category}>
-              {o.label}
-            </option>
-          ))}
-        </select>
+        {hidden ? (
+          <p className="program-category">{categoryTitle(p.category)}</p>
+        ) : (
+          <select
+            className="field-input"
+            aria-label={`Категория для «${p.name}»`}
+            value={p.category}
+            disabled={busy !== null}
+            onChange={(e) => onCategory(e.target.value as ParentCategory)}
+          >
+            {CATEGORY_OPTIONS.map((o) => (
+              <option key={o.category} value={o.category}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+        )}
         {saving ? <span className="program-saving">Сохраняю…</span> : null}
       </td>
-      <td className="col-week">{weekText(p.weekS)}</td>
+      <td className="col-week">{hidden ? "" : weekText(p.weekS)}</td>
+      <td className="col-action">
+        <button
+          type="button"
+          className="btn btn-small"
+          aria-label={hidden ? `Показать «${p.name}»` : `Скрыть «${p.name}»`}
+          disabled={busy !== null}
+          onClick={() => onHide(!hidden)}
+        >
+          {hidden ? "Показать" : "Скрыть"}
+        </button>
+      </td>
     </tr>
   );
 }

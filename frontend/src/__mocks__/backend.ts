@@ -491,6 +491,7 @@ const PARENT_COMMANDS = new Set([
   "ListPrograms",
   "DecideProgram",
   "SetProgramsCategory",
+  "SetProgramsHidden",
   "UndoProgram",
 ]);
 
@@ -577,7 +578,10 @@ export function createBackend(opts: MockOptions = {}): MockBackend {
   const card = (child: MockChild, now: number) => cardOf(child, now, state.pending.length);
   const programsReply = (): ProgramsReply => ({
     pending: state.pending.map((p) => ({ ...p, byChild: [...p.byChild] })),
-    programs: [...state.programs].sort((a, b) => a.name.localeCompare(b.name)),
+    // Как служба: скрытая приходит с флагом и без времени за неделю (D-57).
+    programs: [...state.programs]
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .map((p) => (p.hidden ? { ...p, weekS: 0 } : { ...p })),
     children: state.children.map((c) => ({ childId: c.childId, name: c.name })),
   });
   const rememberUndo = (now: number) => {
@@ -1108,6 +1112,30 @@ export function createBackend(opts: MockOptions = {}): MockBackend {
         }
       }
       return okReply({ message: `Изменено программ: ${n}`, ...undo, programs: programsReply() });
+    },
+
+    SetProgramsHidden: (req, now) => {
+      const paths = new Set<string>((req.paths ?? []).map((x: string) => x.toLowerCase()));
+      if (paths.size > 200) return fail("Можно изменить не больше 200 программ за раз");
+      const hidden = req.hidden === true;
+      if (!state.programs.some((p) => paths.has(p.path) && p.category !== "system")) return fail("Такой программы нет в списке");
+      const undo = rememberUndo(now);
+      const changed = state.programs.filter((p) => paths.has(p.path) && p.category !== "system" && (p.hidden === true) !== hidden);
+      for (const p of changed) p.hidden = hidden;
+      const one = changed.length === 1 ? changed[0].name : "";
+      const word = (n: number) => (n % 10 === 1 && n % 100 !== 11 ? "программу" : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 12 || n % 100 > 14) ? "программы" : "программ");
+      if (changed.length > 0) {
+        const subject = one ? `«${one}»` : `${changed.length} ${word(changed.length)}`;
+        addEvent(now, undefined, hidden ? "program_hidden" : "program_shown", hidden ? `Вы скрыли ${subject}` : `Вы снова показали ${subject}`);
+      }
+      const message = one
+        ? hidden
+          ? `${one} скрыта`
+          : `${one} снова в списке`
+        : hidden
+          ? `Скрыто программ: ${changed.length}`
+          : `Снова в списке программ: ${changed.length}`;
+      return okReply({ message, ...undo, programs: programsReply() });
     },
 
     UndoProgram: (req, now) => {

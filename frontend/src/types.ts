@@ -520,8 +520,10 @@ export interface ProgramDTO {
   publisher: string;
   category: ProgramCategory;
   source: ProgramSource;
-  /** Время всех детей за 7 дней, с. */
+  /** Время всех детей за 7 дней, с; у скрытой 0. */
   weekS: number;
+  /** Скрыта родителем (D-57): видна только в фильтре «Скрытые». Нет поля — не скрыта. */
+  hidden?: boolean;
 }
 
 export interface ProgramsReply {
@@ -538,6 +540,12 @@ export interface DecideProgramRequest {
 export interface SetProgramsCategoryRequest {
   paths: string[];
   category: ProgramCategory;
+}
+
+/** «Скрыть» (hidden = true) и «Показать» (false) для программ списка (D-57). */
+export interface SetProgramsHiddenRequest {
+  paths: string[];
+  hidden: boolean;
 }
 
 export interface DecideProgramReply {
