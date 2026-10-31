@@ -64,7 +64,7 @@ func TestOpenCreatesFullSchema(t *testing.T) {
 		"children":           {"id", "windows_sid", "display_name", "end_mode", "adult_filter", "bypass_detail", "removed_at", "created_at"},
 		"day_limits":         {"child_id", "weekday", "total_min", "games_min", "video_min"},
 		"schedule_intervals": {"id", "child_id", "weekday", "start_min", "end_min"},
-		"programs":           {"id", "exe_path", "display_name", "category", "source", "decided_at", "publisher", "fingerprint", "app_root", "hidden"},
+		"programs":           {"id", "exe_path", "display_name", "category", "source", "decided_at", "publisher", "fingerprint", "app_root", "hidden", "custom_name"},
 		"pending_programs":   {"id", "exe_path", "display_name", "first_child_id", "first_attempt_at", "attempts", "publisher", "description", "last_attempt_at", "was_category"},
 		"pending_attempts":   {"exe_path", "child_id", "attempts", "last_attempt_at"},
 		"site_rules":         {"id", "domain", "kind"},
@@ -204,16 +204,16 @@ func TestOpenTwiceKeepsDataAndMigrationOnce(t *testing.T) {
 		t.Fatalf("второе Open: %v", err)
 	}
 	defer s2.Close()
-	if n := rawNull(t, s2, `SELECT count(*) FROM schema_migrations`); n.Int64 != 6 {
-		t.Errorf("строк schema_migrations = %d, want 6", n.Int64)
+	if n := rawNull(t, s2, `SELECT count(*) FROM schema_migrations`); n.Int64 != 7 {
+		t.Errorf("строк schema_migrations = %d, want 7", n.Int64)
 	}
-	if v := rawNull(t, s2, `SELECT max(version) FROM schema_migrations`); v.Int64 != 6 {
-		t.Errorf("последняя миграция = %d, want 6", v.Int64)
+	if v := rawNull(t, s2, `SELECT max(version) FROM schema_migrations`); v.Int64 != 7 {
+		t.Errorf("последняя миграция = %d, want 7", v.Int64)
 	}
 	if at := rawNull(t, s2, `SELECT applied_at FROM schema_migrations WHERE version = 1`); at.Int64 != 1_000 {
 		t.Errorf("applied_at миграции 1 = %d, want 1000 (момент первого применения)", at.Int64)
 	}
-	for _, v := range []int{2, 3, 4, 5, 6} {
+	for _, v := range []int{2, 3, 4, 5, 6, 7} {
 		if at := rawNull(t, s2, `SELECT applied_at FROM schema_migrations WHERE version = ?`, v); at.Int64 != 1_000 {
 			t.Errorf("applied_at миграции %d = %d, want 1000 (все применяются при первом открытии, не повторно)", v, at.Int64)
 		}

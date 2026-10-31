@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"time"
+	"unicode/utf8"
 
 	"pcblock/internal/core"
 )
@@ -66,7 +67,11 @@ type Program struct {
 	AppRoot     string // корень приложения «<доверенный корень>\<первая папка>» (RM3-1 п.3); пусто — нет
 	DecidedAt   int64  // момент решения родителя, UTC мс; 0 — нет (NULL)
 	Hidden      bool   // родитель скрыл программу (D-57, RF9-1); категория сохраняется
+	CustomName  string // своё название родителя (D-59), до 60 символов; пусто — название из файла (Name)
 }
+
+// maxCustomName — наибольшая длина своего названия в символах (D-59, CHECK programs.custom_name).
+const maxCustomName = 60
 
 func checkProgram(p Program) error {
 	switch {
@@ -80,6 +85,8 @@ func checkProgram(p Program) error {
 		return fmt.Errorf("%w: источник категории программы %q", ErrInvalid, p.Source)
 	case p.DecidedAt < 0:
 		return fmt.Errorf("%w: момент решения %d", ErrInvalid, p.DecidedAt)
+	case utf8.RuneCountInString(p.CustomName) > maxCustomName:
+		return fmt.Errorf("%w: своё название длиннее %d символов", ErrInvalid, maxCustomName)
 	}
 	return nil
 }
@@ -91,13 +98,13 @@ func nullableMs(ms int64) any {
 	return ms
 }
 
-const programColumns = `id, exe_path, display_name, publisher, category, source, fingerprint, app_root, decided_at, hidden`
+const programColumns = `id, exe_path, display_name, publisher, category, source, fingerprint, app_root, decided_at, hidden, custom_name`
 
 // scanProgram читает строку programColumns.
 func scanProgram(sc interface{ Scan(...any) error }) (Program, error) {
 	var p Program
 	var decided sql.NullInt64
-	if err := sc.Scan(&p.ID, &p.Path, &p.Name, &p.Publisher, &p.Category, &p.Source, &p.Fingerprint, &p.AppRoot, &decided, &p.Hidden); err != nil {
+	if err := sc.Scan(&p.ID, &p.Path, &p.Name, &p.Publisher, &p.Category, &p.Source, &p.Fingerprint, &p.AppRoot, &decided, &p.Hidden, &p.CustomName); err != nil {
 		return Program{}, err
 	}
 	p.DecidedAt = decided.Int64
@@ -106,12 +113,13 @@ func scanProgram(sc interface{ Scan(...any) error }) (Program, error) {
 
 // upsertProgram записывает программу целиком (вставка или замена всех полей по пути).
 func upsertProgram(ex execer, p Program) error {
-	_, err := ex.Exec(`INSERT INTO programs (exe_path, display_name, publisher, category, source, fingerprint, app_root, decided_at, hidden)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+	_, err := ex.Exec(`INSERT INTO programs (exe_path, display_name, publisher, category, source, fingerprint, app_root, decided_at, hidden, custom_name)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (exe_path) DO UPDATE SET display_name = excluded.display_name, publisher = excluded.publisher,
 			category = excluded.category, source = excluded.source, fingerprint = excluded.fingerprint,
-			app_root = excluded.app_root, decided_at = excluded.decided_at, hidden = excluded.hidden`,
-		p.Path, p.Name, p.Publisher, p.Category, p.Source, p.Fingerprint, p.AppRoot, nullableMs(p.DecidedAt), p.Hidden)
+			app_root = excluded.app_root, decided_at = excluded.decided_at, hidden = excluded.hidden,
+			custom_name = excluded.custom_name`,
+		p.Path, p.Name, p.Publisher, p.Category, p.Source, p.Fingerprint, p.AppRoot, nullableMs(p.DecidedAt), p.Hidden, p.CustomName)
 	return err
 }
 
@@ -267,6 +275,36 @@ func (s *Store) SetProgramsHidden(paths []string, hidden bool) ([]Program, error
 		return nil, fmt.Errorf("storage: скрыть программы: %w", err)
 	}
 	return changed, nil
+}
+
+// SetProgramName задаёт своё название программы по пути (D-59, FR-20): меняется только
+// custom_name, название из файла, категория, скрытие и момент решения остаются; "" — снова
+// название из файла. Проверку и обрезку пробелов делает служба (programs.CustomName); длиннее 60
+// символов — ErrInvalid. Возвращает прежнее значение (для «Отменить»); нет такой программы —
+// Program{}, false, nil.
+func (s *Store) SetProgramName(path, name string) (Program, bool, error) {
+	if utf8.RuneCountInString(name) > maxCustomName {
+		return Program{}, false, fmt.Errorf("%w: своё название длиннее %d символов", ErrInvalid, maxCustomName)
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return Program{}, false, fmt.Errorf("storage: переименовать программу: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	p, err := scanProgram(tx.QueryRow(`SELECT `+programColumns+` FROM programs WHERE exe_path = ?`, path))
+	if errors.Is(err, sql.ErrNoRows) {
+		return Program{}, false, nil
+	}
+	if err != nil {
+		return Program{}, false, fmt.Errorf("storage: переименовать программу: %w", err)
+	}
+	if _, err := tx.Exec(`UPDATE programs SET custom_name = ? WHERE id = ?`, name, p.ID); err != nil {
+		return Program{}, false, fmt.Errorf("storage: переименовать программу: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return Program{}, false, fmt.Errorf("storage: переименовать программу: %w", err)
+	}
+	return p, true, nil
 }
 
 // DeleteProgram удаляет программу из списка («Отменить» решения по ждущей программе). Нет такой — ErrNotFound.

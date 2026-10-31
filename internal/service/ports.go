@@ -38,6 +38,7 @@ type Program struct {
 	AppRoot     string // корень приложения (RM3-1 п.3); пусто — нет
 	DecidedAt   int64  // момент решения родителя, UTC мс; 0 — нет
 	Hidden      bool   // родитель скрыл программу (D-57, RF9-1); категория сохраняется
+	CustomName  string // своё название родителя (D-59); пусто — название из файла (Name). Как storage.Program
 }
 
 // PendingChild — попытки одного ребёнка запустить ждущую решения программу (storage.PendingChild).
