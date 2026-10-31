@@ -441,10 +441,55 @@ func TestProgramMethodsReturnErrorsWhenStoreClosed(t *testing.T) {
 		"AddUsage":        func() error { return s.AddUsage(id, day1, UsageGames, SubjectProgram, pathGame, 1) },
 		"SaveDayAndUsage": func() error { return s.SaveDayAndUsage(id, core.DayState{Day: day1}, nil) },
 		"ProgramSeconds":  func() error { _, err := s.ProgramSeconds(day1); return err },
+		"DayUsage":        func() error { _, err := s.DayUsage(id, day1); return err },
 	}
 	for name, call := range calls {
 		if err := call(); err == nil {
 			t.Errorf("%s на закрытом хранилище вернул nil, want ошибку", name)
 		}
+	}
+}
+
+// Ловит: учёт за день для «Итогов» (D-58) берёт чужого ребёнка, другой день или сайты; не
+// складывает повторные записи; без учёта отдаёт nil вместо пустого списка; порядок не
+// детерминирован (категория, затем путь).
+func TestDayUsage(t *testing.T) {
+	s := openTemp(t)
+	misha := mustChild(t, s, "S-1", "Миша")
+	anya := mustChild(t, s, "S-2", "Аня")
+	for _, u := range []struct {
+		child                        int64
+		day, category, kind, subject string
+		seconds                      int
+	}{
+		{misha, "2026-10-26", UsageGames, SubjectProgram, pathGame, 600},
+		{misha, "2026-10-26", UsageGames, SubjectProgram, pathGame, 60},
+		{misha, "2026-10-26", UsageOther, SubjectProgram, pathBrave, 30},
+		{misha, "2026-10-26", UsageStudy, SubjectProgram, pathWord, 45},
+		{misha, "2026-10-26", UsageVideoSocial, SubjectSite, "youtube.com", 500},
+		{misha, "2026-10-25", UsageGames, SubjectProgram, pathGame, 1000},
+		{anya, "2026-10-26", UsageGames, SubjectProgram, pathGame, 40},
+	} {
+		if err := s.AddUsage(u.child, u.day, u.category, u.kind, u.subject, u.seconds); err != nil {
+			t.Fatalf("AddUsage(%+v): %v", u, err)
+		}
+	}
+	got, err := s.DayUsage(misha, "2026-10-26")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []UsageRow{
+		{Day: "2026-10-26", Category: UsageGames, Kind: SubjectProgram, Subject: pathGame, Seconds: 660},
+		{Day: "2026-10-26", Category: UsageOther, Kind: SubjectProgram, Subject: pathBrave, Seconds: 30},
+		{Day: "2026-10-26", Category: UsageStudy, Kind: SubjectProgram, Subject: pathWord, Seconds: 45},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("DayUsage = %+v, want %+v", got, want)
+	}
+	if got, err := s.DayUsage(misha, "2026-10-27"); err != nil || got == nil || len(got) != 0 {
+		t.Errorf("DayUsage без учёта = %#v, %v; want пустой список", got, err)
+	}
+	if _, err := s.DayUsage(misha, "26.10.2026"); !errors.Is(err, ErrInvalid) {
+		t.Errorf("DayUsage с мусорным днём: %v, want ErrInvalid", err)
 	}
 }

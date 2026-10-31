@@ -295,7 +295,7 @@ func examples() map[string]example {
 				{Weekday: 7, Day: "вс", Text: "Без лимита"},
 				{Text: "Игры: до 1 ч в день"}, {Text: "Когда время вышло: экран блокировки"},
 			},
-			GamesS: 1200, StudyS: 2400,
+			GamesS: 900, StudyS: 180, OtherS: 1200, AllS: 2280, Programs: s39Programs(),
 		}),
 		"MyToday#empty": ok(nil, MyTodayReply{Status: ChildStatusNotChild()}),
 		CmdParentStats: ok(ParentStatsRequest{ChildID: 1}, MyTodayReply{
@@ -307,7 +307,7 @@ func examples() map[string]example {
 				{Weekday: 7, Day: "вс", Text: "Без лимита"},
 				{Text: "Игры: до 1 ч в день"}, {Text: "Когда время вышло: экран блокировки"},
 			},
-			GamesS: 1200, StudyS: 2400,
+			GamesS: 900, StudyS: 180, OtherS: 1200, AllS: 2280, Programs: s39Programs(),
 		}),
 		CmdFirstRunSeen: ok(nil, Empty{}),
 
@@ -437,6 +437,18 @@ func TestContractHasEveryCommand(t *testing.T) {
 	}
 	if len(AllCommands) != 64 {
 		t.Errorf("команд %d, ждали 64 (46 из M1/M2/0.2.1 без команд Помощника, 9 из фидбек-раунда 0.2.2: OpenLogs, SetNoForbidden, ClearBonus, ReduceBonus, CreatePromo, ListPromos, RedeemPromo, GetBonusRate, SetBonusRate, GuardClosing из раунда 0.2.3, тестовая TestSession из 0.2.5 и 5 программ M3: ListPrograms, DecideProgram, SetProgramsCategory, UndoProgram, ScanPrograms; SetProgramsHidden и RenameProgram из раунда 0.3.1)", len(AllCommands))
+	}
+}
+
+// s39Programs — строки вкладок «Итогов» из S39 (D-58): game 10 мин, game2 5 мин, study 3 мин;
+// «Другое» — время без программы (рабочий стол, системные, скрытые).
+func s39Programs() []ProgramTime {
+	return []ProgramTime{
+		{Path: `c:\games\game.exe`, Name: "game", Category: ProgramCatGames, Seconds: 600},
+		{Path: `c:\games\game2.exe`, Name: "game2", Category: ProgramCatGames, Seconds: 300},
+		{Path: `c:\school\study.exe`, Name: "study", Category: ProgramCatStudy, Seconds: 180},
+		{Path: `c:\program files\brave software\brave-browser\application\brave.exe`, Name: "Brave", Category: ProgramCatOther, Seconds: 900},
+		{Name: "Другое", Category: ProgramCatOther, Seconds: 300},
 	}
 }
 

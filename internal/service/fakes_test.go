@@ -40,12 +40,13 @@ type fakeStore struct {
 	failEndMode  bool // GetEndMode возвращает ошибку
 	failPrograms bool // ListPrograms возвращает ошибку
 
-	endModes map[int64]string           // режим «Когда время вышло» (M3); нет записи — "lock"
-	programs map[string]Program         // программы по пути (M3)
-	nextProg int64                      // следующий номер программы
-	pending  map[string]*PendingProgram // «Ждут решения» по пути (M3)
-	usage    map[string]int             // учёт: "id|день|категория|вид|предмет" → секунды (M3)
-	usageLog []savedUsage               // история SaveDayAndUsage
+	endModes  map[int64]string           // режим «Когда время вышло» (M3); нет записи — "lock"
+	programs  map[string]Program         // программы по пути (M3)
+	nextProg  int64                      // следующий номер программы
+	pending   map[string]*PendingProgram // «Ждут решения» по пути (M3)
+	usage     map[string]int             // учёт: "id|день|категория|вид|предмет" → секунды (M3)
+	failUsage bool                       // DayUsage отвечает ошибкой (FB-10)
+	usageLog  []savedUsage               // история SaveDayAndUsage
 }
 
 type savedUsage struct {
@@ -370,6 +371,30 @@ func (f *fakeStore) SaveDayAndUsage(id int64, st core.DayState, rows []UsageRow)
 	}
 	f.usageLog = append(f.usageLog, savedUsage{id, st, cp})
 	return nil
+}
+
+// DayUsage — как storage.DayUsage: учёт по программам ребёнка за день, по категории и пути;
+// скрытые тоже (их прячет служба).
+func (f *fakeStore) DayUsage(id int64, day string) ([]UsageRow, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.failUsage {
+		return nil, errFake
+	}
+	out := []UsageRow{}
+	for k, sec := range f.usage {
+		parts := strings.SplitN(k, "|", 5)
+		if parts[0] == fmt.Sprint(id) && parts[1] == day && parts[3] == "program" {
+			out = append(out, UsageRow{Day: day, Category: parts[2], Kind: "program", Subject: parts[4], Seconds: sec})
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Category != out[j].Category {
+			return out[i].Category < out[j].Category
+		}
+		return out[i].Subject < out[j].Subject
+	})
+	return out, nil
 }
 
 func (f *fakeStore) ProgramSeconds(fromDay string) (map[string]int, error) {

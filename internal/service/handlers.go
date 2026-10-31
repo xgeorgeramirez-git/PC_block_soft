@@ -832,8 +832,12 @@ func (s *Service) myTodayOf(cs *childState) ipc.MyTodayReply {
 	out := ipc.MyTodayReply{Status: st, Today: []string{st.Summary, "Использовано " + core.FormatDuration(st.UsedS)}, Rules: []ipc.MyRule{}}
 	// Игры и учёба за сегодня — счётчики дня ядра; счётчики прошлого дня (сутки ещё не
 	// сменились в ядре) сегодняшними не считаются.
+	out.Programs = []ipc.ProgramTime{}
 	if day, _ := cs.eng.State(); day.Day == core.DayOf(s.cfg.Clock.Now().In(s.cfg.Loc)) {
 		out.GamesS, out.StudyS = day.GamesS, day.StudyS
+		out.OtherS = max(0, day.TotalS-day.GamesS-day.VideoS)
+		out.AllS = day.TotalS + day.StudyS
+		out.Programs = s.programTimes(cs, day)
 	}
 	// Строка «Можно снова…» нужна при любой блокировке: показываем, когда блокировка есть и
 	// ядро назвало срок (B-6).

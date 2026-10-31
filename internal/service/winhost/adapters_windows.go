@@ -201,6 +201,18 @@ func (a storeAdapter) ProgramSeconds(fromDay string) (map[string]int, error) {
 	return a.s.ProgramSeconds(fromDay)
 }
 
+func (a storeAdapter) DayUsage(childID int64, day string) ([]service.UsageRow, error) {
+	list, err := a.s.DayUsage(childID, day)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]service.UsageRow, 0, len(list))
+	for _, u := range list {
+		out = append(out, service.UsageRow(u))
+	}
+	return out, nil
+}
+
 func (a storeAdapter) GetSchedule(childID int64) ([]core.Interval, error) {
 	return a.s.GetSchedule(childID)
 }

@@ -1570,8 +1570,42 @@
             "text": "Когда время вышло: экран блокировки"
           }
         ],
-        "gamesS": 1200,
-        "studyS": 2400
+        "gamesS": 900,
+        "studyS": 180,
+        "otherS": 1200,
+        "allS": 2280,
+        "programs": [
+          {
+            "path": "c:\\games\\game.exe",
+            "name": "game",
+            "category": "games",
+            "seconds": 600
+          },
+          {
+            "path": "c:\\games\\game2.exe",
+            "name": "game2",
+            "category": "games",
+            "seconds": 300
+          },
+          {
+            "path": "c:\\school\\study.exe",
+            "name": "study",
+            "category": "study",
+            "seconds": 180
+          },
+          {
+            "path": "c:\\program files\\brave software\\brave-browser\\application\\brave.exe",
+            "name": "Brave",
+            "category": "other",
+            "seconds": 900
+          },
+          {
+            "path": "",
+            "name": "Другое",
+            "category": "other",
+            "seconds": 300
+          }
+        ]
       }
     }
   },
@@ -1609,7 +1643,10 @@
         "today": [],
         "rules": [],
         "gamesS": 0,
-        "studyS": 0
+        "studyS": 0,
+        "otherS": 0,
+        "allS": 0,
+        "programs": []
       }
     }
   },
@@ -1741,8 +1778,42 @@
             "text": "Когда время вышло: экран блокировки"
           }
         ],
-        "gamesS": 1200,
-        "studyS": 2400
+        "gamesS": 900,
+        "studyS": 180,
+        "otherS": 1200,
+        "allS": 2280,
+        "programs": [
+          {
+            "path": "c:\\games\\game.exe",
+            "name": "game",
+            "category": "games",
+            "seconds": 600
+          },
+          {
+            "path": "c:\\games\\game2.exe",
+            "name": "game2",
+            "category": "games",
+            "seconds": 300
+          },
+          {
+            "path": "c:\\school\\study.exe",
+            "name": "study",
+            "category": "study",
+            "seconds": 180
+          },
+          {
+            "path": "c:\\program files\\brave software\\brave-browser\\application\\brave.exe",
+            "name": "Brave",
+            "category": "other",
+            "seconds": 900
+          },
+          {
+            "path": "",
+            "name": "Другое",
+            "category": "other",
+            "seconds": 300
+          }
+        ]
       }
     }
   },

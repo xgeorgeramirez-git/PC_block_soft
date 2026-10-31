@@ -136,7 +136,8 @@ type Store interface {
 	// SaveDayAndUsage — состояние дня и порции учёта по программам одной транзакцией (RM3-6, G10).
 	SaveDayAndUsage(childID int64, st core.DayState, usage []UsageRow) error
 	AddUsage(childID int64, day, category, kind, subject string, seconds int) error
-	ProgramSeconds(fromDay string) (map[string]int, error) // секунды по пути exe с fromDay, все дети
+	ProgramSeconds(fromDay string) (map[string]int, error)  // секунды по пути exe с fromDay, все дети
+	DayUsage(childID int64, day string) ([]UsageRow, error) // учёт по программам ребёнка за день (D-58); нет — []
 
 	// Программы и «Ждут решения» (M3: R12, FR-20, RM3-10).
 	UpsertProgram(p Program) error
