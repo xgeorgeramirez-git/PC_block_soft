@@ -800,8 +800,9 @@ p {
   font-weight: 600;
 }
 
+/* Пояснение «Всего = … + … учёбы» под рядом вкладок (FB-10). */
 .totals-note {
-  margin-top: 2px;
+  margin-top: var(--space-2);
 }
 
 .totals-empty {

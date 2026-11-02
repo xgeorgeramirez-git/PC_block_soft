@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   ASK_PRESETS,
+  allWithStudyText,
   askMinutes,
   EMPTY_TAB,
   TOTALS_TABS,
@@ -112,6 +113,30 @@ describe("summaryLines: «Итоги»", () => {
 
   it("пустой ответ - пустой список", () => {
     expect(summaryLines(reply({}, []))).toEqual([]);
+  });
+});
+
+// Ловит FB-10 (0.3.1): «Использовано сегодня 22 мин» и вкладка «Всего 25 мин» рядом без объяснения,
+// пояснение было только внутри «Всего»; числа в пояснении должны совпадать с теми, что на экране.
+describe("allWithStudyText: «Всего» с учёбой", () => {
+  const r = (usedS: number, studyS: number, allS: number): MyTodayReply => ({ ...reply({ usedS }), studyS, allS });
+
+  it("22 мин в лимите и 3 мин учёбы", () => {
+    expect(allWithStudyText(r(1320, 180, 1500))).toBe("Всего = 22 мин в счёт лимита + 3 мин учёбы вне лимита");
+  });
+
+  it("часы: «1 ч 05 мин» и «40 мин»", () => {
+    expect(allWithStudyText(r(3900, 2400, 6300))).toBe("Всего = 1 ч 05 мин в счёт лимита + 40 мин учёбы вне лимита");
+  });
+
+  // Минуты в пояснении - разница чисел на экране: 22 мин 40 с + 2 мин 40 с показаны как 22 и 25 мин.
+  it("секунды не теряют минуту: слагаемые дают число «Всего» на экране", () => {
+    expect(allWithStudyText(r(1360, 160, 1520))).toBe("Всего = 22 мин в счёт лимита + 3 мин учёбы вне лимита");
+  });
+
+  it("без учёбы или когда на экране разницы нет: пусто", () => {
+    expect(allWithStudyText(r(1320, 0, 1320))).toBe("");
+    expect(allWithStudyText(r(1260, 30, 1290))).toBe("");
   });
 });
 

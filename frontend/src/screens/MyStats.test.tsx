@@ -211,21 +211,31 @@ describe("MyStats: вкладки «Итогов»", () => {
     expect(listRows(box)).toEqual([["study", "3 мин", "100%"]]);
   });
 
-  // Ловит: «Всего» больше «Использовано сегодня» без объяснения (учёба вне лимита, D-7); пояснение
-  // висит и на других вкладках или без учёбы.
-  it("«Всего» с учёбой: пояснение под суммой; без учёбы и на других вкладках его нет", async () => {
+  // Ловит FB-10 (0.3.1): «Всего» больше «Использовано сегодня» без объяснения (учёба вне лимита, D-7):
+  // пояснение было только на вкладке «Всего», а плитка «Всего 23 мин» видна всегда.
+  it("«Всего» с учёбой: пояснение с числами у вкладок при любой вкладке, связано с «Всего»", async () => {
     const user = setup({ children: [s39Child()] });
     const box = await screen.findByRole("region", { name: "Итоги" });
-    expect(within(box).getByText("вместе с учёбой, она не входит в лимит")).toBeTruthy();
-    await user.click(within(box).getByRole("tab", { name: "Игры" }));
-    expect(within(box).queryByText("вместе с учёбой, она не входит в лимит")).toBeNull();
+    const text = "Всего = 20 мин в счёт лимита + 3 мин учёбы вне лимита";
+    for (const name of ["Всего", "Игры", "Учёба", "Прочее"]) {
+      await user.click(within(box).getByRole("tab", { name }));
+      const note = within(box).getByText(text);
+      // Под рядом вкладок, не внутри панели: виден при любой выбранной вкладке и не дублируется.
+      expect(note.closest("#totals-panel")).toBeNull();
+      expect(within(box).getAllByText(text)).toHaveLength(1);
+    }
+    const note = within(box).getByText(text);
+    const all = within(box).getByRole("tab", { name: "Всего" });
+    expect((all.getAttribute("aria-describedby") ?? "").split(" ")).toContain(note.id);
+    expect(within(box).getByRole("tab", { name: "Игры" }).getAttribute("aria-describedby") ?? "").not.toContain(note.id);
   });
 
   it("«Всего» без учёбы: пояснения нет", async () => {
     setup({ children: [mockChild({ usedS: 600, studyUsedS: 0 })] });
     const box = await screen.findByRole("region", { name: "Итоги" });
     expect(within(box).getByText("Всего за сегодня: 10 мин")).toBeTruthy();
-    expect(within(box).queryByText("вместе с учёбой, она не входит в лимит")).toBeNull();
+    expect(within(box).queryByText(/учёбы вне лимита/)).toBeNull();
+    expect(within(box).getByRole("tab", { name: "Всего" }).getAttribute("aria-describedby")).toBe("totals-value-all");
   });
 
   // Ловит: пустая категория показывает пустой список или ноль без объяснения (8.2.6 п.3).

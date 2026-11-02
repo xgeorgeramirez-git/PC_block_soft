@@ -9,7 +9,7 @@ import { historyText } from "../lib/bonus";
 import { childErrorText } from "../lib/errors";
 import { formatDuration, formatEventTime, formatLimit, weekdayName } from "../lib/format";
 import {
-  ALL_WITH_STUDY,
+  allWithStudyText,
   EMPTY_TAB,
   NOT_COUNTED,
   TOTALS_TABS,
@@ -242,6 +242,7 @@ export function Totals({ data }: { data: MyTodayReply }) {
   };
   const current = TOTALS_TABS.find((t) => t.id === tab) ?? TOTALS_TABS[0];
   const rows = empty ? [] : tabRows(data, current.id);
+  const studyNote = empty ? "" : allWithStudyText(data);
   return (
     <section className="panel stat-panel" aria-labelledby="my-totals">
       <h3 id="my-totals" className="section-title">
@@ -280,7 +281,7 @@ export function Totals({ data }: { data: MyTodayReply }) {
                 className="totals-tab"
                 aria-selected={t.id === current.id}
                 aria-controls="totals-panel"
-                aria-describedby={`totals-value-${t.id}`}
+                aria-describedby={t.id === "all" && studyNote ? "totals-value-all totals-study-note" : `totals-value-${t.id}`}
                 tabIndex={t.id === current.id ? 0 : -1}
                 onClick={() => setTab(t.id)}
                 onKeyDown={(e) => onKey(e, i)}
@@ -292,9 +293,14 @@ export function Totals({ data }: { data: MyTodayReply }) {
               </button>
             ))}
           </div>
+          {/* Плитка «Всего» видна при любой вкладке, поэтому и пояснение к ней - под вкладками, не в панели. */}
+          {studyNote ? (
+            <p id="totals-study-note" className="field-hint totals-note">
+              {studyNote}
+            </p>
+          ) : null}
           <div id="totals-panel" className="totals-panel" role="tabpanel" tabIndex={0} aria-labelledby={`totals-tab-${current.id}`}>
             <p className="totals-sum">{`${current.label} за сегодня: ${formatDuration(tabSeconds(data, current.id))}`}</p>
-            {current.id === "all" && data.studyS > 0 ? <p className="field-hint totals-note">{ALL_WITH_STUDY}</p> : null}
             {rows.length === 0 ? (
               <p className="panel-text totals-empty">{EMPTY_TAB}</p>
             ) : (

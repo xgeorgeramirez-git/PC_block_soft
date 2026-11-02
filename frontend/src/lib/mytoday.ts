@@ -58,8 +58,18 @@ export const TOTALS_TABS: { id: TotalsTab; label: string }[] = [
 /** Пустая вкладка. */
 export const EMPTY_TAB = "Пока ничего не запускалось";
 
-/** Пояснение под суммой «Всего»: она больше «Использовано сегодня» на учёбу (D-7). */
-export const ALL_WITH_STUDY = "вместе с учёбой, она не входит в лимит";
+/**
+ * Пояснение у вкладок «Итогов», когда «Всего» больше «Использовано сегодня» на учёбу (D-7, FB-10):
+ * «Всего = 22 мин в счёт лимита + 3 мин учёбы вне лимита». Числа - те, что на экране: первое как в
+ * «Использовано сегодня», второе - разница с «Всего» в целых минутах (секунды не теряют минуту в
+ * сумме). Без учёбы или без видимой разницы - пусто.
+ */
+export function allWithStudyText(reply: MyTodayReply): string {
+  const usedMin = Math.floor(Math.max(0, reply.status.usedS) / 60);
+  const studyMin = Math.floor(Math.max(0, reply.allS) / 60) - usedMin;
+  if (reply.studyS <= 0 || studyMin <= 0) return "";
+  return `Всего = ${formatDuration(usedMin * 60)} в счёт лимита + ${formatDuration(studyMin * 60)} учёбы вне лимита`;
+}
 
 /** Сумма вкладки за сегодня, секунды: счётчики службы, а не сумма строк (одно число - одно место). */
 export function tabSeconds(reply: MyTodayReply, tab: TotalsTab): number {

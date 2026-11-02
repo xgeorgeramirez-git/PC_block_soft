@@ -821,15 +821,29 @@ for (const scheme of ["light", "dark"] as const) {
   });
 }
 
-// «Всего» больше «Использовано сегодня» на учёбу: под суммой пояснение, только если учёба была.
+// FB-10 (0.3.1): «Использовано сегодня 22 мин» и плитка «Всего 25 мин» видны всегда, поэтому пояснение
+// с числами стоит под рядом вкладок при любой выбранной вкладке и связано с вкладкой «Всего».
 test("s06 моя статистика: пояснение «Всего» про учёбу", async ({ page }) => {
   await mockProgram(page, { mode: "mystats", children: [s39Child()], myChildId: 1 });
   await page.goto("/");
-  const panel = page.getByRole("region", { name: "Итоги" }).getByRole("tabpanel");
+  const totals = page.getByRole("region", { name: "Итоги" });
+  const panel = totals.getByRole("tabpanel");
+  const text = "Всего = 22 мин в счёт лимита + 3 мин учёбы вне лимита";
   await expect(panel.getByText("Всего за сегодня: 25 мин", { exact: true })).toBeVisible();
-  await expect(panel.getByText("вместе с учёбой, она не входит в лимит", { exact: true })).toBeVisible();
-  await page.getByRole("region", { name: "Итоги" }).getByRole("tab", { name: "Игры", exact: true }).click();
-  await expect(panel.getByText("вместе с учёбой, она не входит в лимит", { exact: true })).toHaveCount(0);
+  for (const name of ["Всего", "Игры", "Учёба", "Прочее"]) {
+    await totals.getByRole("tab", { name, exact: true }).click();
+    const note = totals.getByText(text, { exact: true });
+    await expect(note).toBeVisible();
+    await expect(panel.getByText(text, { exact: true })).toHaveCount(0);
+    // Замер после щелчка: щелчок прокручивает страницу к вкладке.
+    const tablist = await boxOf(totals.getByRole("tablist", { name: "Итоги по категориям" }));
+    const nb = await boxOf(note);
+    const pb = await boxOf(panel);
+    expect(nb.top, "пояснение не под вкладками").toBeGreaterThanOrEqual(tablist.bottom - 0.5);
+    expect(nb.bottom, "пояснение не над панелью").toBeLessThanOrEqual(pb.top + 0.5);
+  }
+  await expect(totals.getByRole("tab", { name: "Всего", exact: true })).toHaveAccessibleDescription(new RegExp(text.replace(/[+=]/g, "\\$&")));
+  await noHorizontalScroll(page);
 });
 
 // Пустая вкладка (8.2.6 п.3): «Пока ничего не запускалось», списка нет; снимок s06-my-stats-empty-tab.
@@ -846,7 +860,7 @@ test("s06 моя статистика: пустая вкладка", async ({ pa
   await expect(panel.getByText("Игры за сегодня: 0 мин", { exact: true })).toBeVisible();
   await expect(panel.getByText("Пока ничего не запускалось", { exact: true })).toBeVisible();
   await expect(panel.getByRole("list")).toHaveCount(0);
-  await expect(panel.getByText("вместе с учёбой, она не входит в лимит", { exact: true })).toHaveCount(0);
+  await expect(totals.getByText(/учёбы вне лимита/)).toHaveCount(0);
   await tabsState(page, "Игры", "пустая вкладка");
   await totals.scrollIntoViewIfNeeded();
   await settled(page);
