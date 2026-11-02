@@ -11,13 +11,29 @@ async function mockProgram(page: Page, options: MockOptions = {}) {
   await page.addInitScript({ content: await mockScript(options) });
 }
 
-/** Ни окно, ни прокручиваемая область страницы не уходят вбок. */
+/**
+ * Ни окно, ни прокручиваемая область страницы не уходят вбок; само окно (документ) не прокручивается
+ * и по высоте: прокрутка только внутри main.content, шапка стоит на месте. Иначе прокрутка к полю
+ * (фокус, scrollIntoView) сдвигает всё окно вместе с шапкой, и блок прилипает к названию.
+ */
 async function noHorizontalScroll(page: Page) {
   const overflow = await page.evaluate(() => {
     const wider = (el: Element | null) => (el ? el.scrollWidth > el.clientWidth : false);
-    return wider(document.documentElement) || wider(document.querySelector(".content"));
+    const doc = document.documentElement;
+    const out: string[] = [];
+    if (wider(doc) || wider(document.querySelector(".content"))) out.push("прокрутка вбок");
+    if (doc.scrollHeight - doc.clientHeight > 1) {
+      const below = [...document.querySelectorAll("body *")]
+        .filter((el) => el.getBoundingClientRect().bottom > doc.clientHeight + 1 && !el.closest(".content, .menu"))
+        .map((el) => `${el.tagName.toLowerCase()}.${el.className} «${(el.textContent ?? "").slice(0, 30)}»`);
+      const leaked = [...document.querySelectorAll(".content *")]
+        .filter((el) => el.getBoundingClientRect().bottom > doc.clientHeight + 1 && getComputedStyle(el).position === "absolute" && (el as HTMLElement).offsetParent === document.body)
+        .map((el) => `${el.tagName.toLowerCase()}.${el.className} «${(el.textContent ?? "").slice(0, 30)}»`);
+      out.push(`окно прокручивается на ${doc.scrollHeight - doc.clientHeight} px: ${[...below, ...leaked].slice(0, 3).join(", ")}`);
+    }
+    return out;
   });
-  expect(overflow).toBe(false);
+  expect(overflow).toEqual([]);
 }
 
 /**
@@ -912,6 +928,33 @@ test("s06 копилка в запретные часы недоступна с 
 });
 
 // s06 — «Бонусы» у ребёнка: копилка, автобонус простыми словами, промокод (R25, R26).
+// Замечание заказчика к 0.2.4: «Ввести промокод» касается названия «PC Block» у шапки. Причина -
+// скрытая подпись таблицы правил вне области прокрутки растягивала само окно; переход к полю
+// промокода (Tab, щелчок) прокручивал окно вместе с шапкой. Шапка стоит на месте, окно не прокручено.
+for (const [w, h] of [
+  [800, 480],
+  [640, 520],
+]) {
+  test(`s06 промокод: шапка на месте после перехода к полю, окно ${w} x ${h}`, async ({ page }) => {
+    await page.setViewportSize({ width: w, height: h });
+    await mockProgram(page, { mode: "mystats", children: [child({ bonusBalance: 45 })], myChildId: 1 });
+    await page.goto("/");
+    const field = page.getByRole("textbox", { name: "Промокод" });
+    await field.focus();
+    await expect(field).toBeFocused();
+    await expect(field).toBeInViewport();
+    // Самая «жадная» прокрутка к полю (так прокручивают переход по ссылке и часть движков окна):
+    // поле к верху видимой области, все прокручиваемые предки вплоть до окна.
+    await field.evaluate((el) => el.scrollIntoView({ block: "start" }));
+    const state = await page.evaluate(() => ({
+      docTop: document.scrollingElement!.scrollTop,
+      barTop: document.querySelector("header.topbar")!.getBoundingClientRect().top,
+    }));
+    expect(state, `окно ${w} x ${h}: ${JSON.stringify(state)}`).toEqual({ docTop: 0, barTop: 0 });
+    await noHorizontalScroll(page);
+  });
+}
+
 test("s06 бонусы ребёнка и промокод", async ({ page }) => {
   await tallWindow(page, 1000);
   const now = Date.now();
