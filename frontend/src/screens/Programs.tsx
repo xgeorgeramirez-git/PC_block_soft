@@ -760,11 +760,11 @@ function ProgramRow(props: RowProps) {
             onDraft={props.onDraft}
           />
         ) : (
-          // «Переименовать» — кнопка-значок рядом с названием: колонка названия узкая (186 px при окне
-          // 960), ссылка словом отнимала у названия больше половины ширины. Имя для диктора и подсказка
-          // — «Переименовать «X»».
+          // «Переименовать» — кнопка-значок рядом с названием: ссылка словом отнимала у названия больше
+          // половины ширины. Название — до двух строк, режется только третья (FB-9/FB-11). Имя для
+          // диктора и подсказка — «Переименовать «X»».
           <div className="program-title">
-            <LineText className="program-name" text={p.name} />
+            <LineText className="program-name" text={p.name} lines={2} />
             <button
               type="button"
               className="program-rename"
@@ -778,7 +778,8 @@ function ProgramRow(props: RowProps) {
             </button>
           </div>
         )}
-        {fileName && fileName !== p.name ? <LineText className="program-meta program-filename" text={`из файла: ${fileName}`} /> : null}
+        {/* Имя из файла — то, по чему родитель узнаёт программу после переименования: тоже до двух строк. */}
+        {fileName && fileName !== p.name ? <LineText className="program-meta program-filename" text={`из файла: ${fileName}`} lines={2} /> : null}
         <LineText className="program-meta" text={publisherText(p.publisher)} />
         <p className="program-meta">
           <PathText path={p.path} max={ROW_PATH_MAX} />

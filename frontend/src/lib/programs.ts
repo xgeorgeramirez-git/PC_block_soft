@@ -88,34 +88,33 @@ export function decisionMessage(name: string, category: ParentCategory): string 
 
 /**
  * Длинный путь обрезан по центру: начало, «…», конец с именем файла (и папкой над ним, если
- * помещается). Итог не длиннее max знаков.
+ * помещается). Имя файла всегда целиком (FB-9/FB-11: по нему родитель отличает запускалку от игры):
+ * начало сокращается вплоть до диска. Итог не длиннее max знаков, если имя файла туда помещается;
+ * иначе «диск…\имя файла» целиком.
  */
 export function shortenPath(path: string, max: number): string {
   if (path.length <= max) return path;
   const room = max - 1;
   const parts = path.split("\\");
-  const file = parts.length > 1 ? `\\${parts[parts.length - 1]}` : "";
+  if (parts.length < 2) return `${path.slice(0, room - Math.floor(room / 2)).trimEnd()}…${path.slice(path.length - Math.floor(room / 2)).trimStart()}`;
+  const file = `\\${parts[parts.length - 1]}`;
   const withParent = parts.length > 2 ? `\\${parts[parts.length - 2]}${file}` : "";
-  let tail: string;
-  if (withParent && withParent.length <= room * 0.6) {
-    tail = withParent;
-  } else if (file && file.length <= room - 8) {
-    tail = file;
-  } else {
-    tail = path.slice(path.length - Math.floor(room / 2));
-  }
-  // Пробел из середины имени вплотную к «…» читается как «очень …\» или «… умножения.exe»:
-  // его убираем с обеих сторон.
-  return `${path.slice(0, room - tail.length).trimEnd()}…${tail.trimStart()}`;
+  const tail = withParent && withParent.length <= room * 0.6 ? withParent : file;
+  const head = path.slice(0, Math.max(room - tail.length, parts[0].length));
+  const shown = `${head.trimEnd()}…${tail.trimStart()}`;
+  // Пробел из середины имени вплотную к «…» читается как «очень …\»: его убираем. Сокращение,
+  // которое не короче самого пути, не нужно.
+  return shown.length < path.length ? shown : path;
 }
 
-/** Короче этого путь не обрезается: остаются диск, «…» и конец имени файла. */
+/** Короче этого путь не обрезается: остаются диск, «…» и имя файла. */
 const MIN_PATH_CHARS = 12;
 
 /**
  * Путь под ширину строки: самый длинный вид shortenPath (не длиннее max), для которого fits
  * отвечает «помещается». Единственный способ обрезки пути на экране: CSS-многоточие поверх уже
- * обрезанного пути дало бы второе «…» и пробел перед ним. Не помещается ничего — самый короткий.
+ * обрезанного пути дало бы второе «…» и пробел перед ним. Не помещается ничего — самый короткий
+ * вид («диск…\имя файла»): имя файла не режется, при нехватке места его переносит вёрстка.
  */
 export function fitPath(path: string, max: number, fits: (shown: string) => boolean): string {
   let last = "";

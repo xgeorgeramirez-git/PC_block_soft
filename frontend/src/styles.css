@@ -1472,13 +1472,22 @@ html:has(.shell-child) body {
 .program-path .path-short {
   display: block;
   overflow: hidden;
-  white-space: nowrap;
 }
 
+/* Начало и имя файла — два неразрывных куска: fitPath подбирает вид, который помещается в одну
+   строку. Если и «диск…\имя файла» не помещается, имя файла переносится на свою строку целиком
+   (а очень длинное — внутри), но не режется (FB-9/FB-11). */
 .program-path .path-head,
 .program-path .path-tail {
   display: inline-block;
   vertical-align: top;
+  max-width: 100%;
+  white-space: nowrap;
+}
+
+.program-path .path-tail {
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 /* Зонд ширины для fitPath: существует только на время замера. */
@@ -1576,12 +1585,25 @@ html:has(.shell-child) body {
   table-layout: fixed;
 }
 
+/* Колонки «Отметка», «Категория», «За неделю», «Скрыть» — ровно по своему содержимому, всё
+   остальное место — названию и пути (FB-9/FB-11: в окне 960 название резалось на 13 знаках, а в
+   узких колонках справа было пусто). Между колонками 16 px (по 8 px с каждой стороны), по краям 12 px. */
 .programs-table th,
 .programs-table td {
-  padding: var(--space-2) var(--space-3);
+  padding: var(--space-2);
   border-bottom: 1px solid var(--line);
   text-align: left;
   vertical-align: middle; /* время, список категории и кнопка — на одной высоте */
+}
+
+.programs-table th:first-child,
+.programs-table td:first-child {
+  padding-left: var(--space-3);
+}
+
+.programs-table th:last-child,
+.programs-table td:last-child {
+  padding-right: var(--space-3);
 }
 
 .programs-table thead th {
@@ -1594,8 +1616,9 @@ html:has(.shell-child) body {
   border-bottom: 0;
 }
 
+/* 12 + флажок 18 + 8 */
 .programs-table .col-check {
-  width: 44px;
+  width: 38px;
 }
 
 .programs-table .col-check input {
@@ -1605,18 +1628,24 @@ html:has(.shell-child) body {
   vertical-align: middle;
 }
 
+/* 8 + список 122 («Запрещено» со стрелкой при полях 8 px) + 8 */
 .programs-table .col-category {
-  width: 168px;
+  width: 138px;
 }
 
+.programs-table .col-category select {
+  padding-inline: var(--space-2);
+}
+
+/* 8 + 96 («12 ч 30 мин» — 84 px) + 8; редкое «меньше минуты» переносится на вторую строку. */
 .programs-table .col-week {
-  width: 120px;
-  white-space: nowrap;
+  width: 112px;
 }
 
-/* «Скрыть» / «Показать» (D-57): своя узкая колонка, кнопка не налезает на соседние. */
+/* «Скрыть» / «Показать» (D-57): своя узкая колонка, кнопка не налезает на соседние.
+   8 + «Показать» 90 + 12 */
 .programs-table .col-action {
-  width: 128px;
+  width: 110px;
   text-align: right;
 }
 
@@ -1647,6 +1676,23 @@ html:has(.shell-child) body {
   overflow: hidden;
   white-space: nowrap;
   overflow-wrap: normal;
+}
+
+/* Название в две строки (FB-9/FB-11): перенос по словам, длинное слово — где угодно; обрезку
+   третьей строки делает fitName по замеру зонда той же ширины, CSS не обрезает. */
+.line-fit.line-fit-2 {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+/* Зонд высоты для названия в две строки: та же ширина и тот же перенос, существует только на время замера. */
+.fit-probe-lines {
+  position: absolute;
+  display: block;
+  visibility: hidden;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  pointer-events: none;
 }
 
 .program-rename {

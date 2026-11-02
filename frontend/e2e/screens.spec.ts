@@ -1159,7 +1159,9 @@ async function rowsEven(page: Page) {
         const shown = (visible ?? line).textContent ?? "";
         const lh = parseFloat(getComputedStyle(line).lineHeight) || 20;
         const lr = line.getBoundingClientRect();
-        if (lr.height > lh * 1.5) out.push({ row: i, name, what: `перенос «${shown}»`, px: { height: lr.height, line: lh } });
+        // Название — не больше двух строк (data-lines), остальные строки — одна строка.
+        const allowed = Number(line.dataset.lines ?? "1");
+        if (lr.height > lh * (allowed + 0.5)) out.push({ row: i, name, what: `перенос «${shown}»`, px: { height: lr.height, line: lh, allowed } });
         if ((shown.match(/…/g) ?? []).length > 1) out.push({ row: i, name, what: `два «…» в «${shown}»` });
         if (shown.endsWith("…") && !line.title) out.push({ row: i, name, what: `обрезано без подсказки «${shown}»` });
         // Видимый текст (без копии для диктора) не шире строки и строка не нулевой ширины.
@@ -1189,13 +1191,30 @@ async function rowsEven(page: Page) {
         out.push({ row: i, name, what: "центры ячеек на разной высоте", px: { week, category: cat, button: btn } });
       }
       const long = row.querySelector(".program-name[title]") !== null;
-      return { i, name, h: row.getBoundingClientRect().height, plain: !editing && !renamed, long };
+      // Лишние строки: название во вторую строку (D-59, не больше двух) и путь, у которого имя файла
+      // не помещается в строку даже после «диск…» (имя файла не режется). Строка выше обычной ровно на них.
+      const linesOf = (el: HTMLElement | null) => {
+        if (!el) return 0;
+        const lh = parseFloat(getComputedStyle(el).lineHeight) || 20;
+        return Math.max(0, Math.round(el.getBoundingClientRect().height / lh) - 1) * lh;
+      };
+      // Название стоит в ряд со значком «Переименовать» (24 px): ряд растёт на высоту названия сверх
+      // одной строки или значка, смотря что выше.
+      const title = row.querySelector<HTMLElement>(".program-title");
+      const nameEl = row.querySelector<HTMLElement>(".program-name");
+      const pencil = title?.querySelector<HTMLElement>(".program-rename");
+      const nameExtra =
+        title && nameEl && linesOf(nameEl) > 0
+          ? title.getBoundingClientRect().height - Math.max(parseFloat(getComputedStyle(nameEl).lineHeight) || 20, pencil?.getBoundingClientRect().height ?? 0)
+          : 0;
+      const extra = nameExtra + linesOf(row.querySelector<HTMLElement>(".path-short"));
+      return { i, name, h: row.getBoundingClientRect().height, plain: !editing && !renamed, long, extra };
     });
-    const plain = info.filter((x) => x.plain && !x.long);
+    const plain = info.filter((x) => x.plain && !x.long && x.extra === 0);
     if (plain.length > 0) {
       const base = Math.min(...plain.map((x) => x.h));
       for (const x of info.filter((y) => y.plain)) {
-        if (Math.abs(x.h - base) > 2) out.push({ row: x.i, name: x.name, what: "строка выше обычной", px: { height: x.h, base } });
+        if (Math.abs(x.h - base - x.extra) > 2) out.push({ row: x.i, name: x.name, what: "строка выше обычной", px: { height: x.h, base, extra: x.extra } });
       }
     }
     return out;
@@ -1317,6 +1336,74 @@ test("s11 программы: переименование", async ({ page }) =>
   await noHorizontalScroll(page);
   await page.screenshot({ path: `${SCREENS}/s11-programs-rename.png`, fullPage: true });
 });
+
+// FB-9/FB-11 (UX-аудит 0.3.1): в окне 960 название резалось на 13 знаках («Minecraft Lau…»), а путь
+// терял имя файла («c:\\program…ncher.exe»), хотя справа в строке было пусто: узкие колонки «Категория»,
+// «За неделю», «Скрыть» были шире своего содержимого, а путь резал имя файла при коротком начале.
+// Окно родителя не уже 960 x 620 (app.go): проверяем 960 x 640 и 960 x 620.
+const fitList = () => [
+  ...programList(),
+  { path: "c:\\program files\\epic games\\stalker2\\binaries\\win64\\stalker2-win64-shipping.exe", name: "Сталкер 2", fileName: "Stalker2-Win64-Shipping", publisher: "GSC Game World", category: "games" as const, source: "catalog" as const, weekS: 9000 },
+  { path: "c:\\program files\\epic games\\fortnite\\fortnitegame\\binaries\\win64\\fortniteclient-win64-shipping.exe", name: "Fortnite", publisher: "Epic Games, Inc.", category: "games" as const, source: "catalog" as const, weekS: 600 },
+];
+
+for (const [w, h] of [
+  [960, 640],
+  [960, 620],
+]) {
+  test(`s11 программы: название и имя файла целиком в окне ${w} x ${h}`, async ({ page }) => {
+    await page.setViewportSize({ width: w, height: h });
+    await openPrograms(page, { pending: [], programs: fitList() });
+    const all = page.getByRole("region", { name: "Все программы" });
+    await expect(all.getByRole("row", { name: "Minecraft Launcher", exact: true })).toBeVisible();
+    const report = await page.evaluate(() => {
+      const out: Record<string, unknown>[] = [];
+      for (const row of Array.from(document.querySelectorAll<HTMLElement>(".programs-table tbody tr"))) {
+        const label = row.getAttribute("aria-label") ?? "";
+        const path = row.dataset.path ?? "";
+        const name = row.querySelector<HTMLElement>(".program-name")!;
+        const nameShown = (name.querySelector('[aria-hidden="true"]') ?? name).textContent ?? "";
+        const lh = parseFloat(getComputedStyle(name).lineHeight) || 20;
+        const short = row.querySelector<HTMLElement>(".path-short")!;
+        const tail = row.querySelector<HTMLElement>(".path-tail")!;
+        const sb = short.getBoundingClientRect();
+        const tb = tail.getBoundingClientRect();
+        const fileName = row.querySelector<HTMLElement>(".program-filename");
+        out.push({
+          label,
+          nameShown,
+          nameLines: Math.round(name.getBoundingClientRect().height / lh),
+          file: path.slice(path.lastIndexOf("\\")),
+          tail: tail.textContent,
+          tailInside: tb.left >= sb.left - 0.5 && tb.right <= sb.right + 0.5 && tb.bottom <= sb.bottom + 0.5 && tail.scrollWidth <= tail.clientWidth + 1,
+          fromFile: fileName ? (fileName.querySelector('[aria-hidden="true"]') ?? fileName).textContent : null,
+        });
+      }
+      return out;
+    });
+    const msg = JSON.stringify(report);
+    const row = (label: string) => report.find((r) => r.label === label)!;
+    // Название «Minecraft Launcher» видно целиком.
+    expect(row("Minecraft Launcher").nameShown, msg).toBe("Minecraft Launcher");
+    // Имя файла в пути у каждой строки целиком и в своей рамке (не обрезано и не спрятано).
+    for (const r of report) {
+      expect(r.tail, `имя файла обрезано: ${msg}`).toBe(r.file);
+      expect(r.tailInside, `имя файла не помещается в рамку: ${msg}`).toBe(true);
+    }
+    expect(row("Minecraft Launcher").tail).toBe("\\minecraftlauncher.exe");
+    expect(row("Сталкер 2").tail).toBe("\\stalker2-win64-shipping.exe");
+    expect(row("Сталкер 2").fromFile, msg).toBe("из файла: Stalker2-Win64-Shipping");
+    // Длинное название переносится на вторую строку, а не режется на первой: не больше двух строк.
+    const long = row("Очень длинное название игры с пробелами и цифрами 2026");
+    expect(long.nameLines, msg).toBe(2);
+    expect(String(long.nameShown).startsWith("Очень длинное название игры"), msg).toBe(true);
+    await hideButtonsInColumn(page);
+    await rowsEven(page);
+    await nothingSticksOut(page);
+    await noHorizontalScroll(page);
+    await page.screenshot({ path: `${SCREENS}/s11-programs-fit-${w}x${h}.png`, fullPage: true });
+  });
+}
 
 // s11 — «Программы» пустой: никто ничего не запускал.
 test("s11 программы: пусто", async ({ page }) => {

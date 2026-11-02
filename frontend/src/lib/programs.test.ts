@@ -116,21 +116,26 @@ describe("путь: обрезка по центру", () => {
   // («очень …\\», «… умножения.exe»), а предел длины нарушается (приёмка M3-R1 п.5).
   it("пути с пробелами в именах папок: без пробела у многоточия при разных длинах", () => {
     const game = "c:\\игры\\моя игра\\очень длинное имя файла игры с пробелами внутри и ещё.exe";
-    expect(shortenPath(game, 17)).toBe("c:\\игры\\…ещё.exe");
-    expect(shortenPath(game, 22)).toBe("c:\\игры\\моя…и ещё.exe");
-    expect(shortenPath(game, 36)).toBe("c:\\игры\\моя игра\\о…внутри и ещё.exe");
-    expect(shortenPath(game, 60)).toBe("c:\\игры\\моя игра\\очень длинное…с пробелами внутри и ещё.exe");
+    // Имя файла длиннее предела: целиком, от начала остаётся только диск.
+    const gameFile = "\\очень длинное имя файла игры с пробелами внутри и ещё.exe";
+    expect(shortenPath(game, 17)).toBe(`c:…${gameFile}`);
+    expect(shortenPath(game, 36)).toBe(`c:…${gameFile}`);
+    expect(shortenPath(game, 60)).toBe(`c:…${gameFile}`);
+    expect(shortenPath(game, 64)).toBe(`c:\\иг…${gameFile}`);
     const trainer =
       "c:\\users\\даша\\appdata\\local\\programs\\очень длинное название папки тренажёра по математике\\версия 2026.10.1\\тренажёр таблицы умножения.exe";
-    expect(shortenPath(trainer, 29)).toBe("c:\\users\\даша\\…умножения.exe");
+    expect(shortenPath(trainer, 29)).toBe("c:…\\тренажёр таблицы умножения.exe");
     expect(shortenPath(trainer, 80)).toBe("c:\\users\\даша\\appdata\\local\\programs\\очень длинн…\\тренажёр таблицы умножения.exe");
     const steam = "c:\\program files (x86)\\steam\\steamapps\\common\\очень длинное название игры с пробелами\\bin\\win64\\game.exe";
     expect(shortenPath(steam, 20)).toBe("c:\\program…\\game.exe");
     expect(shortenPath(steam, 40)).toBe("c:\\program files (x86)\\s…\\win64\\game.exe");
     for (const p of [game, trainer, steam]) {
+      const file = p.slice(p.lastIndexOf("\\"));
       for (let n = 12; n < p.length; n++) {
         const short = shortenPath(p, n);
-        expect(short.length).toBeLessThanOrEqual(n);
+        // Не длиннее предела, если имя файла помещается; иначе диск, «…» и имя файла целиком.
+        if (short !== `c:…${file}`) expect(short.length).toBeLessThanOrEqual(n);
+        expect(short.endsWith(file)).toBe(true);
         expect(short).not.toMatch(/\s…|…\s/);
       }
     }
@@ -145,8 +150,8 @@ describe("путь: обрезка по центру", () => {
     expect(fitPath(steam, 40, upTo(30))).toBe("c:\\program fil…\\win64\\game.exe");
     expect(fitPath(steam, 40, upTo(20))).toBe("c:\\program…\\game.exe");
     expect(fitPath("c:\\games\\a.exe", 40, upTo(100))).toBe("c:\\games\\a.exe");
-    // Не помещается даже самый короткий вид: самый короткий (имя файла остаётся, лишнее режет рамка).
-    expect(fitPath(steam, 40, () => false)).toBe(shortenPath(steam, 12));
+    // Не помещается даже самый короткий вид: диск, «…» и имя файла целиком (перенос делает вёрстка).
+    expect(fitPath(steam, 40, () => false)).toBe("c:…\\game.exe");
     for (const w of [14, 22, 33, 47]) {
       const got = fitPath(steam, 80, upTo(w));
       expect(got.length).toBeLessThanOrEqual(w);
@@ -155,13 +160,19 @@ describe("путь: обрезка по центру", () => {
     }
   });
 
-  it("очень длинное имя файла: всё равно предел и многоточие посередине", () => {
+  // Ловит FB-9/FB-11 (0.3.1): «c:\\program…ncher.exe» - имя файла резалось, когда до него оставалось
+  // меньше 8 знаков начала; родитель не отличал запускалку от игры.
+  it("имя файла всегда целиком: начало сокращается до диска", () => {
+    const launcher = "c:\\program files\\minecraft launcher\\minecraftlauncher.exe";
+    expect(shortenPath(launcher, 25)).toBe("c:…\\minecraftlauncher.exe");
+    expect(shortenPath(launcher, 22)).toBe("c:…\\minecraftlauncher.exe");
+    expect(shortenPath(launcher, 30)).toBe("c:\\prog…\\minecraftlauncher.exe");
+    const upTo = (n: number) => (s: string) => s.length <= n;
+    expect(fitPath(launcher, 80, upTo(25))).toBe("c:…\\minecraftlauncher.exe");
+    expect(fitPath(launcher, 80, upTo(24))).toBe("c:…\\minecraftlauncher.exe");
+    expect(fitPath(launcher, 80, () => false)).toBe("c:…\\minecraftlauncher.exe");
     const path = `c:\\downloads\\${"a".repeat(80)}.exe`;
-    const short = shortenPath(path, 30);
-    expect(short.length).toBe(30);
-    expect(short.startsWith("c:\\downloads")).toBe(true);
-    expect(short.endsWith("aaa.exe")).toBe(true);
-    expect(short).toContain("…");
+    expect(shortenPath(path, 30)).toBe(`c:…\\${"a".repeat(80)}.exe`);
   });
 });
 
