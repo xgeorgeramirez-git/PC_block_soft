@@ -1565,7 +1565,8 @@ html:has(.shell-child) body {
   width: auto;
 }
 
-.bulk-error {
+.bulk-error,
+.bulk-hint {
   margin-top: 0;
 }
 

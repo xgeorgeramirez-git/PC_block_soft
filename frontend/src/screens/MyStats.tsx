@@ -292,7 +292,7 @@ export function Totals({ data }: { data: MyTodayReply }) {
               </button>
             ))}
           </div>
-          <div id="totals-panel" className="totals-panel" role="tabpanel" aria-labelledby={`totals-tab-${current.id}`}>
+          <div id="totals-panel" className="totals-panel" role="tabpanel" tabIndex={0} aria-labelledby={`totals-tab-${current.id}`}>
             <p className="totals-sum">{`${current.label} за сегодня: ${formatDuration(tabSeconds(data, current.id))}`}</p>
             {current.id === "all" && data.studyS > 0 ? <p className="field-hint totals-note">{ALL_WITH_STUDY}</p> : null}
             {rows.length === 0 ? (

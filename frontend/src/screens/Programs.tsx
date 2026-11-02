@@ -35,6 +35,10 @@ interface Props {
 const PENDING_PATH_MAX = 80;
 const ROW_PATH_MAX = 40;
 const UNDO_MS = 10_000;
+// Тексты те же, что у службы (handlers_m3.go): запрещённую скрыть нельзя (RF9-5), то же название.
+const HIDE_BLOCKED_ONE = "Запрещённую программу нельзя скрыть: сначала разрешите её";
+const HIDE_BLOCKED_MANY = "Запрещённые программы нельзя скрыть: сначала разрешите их";
+const NAME_UNCHANGED = "Название не изменилось";
 
 interface Feedback {
   seq: number;
@@ -206,6 +210,13 @@ export default function Programs({ initialFilter = "all" }: Props) {
       setEditing({ path: p.path, error: err });
       return;
     }
+    if (draft.trim() === p.name) {
+      // Ничего не изменилось: без запроса и без «Отменить» (как служба).
+      setEditing(null);
+      say("list", NAME_UNCHANGED);
+      focusTo.current = { to: "rename", path: p.path };
+      return;
+    }
     void run(
       { kind: "row", path: p.path },
       async () => {
@@ -294,6 +305,8 @@ export default function Programs({ initialFilter = "all" }: Props) {
   };
 
   const hiddenView = filter === "hidden";
+  // Запрещённую скрыть нельзя (RF9-5): отмечены только запрещённые — «Скрыть» недоступна с пояснением.
+  const onlyBlockedSelected = (sel: ProgramDTO[]) => !hiddenView && sel.length > 0 && sel.every((p) => p.category === "blocked");
   // «Программ пока нет» только когда нет ни видимых, ни скрытых: иначе пропал бы фильтр «Скрытые».
   const list = data ? data.programs.filter((p) => p.category !== "system") : [];
   const shown = data ? visiblePrograms(data.programs, { query, filter, sort }) : [];
@@ -491,11 +504,19 @@ export default function Programs({ initialFilter = "all" }: Props) {
                             type="button"
                             className="btn"
                             aria-label={hiddenView ? "Показать отмеченные" : "Скрыть отмеченные"}
-                            aria-disabled={busy !== null || undefined}
-                            onClick={() => (busy ? undefined : hideBulk(selectedShown.map((p) => p.path), !hiddenView))}
+                            aria-disabled={busy !== null || onlyBlockedSelected(selectedShown) || undefined}
+                            aria-describedby={onlyBlockedSelected(selectedShown) ? "bulk-hide-hint" : undefined}
+                            onClick={() =>
+                              busy || onlyBlockedSelected(selectedShown) ? undefined : hideBulk(selectedShown.map((p) => p.path), !hiddenView)
+                            }
                           >
                             {busy?.kind === "bulk" && busy.hide ? "Сохраняю…" : hiddenView ? "Показать" : "Скрыть"}
                           </button>
+                          {onlyBlockedSelected(selectedShown) ? (
+                            <span id="bulk-hide-hint" className="field-hint bulk-hint">
+                              {selectedShown.length === 1 ? HIDE_BLOCKED_ONE : HIDE_BLOCKED_MANY}
+                            </span>
+                          ) : null}
                           {bulkError ? (
                             <span id="bulk-error" className="field-error bulk-error">
                               {bulkError}
@@ -785,15 +806,18 @@ function ProgramRow(props: RowProps) {
       </td>
       <td className="col-week">{hidden ? "" : weekText(p.weekS)}</td>
       <td className="col-action">
-        <button
-          type="button"
-          className="btn btn-small"
-          aria-label={hidden ? `Показать «${p.name}»` : `Скрыть «${p.name}»`}
-          disabled={busy !== null}
-          onClick={() => onHide(!hidden)}
-        >
-          {hidden ? "Показать" : "Скрыть"}
-        </button>
+        {/* Запрещённую скрыть нельзя (RF9-5): запрет сильнее скрытия. «Показать» у скрытой — всегда. */}
+        {!hidden && p.category === "blocked" ? null : (
+          <button
+            type="button"
+            className="btn btn-small"
+            aria-label={hidden ? `Показать «${p.name}»` : `Скрыть «${p.name}»`}
+            disabled={busy !== null}
+            onClick={() => onHide(!hidden)}
+          >
+            {hidden ? "Показать" : "Скрыть"}
+          </button>
+        )}
       </td>
     </tr>
   );
@@ -828,6 +852,9 @@ function NameEditor({ program: p, error, busy, onSave, onCancel, onDraft }: Name
       <input
         ref={input}
         type="text"
+        name="programName"
+        autoComplete="off"
+        spellCheck={false}
         className="field-input name-input"
         aria-label={`Новое название для «${p.name}»`}
         aria-invalid={error ? true : undefined}

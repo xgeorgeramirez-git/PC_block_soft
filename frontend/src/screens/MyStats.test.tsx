@@ -189,6 +189,19 @@ describe("MyStats: вкладки «Итогов»", () => {
     ]);
   });
 
+  // Ловит (ревью 0.3.1): в панели вкладки нет элементов фокуса, и без tabIndex Tab от вкладки
+  // перескакивает через неё: список программ с клавиатуры не прочитать (шаблон вкладок WAI-ARIA).
+  it("Tab от выбранной вкладки ведёт в панель", async () => {
+    const user = setup({ children: [s39Child()] });
+    const box = await screen.findByRole("region", { name: "Итоги" });
+    const tab = within(box).getByRole("tab", { name: "Игры" });
+    await user.click(tab);
+    await user.tab();
+    const panel = within(box).getByRole("tabpanel");
+    expect(panel.getAttribute("tabindex")).toBe("0");
+    expect(document.activeElement).toBe(panel);
+  });
+
   it("«Учёба»: study 3 мин; «Всего» по умолчанию со всеми программами", async () => {
     const user = setup({ children: [s39Child()] });
     const box = await screen.findByRole("region", { name: "Итоги" });

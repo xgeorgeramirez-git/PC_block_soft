@@ -1135,9 +1135,14 @@ export function createBackend(opts: MockOptions = {}): MockBackend {
       const paths = new Set<string>((req.paths ?? []).map((x: string) => x.toLowerCase()));
       if (paths.size > 200) return fail("Можно изменить не больше 200 программ за раз");
       const hidden = req.hidden === true;
-      if (!state.programs.some((p) => paths.has(p.path) && p.category !== "system")) return fail("Такой программы нет в списке");
-      const undo = rememberUndo(now);
-      const changed = state.programs.filter((p) => paths.has(p.path) && p.category !== "system" && (p.hidden === true) !== hidden);
+      // Как служба (RF9-5): запрещённую не скрывают; ничего не изменилось — без «Отменить».
+      const listed = state.programs.filter((p) => paths.has(p.path) && p.category !== "system");
+      const blocked = hidden ? listed.filter((p) => p.category === "blocked").length : 0;
+      const known = listed.filter((p) => !(hidden && p.category === "blocked"));
+      const blockedText = blocked === 1 ? "Запрещённую программу нельзя скрыть: сначала разрешите её" : "Запрещённые программы нельзя скрыть: сначала разрешите их";
+      if (known.length === 0) return fail(blocked > 0 ? blockedText : "Такой программы нет в списке");
+      const changed = known.filter((p) => (p.hidden === true) !== hidden);
+      const undo = changed.length > 0 ? rememberUndo(now) : { undoId: "", undoUntilMs: 0 };
       for (const p of changed) p.hidden = hidden;
       const one = changed.length === 1 ? changed[0].name : "";
       const word = (n: number) => (n % 10 === 1 && n % 100 !== 11 ? "программу" : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 12 || n % 100 > 14) ? "программы" : "программ");
@@ -1145,13 +1150,16 @@ export function createBackend(opts: MockOptions = {}): MockBackend {
         const subject = one ? `«${one}»` : `${changed.length} ${word(changed.length)}`;
         addEvent(now, undefined, hidden ? "program_hidden" : "program_shown", hidden ? `Вы скрыли ${subject}` : `Вы снова показали ${subject}`);
       }
-      const message = one
-        ? hidden
-          ? `${one} скрыта`
-          : `${one} снова в списке`
-        : hidden
-          ? `Скрыто программ: ${changed.length}`
-          : `Снова в списке программ: ${changed.length}`;
+      let message: string;
+      if (changed.length === 0) {
+        const single = known.length === 1 ? known[0].name : "";
+        message = single ? `${single} ${hidden ? "уже скрыта" : "уже в списке"}` : hidden ? "Эти программы уже скрыты" : "Эти программы уже в списке";
+      } else if (one) {
+        message = hidden ? `${one} скрыта` : `${one} снова в списке`;
+      } else {
+        message = hidden ? `Скрыто программ: ${changed.length}` : `Снова в списке программ: ${changed.length}`;
+      }
+      if (blocked > 0) message += `. ${blockedText}`;
       return okReply({ message, ...undo, programs: programsReply() });
     },
 
@@ -1161,8 +1169,10 @@ export function createBackend(opts: MockOptions = {}): MockBackend {
       if (/[\u0000-\u001f\u007f-\u009f]/.test(name) || Array.from(name).length > 60) return fail("Название до 60 символов", "name");
       const p = state.programs.find((x) => x.path === String(req.path ?? "").toLowerCase() && x.category !== "system");
       if (!p) return fail("Такой программы нет в списке");
-      const undo = rememberUndo(now);
       const file = p.fileName || p.name;
+      const custom = p.fileName ? p.name : "";
+      if (custom === name || (custom === "" && name === p.name)) return okReply({ message: "Название не изменилось", undoId: "", undoUntilMs: 0, programs: programsReply() });
+      const undo = rememberUndo(now);
       const from = p.name;
       const to = name || file;
       p.name = to;

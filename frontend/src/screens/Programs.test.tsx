@@ -587,6 +587,45 @@ describe("Программы: скрытые (D-57, 8.3.4 п.4)", () => {
     expect(screen.getByText("Скрытых программ нет")).toBeTruthy();
   });
 
+  // Ловит (ревью 0.3.1, RF9-5): у запрещённой есть «Скрыть» (скрытие сильнее запрета); отмеченные
+  // только запрещённые можно «скрыть»; в смешанном наборе служба не объясняет пропуск.
+  it("запрещённая: «Скрыть» в строке нет; отмечены только запрещённые: кнопка недоступна с пояснением", async () => {
+    const BAD = "c:\\program files\\badgame\\bad.exe";
+    const list: ProgramDTO[] = [
+      ...withStalker(),
+      { path: BAD, name: "BadGame", publisher: "Bad Inc.", category: "blocked", source: "parent", weekS: 0 },
+    ];
+    const user = setup({ programs: list });
+    await screen.findByRole("region", { name: "Все программы" });
+    expect(within(rowOf("BadGame")).queryByRole("button", { name: /^Скрыть/ })).toBeNull();
+    expect(within(rowOf("Brave")).getByRole("button", { name: "Скрыть «Brave»" })).toBeTruthy();
+
+    await user.click(within(rowOf("BadGame")).getByRole("checkbox"));
+    const bulk = screen.getByRole("button", { name: "Скрыть отмеченные" });
+    expect(bulk.getAttribute("aria-disabled")).toBe("true");
+    const hint = document.getElementById(bulk.getAttribute("aria-describedby") ?? "");
+    expect(hint?.textContent).toBe("Запрещённую программу нельзя скрыть: сначала разрешите её");
+    await user.click(bulk);
+    expect(mock.calls.filter((c) => c.command === "SetProgramsHidden")).toEqual([]);
+
+    await user.click(within(rowOf("Brave")).getByRole("checkbox"));
+    expect(screen.getByRole("button", { name: "Скрыть отмеченные" }).getAttribute("aria-disabled")).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Скрыть отмеченные" }));
+    expect(await screen.findByText("Brave скрыта. Запрещённую программу нельзя скрыть: сначала разрешите её")).toBeTruthy();
+    expect(mock.state.programs.find((p) => p.path === BAD)?.hidden).not.toBe(true);
+    expect(rowNames()).toContain("BadGame");
+  });
+
+  // Ловит (ревью 0.3.1): операция без изменений даёт «Отменить».
+  it("ничего не изменилось: сообщение без «Отменить»", async () => {
+    const user = setup({ programs: withStalker() });
+    await screen.findByRole("region", { name: "Все программы" });
+    mock.override("SetProgramsHidden", { ok: true, payload: { message: "Brave уже скрыта", undoId: "", undoUntilMs: 0, programs: { pending: [], programs: withStalker(), children: [] } } }, 1);
+    await user.click(within(rowOf("Brave")).getByRole("button", { name: "Скрыть «Brave»" }));
+    expect(await screen.findByText("Brave уже скрыта")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Отменить" })).toBeNull();
+  });
+
   it("пока скрытие в пути: повторно не нажать", async () => {
     const user = setup({ programs: withStalker() });
     await screen.findByRole("region", { name: "Все программы" });
@@ -660,6 +699,28 @@ describe("Программы: своё название (D-59, 8.3.4 п.5)", () 
     expect(await screen.findByText("Название изменено")).toBeTruthy();
     expect(mock.calls.filter((c) => c.command === "RenameProgram").map((c) => c.payload)).toEqual([{ path: SHIPPING, name: "" }]);
     expect(rowNames()).toContain("Stalker2-Win64-Shipping");
+  });
+
+  // Ловит (ревью 0.3.1): поле названия подсказывает автозаполнение браузера и подчёркивает
+  // названия программ как ошибки правописания.
+  it("поле названия: без автозаполнения и проверки правописания, с именем", async () => {
+    const user = setup({ programs: withShipping() });
+    await screen.findByRole("region", { name: "Все программы" });
+    await user.click(renameButton("Brave"));
+    const field = within(rowOf("Brave")).getByRole("textbox");
+    expect(field.getAttribute("autocomplete")).toBe("off");
+    expect(field.getAttribute("spellcheck")).toBe("false");
+    expect(field.getAttribute("name")).toBe("programName");
+  });
+
+  // Ловит (ревью 0.3.1): то же название даёт «Название изменено» с «Отменить».
+  it("то же название: «Название не изменилось» без «Отменить»", async () => {
+    const user = setup({ programs: withShipping() });
+    await screen.findByRole("region", { name: "Все программы" });
+    await user.click(renameButton("Brave"));
+    await user.keyboard("{Enter}");
+    expect(await screen.findByText("Название не изменилось")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Отменить" })).toBeNull();
   });
 
   // Ловит: длинное название уходит в службу; ошибка не у поля (aria-invalid, aria-describedby);

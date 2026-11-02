@@ -1203,12 +1203,20 @@ async function rowsEven(page: Page) {
   if (problems.length > 0) throw new Error(`строки таблицы программ неровные: ${JSON.stringify(problems)}`);
 }
 
-/** Кнопка «Скрыть» / «Показать» в своей колонке: не налезает на категорию и время за неделю (D-57). */
+/**
+ * Кнопка «Скрыть» / «Показать» в своей колонке: не налезает на категорию и время за неделю (D-57).
+ * У запрещённой (видимой) кнопки нет: запрещённую скрыть нельзя (RF9-5).
+ */
 async function hideButtonsInColumn(page: Page) {
   const bad = await page.evaluate(() => {
     const out: string[] = [];
     for (const row of Array.from(document.querySelectorAll<HTMLElement>(".programs-table tbody tr"))) {
       const btn = row.querySelector<HTMLElement>(".col-action button");
+      const blocked = row.querySelector<HTMLSelectElement>(".col-category select")?.value === "blocked";
+      if (blocked) {
+        if (btn) out.push(`у запрещённой есть «Скрыть»: ${row.getAttribute("aria-label")}`);
+        continue;
+      }
       const cat = row.querySelector<HTMLElement>(".col-category")?.getBoundingClientRect();
       const week = row.querySelector<HTMLElement>(".col-week")?.getBoundingClientRect();
       if (!btn || !cat || !week) {
