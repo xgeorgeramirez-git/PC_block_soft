@@ -185,7 +185,10 @@ func (s *Service) hDecideProgram(c *callCtx) ipc.Reply {
 			if p.Publisher == "" {
 				p.Publisher = prev.Publisher
 			}
-			p.CustomName, p.Hidden = prev.CustomName, prev.Hidden // своё название переживает подмену файла (D-59)
+			// Своё название переживает подмену файла (D-59); скрытие — нет: решение по ждущей
+			// показывает программу в выбранной категории, иначе запрещённая подменённая осталась
+			// бы скрытой и не закрывалась (ревью 0.3.1).
+			p.CustomName, p.Hidden = prev.CustomName, false
 		}
 		if err := s.cfg.Store.UpsertProgram(p); err != nil {
 			s.restorePendingAfterFailure(true, pend)
@@ -368,7 +371,9 @@ func (s *Service) hSetProgramsCategory(c *callCtx) ipc.Reply {
 
 // hSetProgramsHidden — «Скрыть» и «Показать» (FR-20, D-57, RF9-1): меняется только флаг, категория
 // остаётся; одна запись журнала на операцию, «Отменить» 10 с, классификатор перечитывается сразу.
-// Скрывать можно только программы списка, кроме «системных» (RF9-1). Плашек ребёнку нет.
+// Скрывать можно только программы списка, кроме «системных» (RF9-1) и запрещённых (RF9-5: запрет
+// сильнее скрытия; в смешанном наборе они пропускаются, и сообщение об этом говорит). Ничего не
+// изменилось — понятное сообщение без «Отменить» и без записи журнала. Плашек ребёнку нет.
 func (s *Service) hSetProgramsHidden(c *callCtx) ipc.Reply {
 	var req ipc.SetProgramsHiddenRequest
 	if c.msg.Into(&req) != nil {
@@ -378,25 +383,34 @@ func (s *Service) hSetProgramsHidden(c *callCtx) ipc.Reply {
 		return ipc.Fail(textTooManyPrograms)
 	}
 	paths := make([]string, 0, len(req.Paths))
+	known := []Program{}
 	seen := map[string]bool{}
-	known := 0
+	blocked := 0
 	for _, raw := range req.Paths {
 		p := programs.Normalize(raw)
 		if p == "" || seen[p] {
 			continue
 		}
 		seen[p] = true
-		paths = append(paths, p)
 		prog, ok, err := s.cfg.Store.GetProgram(p)
 		if err != nil {
 			s.logRate("hide", "список программ не прочитан: %v", err)
 			return ipc.Fail(textRetry)
 		}
-		if ok && prog.Category != programs.CatSystem {
-			known++
+		switch {
+		case !ok || prog.Category == programs.CatSystem:
+			continue
+		case req.Hidden && prog.Category == programs.CatBlocked:
+			blocked++
+			continue
 		}
+		paths = append(paths, p)
+		known = append(known, prog)
 	}
-	if known == 0 {
+	if len(paths) == 0 {
+		if blocked > 0 {
+			return ipc.Fail(hideBlockedText(blocked))
+		}
 		return ipc.Fail(textNoProgram)
 	}
 	changed, err := s.cfg.Store.SetProgramsHidden(paths, req.Hidden)
@@ -416,17 +430,43 @@ func (s *Service) hSetProgramsHidden(c *callCtx) ipc.Reply {
 		}
 		s.journal.Write(0, kind, d)
 	}
-	rec := &progUndoRec{programs: changed}
-	s.rememberProgramsUndo(rec, c)
-	view, _ := s.programsView()
-	return ipc.OK(ipc.DecideProgramReply{
-		Message: hiddenMessage(changed, req.Hidden), UndoID: rec.id, UndoUntilMs: rec.until.UnixMilli(), Programs: view,
-	})
+	msg := hiddenMessage(changed, known, req.Hidden)
+	if blocked > 0 {
+		msg += ". " + hideBlockedText(blocked)
+	}
+	out := ipc.DecideProgramReply{Message: msg}
+	if len(changed) > 0 {
+		rec := &progUndoRec{programs: changed}
+		s.rememberProgramsUndo(rec, c)
+		out.UndoID, out.UndoUntilMs = rec.id, rec.until.UnixMilli()
+	}
+	out.Programs, _ = s.programsView()
+	return ipc.OK(out)
+}
+
+// hideBlockedText — почему запрещённые не скрыты (RF9-5).
+func hideBlockedText(n int) string {
+	if n == 1 {
+		return textHideBlockedOne
+	}
+	return textHideBlockedMany
 }
 
 // hiddenMessage — «Stalker2 скрыта», «Скрыто программ: 3», «Stalker2 снова в списке»,
-// «Снова в списке программ: 2» (8.3.4 п.4).
-func hiddenMessage(changed []Program, hidden bool) string {
+// «Снова в списке программ: 2» (8.3.4 п.4); ничего не изменилось — «Stalker2 уже скрыта»,
+// «Эти программы уже в списке» (known — программы запроса, которые можно было изменить).
+func hiddenMessage(changed, known []Program, hidden bool) string {
+	if len(changed) == 0 {
+		switch {
+		case len(known) == 1 && hidden:
+			return fmt.Sprintf(textAlreadyHidden, displayName(known[0]))
+		case len(known) == 1:
+			return fmt.Sprintf(textAlreadyShown, displayName(known[0]))
+		case hidden:
+			return textAllAlreadyHidden
+		}
+		return textAllAlreadyShown
+	}
 	if len(changed) == 1 {
 		name := displayName(changed[0])
 		if hidden {
@@ -464,6 +504,12 @@ func (s *Service) hRenameProgram(c *callCtx) ipc.Reply {
 	}
 	if !known || cur.Category == programs.CatSystem {
 		return ipc.Fail(textNoProgram)
+	}
+	if cur.CustomName == name || (cur.CustomName == "" && name == displayName(cur)) {
+		// Ничего не изменилось (то же своё название или название из файла без своего): без
+		// записи, журнала и «Отменить».
+		view, _ := s.programsView()
+		return ipc.OK(ipc.DecideProgramReply{Message: textNameUnchanged, Programs: view})
 	}
 	prev, ok, err := s.cfg.Store.SetProgramName(path, name)
 	if err != nil {
@@ -524,7 +570,9 @@ func (s *Service) hUndoProgram(c *callCtx) ipc.Reply {
 	if failed {
 		return ipc.Fail(textSaveFailed)
 	}
-	s.journal.Write(0, evProgramUndone, map[string]any{})
+	if len(rec.programs)+len(rec.added)+len(rec.pending) > 0 { // пустая операция — нечего отменять в журнале
+		s.journal.Write(0, evProgramUndone, map[string]any{})
+	}
 	view, _ := s.programsView()
 	return ipc.OK(ipc.UndoProgramReply{Message: textProgramUndone, Programs: view})
 }

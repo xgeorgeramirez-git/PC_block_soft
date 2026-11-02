@@ -826,7 +826,7 @@ func (s *Service) hParentStats(c *callCtx) ipc.Reply {
 // «Мои правила» текстом. Один источник для ребёнка (hMyToday) и родителя (hParentStats).
 func (s *Service) myTodayOf(cs *childState) ipc.MyTodayReply {
 	if cs == nil {
-		return ipc.MyTodayReply{Status: ipc.ChildStatusNotChild(), Today: []string{}, Rules: []ipc.MyRule{}}
+		return ipc.MyTodayReply{Status: ipc.ChildStatusNotChild(), Today: []string{}, Rules: []ipc.MyRule{}, Programs: []ipc.ProgramTime{}}
 	}
 	st := s.statusOf(cs)
 	out := ipc.MyTodayReply{Status: st, Today: []string{st.Summary, "Использовано " + core.FormatDuration(st.UsedS)}, Rules: []ipc.MyRule{}}

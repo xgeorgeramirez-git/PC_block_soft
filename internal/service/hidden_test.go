@@ -250,6 +250,163 @@ func TestHiddenSubstitutedFileWaits(t *testing.T) {
 	}
 }
 
+// Ловит (ревью 0.3.1, Critical): решение по «Ждут решения» переносит с прежней записи флаг
+// «скрыта» — скрытая подменённая программа после «Запретить» остаётся скрытой с новым
+// отпечатком: классификатор отвечает «скрыта», программа не закрывается и пропадает из
+// «Запрещено». Переносится только своё название (D-59).
+func TestHiddenSubstitutedThenDecidedIsVisible(t *testing.T) {
+	cases := []struct {
+		category, verdictName string
+		verdict               programs.Verdict
+		killed                bool
+	}{
+		{"blocked", "запрещена", programs.VerdictForbidden, true},
+		{"games", "игра", programs.VerdictAllow, false},
+	}
+	for _, k := range cases {
+		t.Run(k.category, func(t *testing.T) {
+			meta := newMeta()
+			meta.set(pathSuperGame, "", "", "1024:1700000000")
+			w := newWatcher()
+			h := watchHarness(t, w, withMeta(meta))
+			if err := h.store.UpsertProgram(Program{Path: pathSuperGame, Name: "SuperGame", CustomName: "Супер", Category: "other", Source: "parent", Fingerprint: "1024:1700000000"}); err != nil {
+				t.Fatal(err)
+			}
+			tok := h.login(adminPeer())
+			h.hide(tok, true, pathSuperGame)
+			meta.set(pathSuperGame, "", "", "2048:1700000500")
+			game := w.start(childSession, pathSuperGame)
+			h.watch()
+			if w.alive(game) {
+				t.Fatal("подменённая скрытая не ждёт решения")
+			}
+
+			rep := h.decideCat(tok, pathSuperGame, k.category)
+			if p, _, _ := h.store.GetProgram(pathSuperGame); p.Hidden || p.Category != k.category || p.CustomName != "Супер" || p.Fingerprint != "2048:1700000500" {
+				t.Errorf("запись после решения: %+v, want видна, %s, своё название «Супер», новый отпечаток", p, k.category)
+			}
+			if row, ok := programDTO(rep.Programs, pathSuperGame); !ok || row.Hidden || row.Category != k.category {
+				t.Errorf("строка списка: %+v (есть %v), want видна в категории %s", row, ok, k.category)
+			}
+			h.svc.mu.Lock()
+			r := h.svc.classifier.Classify(pathSuperGame, "2048:1700000500", "")
+			h.svc.mu.Unlock()
+			if r.Verdict != k.verdict || r.Category != k.category {
+				t.Errorf("классификатор: %+v, want %s", r, k.verdictName)
+			}
+			again := w.start(childSession, pathSuperGame)
+			h.real.Advance(time.Second)
+			h.watch()
+			if w.alive(again) == k.killed {
+				t.Errorf("новый запуск после решения «%s»: жив %v, want жив %v", k.verdictName, w.alive(again), !k.killed)
+			}
+		})
+	}
+}
+
+// Ловит (ревью 0.3.1, RF9-5): запрещённую программу можно скрыть, и скрытие сильнее запрета —
+// она перестаёт закрываться. Запрещённые в запросе «Скрыть» пропускаются; только запрещённые —
+// отказ с подсказкой на «вы»; смешанный набор — остальные скрыты, сообщение говорит о
+// запрещённых. «Показать» запрещённую (старые данные) не запрещено.
+func TestHideBlockedRefused(t *testing.T) {
+	const (
+		pathBad1 = `c:\program files\badgame\bad.exe`
+		pathBad2 = `c:\program files\badgame2\bad2.exe`
+	)
+	h := newHarness(t, configured(), withChild(childSID, "Миша", 120), withPrograms(typicalScan()), withStalker())
+	h.start()
+	tok := h.login(adminPeer())
+	for _, p := range []Program{
+		{Path: pathBad1, Name: "BadGame", Category: "blocked", Source: "parent"},
+		{Path: pathBad2, Name: "BadGame2", Category: "blocked", Source: "parent"},
+	} {
+		if err := h.store.UpsertProgram(p); err != nil {
+			t.Fatal(err)
+		}
+	}
+	refuse := []struct {
+		paths []string
+		want  string
+	}{
+		{[]string{pathBad1}, "Запрещённую программу нельзя скрыть: сначала разрешите её"},
+		{[]string{pathBad1, pathBad2}, "Запрещённые программы нельзя скрыть: сначала разрешите их"},
+	}
+	for _, k := range refuse {
+		f := h.fail(adminPeer(), tok, ipc.CmdSetProgramsHidden, ipc.SetProgramsHiddenRequest{Paths: k.paths, Hidden: true})
+		if f.Error != k.want {
+			t.Errorf("скрыть %d запрещённых: %q, want %q", len(k.paths), f.Error, k.want)
+		}
+	}
+	rep := h.hide(tok, true, pathBad1, pathLauncher)
+	if rep.Message != "Stalker2 скрыта. Запрещённую программу нельзя скрыть: сначала разрешите её" || rep.UndoID == "" {
+		t.Errorf("смешанный набор: %+v", rep)
+	}
+	rep = h.hide(tok, true, pathShipping, pathBrave, pathBad1, pathBad2)
+	if rep.Message != "Скрыто программ: 2. Запрещённые программы нельзя скрыть: сначала разрешите их" {
+		t.Errorf("смешанный набор из четырёх: %q", rep.Message)
+	}
+	for _, p := range []string{pathBad1, pathBad2} {
+		if got, _, _ := h.store.GetProgram(p); got.Hidden {
+			t.Errorf("запрещённая скрыта: %+v", got)
+		}
+	}
+	want := []string{"Вы скрыли «Stalker2»", "Вы скрыли 2 программы"}
+	if got := journalTexts(h, tok, "program_hidden"); !reflect.DeepEqual(got, want) {
+		t.Errorf("журнал = %q, want %q", got, want)
+	}
+	// Старые данные: скрытая запрещённая — «Показать» работает.
+	if err := h.store.UpsertProgram(Program{Path: pathBad2, Name: "BadGame2", Category: "blocked", Source: "parent", Hidden: true}); err != nil {
+		t.Fatal(err)
+	}
+	if rep := h.hide(tok, false, pathBad2); rep.Message != "BadGame2 снова в списке" {
+		t.Errorf("«Показать» запрещённую: %q", rep.Message)
+	}
+}
+
+// Ловит (ревью 0.3.1): операция, которая ничего не изменила (всё уже скрыто или показано, то же
+// название), выдаёт «Отменить» и «Скрыто программ: 0»; отмена пустой операции пишет в журнал
+// «решение по программам отменено».
+func TestNoChangeNoUndo(t *testing.T) {
+	h := newHarness(t, configured(), withChild(childSID, "Миша", 120), withPrograms(typicalScan()), withStalker())
+	h.start()
+	tok := h.login(adminPeer())
+	h.hide(tok, true, pathLauncher, pathShipping)
+	cases := []struct {
+		name string
+		rep  func() ipc.DecideProgramReply
+		want string
+	}{
+		{"скрыть уже скрытую", func() ipc.DecideProgramReply { return h.hide(tok, true, pathLauncher) }, "Stalker2 уже скрыта"},
+		{"скрыть уже скрытые", func() ipc.DecideProgramReply { return h.hide(tok, true, pathLauncher, pathShipping) }, "Эти программы уже скрыты"},
+		{"показать видимую", func() ipc.DecideProgramReply { return h.hide(tok, false, pathBrave) }, "Brave уже в списке"},
+		{"показать видимые", func() ipc.DecideProgramReply { return h.hide(tok, false, pathBrave, pathChrome) }, "Эти программы уже в списке"},
+		{"то же название", func() ipc.DecideProgramReply { return h.rename(tok, pathBrave, "") }, "Название не изменилось"},
+		{"название из файла как своё", func() ipc.DecideProgramReply { return h.rename(tok, pathBrave, "Brave") }, "Название не изменилось"},
+		{"то же своё название", func() ipc.DecideProgramReply {
+			h.rename(tok, pathChrome, "Хром")
+			return h.rename(tok, pathChrome, " Хром ")
+		}, "Название не изменилось"},
+	}
+	for _, k := range cases {
+		rep := k.rep()
+		if rep.Message != k.want || rep.UndoID != "" || rep.UndoUntilMs != 0 {
+			t.Errorf("%s: %+v, want %q без «Отменить»", k.name, rep, k.want)
+		}
+	}
+	if n := len(journalTexts(h, tok, "program_hidden", "program_shown")); n != 1 {
+		t.Errorf("записей о скрытии %d, want 1", n)
+	}
+
+	// Пустая смена категории (уже «Игры» решением родителя): отмена не пишет журнал.
+	var cat ipc.DecideProgramReply
+	h.ok(adminPeer(), tok, ipc.CmdSetProgramsCategory, ipc.SetProgramsCategoryRequest{Paths: []string{pathLauncher}, Category: "games"}, &cat)
+	var undo ipc.UndoProgramReply
+	h.ok(adminPeer(), tok, ipc.CmdUndoProgram, ipc.UndoProgramRequest{UndoID: cat.UndoID}, &undo)
+	if got := journalTexts(h, tok, "program_undone"); len(got) != 0 {
+		t.Errorf("отмена пустой операции записана: %q", got)
+	}
+}
+
 // Ловит (RF9-3, R3): секунда скрытой игры на переднем плане идёт в игры, не в общее время, или
 // пишется в учёт по программе (Ruling: не пишется — скрытая «никак не фигурирует», D-57).
 func TestHiddenForegroundCountsAsOther(t *testing.T) {

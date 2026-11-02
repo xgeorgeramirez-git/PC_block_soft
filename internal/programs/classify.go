@@ -123,6 +123,10 @@ func (c *Classifier) Catalog() Catalog { return c.cat }
 // запрещённой программы — тоже запрещена); учёба не наследуется и даёт «Прочее».
 var inheritRank = map[string]int{CatOther: 1, CatStudy: 1, CatGames: 2, CatBlocked: 3}
 
+// hidden — скрытие действует (D-57): запрет сильнее скрытия (RF9-5), поэтому скрытая запрещённая
+// из старых данных закрывается и передаёт запрет корню, как видимая.
+func (e Entry) hidden() bool { return e.Hidden && e.Category != CatBlocked }
+
 // Reload заменяет список программ (после снимка и решений родителя). Пустой и непригодный путь
 // пропускается. Корень приложения считается по корням классификатора, а не берётся из базы:
 // наследование возможно только внутри Program Files. Скрытая программа (D-57) известна по
@@ -139,7 +143,7 @@ func (c *Classifier) Reload(entries []Entry) {
 		}
 		e.Path = p
 		exact[p] = e
-		if e.Hidden {
+		if e.hidden() {
 			continue
 		}
 		if key, ok := c.profileKey(p); ok {
@@ -235,7 +239,7 @@ func (c *Classifier) Classify(path, fingerprint, publisher string) Result {
 			}
 			return Result{Verdict: VerdictUnknown, Name: name, WasCategory: e.Category}
 		}
-		if e.Hidden {
+		if e.hidden() {
 			return Result{Verdict: VerdictHidden, Category: CatOther, Known: true, Name: name}
 		}
 		return verdictOf(e.Category, true, name)

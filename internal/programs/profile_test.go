@@ -199,7 +199,8 @@ var hiddenEntries = []Entry{
 	// Корень Steam: скрытая «Прочее» и видимая игра.
 	{Path: `c:\program files (x86)\steam\steamwebhelper.exe`, Name: "Steam Helper", Category: "other", Hidden: true},
 	{Path: `c:\program files (x86)\steam\steamapps\common\game\game.exe`, Name: "Game", Category: "games"},
-	// Скрытая запрещённая: сама не закрывается, но запрет корню не передаёт и не теряет его у соседей.
+	// Скрытая запрещённая (старые данные, до RF9-5): запрет сильнее скрытия — закрывается и
+	// передаёт запрет корню, как видимая запрещённая.
 	{Path: `c:\program files\roblox\versions\version-1\robloxplayerbeta.exe`, Name: "Roblox", Category: "blocked", Hidden: true},
 	// Вне доверенных каталогов с отпечатком.
 	{Path: `c:\users\миша\downloads\launcher.exe`, Name: "Launcher", Category: "games", Fingerprint: "10:1", Hidden: true},
@@ -208,7 +209,8 @@ var hiddenEntries = []Entry{
 		Publisher: "Epic Games", Fingerprint: "30:3", Hidden: true},
 }
 
-// Ловит: скрытая программа закрывается (вердикт не «скрыта»), передаёт свою категорию корню
+// Ловит: скрытая запрещённая (старые данные) не закрывается или не передаёт запрет корню (RF9-5:
+// запрет сильнее скрытия); скрытая программа закрывается (вердикт не «скрыта»), передаёт свою категорию корню
 // приложения или профилю (соседний exe игры стал бы разрешённым или «игрой» по скрытой
 // запускалке, Review Focus 1), остаётся скрытой после подмены файла вне доверенных каталогов
 // (Review Focus 2: подмена важнее скрытия, снова «ждёт решения»).
@@ -227,10 +229,10 @@ func TestClassifyHidden(t *testing.T) {
 			Result{Verdict: VerdictHidden, Category: "other", Known: true, Name: "Steam Helper"}},
 		{"сосед в корне Steam: «Игры» от видимой игры", `c:\program files (x86)\steam\steamapps\common\other\other.exe`, "", "",
 			Result{Verdict: VerdictAllow, Category: "games", Name: "other"}},
-		{"скрытая запрещённая не закрывается", `c:\program files\roblox\versions\version-1\robloxplayerbeta.exe`, "", "",
-			Result{Verdict: VerdictHidden, Category: "other", Known: true, Name: "Roblox"}},
-		{"новая версия скрытой запрещённой: не скрыта, по каталогу игра", `c:\program files\roblox\versions\version-2\robloxplayerbeta.exe`, "", "",
-			Result{Verdict: VerdictAllow, Category: "games", Name: "robloxplayerbeta"}},
+		{"скрытая запрещённая закрывается: запрет сильнее скрытия", `c:\program files\roblox\versions\version-1\robloxplayerbeta.exe`, "", "",
+			Result{Verdict: VerdictForbidden, Category: "blocked", Known: true, Name: "Roblox"}},
+		{"новая версия скрытой запрещённой: запрет по корню", `c:\program files\roblox\versions\version-2\robloxplayerbeta.exe`, "", "",
+			Result{Verdict: VerdictForbidden, Category: "blocked", Name: "robloxplayerbeta"}},
 		{"вне доверенных: отпечаток совпал — скрыта", `c:\users\миша\downloads\launcher.exe`, "10:1", "",
 			Result{Verdict: VerdictHidden, Category: "other", Known: true, Name: "Launcher"}},
 		{"вне доверенных: подмена файла — ждёт решения", `c:\users\миша\downloads\launcher.exe`, "99:9", "",
