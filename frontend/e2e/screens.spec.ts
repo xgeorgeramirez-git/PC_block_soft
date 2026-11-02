@@ -1103,7 +1103,7 @@ async function pathsOneLine(page: Page) {
     }
     return out;
   });
-  expect(bad).toEqual([]);
+  expect(bad, `пути в одну строку: ${bad.join("; ")}`).toEqual([]);
 }
 
 // s11 — «Программы»: два ждущих решения (одна с пометкой «Раньше было: игра», другая с длинным
