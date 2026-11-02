@@ -286,7 +286,7 @@ export async function myToday(): Promise<MyTodayReply> {
   return myTodayOf(r);
 }
 
-/** Пустые списки приходят как null, у старой службы нет итогов игр и учёбы: приводим к [] и 0. */
+/** Пустые списки приходят как null, у старой службы нет итогов и времени программ: приводим к [] и 0. */
 function myTodayOf(r: Partial<MyTodayReply>): MyTodayReply {
   return {
     status: r.status as MyTodayReply["status"],
@@ -294,6 +294,9 @@ function myTodayOf(r: Partial<MyTodayReply>): MyTodayReply {
     rules: r.rules ?? [],
     gamesS: r.gamesS ?? 0,
     studyS: r.studyS ?? 0,
+    otherS: r.otherS ?? 0,
+    allS: r.allS ?? 0,
+    programs: r.programs ?? [],
   };
 }
 
@@ -455,6 +458,18 @@ export async function decideProgram(path: string, category: ProgramCategory): Pr
 /** Смена категории отмеченных программ (массовое изменение). */
 export async function setProgramsCategory(paths: string[], category: ProgramCategory): Promise<DecideProgramReply> {
   const r = await call<object, DecideProgramReply>("SetProgramsCategory", { paths, category });
+  return { ...r, programs: programsOf(r.programs) };
+}
+
+/** «Скрыть» или «Показать» программы списка (D-57); ответ с «Отменить» 10 с. */
+export async function setProgramsHidden(paths: string[], hidden: boolean): Promise<DecideProgramReply> {
+  const r = await call<object, DecideProgramReply>("SetProgramsHidden", { paths, hidden });
+  return { ...r, programs: programsOf(r.programs) };
+}
+
+/** «Переименовать» программу (D-59): своё название, "" - снова из файла; ответ с «Отменить» 10 с. */
+export async function renameProgram(path: string, name: string): Promise<DecideProgramReply> {
+  const r = await call<object, DecideProgramReply>("RenameProgram", { path, name });
   return { ...r, programs: programsOf(r.programs) };
 }
 

@@ -120,6 +120,10 @@ func programsReply() ProgramsReply {
 				Category: ProgramCatOther, Source: ProgramSourceSnapshot, WeekS: 5400},
 			{Path: `c:\program files\minecraft launcher\minecraftlauncher.exe`, Name: "Minecraft Launcher", Publisher: "Mojang",
 				Category: ProgramCatGames, Source: ProgramSourceCatalog, WeekS: 0},
+			{Path: `c:\program files\epic games\stalker2\stalker2.exe`, Name: "Stalker2", Publisher: "Epic Games",
+				Category: ProgramCatGames, Source: ProgramSourceParent, WeekS: 0, Hidden: true},
+			{Path: `c:\program files\epic games\stalker2\binaries\win64\stalker2-win64-shipping.exe`, Name: "Сталкер 2",
+				FileName: "Stalker2-Win64-Shipping", Publisher: "GSC Game World", Category: ProgramCatGames, Source: ProgramSourceCatalog, WeekS: 7200},
 		},
 		Children: []ChildName{{ChildID: 1, Name: "Миша"}, {ChildID: 2, Name: "Даша"}},
 	}
@@ -291,7 +295,7 @@ func examples() map[string]example {
 				{Weekday: 7, Day: "вс", Text: "Без лимита"},
 				{Text: "Игры: до 1 ч в день"}, {Text: "Когда время вышло: экран блокировки"},
 			},
-			GamesS: 1200, StudyS: 2400,
+			GamesS: 900, StudyS: 180, OtherS: 1200, AllS: 2280, Programs: s39Programs(),
 		}),
 		"MyToday#empty": ok(nil, MyTodayReply{Status: ChildStatusNotChild()}),
 		CmdParentStats: ok(ParentStatsRequest{ChildID: 1}, MyTodayReply{
@@ -303,7 +307,7 @@ func examples() map[string]example {
 				{Weekday: 7, Day: "вс", Text: "Без лимита"},
 				{Text: "Игры: до 1 ч в день"}, {Text: "Когда время вышло: экран блокировки"},
 			},
-			GamesS: 1200, StudyS: 2400,
+			GamesS: 900, StudyS: 180, OtherS: 1200, AllS: 2280, Programs: s39Programs(),
 		}),
 		CmdFirstRunSeen: ok(nil, Empty{}),
 
@@ -364,7 +368,12 @@ func examples() map[string]example {
 		"DecideProgram#invalid": fail(DecideProgramRequest{Path: `c:\x.exe`, Category: ProgramCatSystem}, "Выберите: игра, учёба, прочее или запретить", "category", nil),
 		CmdSetProgramsCategory: ok(SetProgramsCategoryRequest{Paths: []string{`c:\program files\bravesoftware\brave-browser\application\brave.exe`}, Category: ProgramCatStudy},
 			DecideProgramReply{Message: "Изменено программ: 1", UndoID: "p-4", UndoUntilMs: t0 + 10_000, Programs: programsReply()}),
-		CmdUndoProgram: ok(UndoProgramRequest{UndoID: "p-4"}, UndoProgramReply{Message: "Решение отменено", Programs: programsReply()}),
+		CmdSetProgramsHidden: ok(SetProgramsHiddenRequest{Paths: []string{`c:\program files\epic games\stalker2\stalker2.exe`}, Hidden: true},
+			DecideProgramReply{Message: "Stalker2 скрыта", UndoID: "p-5", UndoUntilMs: t0 + 10_000, Programs: programsReply()}),
+		CmdRenameProgram: ok(RenameProgramRequest{Path: `c:\program files\epic games\stalker2\binaries\win64\stalker2-win64-shipping.exe`, Name: "Сталкер 2"},
+			DecideProgramReply{Message: "Название изменено", UndoID: "p-6", UndoUntilMs: t0 + 10_000, Programs: programsReply()}),
+		"RenameProgram#tooLong": fail(RenameProgramRequest{Path: `c:\x.exe`, Name: "Очень длинное название"}, "Название до 60 символов", "name", nil),
+		CmdUndoProgram:          ok(UndoProgramRequest{UndoID: "p-4"}, UndoProgramReply{Message: "Решение отменено", Programs: programsReply()}),
 		CmdScanPrograms: ok(nil, ScanProgramsReply{Programs: []ScanProgramDTO{
 			{Path: `c:\program files\minecraft launcher\minecraftlauncher.exe`, Name: "Minecraft Launcher", Publisher: "Mojang", SuggestedCategory: ProgramCatGames},
 			{Path: `c:\program files\bravesoftware\brave-browser\application\brave.exe`, Name: "Brave", Publisher: "Brave Software, Inc.", SuggestedCategory: ProgramCatOther},
@@ -426,8 +435,20 @@ func TestContractHasEveryCommand(t *testing.T) {
 			t.Errorf("пример для %s есть, а в AllCommands её нет", c)
 		}
 	}
-	if len(AllCommands) != 62 {
-		t.Errorf("команд %d, ждали 62 (46 из M1/M2/0.2.1 без команд Помощника, 9 из фидбек-раунда 0.2.2: OpenLogs, SetNoForbidden, ClearBonus, ReduceBonus, CreatePromo, ListPromos, RedeemPromo, GetBonusRate, SetBonusRate, GuardClosing из раунда 0.2.3, тестовая TestSession из 0.2.5 и 5 программ M3: ListPrograms, DecideProgram, SetProgramsCategory, UndoProgram, ScanPrograms)", len(AllCommands))
+	if len(AllCommands) != 64 {
+		t.Errorf("команд %d, ждали 64 (46 из M1/M2/0.2.1 без команд Помощника, 9 из фидбек-раунда 0.2.2: OpenLogs, SetNoForbidden, ClearBonus, ReduceBonus, CreatePromo, ListPromos, RedeemPromo, GetBonusRate, SetBonusRate, GuardClosing из раунда 0.2.3, тестовая TestSession из 0.2.5 и 5 программ M3: ListPrograms, DecideProgram, SetProgramsCategory, UndoProgram, ScanPrograms; SetProgramsHidden и RenameProgram из раунда 0.3.1)", len(AllCommands))
+	}
+}
+
+// s39Programs — строки вкладок «Итогов» из S39 (D-58): game 10 мин, game2 5 мин, study 3 мин;
+// «Остальное время» — время без программы (рабочий стол, системные, скрытые).
+func s39Programs() []ProgramTime {
+	return []ProgramTime{
+		{Path: `c:\games\game.exe`, Name: "game", Category: ProgramCatGames, Seconds: 600},
+		{Path: `c:\games\game2.exe`, Name: "game2", Category: ProgramCatGames, Seconds: 300},
+		{Path: `c:\school\study.exe`, Name: "study", Category: ProgramCatStudy, Seconds: 180},
+		{Path: `c:\program files\brave software\brave-browser\application\brave.exe`, Name: "Brave", Category: ProgramCatOther, Seconds: 900},
+		{Name: "Остальное время", Category: ProgramCatOther, Seconds: 300},
 	}
 }
 

@@ -896,6 +896,11 @@ func TestMyToday(t *testing.T) {
 	if other.Status.Status != ipc.StatusNotChild || strings.Contains(string(rep.Payload), "null") || other.Status.Name != "" {
 		t.Fatalf("чужой пользователь: %s", rep.Payload)
 	}
+	// Ловит (ревью 0.3.1): ответ «не ребёнка» собирается с Programs = nil; на канале его спасает
+	// ipc.Payload, но ответ службы обязан быть [] сам (CLAUDE.md, правило 6).
+	if p := h.svc.myTodayOf(nil).Programs; p == nil || len(p) != 0 {
+		t.Fatalf("Programs «не ребёнка» = %#v, want []ipc.ProgramTime{}", p)
+	}
 }
 
 // Ловит: слова «Нельзя» и «Без лимита» в «Моих правилах» путаются.

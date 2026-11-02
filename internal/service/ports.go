@@ -37,6 +37,8 @@ type Program struct {
 	Fingerprint string // «размер:время изменения» (RM3-12); пусто — не нужен
 	AppRoot     string // корень приложения (RM3-1 п.3); пусто — нет
 	DecidedAt   int64  // момент решения родителя, UTC мс; 0 — нет
+	Hidden      bool   // родитель скрыл программу (D-57, RF9-1); категория сохраняется
+	CustomName  string // своё название родителя (D-59); пусто — название из файла (Name). Как storage.Program
 }
 
 // PendingChild — попытки одного ребёнка запустить ждущую решения программу (storage.PendingChild).
@@ -134,7 +136,8 @@ type Store interface {
 	// SaveDayAndUsage — состояние дня и порции учёта по программам одной транзакцией (RM3-6, G10).
 	SaveDayAndUsage(childID int64, st core.DayState, usage []UsageRow) error
 	AddUsage(childID int64, day, category, kind, subject string, seconds int) error
-	ProgramSeconds(fromDay string) (map[string]int, error) // секунды по пути exe с fromDay, все дети
+	ProgramSeconds(fromDay string) (map[string]int, error)  // секунды по пути exe с fromDay, все дети
+	DayUsage(childID int64, day string) ([]UsageRow, error) // учёт по программам ребёнка за день (D-58); нет — []
 
 	// Программы и «Ждут решения» (M3: R12, FR-20, RM3-10).
 	UpsertProgram(p Program) error
@@ -143,6 +146,10 @@ type Store interface {
 	ListPrograms() ([]Program, error)
 	// SetProgramsCategory — решение родителя: возвращает прежние значения изменённых (для «Отменить»).
 	SetProgramsCategory(paths []string, category string, at int64) (changed []Program, err error)
+	// SetProgramsHidden — скрыть или снова показать (D-57): меняется только флаг; прежние значения изменённых.
+	SetProgramsHidden(paths []string, hidden bool) (changed []Program, err error)
+	// SetProgramName — своё название (D-59): меняется только оно; прежнее значение; нет программы — ok = false.
+	SetProgramName(path, name string) (prev Program, ok bool, err error)
 	RestoreProgram(p Program) error
 	DeleteProgram(path string) error
 	AddPendingAttempt(p PendingProgram, childID, at int64) (attempts int, err error)

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { decideProgram, listPrograms, setProgramsCategory, undoProgram } from "../api";
+import { decideProgram, listPrograms, renameProgram, setProgramsCategory, setProgramsHidden, undoProgram } from "../api";
+import { LineText, useFitted } from "../components/FitText";
 import Notice from "../components/Notice";
 import UndoLine from "../components/UndoLine";
 import { errorText } from "../lib/errors";
@@ -9,8 +10,11 @@ import {
   DECISIONS,
   FILTERS,
   attemptsText,
+  categoryTitle,
   decisionMessage,
+  hiddenMessage,
   fitPath,
+  nameError,
   publisherText,
   shortenPath,
   visiblePrograms,
@@ -31,6 +35,10 @@ interface Props {
 const PENDING_PATH_MAX = 80;
 const ROW_PATH_MAX = 40;
 const UNDO_MS = 10_000;
+// Тексты те же, что у службы (handlers_m3.go): запрещённую скрыть нельзя (RF9-5), то же название.
+const HIDE_BLOCKED_ONE = "Запрещённую программу нельзя скрыть: сначала разрешите её";
+const HIDE_BLOCKED_MANY = "Запрещённые программы нельзя скрыть: сначала разрешите их";
+const NAME_UNCHANGED = "Название не изменилось";
 
 interface Feedback {
   seq: number;
@@ -45,14 +53,15 @@ interface Feedback {
 type Busy =
   | { kind: "decide"; path: string; category: ParentCategory }
   | { kind: "row"; path: string }
-  | { kind: "bulk" }
+  | { kind: "bulk"; hide?: boolean }
   | { kind: "undo" };
 
 /** Куда поставить фокус после ответа: элемент, на котором он был, мог исчезнуть. */
 type FocusTo =
   | { to: "pending"; index: number }
   | { to: "path"; path: string; category?: ParentCategory; index?: number }
-  | { to: "selectAll" };
+  | { to: "selectAll" }
+  | { to: "rename"; path: string };
 
 /** Последняя отменяемая операция: куда вернуть фокус после «Отменить». */
 type LastOp = { kind: "one"; path: string } | { kind: "bulk" };
@@ -69,6 +78,8 @@ export default function Programs({ initialFilter = "all" }: Props) {
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const [bulkCategory, setBulkCategory] = useState<ParentCategory | "">("");
   const [bulkError, setBulkError] = useState("");
+  /** Строка, где сейчас поле названия (D-59): одна за раз; ошибка — у поля. */
+  const [editing, setEditing] = useState<{ path: string; error: string } | null>(null);
   const alive = useRef(true);
   const seq = useRef(0);
   const busyRef = useRef(false);
@@ -172,6 +183,85 @@ export default function Programs({ initialFilter = "all" }: Props) {
       { to: "path", path: p.path, index },
     );
 
+  /** «Скрыть» / «Показать» в строке (D-57): строка уходит из текущего фильтра, фокус на соседнюю. */
+  const hideRow = (p: ProgramDTO, hidden: boolean, index: number) =>
+    void run(
+      { kind: "row", path: p.path },
+      async () => {
+        const reply = await setProgramsHidden([p.path], hidden);
+        if (!alive.current) return null;
+        applyReply(reply.programs);
+        setSelected((prev) => {
+          const next = new Set(prev);
+          next.delete(p.path);
+          return next;
+        });
+        lastOp.current = { kind: "one", path: p.path };
+        sayDecided("list", reply, hiddenMessage(p.name, hidden));
+        return { to: "path", path: p.path, index };
+      },
+      { to: "path", path: p.path, index },
+    );
+
+  /** «Сохранить» в поле названия (D-59, 8.3.4 п.5): ошибка — у поля, поле остаётся открытым. */
+  const saveName = (p: ProgramDTO, draft: string) => {
+    const err = nameError(draft);
+    if (err) {
+      setEditing({ path: p.path, error: err });
+      return;
+    }
+    if (draft.trim() === p.name) {
+      // Ничего не изменилось: без запроса и без «Отменить» (как служба).
+      setEditing(null);
+      say("list", NAME_UNCHANGED);
+      focusTo.current = { to: "rename", path: p.path };
+      return;
+    }
+    void run(
+      { kind: "row", path: p.path },
+      async () => {
+        try {
+          const reply = await renameProgram(p.path, draft.trim());
+          if (!alive.current) return null;
+          applyReply(reply.programs);
+          setEditing(null);
+          lastOp.current = { kind: "one", path: p.path };
+          sayDecided("list", reply, "Название изменено");
+          return { to: "rename", path: p.path };
+        } catch (e) {
+          if (!alive.current) return null;
+          setEditing({ path: p.path, error: errorText(e) });
+          return { to: "rename", path: p.path }; // поле открыто: фокус снова в нём
+        }
+      },
+      null,
+    );
+  };
+
+  /** «Отмена» и Escape: поле закрыто, фокус на «Переименовать». */
+  const cancelName = (p: ProgramDTO) => {
+    setEditing(null);
+    focusTo.current = { to: "rename", path: p.path };
+  };
+
+  /** «Скрыть» / «Показать» для отмеченных строк. */
+  const hideBulk = (paths: string[], hidden: boolean) =>
+    void run(
+      { kind: "bulk", hide: true },
+      async () => {
+        const reply = await setProgramsHidden(paths, hidden);
+        if (!alive.current) return null;
+        applyReply(reply.programs);
+        setSelected(new Set());
+        setBulkCategory("");
+        setBulkError("");
+        lastOp.current = { kind: "bulk" };
+        sayDecided("list", reply, "");
+        return { to: "selectAll" };
+      },
+      { to: "selectAll" },
+    );
+
   const applyBulk = (paths: string[]) => {
     if (bulkCategory === "") {
       setBulkError("Выберите категорию");
@@ -214,7 +304,11 @@ export default function Programs({ initialFilter = "all" }: Props) {
     setFilter("all");
   };
 
-  const list = data ? visiblePrograms(data.programs, { query: "", filter: "all", sort }) : [];
+  const hiddenView = filter === "hidden";
+  // Запрещённую скрыть нельзя (RF9-5): отмечены только запрещённые — «Скрыть» недоступна с пояснением.
+  const onlyBlockedSelected = (sel: ProgramDTO[]) => !hiddenView && sel.length > 0 && sel.every((p) => p.category === "blocked");
+  // «Программ пока нет» только когда нет ни видимых, ни скрытых: иначе пропал бы фильтр «Скрытые».
+  const list = data ? data.programs.filter((p) => p.category !== "system") : [];
   const shown = data ? visiblePrograms(data.programs, { query, filter, sort }) : [];
   const pending = data?.pending ?? [];
   const selectedShown = shown.filter((p) => selected.has(p.path));
@@ -345,7 +439,11 @@ export default function Programs({ initialFilter = "all" }: Props) {
                 </div>
 
                 {message("list")}
-                {shown.length === 0 ? (
+                {shown.length === 0 && hiddenView && query.trim() === "" ? (
+                  <div className="programs-empty">
+                    <p className="panel-text">Скрытых программ нет</p>
+                  </div>
+                ) : shown.length === 0 ? (
                   <div className="programs-empty">
                     <p className="panel-text">Ничего не найдено</p>
                     <button type="button" className="btn" onClick={resetSearch}>
@@ -371,33 +469,54 @@ export default function Programs({ initialFilter = "all" }: Props) {
                       {selectedShown.length > 0 ? (
                         <div className="bulk-actions">
                           <span className="bulk-count">{`Выбрано: ${selectedShown.length}`}</span>
-                          <select
-                            className="field-input bulk-select"
-                            aria-label="Новая категория для отмеченных"
-                            aria-invalid={bulkError ? true : undefined}
-                            aria-describedby={bulkError ? "bulk-error" : undefined}
-                            value={bulkCategory}
-                            disabled={busy !== null}
-                            onChange={(e) => {
-                              setBulkCategory(e.target.value as ParentCategory | "");
-                              setBulkError("");
-                            }}
-                          >
-                            <option value="">Категория…</option>
-                            {CATEGORY_OPTIONS.map((o) => (
-                              <option key={o.category} value={o.category}>
-                                {o.label}
-                              </option>
-                            ))}
-                          </select>
+                          {hiddenView ? null : (
+                            <>
+                              <select
+                                className="field-input bulk-select"
+                                aria-label="Новая категория для отмеченных"
+                                aria-invalid={bulkError ? true : undefined}
+                                aria-describedby={bulkError ? "bulk-error" : undefined}
+                                value={bulkCategory}
+                                disabled={busy !== null}
+                                onChange={(e) => {
+                                  setBulkCategory(e.target.value as ParentCategory | "");
+                                  setBulkError("");
+                                }}
+                              >
+                                <option value="">Категория…</option>
+                                {CATEGORY_OPTIONS.map((o) => (
+                                  <option key={o.category} value={o.category}>
+                                    {o.label}
+                                  </option>
+                                ))}
+                              </select>
+                              <button
+                                type="button"
+                                className="btn btn-primary"
+                                aria-disabled={busy !== null || undefined}
+                                onClick={() => (busy ? undefined : applyBulk(selectedShown.map((p) => p.path)))}
+                              >
+                                {busy?.kind === "bulk" && !busy.hide ? "Сохраняю…" : "Применить"}
+                              </button>
+                            </>
+                          )}
                           <button
                             type="button"
-                            className="btn btn-primary"
-                            aria-disabled={busy !== null || undefined}
-                            onClick={() => (busy ? undefined : applyBulk(selectedShown.map((p) => p.path)))}
+                            className="btn"
+                            aria-label={hiddenView ? "Показать отмеченные" : "Скрыть отмеченные"}
+                            aria-disabled={busy !== null || onlyBlockedSelected(selectedShown) || undefined}
+                            aria-describedby={onlyBlockedSelected(selectedShown) ? "bulk-hide-hint" : undefined}
+                            onClick={() =>
+                              busy || onlyBlockedSelected(selectedShown) ? undefined : hideBulk(selectedShown.map((p) => p.path), !hiddenView)
+                            }
                           >
-                            {busy?.kind === "bulk" ? "Сохраняю…" : "Применить"}
+                            {busy?.kind === "bulk" && busy.hide ? "Сохраняю…" : hiddenView ? "Показать" : "Скрыть"}
                           </button>
+                          {onlyBlockedSelected(selectedShown) ? (
+                            <span id="bulk-hide-hint" className="field-hint bulk-hint">
+                              {selectedShown.length === 1 ? HIDE_BLOCKED_ONE : HIDE_BLOCKED_MANY}
+                            </span>
+                          ) : null}
                           {bulkError ? (
                             <span id="bulk-error" className="field-error bulk-error">
                               {bulkError}
@@ -422,6 +541,9 @@ export default function Programs({ initialFilter = "all" }: Props) {
                           <th scope="col" className="col-week" aria-sort={ariaSort("week")}>
                             <SortButton label="За неделю" dir={sort.key === "week" ? sort.dir : null} onClick={() => sortBy("week")} />
                           </th>
+                          <th scope="col" className="col-action">
+                            <span className="visually-hidden">Действие</span>
+                          </th>
                         </tr>
                       </thead>
                       <tbody>
@@ -433,6 +555,15 @@ export default function Programs({ initialFilter = "all" }: Props) {
                             busy={busy}
                             onToggle={() => toggleOne(p.path)}
                             onCategory={(c) => changeRow(p, c, i)}
+                            onHide={(hidden) => hideRow(p, hidden, i)}
+                            editing={editing?.path === p.path}
+                            nameErr={editing && editing.path === p.path ? editing.error : ""}
+                            onRename={() => {
+                              setEditing({ path: p.path, error: "" });
+                            }}
+                            onSaveName={(draft) => saveName(p, draft)}
+                            onCancelName={() => cancelName(p)}
+                            onDraft={() => setEditing((e) => (e && e.path === p.path && e.error ? { ...e, error: "" } : e))}
                           />
                         ))}
                       </tbody>
@@ -464,15 +595,23 @@ function placeFocus(root: HTMLElement, req: FocusTo) {
         (req.category && item.querySelector<HTMLElement>(`button[data-category="${req.category}"]`)) ||
         item.querySelector<HTMLElement>("button");
     } else if (row) {
-      target = row.querySelector<HTMLElement>("select");
+      target = rowControl(row);
     } else if (req.index !== undefined && rows.length > 0) {
-      target = rows[Math.min(req.index, rows.length - 1)].querySelector<HTMLElement>("select");
+      target = rowControl(rows[Math.min(req.index, rows.length - 1)]);
     }
     target = target ?? heading();
+  } else if (req.to === "rename") {
+    const row = rows.find((el) => el.dataset.path === req.path);
+    target = row?.querySelector<HTMLElement>("input.name-input") ?? row?.querySelector<HTMLElement>('[data-focus="rename"]') ?? heading();
   } else {
     target = root.querySelector<HTMLElement>('[data-focus="select-all"]') ?? heading();
   }
   target?.focus();
+}
+
+/** Куда фокус в строке: выбор категории, а у скрытой (выбора нет) кнопка «Показать». */
+function rowControl(row: HTMLElement): HTMLElement | null {
+  return row.querySelector<HTMLElement>("select") ?? row.querySelector<HTMLElement>(".col-action button");
 }
 
 /** Общий значок программы (RM3-3): окно приложения, без цвета статуса. */
@@ -483,6 +622,16 @@ function AppIcon() {
       <path d="M3 11h26" stroke="currentColor" strokeWidth="2" />
       <circle cx="7.5" cy="8" r="1.2" fill="currentColor" />
       <circle cx="11.5" cy="8" r="1.2" fill="currentColor" />
+    </svg>
+  );
+}
+
+/** Значок «Переименовать»: карандаш. */
+function PencilIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+      <path d="M11.2 2.3l2.5 2.5-8.4 8.4-3.1.6.6-3.1 8.4-8.4z" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+      <path d="M9.7 3.8l2.5 2.5" stroke="currentColor" strokeWidth="1.5" />
     </svg>
   );
 }
@@ -500,37 +649,9 @@ function splitPath(shown: string): [string, string] {
  * подсказке, у диктора и по фокусу клавиатурой.
  */
 function PathText({ path, max }: { path: string; max: number }) {
-  const [shown, setShown] = useState(() => shortenPath(path, max));
-  const box = useRef<HTMLSpanElement>(null);
-  useLayoutEffect(() => {
-    const el = box.current;
-    if (!el) return;
-    const measure = () => {
-      if (el.clientWidth === 0) {
-        setShown(shortenPath(path, max));
-        return;
-      }
-      // Зонд вне разметки React (её узлы не трогаются): тот же шрифт, одна строка; убирается сразу.
-      const probe = document.createElement("span");
-      probe.className = "path-probe";
-      el.appendChild(probe);
-      const room = el.clientWidth + 0.5;
-      const fits = (candidate: string) => {
-        probe.textContent = candidate;
-        return probe.getBoundingClientRect().width <= room;
-      };
-      try {
-        setShown(fitPath(path, max, fits));
-      } finally {
-        probe.remove();
-      }
-    };
-    measure();
-    const ro = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
-    ro?.observe(el);
-    void document.fonts?.ready.then(measure);
-    return () => ro?.disconnect();
-  }, [path, max]);
+  // Запас −1 px: две части пути (начало и имя файла) рисуются отдельными блоками, и вид, который
+  // впритык помещается в замере одной строкой, на экране может перенести имя файла.
+  const [box, shown] = useFitted<HTMLSpanElement>(path, shortenPath(path, max), (fits) => fitPath(path, max, fits), 1, -1);
   const cut = shown !== path;
   const [head, tail] = splitPath(shown);
   return (
@@ -609,39 +730,172 @@ interface RowProps {
   busy: Busy | null;
   onToggle: () => void;
   onCategory: (category: ParentCategory) => void;
+  /** «Скрыть» (true) или «Показать» (false), D-57. */
+  onHide: (hidden: boolean) => void;
+  /** Поле названия открыто в этой строке (D-59). */
+  editing: boolean;
+  nameErr: string;
+  onRename: () => void;
+  onSaveName: (draft: string) => void;
+  onCancelName: () => void;
+  onDraft: () => void;
 }
 
-function ProgramRow({ program: p, checked, busy, onToggle, onCategory }: RowProps) {
+function ProgramRow(props: RowProps) {
+  const { program: p, checked, busy, onToggle, onCategory, onHide } = props;
   const saving = busy?.kind === "row" && busy.path === p.path;
+  const hidden = p.hidden === true;
+  const fileName = (p.fileName ?? "").trim();
   return (
     <tr aria-label={p.name} data-path={p.path}>
       <td className="col-check">
         <input type="checkbox" aria-label={`Отметить «${p.name}»`} checked={checked} disabled={busy !== null} onChange={onToggle} />
       </td>
       <td>
-        <p className="program-name">{p.name}</p>
-        <p className="program-meta">{publisherText(p.publisher)}</p>
+        {props.editing ? (
+          <NameEditor
+            program={p}
+            error={props.nameErr}
+            busy={busy !== null}
+            onSave={props.onSaveName}
+            onCancel={props.onCancelName}
+            onDraft={props.onDraft}
+          />
+        ) : (
+          // «Переименовать» — кнопка-значок рядом с названием: ссылка словом отнимала у названия больше
+          // половины ширины. Название — до двух строк, режется только третья (FB-9/FB-11). Имя для
+          // диктора и подсказка — «Переименовать «X»».
+          <div className="program-title">
+            <LineText className="program-name" text={p.name} lines={2} />
+            <button
+              type="button"
+              className="program-rename"
+              data-focus="rename"
+              aria-label={`Переименовать «${p.name}»`}
+              title="Переименовать"
+              disabled={busy !== null}
+              onClick={props.onRename}
+            >
+              <PencilIcon />
+            </button>
+          </div>
+        )}
+        {/* Имя из файла — то, по чему родитель узнаёт программу после переименования: тоже до двух строк. */}
+        {fileName && fileName !== p.name ? <LineText className="program-meta program-filename" text={`из файла: ${fileName}`} lines={2} /> : null}
+        <LineText className="program-meta" text={publisherText(p.publisher)} />
         <p className="program-meta">
           <PathText path={p.path} max={ROW_PATH_MAX} />
         </p>
       </td>
       <td className="col-category">
-        <select
-          className="field-input"
-          aria-label={`Категория для «${p.name}»`}
-          value={p.category}
-          disabled={busy !== null}
-          onChange={(e) => onCategory(e.target.value as ParentCategory)}
-        >
-          {CATEGORY_OPTIONS.map((o) => (
-            <option key={o.category} value={o.category}>
-              {o.label}
-            </option>
-          ))}
-        </select>
+        {hidden ? (
+          <p className="program-category">{categoryTitle(p.category)}</p>
+        ) : (
+          <select
+            className="field-input"
+            aria-label={`Категория для «${p.name}»`}
+            value={p.category}
+            disabled={busy !== null}
+            onChange={(e) => onCategory(e.target.value as ParentCategory)}
+          >
+            {CATEGORY_OPTIONS.map((o) => (
+              <option key={o.category} value={o.category}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+        )}
         {saving ? <span className="program-saving">Сохраняю…</span> : null}
       </td>
-      <td className="col-week">{weekText(p.weekS)}</td>
+      <td className="col-week">{hidden ? "" : weekText(p.weekS)}</td>
+      <td className="col-action">
+        {/* Запрещённую скрыть нельзя (RF9-5): запрет сильнее скрытия. «Показать» у скрытой — всегда. */}
+        {!hidden && p.category === "blocked" ? null : (
+          <button
+            type="button"
+            className="btn btn-small"
+            aria-label={hidden ? `Показать «${p.name}»` : `Скрыть «${p.name}»`}
+            disabled={busy !== null}
+            onClick={() => onHide(!hidden)}
+          >
+            {hidden ? "Показать" : "Скрыть"}
+          </button>
+        )}
+      </td>
     </tr>
+  );
+}
+
+interface NameEditorProps {
+  program: ProgramDTO;
+  error: string;
+  busy: boolean;
+  onSave: (draft: string) => void;
+  onCancel: () => void;
+  onDraft: () => void;
+}
+
+/**
+ * Поле названия на месте названия (D-59, 8.3.4 п.5): текущее название выделено, фокус в поле,
+ * Enter — «Сохранить», Escape — «Отмена». Пустое поле вернёт название из файла.
+ */
+function NameEditor({ program: p, error, busy, onSave, onCancel, onDraft }: NameEditorProps) {
+  const [draft, setDraft] = useState(p.name);
+  const input = useRef<HTMLInputElement>(null);
+  const errId = `rename-error-${p.path.replace(/[^a-z0-9]/gi, "_")}`;
+  const hintId = `${errId}-hint`;
+  useLayoutEffect(() => {
+    const el = input.current;
+    if (!el) return;
+    el.focus();
+    el.setSelectionRange(0, el.value.length); // текущее название выделено: ввод заменяет его
+  }, []);
+  return (
+    <div className="name-editor">
+      <input
+        ref={input}
+        type="text"
+        name="programName"
+        autoComplete="off"
+        spellCheck={false}
+        className="field-input name-input"
+        aria-label={`Новое название для «${p.name}»`}
+        aria-invalid={error ? true : undefined}
+        aria-describedby={error ? errId : hintId}
+        value={draft}
+        disabled={busy}
+        onChange={(e) => {
+          setDraft(e.target.value);
+          onDraft();
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            if (!busy) onSave(draft);
+          } else if (e.key === "Escape") {
+            e.preventDefault();
+            e.stopPropagation();
+            onCancel();
+          }
+        }}
+      />
+      {error ? (
+        <p id={errId} className="field-error name-error">
+          {error}
+        </p>
+      ) : (
+        <p id={hintId} className="field-hint name-hint">
+          До 60 символов. Пустое поле вернёт название из файла
+        </p>
+      )}
+      <div className="name-actions">
+        <button type="button" className="btn btn-small btn-primary" disabled={busy} onClick={() => onSave(draft)}>
+          {busy ? "Сохраняю…" : "Сохранить"}
+        </button>
+        <button type="button" className="btn btn-small" disabled={busy} onClick={onCancel}>
+          Отмена
+        </button>
+      </div>
+    </div>
   );
 }

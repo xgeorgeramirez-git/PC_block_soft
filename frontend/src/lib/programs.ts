@@ -22,11 +22,13 @@ export const CATEGORY_OPTIONS: { category: ParentCategory; label: string }[] = [
   { category: "blocked", label: "Запрещено" },
 ];
 
-export type ProgramFilter = "all" | ParentCategory;
+/** Фильтр списка: «Все», категория или «Скрытые» (D-57: скрытые видны только там). */
+export type ProgramFilter = "all" | ParentCategory | "hidden";
 
 export const FILTERS: { id: ProgramFilter; label: string }[] = [
   { id: "all", label: "Все" },
   ...CATEGORY_OPTIONS.map((o) => ({ id: o.category, label: o.label })),
+  { id: "hidden", label: "Скрытые" },
 ];
 
 /** Слово категории в сообщении «SuperGame: игра» и в пометке «Раньше было: игра». */
@@ -60,6 +62,25 @@ export function publisherText(publisher: string): string {
   return p === "" ? "Без подписи издателя" : p;
 }
 
+/** «Stalker2 скрыта» / «Stalker2 снова в списке» (8.3.4 п.4); служба присылает такое же, это запасной текст. */
+export function hiddenMessage(name: string, hidden: boolean): string {
+  return hidden ? `${name} скрыта` : `${name} снова в списке`;
+}
+
+/** Наибольшая длина своего названия в символах (D-59). */
+export const MAX_NAME_CHARS = 60;
+export const NAME_TOO_LONG = "Название до 60 символов";
+
+/**
+ * Ошибка своего названия, как её проверит служба (D-59): после обрезки пробелов не длиннее 60
+ * символов и без переводов строки; пустое - сброс к названию из файла (не ошибка). "" - годится.
+ */
+export function nameError(draft: string): string {
+  const t = draft.trim();
+  if (/[\u0000-\u001f\u007f-\u009f]/.test(t) || Array.from(t).length > MAX_NAME_CHARS) return NAME_TOO_LONG;
+  return "";
+}
+
 /** «SuperGame: игра» (8.3.4 п.2); служба присылает такое же, это запасной текст. */
 export function decisionMessage(name: string, category: ParentCategory): string {
   return `${name}: ${CATEGORY_WORD[category]}`;
@@ -67,34 +88,33 @@ export function decisionMessage(name: string, category: ParentCategory): string 
 
 /**
  * Длинный путь обрезан по центру: начало, «…», конец с именем файла (и папкой над ним, если
- * помещается). Итог не длиннее max знаков.
+ * помещается). Имя файла всегда целиком (FB-9/FB-11: по нему родитель отличает запускалку от игры):
+ * начало сокращается вплоть до диска. Итог не длиннее max знаков, если имя файла туда помещается;
+ * иначе «диск…\имя файла» целиком.
  */
 export function shortenPath(path: string, max: number): string {
   if (path.length <= max) return path;
   const room = max - 1;
   const parts = path.split("\\");
-  const file = parts.length > 1 ? `\\${parts[parts.length - 1]}` : "";
+  if (parts.length < 2) return `${path.slice(0, room - Math.floor(room / 2)).trimEnd()}…${path.slice(path.length - Math.floor(room / 2)).trimStart()}`;
+  const file = `\\${parts[parts.length - 1]}`;
   const withParent = parts.length > 2 ? `\\${parts[parts.length - 2]}${file}` : "";
-  let tail: string;
-  if (withParent && withParent.length <= room * 0.6) {
-    tail = withParent;
-  } else if (file && file.length <= room - 8) {
-    tail = file;
-  } else {
-    tail = path.slice(path.length - Math.floor(room / 2));
-  }
-  // Пробел из середины имени вплотную к «…» читается как «очень …\» или «… умножения.exe»:
-  // его убираем с обеих сторон.
-  return `${path.slice(0, room - tail.length).trimEnd()}…${tail.trimStart()}`;
+  const tail = withParent && withParent.length <= room * 0.6 ? withParent : file;
+  const head = path.slice(0, Math.max(room - tail.length, parts[0].length));
+  const shown = `${head.trimEnd()}…${tail.trimStart()}`;
+  // Пробел из середины имени вплотную к «…» читается как «очень …\»: его убираем. Сокращение,
+  // которое не короче самого пути, не нужно.
+  return shown.length < path.length ? shown : path;
 }
 
-/** Короче этого путь не обрезается: остаются диск, «…» и конец имени файла. */
+/** Короче этого путь не обрезается: остаются диск, «…» и имя файла. */
 const MIN_PATH_CHARS = 12;
 
 /**
  * Путь под ширину строки: самый длинный вид shortenPath (не длиннее max), для которого fits
  * отвечает «помещается». Единственный способ обрезки пути на экране: CSS-многоточие поверх уже
- * обрезанного пути дало бы второе «…» и пробел перед ним. Не помещается ничего — самый короткий.
+ * обрезанного пути дало бы второе «…» и пробел перед ним. Не помещается ничего — самый короткий
+ * вид («диск…\имя файла»): имя файла не режется, при нехватке места его переносит вёрстка.
  */
 export function fitPath(path: string, max: number, fits: (shown: string) => boolean): string {
   let last = "";
@@ -105,6 +125,30 @@ export function fitPath(path: string, max: number, fits: (shown: string) => bool
     if (fits(shown)) return shown;
   }
   return shortenPath(path, MIN_PATH_CHARS);
+}
+
+/** Короче этого название не обрезается: несколько букв и «…». */
+const MIN_NAME_CHARS = 4;
+
+/** Название не длиннее n знаков: длинное обрезано с конца, «…» одно, пробел перед ним убран. */
+export function clipName(name: string, n: number): string {
+  const chars = Array.from(name);
+  if (chars.length <= n) return name;
+  return `${chars.slice(0, Math.max(n - 1, 1)).join("").trimEnd()}…`;
+}
+
+/**
+ * Название под ширину строки (одна строка): целиком, если помещается, иначе самый длинный вид
+ * clipName, для которого fits отвечает «помещается». Единственный способ обрезки названий на экране
+ * (PL-22): CSS-многоточие поверх дало бы второе «…». Не помещается ничего — самый короткий.
+ */
+export function fitName(name: string, fits: (shown: string) => boolean): string {
+  if (fits(name)) return name;
+  for (let n = Array.from(name).length - 1; n >= MIN_NAME_CHARS; n--) {
+    const shown = clipName(name, n);
+    if (fits(shown)) return shown;
+  }
+  return clipName(name, MIN_NAME_CHARS);
 }
 
 /** «1 раз», «2 раза», «5 раз». */
@@ -174,14 +218,24 @@ function byName(a: ProgramDTO, b: ProgramDTO): number {
   return a.name.localeCompare(b.name, "en", { sensitivity: "base" }) || a.path.localeCompare(b.path, "en");
 }
 
+/** Строка подходит фильтру: скрытые только в «Скрытых», в остальных фильтрах их нет (D-57). */
+function matchesFilter(p: ProgramDTO, filter: ProgramFilter): boolean {
+  if (filter === "hidden") return p.hidden === true;
+  if (p.hidden === true) return false;
+  return filter === "all" || p.category === filter;
+}
+
 /** Строки списка «Все программы»: без системных, с поиском, фильтром и сортировкой. */
 export function visiblePrograms(list: ProgramDTO[], view: ProgramView): ProgramDTO[] {
   const q = view.query.trim().toLowerCase();
   const shown = list.filter(
     (p) =>
       p.category !== "system" &&
-      (view.filter === "all" || p.category === view.filter) &&
-      (q === "" || p.name.toLowerCase().includes(q) || p.path.toLowerCase().includes(q)),
+      matchesFilter(p, view.filter) &&
+      (q === "" ||
+        p.name.toLowerCase().includes(q) ||
+        (p.fileName ?? "").toLowerCase().includes(q) ||
+        p.path.toLowerCase().includes(q)),
   );
   const sign = view.sort.dir === "asc" ? 1 : -1;
   return shown.sort((a, b) => {

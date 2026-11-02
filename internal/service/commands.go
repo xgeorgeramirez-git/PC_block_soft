@@ -276,6 +276,8 @@ func init() {
 		ipc.CmdDecideProgram:       {parentToken(true), (*Service).hDecideProgram},
 		ipc.CmdSetProgramsCategory: {parentToken(true), (*Service).hSetProgramsCategory},
 		ipc.CmdUndoProgram:         {parentToken(true), (*Service).hUndoProgram},
+		ipc.CmdSetProgramsHidden:   {parentToken(true), (*Service).hSetProgramsHidden},
+		ipc.CmdRenameProgram:       {parentToken(true), (*Service).hRenameProgram},
 		ipc.CmdScanPrograms:        {and(elevated(), unconfiguredCheck()), (*Service).hScanPrograms},
 	}
 }

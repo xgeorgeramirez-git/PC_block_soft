@@ -40,12 +40,13 @@ type fakeStore struct {
 	failEndMode  bool // GetEndMode возвращает ошибку
 	failPrograms bool // ListPrograms возвращает ошибку
 
-	endModes map[int64]string           // режим «Когда время вышло» (M3); нет записи — "lock"
-	programs map[string]Program         // программы по пути (M3)
-	nextProg int64                      // следующий номер программы
-	pending  map[string]*PendingProgram // «Ждут решения» по пути (M3)
-	usage    map[string]int             // учёт: "id|день|категория|вид|предмет" → секунды (M3)
-	usageLog []savedUsage               // история SaveDayAndUsage
+	endModes  map[int64]string           // режим «Когда время вышло» (M3); нет записи — "lock"
+	programs  map[string]Program         // программы по пути (M3)
+	nextProg  int64                      // следующий номер программы
+	pending   map[string]*PendingProgram // «Ждут решения» по пути (M3)
+	usage     map[string]int             // учёт: "id|день|категория|вид|предмет" → секунды (M3)
+	failUsage bool                       // DayUsage отвечает ошибкой (FB-10)
+	usageLog  []savedUsage               // история SaveDayAndUsage
 }
 
 type savedUsage struct {
@@ -178,6 +179,24 @@ func (f *fakeStore) SetProgramsCategory(paths []string, category string, at int6
 		}
 		changed = append(changed, p)
 		p.Category, p.Source, p.DecidedAt = category, "parent", at
+		f.programs[path] = p
+	}
+	return changed, nil
+}
+
+// SetProgramsHidden — как storage.SetProgramsHidden: только флаг; нет в списке, системные и уже
+// такие не трогаются; прежние значения изменённых.
+func (f *fakeStore) SetProgramsHidden(paths []string, hidden bool) ([]Program, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	changed := []Program{}
+	for _, path := range paths {
+		p, ok := f.programs[path]
+		if !ok || p.Hidden == hidden || p.Category == "system" {
+			continue
+		}
+		changed = append(changed, p)
+		p.Hidden = hidden
 		f.programs[path] = p
 	}
 	return changed, nil
@@ -354,13 +373,37 @@ func (f *fakeStore) SaveDayAndUsage(id int64, st core.DayState, rows []UsageRow)
 	return nil
 }
 
+// DayUsage — как storage.DayUsage: учёт по программам ребёнка за день, по категории и пути;
+// скрытые тоже (их прячет служба).
+func (f *fakeStore) DayUsage(id int64, day string) ([]UsageRow, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.failUsage {
+		return nil, errFake
+	}
+	out := []UsageRow{}
+	for k, sec := range f.usage {
+		parts := strings.SplitN(k, "|", 5)
+		if parts[0] == fmt.Sprint(id) && parts[1] == day && parts[3] == "program" {
+			out = append(out, UsageRow{Day: day, Category: parts[2], Kind: "program", Subject: parts[4], Seconds: sec})
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Category != out[j].Category {
+			return out[i].Category < out[j].Category
+		}
+		return out[i].Subject < out[j].Subject
+	})
+	return out, nil
+}
+
 func (f *fakeStore) ProgramSeconds(fromDay string) (map[string]int, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	out := map[string]int{}
 	for k, sec := range f.usage {
 		parts := strings.SplitN(k, "|", 5)
-		if parts[3] == "program" && parts[1] >= fromDay {
+		if parts[3] == "program" && parts[1] >= fromDay && !f.programs[parts[4]].Hidden {
 			out[parts[4]] += sec
 		}
 	}
@@ -1305,4 +1348,21 @@ func (w *fakeWatcher) releaseKill() {
 	if g != nil {
 		close(g)
 	}
+}
+
+// SetProgramName — как storage.SetProgramName: только своё название; прежнее значение.
+func (f *fakeStore) SetProgramName(path, name string) (Program, bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	p, ok := f.programs[path]
+	if !ok {
+		return Program{}, false, nil
+	}
+	if len([]rune(name)) > 60 {
+		return Program{}, false, errFake
+	}
+	prev := p
+	p.CustomName = name
+	f.programs[path] = p
+	return prev, true, nil
 }

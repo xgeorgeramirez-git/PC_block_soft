@@ -826,14 +826,18 @@ func (s *Service) hParentStats(c *callCtx) ipc.Reply {
 // «Мои правила» текстом. Один источник для ребёнка (hMyToday) и родителя (hParentStats).
 func (s *Service) myTodayOf(cs *childState) ipc.MyTodayReply {
 	if cs == nil {
-		return ipc.MyTodayReply{Status: ipc.ChildStatusNotChild(), Today: []string{}, Rules: []ipc.MyRule{}}
+		return ipc.MyTodayReply{Status: ipc.ChildStatusNotChild(), Today: []string{}, Rules: []ipc.MyRule{}, Programs: []ipc.ProgramTime{}}
 	}
 	st := s.statusOf(cs)
 	out := ipc.MyTodayReply{Status: st, Today: []string{st.Summary, "Использовано " + core.FormatDuration(st.UsedS)}, Rules: []ipc.MyRule{}}
 	// Игры и учёба за сегодня — счётчики дня ядра; счётчики прошлого дня (сутки ещё не
 	// сменились в ядре) сегодняшними не считаются.
+	out.Programs = []ipc.ProgramTime{}
 	if day, _ := cs.eng.State(); day.Day == core.DayOf(s.cfg.Clock.Now().In(s.cfg.Loc)) {
 		out.GamesS, out.StudyS = day.GamesS, day.StudyS
+		out.OtherS = max(0, day.TotalS-day.GamesS-day.VideoS)
+		out.AllS = day.TotalS + day.StudyS
+		out.Programs = s.programTimes(cs, day)
 	}
 	// Строка «Можно снова…» нужна при любой блокировке: показываем, когда блокировка есть и
 	// ядро назвало срок (B-6).

@@ -95,6 +95,13 @@ func (a *Accumulator) SetExtra(min int) { a.state.ExtraMin = min }
 // SetPause ставит момент конца паузы текущего дня (R11); nil снимает паузу.
 func (a *Accumulator) SetPause(untilMs *int64) { a.state.PauseUntilMs = untilMs }
 
+// SetLastMinute ставит момент «конец по часам» последней минуты (R2, D-60); nil снимает отсчёт.
+func (a *Accumulator) SetLastMinute(endMs *int64) { a.state.LastMinuteEndMs = endMs }
+
+// SetTotal поднимает общее время текущего дня до total (дотяжка последней минуты, R2, D-60);
+// разница идёт в «Прочее» (общее минус игры и видео), остальные категории не меняются.
+func (a *Accumulator) SetTotal(total int) { a.state.TotalS = total }
+
 // SetNoForbidden снимает или возвращает запретные часы на текущий день (R24, D-51).
 func (a *Accumulator) SetNoForbidden(on bool) { a.state.NoForbidden = on }
 

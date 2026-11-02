@@ -53,7 +53,10 @@ describe("окно «Моя статистика»: вёрстка", () => {
     expect(content).toMatch(/flex:\s*1/);
     expect(content).toMatch(/min-height:\s*0/);
     expect(content).toMatch(/overflow-y:\s*auto/);
-    expect(content).not.toMatch(/position:/);
+    // Ловит: скрытая подпись (position: absolute) вне области прокрутки растягивает окно, и прокрутка
+    // к полю сдвигает окно вместе с шапкой. Область прокрутки - позиционированный предок, не липкая.
+    expect(content).toMatch(/position:\s*relative/);
+    expect(content).not.toMatch(/position:\s*(sticky|fixed|absolute)/);
     expect(rule(".my-stats")).not.toMatch(/position:|margin(-top|-bottom)?:\s*-/);
   });
 

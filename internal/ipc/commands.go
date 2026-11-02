@@ -100,6 +100,7 @@ var AllCommands = []string{
 	CmdTrayClosing,
 	CmdTestGuard, CmdTestClock, CmdTestSession, CmdGuardState,
 	CmdListPrograms, CmdDecideProgram, CmdSetProgramsCategory, CmdUndoProgram, CmdScanPrograms, // M3 (commands_m3.go)
+	CmdSetProgramsHidden, CmdRenameProgram, // фидбек-раунд 0.3.1 (D-57, D-59)
 }
 
 // Имена полей, к которым служба привязывает ошибку (Reply.Field, L-121).
@@ -115,6 +116,7 @@ const (
 	FieldEnd         = "end"     // конец запретного интервала (R7)
 	FieldCode        = "code"    // промокод (R26, D-50)
 	FieldEndMode     = "endMode" // режим «Когда время вышло» (R8, FR-18)
+	FieldName        = "name"    // своё название программы (D-59)
 )
 
 // LimitField — имя поля лимита дня недели (1 = пн … 7 = вс) для ошибок SaveLimits и Setup.
@@ -519,6 +521,24 @@ type MyTodayReply struct {
 	// GamesS, StudyS — игры и учёба за сегодня, с (итоги «Моей статистики», S13); счётчики ядра.
 	GamesS int `json:"gamesS"`
 	StudyS int `json:"studyS"`
+	// OtherS — «Прочее» за сегодня, с: общее время без игр и «Видео и соцсетей» (рабочий стол,
+	// незнакомые и скрытые программы, дотяжка последней минуты). AllS — «Всего»: общее время и
+	// учёба (D-7: учёба в лимит не входит, но за компьютером была). Счётчики ядра.
+	OtherS int `json:"otherS"`
+	AllS   int `json:"allS"`
+	// Programs — время каждой программы за сегодня по категориям учёта (D-58, вкладки «Итогов»):
+	// самые долгие сверху; скрытых нет (D-57). Пусто — [], не null.
+	Programs []ProgramTime `json:"programs"`
+}
+
+// ProgramTime — строка вкладки «Итогов» (D-58): программа, категория, в которой засчитаны её
+// секунды (games|study|other), и секунды за сегодня. Name — то же название, что в списке
+// программ и журнале (своё название родителя, иначе из файла, D-59).
+type ProgramTime struct {
+	Path     string `json:"path"`
+	Name     string `json:"name"`
+	Category string `json:"category"`
+	Seconds  int    `json:"seconds"`
 }
 
 // --- Страж --------------------------------------------------------------------------

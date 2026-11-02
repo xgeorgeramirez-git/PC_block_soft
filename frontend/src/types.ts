@@ -350,6 +350,24 @@ export interface MyTodayReply {
   /** Игры и учёба за сегодня, с (итоги, S13); счётчики ядра. */
   gamesS: number;
   studyS: number;
+  /** «Прочее» за сегодня, с: общее время без игр и «Видео и соцсетей». */
+  otherS: number;
+  /** «Всего» за сегодня, с: общее время и учёба (учёба в лимит не входит, D-7). */
+  allS: number;
+  /** Время каждой программы за сегодня (вкладки «Итогов», D-58): самые долгие сверху, скрытых нет. */
+  programs: ProgramTime[];
+}
+
+/**
+ * Строка вкладки «Итогов» (internal/ipc.ProgramTime): программа, категория учёта её секунд и
+ * секунды за сегодня. Строка без пути - «Остальное время»: время без программы (рабочий стол, системные и
+ * скрытые программы); с ней сумма строк категории равна итогу категории.
+ */
+export interface ProgramTime {
+  path: string;
+  name: string;
+  category: "games" | "study" | "other" | "video_social";
+  seconds: number;
 }
 
 // --- M2: расписание, пауза, копилка ---------------------------------------
@@ -516,12 +534,17 @@ export interface PendingProgramDTO {
 
 export interface ProgramDTO {
   path: string;
+  /** Как программа называется везде: своё название родителя, иначе из файла (D-59). */
   name: string;
+  /** Название из файла, если родитель дал своё («из файла: …»); нет или "" - своего нет. */
+  fileName?: string;
   publisher: string;
   category: ProgramCategory;
   source: ProgramSource;
-  /** Время всех детей за 7 дней, с. */
+  /** Время всех детей за 7 дней, с; у скрытой 0. */
   weekS: number;
+  /** Скрыта родителем (D-57): видна только в фильтре «Скрытые». Нет поля — не скрыта. */
+  hidden?: boolean;
 }
 
 export interface ProgramsReply {
@@ -538,6 +561,18 @@ export interface DecideProgramRequest {
 export interface SetProgramsCategoryRequest {
   paths: string[];
   category: ProgramCategory;
+}
+
+/** «Скрыть» (hidden = true) и «Показать» (false) для программ списка (D-57). */
+export interface SetProgramsHiddenRequest {
+  paths: string[];
+  hidden: boolean;
+}
+
+/** «Переименовать» (D-59): своё название 1–60 символов, "" - снова название из файла. */
+export interface RenameProgramRequest {
+  path: string;
+  name: string;
 }
 
 export interface DecideProgramReply {

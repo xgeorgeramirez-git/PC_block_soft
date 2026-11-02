@@ -212,10 +212,10 @@ func (s *Store) GetDayLimits(childID int64) ([7]core.DayLimit, error) {
 // с этим днём, без ошибки.
 func (s *Store) LoadDayState(childID int64, day string) (core.DayState, error) {
 	st := core.DayState{Day: day}
-	var pause sql.NullInt64
+	var pause, lastMinute sql.NullInt64
 	var bonusGranted, noForbidden int
-	err := s.db.QueryRow(`SELECT total_s, games_s, video_s, study_s, extra_min, pause_until, bonus_granted, no_forbidden FROM day_state
-		WHERE child_id = ? AND day = ?`, childID, day).Scan(&st.TotalS, &st.GamesS, &st.VideoS, &st.StudyS, &st.ExtraMin, &pause, &bonusGranted, &noForbidden)
+	err := s.db.QueryRow(`SELECT total_s, games_s, video_s, study_s, extra_min, pause_until, bonus_granted, no_forbidden, last_minute_end FROM day_state
+		WHERE child_id = ? AND day = ?`, childID, day).Scan(&st.TotalS, &st.GamesS, &st.VideoS, &st.StudyS, &st.ExtraMin, &pause, &bonusGranted, &noForbidden, &lastMinute)
 	if errors.Is(err, sql.ErrNoRows) {
 		return core.DayState{Day: day}, nil
 	}
@@ -226,13 +226,17 @@ func (s *Store) LoadDayState(childID int64, day string) (core.DayState, error) {
 		v := pause.Int64
 		st.PauseUntilMs = &v
 	}
+	if lastMinute.Valid {
+		v := lastMinute.Int64
+		st.LastMinuteEndMs = &v
+	}
 	st.BonusGranted = bonusGranted != 0
 	st.NoForbidden = noForbidden != 0
 	return st, nil
 }
 
 // SaveDayState записывает состояние дня ребёнка (вставка или замена по паре ребёнок и день).
-// Сохраняет и pause_until (R11): nil уходит как NULL. День должен быть датой YYYY-MM-DD
+// Сохраняет и pause_until (R11), и last_minute_end (R2, D-60): nil уходит как NULL. День должен быть датой YYYY-MM-DD
 // (ErrInvalid). Вместе с учётом по программам — SaveDayAndUsage (одна транзакция).
 func (s *Store) SaveDayState(childID int64, st core.DayState) error {
 	if err := checkDay(st.Day); err != nil {
@@ -250,12 +254,17 @@ func saveDayState(ex execer, childID int64, st core.DayState) error {
 	if st.PauseUntilMs != nil {
 		pause = *st.PauseUntilMs
 	}
-	_, err := ex.Exec(`INSERT INTO day_state (child_id, day, total_s, games_s, video_s, study_s, extra_min, pause_until, bonus_granted, no_forbidden)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	var lastMinute any
+	if st.LastMinuteEndMs != nil {
+		lastMinute = *st.LastMinuteEndMs
+	}
+	_, err := ex.Exec(`INSERT INTO day_state (child_id, day, total_s, games_s, video_s, study_s, extra_min, pause_until, bonus_granted, no_forbidden, last_minute_end)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (child_id, day) DO UPDATE SET total_s = excluded.total_s, games_s = excluded.games_s,
 			video_s = excluded.video_s, study_s = excluded.study_s, extra_min = excluded.extra_min,
-			pause_until = excluded.pause_until, bonus_granted = excluded.bonus_granted, no_forbidden = excluded.no_forbidden`,
-		childID, st.Day, st.TotalS, st.GamesS, st.VideoS, st.StudyS, st.ExtraMin, pause, boolToInt(st.BonusGranted), boolToInt(st.NoForbidden))
+			pause_until = excluded.pause_until, bonus_granted = excluded.bonus_granted, no_forbidden = excluded.no_forbidden,
+			last_minute_end = excluded.last_minute_end`,
+		childID, st.Day, st.TotalS, st.GamesS, st.VideoS, st.StudyS, st.ExtraMin, pause, boolToInt(st.BonusGranted), boolToInt(st.NoForbidden), lastMinute)
 	return err
 }
 

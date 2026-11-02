@@ -219,6 +219,10 @@ p {
   min-width: 0;
   min-height: 0;
   overflow-y: auto;
+  /* Область прокрутки - ближайший позиционированный предок: скрытые для глаз подписи и зонды
+     (абсолютное размещение) остаются внутри неё и не растягивают само окно. Иначе окно получает
+     собственную прокрутку, и прокрутка к полю сдвигает его вместе с шапкой. */
+  position: relative;
   padding: var(--space-8);
   /* Зазор между шапкой и областью прокрутки вне неё: при любой прокрутке блок обрезается не у самой
      шапки, а на 16 px ниже, и не прилипает к названию. */
@@ -726,6 +730,140 @@ p {
 .stat-row-lead dt,
 .stat-row-lead dd {
   font-weight: 600;
+}
+
+/* Вкладки «Итогов» (D-58): четыре плитки «название и сумма»; выбранная залита основным цветом. */
+.totals-tabs {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(112px, 1fr));
+  gap: var(--space-2);
+  margin-top: var(--space-4);
+}
+
+.totals-tab {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  min-width: 0;
+  padding: var(--space-2) var(--space-3);
+  background: var(--surface);
+  border: 1px solid var(--field-border);
+  border-radius: var(--radius-control);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 150ms ease, border-color 150ms ease;
+}
+
+/* Наведение меняет только рамку: заливку даёт одно лишь aria-selected, поэтому выбранная вкладка
+   однозначна. Выбранная отличается не только цветом: жирная подпись и черта снизу. */
+.totals-tab:hover {
+  border-color: var(--text);
+}
+
+.totals-tab[aria-selected="true"] {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: var(--primary-text);
+  box-shadow: inset 0 -3px 0 var(--primary-text);
+}
+
+.totals-tab[aria-selected="true"] .totals-tab-label {
+  font-weight: 700;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .totals-tab {
+    transition: none;
+  }
+}
+
+.totals-tab-label {
+  font-size: 14px;
+}
+
+.totals-tab-value {
+  font-family: var(--font-display);
+  font-size: 18px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.totals-panel {
+  margin-top: var(--space-3);
+}
+
+.totals-sum {
+  font-weight: 600;
+}
+
+/* Пояснение «Всего = … + … учёбы» под рядом вкладок (FB-10). */
+.totals-note {
+  margin-top: var(--space-2);
+}
+
+.totals-empty {
+  margin-top: var(--space-2);
+}
+
+/* Строки «название, время, доля»: столбцы общие для всех строк (subgrid), поэтому время и доля
+   стоят ровно друг под другом; название сжимается и обрезается одним помощником (PL-22). */
+.totals-list {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  margin: var(--space-2) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.totals-item {
+  position: relative;
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
+  align-items: center;
+  column-gap: var(--space-4);
+  padding: var(--space-1) var(--space-2);
+  border-bottom: 1px solid var(--line);
+}
+
+/* Полоса доли под строкой: видно, что заняло больше времени, без чтения чисел. */
+.totals-item::before {
+  content: "";
+  position: absolute;
+  inset: 2px auto 2px 0;
+  width: var(--share, 0%);
+  background: var(--line);
+  border-radius: 2px;
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+.totals-item > * {
+  position: relative;
+}
+
+.totals-name {
+  min-width: 0;
+}
+
+.totals-item-rest {
+  color: var(--text-muted);
+}
+
+.totals-time,
+.totals-share {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.totals-share {
+  min-width: 4ch;
+  color: var(--text-muted);
 }
 
 /* «Настройки для родителя» внизу окна ребёнка: мелкая ссылка, а не кнопка (ТЗ 8.2.6 п.1). */
@@ -1335,13 +1473,22 @@ html:has(.shell-child) body {
 .program-path .path-short {
   display: block;
   overflow: hidden;
-  white-space: nowrap;
 }
 
+/* Начало и имя файла — два неразрывных куска: fitPath подбирает вид, который помещается в одну
+   строку. Если и «диск…\имя файла» не помещается, имя файла переносится на свою строку целиком
+   (а очень длинное — внутри), но не режется (FB-9/FB-11). */
 .program-path .path-head,
 .program-path .path-tail {
   display: inline-block;
   vertical-align: top;
+  max-width: 100%;
+  white-space: nowrap;
+}
+
+.program-path .path-tail {
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 /* Зонд ширины для fitPath: существует только на время замера. */
@@ -1428,7 +1575,8 @@ html:has(.shell-child) body {
   width: auto;
 }
 
-.bulk-error {
+.bulk-error,
+.bulk-hint {
   margin-top: 0;
 }
 
@@ -1438,12 +1586,25 @@ html:has(.shell-child) body {
   table-layout: fixed;
 }
 
+/* Колонки «Отметка», «Категория», «За неделю», «Скрыть» — ровно по своему содержимому, всё
+   остальное место — названию и пути (FB-9/FB-11: в окне 960 название резалось на 13 знаках, а в
+   узких колонках справа было пусто). Между колонками 16 px (по 8 px с каждой стороны), по краям 12 px. */
 .programs-table th,
 .programs-table td {
-  padding: var(--space-2) var(--space-3);
+  padding: var(--space-2);
   border-bottom: 1px solid var(--line);
   text-align: left;
-  vertical-align: top;
+  vertical-align: middle; /* время, список категории и кнопка — на одной высоте */
+}
+
+.programs-table th:first-child,
+.programs-table td:first-child {
+  padding-left: var(--space-3);
+}
+
+.programs-table th:last-child,
+.programs-table td:last-child {
+  padding-right: var(--space-3);
 }
 
 .programs-table thead th {
@@ -1456,23 +1617,140 @@ html:has(.shell-child) body {
   border-bottom: 0;
 }
 
+/* 12 + флажок 18 + 8 */
 .programs-table .col-check {
-  width: 44px;
+  width: 38px;
 }
 
 .programs-table .col-check input {
   width: 18px;
   height: 18px;
-  margin: var(--space-1) 0 0;
+  margin: 0;
+  vertical-align: middle;
 }
 
+/* 8 + список 122 («Запрещено» со стрелкой при полях 8 px) + 8 */
 .programs-table .col-category {
-  width: 168px;
+  width: 138px;
 }
 
+.programs-table .col-category select {
+  padding-inline: var(--space-2);
+}
+
+/* 8 + 96 («12 ч 30 мин» — 84 px) + 8; редкое «меньше минуты» переносится на вторую строку. */
 .programs-table .col-week {
-  width: 120px;
+  width: 112px;
+}
+
+/* «Скрыть» / «Показать» (D-57): своя узкая колонка, кнопка не налезает на соседние.
+   8 + «Показать» 90 + 12 */
+.programs-table .col-action {
+  width: 110px;
+  text-align: right;
+}
+
+.programs-table .col-action .btn {
+  max-width: 100%;
+}
+
+.program-category {
+  margin: 0;
+}
+
+/* Своё название (D-59): «Переименовать» рядом с названием, поле правки на месте названия. */
+/* Название и значок «Переименовать» одной строкой: название занимает всё, что осталось. */
+.program-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.program-title .program-name {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* Одна строка без переноса: обрезку делает fitName (одно «…», PL-22), CSS не обрезает. */
+.line-fit {
+  overflow: hidden;
   white-space: nowrap;
+  overflow-wrap: normal;
+}
+
+/* Название в две строки (FB-9/FB-11): перенос по словам, длинное слово — где угодно; обрезку
+   третьей строки делает fitName по замеру зонда той же ширины, CSS не обрезает. */
+.line-fit.line-fit-2 {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+/* Зонд высоты для названия в две строки: та же ширина и тот же перенос, существует только на время замера. */
+.fit-probe-lines {
+  position: absolute;
+  display: block;
+  visibility: hidden;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  pointer-events: none;
+}
+
+.program-rename {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  background: none;
+  border: 0;
+  border-radius: var(--radius-control);
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.program-rename:hover:not(:disabled) {
+  background: var(--bg);
+}
+
+.program-rename:hover:not(:disabled),
+.program-rename:focus-visible {
+  color: var(--text);
+}
+
+.program-rename:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.program-filename {
+  font-style: italic;
+}
+
+.name-editor {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+  margin-bottom: var(--space-1);
+}
+
+.name-editor .name-input {
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.name-editor .name-hint,
+.name-editor .name-error {
+  margin-top: 0;
+}
+
+.name-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
 }
 
 .sort-button {

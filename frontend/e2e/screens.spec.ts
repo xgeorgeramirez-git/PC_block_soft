@@ -11,13 +11,29 @@ async function mockProgram(page: Page, options: MockOptions = {}) {
   await page.addInitScript({ content: await mockScript(options) });
 }
 
-/** Ни окно, ни прокручиваемая область страницы не уходят вбок. */
+/**
+ * Ни окно, ни прокручиваемая область страницы не уходят вбок; само окно (документ) не прокручивается
+ * и по высоте: прокрутка только внутри main.content, шапка стоит на месте. Иначе прокрутка к полю
+ * (фокус, scrollIntoView) сдвигает всё окно вместе с шапкой, и блок прилипает к названию.
+ */
 async function noHorizontalScroll(page: Page) {
   const overflow = await page.evaluate(() => {
     const wider = (el: Element | null) => (el ? el.scrollWidth > el.clientWidth : false);
-    return wider(document.documentElement) || wider(document.querySelector(".content"));
+    const doc = document.documentElement;
+    const out: string[] = [];
+    if (wider(doc) || wider(document.querySelector(".content"))) out.push("прокрутка вбок");
+    if (doc.scrollHeight - doc.clientHeight > 1) {
+      const below = [...document.querySelectorAll("body *")]
+        .filter((el) => el.getBoundingClientRect().bottom > doc.clientHeight + 1 && !el.closest(".content, .menu"))
+        .map((el) => `${el.tagName.toLowerCase()}.${el.className} «${(el.textContent ?? "").slice(0, 30)}»`);
+      const leaked = [...document.querySelectorAll(".content *")]
+        .filter((el) => el.getBoundingClientRect().bottom > doc.clientHeight + 1 && getComputedStyle(el).position === "absolute" && (el as HTMLElement).offsetParent === document.body)
+        .map((el) => `${el.tagName.toLowerCase()}.${el.className} «${(el.textContent ?? "").slice(0, 30)}»`);
+      out.push(`окно прокручивается на ${doc.scrollHeight - doc.clientHeight} px: ${[...below, ...leaked].slice(0, 3).join(", ")}`);
+    }
+    return out;
   });
-  expect(overflow).toBe(false);
+  expect(overflow).toEqual([]);
 }
 
 /**
@@ -303,7 +319,7 @@ test("s07 что нового", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("navigation", { name: "Разделы" }).getByRole("button", { name: "Что нового" }).click();
   await expect(page.getByRole("heading", { name: "Что нового", level: 2 })).toBeVisible();
-  await expect(page.getByRole("heading", { level: 3 }).first()).toHaveText("Версия 0.3.0. Программы и игры");
+  await expect(page.getByRole("heading", { level: 3 }).first()).toHaveText("Версия 0.3.1. Скрытие, свои названия и вкладки статистики");
   await expect(page.locator("main.content").getByRole("button")).toHaveCount(0);
   await noHorizontalScroll(page);
   await wholePage(page);
@@ -542,6 +558,315 @@ for (const dsf of [1, 1.5]) {
   });
 }
 
+// Вкладки «Итогов» (D-58, S39): game 10 мин, game2 5 мин, study 3 мин; длинное название игры, чтобы
+// замер видел обрезку, и «Остальное время» (время без программы) последней строкой.
+const S39_LONG = "Очень длинное название игры с пробелами и цифрами 2026";
+const s39Programs = [
+  { path: "c:\\games\\game.exe", name: "game", category: "games" as const, seconds: 600 },
+  { path: "c:\\games\\game2.exe", name: "game2", category: "games" as const, seconds: 300 },
+  { path: "c:\\games\\long.exe", name: S39_LONG, category: "games" as const, seconds: 120 },
+  { path: "c:\\school\\study.exe", name: "study", category: "study" as const, seconds: 180 },
+  { path: "", name: "Остальное время", category: "other" as const, seconds: 300 },
+];
+const s39Child = () => child({ usedS: 1320, gamesUsedS: 1020, studyUsedS: 180, programsToday: s39Programs });
+
+/**
+ * Замер списка выбранной вкладки (8.2.6 п.3): строки не налезают друг на друга, название, время и доля
+ * внутри своей строки и не пересекаются, время и доля выровнены по правому краю во всех строках,
+ * список не шире панели. При сбое все размеры в одной строке ошибки (журналы Actions недоступны).
+ */
+async function tabListFits(page: Page, where: string) {
+  // Окно ребёнка само лежит в панели вкладки «Сегодня»: панель «Итогов» ищем внутри «Итогов».
+  const report = await page.getByRole("region", { name: "Итоги" }).getByRole("tabpanel").evaluate((panel) => {
+    const r = (el: Element | null) => {
+      const b = el!.getBoundingClientRect();
+      return { l: Math.round(b.left * 10) / 10, r: Math.round(b.right * 10) / 10, t: Math.round(b.top * 10) / 10, b: Math.round(b.bottom * 10) / 10 };
+    };
+    const items = [...panel.querySelectorAll(".totals-item")].map((li) => ({
+      text: li.textContent ?? "",
+      row: r(li),
+      name: r(li.querySelector(".totals-name")),
+      nameScroll: (li.querySelector(".totals-name") as HTMLElement).scrollWidth,
+      nameClient: (li.querySelector(".totals-name") as HTMLElement).clientWidth,
+      time: r(li.querySelector(".totals-time")),
+      share: r(li.querySelector(".totals-share")),
+    }));
+    return { panel: r(panel), items };
+  });
+  const problems: string[] = [];
+  const { panel, items } = report;
+  if (items.length === 0) problems.push("в списке нет строк");
+  items.forEach((it, i) => {
+    if (it.row.l < panel.l - 0.5 || it.row.r > panel.r + 0.5) problems.push(`строка ${i} шире панели`);
+    for (const [n, c] of [["название", it.name], ["время", it.time], ["доля", it.share]] as const) {
+      if (c.l < it.row.l - 0.5 || c.r > it.row.r + 0.5 || c.t < it.row.t - 0.5 || c.b > it.row.b + 0.5) problems.push(`строка ${i}: ${n} вне строки`);
+    }
+    if (it.name.r > it.time.l + 0.5) problems.push(`строка ${i}: название налезает на время`);
+    if (it.time.r > it.share.l + 0.5) problems.push(`строка ${i}: время налезает на долю`);
+    if (it.nameScroll > it.nameClient + 2) problems.push(`строка ${i}: название не помещается (${it.nameScroll} > ${it.nameClient})`);
+    if (i > 0 && it.row.t < items[i - 1].row.b - 0.5) problems.push(`строки ${i - 1} и ${i} налезают`);
+    if (i > 0 && Math.abs(it.share.r - items[0].share.r) > 0.5) problems.push(`строка ${i}: доля не выровнена`);
+    if (i > 0 && Math.abs(it.time.r - items[0].time.r) > 0.5) problems.push(`строка ${i}: время не выровнено`);
+  });
+  expect(problems, `${where}: ${problems.join("; ")} | ${JSON.stringify(report)}`).toEqual([]);
+}
+
+/**
+ * Ждёт конца переходов CSS в «Итогах» (заливка вкладки идёт 150 мс): замер и снимок сразу после клика
+ * видят промежуточный серый, и выбранная вкладка выглядит невыбранной (возврат 2 FB-10).
+ */
+async function settled(page: Page) {
+  const left = await page.getByRole("region", { name: "Итоги" }).evaluate(async (box) => {
+    const all = box.getAnimations({ subtree: true });
+    const done = Promise.all(all.map((a) => a.finished.catch(() => undefined)));
+    await Promise.race([done, new Promise((r) => setTimeout(r, 2000))]);
+    return box.getAnimations({ subtree: true }).filter((a) => a.playState === "running").length;
+  });
+  expect(left, "переходы в «Итогах» не закончились за 2 с").toBe(0);
+}
+
+/**
+ * Состояние вкладок «Итогов» замером (возврат 1 FB-10): заливку основным цветом, жирную подпись и черту
+ * снизу имеет ровно та вкладка, у которой aria-selected, у остальных фон панели; панель подписана
+ * выбранной вкладкой. Указатель уводится, чтобы наведение не мешало замеру. Всё в одной строке ошибки.
+ */
+async function tabsState(page: Page, want: string, where: string) {
+  await page.mouse.move(1, 1);
+  await settled(page);
+  const totals = page.getByRole("region", { name: "Итоги" });
+  const report = await totals.evaluate((box) => {
+    const tabs = [...box.querySelectorAll('[role="tab"]')].map((t) => {
+      const cs = getComputedStyle(t);
+      return {
+        id: t.id,
+        label: t.querySelector(".totals-tab-label")?.textContent ?? "",
+        selected: t.getAttribute("aria-selected"),
+        bg: cs.backgroundColor,
+        shadow: cs.boxShadow,
+        weight: getComputedStyle(t.querySelector(".totals-tab-label")!).fontWeight,
+      };
+    });
+    const panel = box.querySelector('[role="tabpanel"]');
+    const sum = box.querySelector(".totals-sum")?.textContent ?? "";
+    const surface = getComputedStyle(box).backgroundColor;
+    return { tabs, labelledBy: panel?.getAttribute("aria-labelledby"), sum, surface };
+  });
+  const problems: string[] = [];
+  const sel = report.tabs.filter((t) => t.selected === "true");
+  if (sel.length !== 1 || sel[0].label !== want) problems.push(`выбрана не одна «${want}»`);
+  for (const t of report.tabs) {
+    const on = t.selected === "true";
+    if (on && (t.bg === report.surface || t.shadow === "none" || Number(t.weight) < 700)) problems.push(`«${t.label}» выбрана, но выглядит невыбранной`);
+    if (!on && (t.bg !== report.surface || t.shadow !== "none" || Number(t.weight) >= 700)) problems.push(`«${t.label}» не выбрана, но выглядит выбранной`);
+  }
+  if (!report.sum.startsWith(`${want} за сегодня`)) problems.push(`заголовок списка «${report.sum}»`);
+  if (report.labelledBy !== sel[0]?.id) problems.push("панель подписана не выбранной вкладкой");
+  expect(problems, `${where}: ${problems.join("; ")} | ${JSON.stringify(report)}`).toEqual([]);
+}
+
+/**
+ * Контраст текста вкладок и строк списка к фону (WCAG 2.1 AA, не меньше 4,5:1): фон ищется вверх по
+ * предкам до непрозрачного, у строк учитывается полоса доли (::before с прозрачностью). Подписи и суммы
+ * каждой вкладки замеряются в выбранном и невыбранном виде: перебор всех вкладок кликом.
+ */
+async function textContrast(page: Page, where: string) {
+  await page.mouse.move(1, 1);
+  const totals = page.getByRole("region", { name: "Итоги" });
+  const bad: string[] = [];
+  const tabs = totals.getByRole("tablist", { name: "Итоги по категориям" }).getByRole("tab");
+  const n = await tabs.count();
+  for (let i = 0; i < n; i++) {
+    await tabs.nth(i).click();
+    await page.mouse.move(1, 1);
+    await settled(page);
+    const found = await totals.evaluate((box) => {
+      const rgba = (c: string) => {
+        const m = c.match(/[\d.]+/g)!.map(Number);
+        return [m[0], m[1], m[2], m.length > 3 ? m[3] : 1];
+      };
+      const over = (top: number[], under: number[]) => top.slice(0, 3).map((v, k) => v * top[3] + under[k] * (1 - top[3]));
+      const bgOf = (el: Element | null): number[] => {
+        const chain: number[][] = [];
+        for (let e = el; e; e = e.parentElement) {
+          const c = rgba(getComputedStyle(e).backgroundColor);
+          if (c[3] > 0) chain.push(c);
+          if (c[3] >= 1) break;
+        }
+        let acc = [255, 255, 255];
+        for (const c of chain.reverse()) acc = over(c, acc);
+        return acc;
+      };
+      const lum = (c: number[]) => {
+        const [r, g, b] = c.map((v) => {
+          const x = v / 255;
+          return x <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4;
+        });
+        return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+      };
+      const ratio = (a: number[], b: number[]) => {
+        const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p);
+        return (x + 0.05) / (y + 0.05);
+      };
+      const out: string[] = [];
+      const check = (el: Element, bg: number[], what: string) => {
+        const fg = over(rgba(getComputedStyle(el).color), bg);
+        const r = ratio(fg, bg);
+        if (r < 4.5) out.push(`${what} «${el.textContent}» ${r.toFixed(2)}:1 (${getComputedStyle(el).color} на rgb(${bg.map(Math.round).join(",")}))`);
+      };
+      for (const t of box.querySelectorAll('[role="tab"]')) {
+        const state = t.getAttribute("aria-selected") === "true" ? "выбранная" : "невыбранная";
+        for (const part of t.querySelectorAll(".totals-tab-label, .totals-tab-value")) check(part, bgOf(t), `вкладка ${state}`);
+      }
+      for (const el of box.querySelectorAll(".totals-sum, .totals-note, .totals-empty")) check(el, bgOf(el), "панель");
+      for (const li of box.querySelectorAll(".totals-item")) {
+        const row = bgOf(li);
+        const bar = getComputedStyle(li, "::before");
+        const barC = rgba(bar.backgroundColor);
+        const withBar = over([barC[0], barC[1], barC[2], barC[3] * Number(bar.opacity)], row);
+        for (const part of li.querySelectorAll(".totals-name, .totals-time, .totals-share")) {
+          check(part, row, "строка");
+          check(part, withBar, "строка на полосе");
+        }
+      }
+      return out;
+    });
+    bad.push(...found);
+  }
+  expect(bad, `${where}: ${bad.join("; ")}`).toEqual([]);
+}
+
+// s06 — вкладка «Игры» в окне ребёнка (D-58, S39): сумма игр и каждая игра «название, время, доля»;
+// замер на всех размерах окна, включая самые узкие 800 x 480 и 640 x 520.
+for (const [w, h] of [
+  [800, 640],
+  [800, 480],
+  [640, 520],
+]) {
+  test(`s06 моя статистика: вкладка «Игры» в окне ${w} x ${h}`, async ({ page }) => {
+    await page.setViewportSize({ width: w, height: h });
+    await mockProgram(page, { mode: "mystats", children: [s39Child()], myChildId: 1 });
+    await page.goto("/");
+    const totals = page.getByRole("region", { name: "Итоги" });
+    const tabs = totals.getByRole("tablist", { name: "Итоги по категориям" });
+    await expect(tabs.getByRole("tab")).toHaveCount(4);
+    await tabs.getByRole("tab", { name: "Игры", exact: true }).click();
+    await expect(tabs.getByRole("tab", { name: "Игры", exact: true })).toHaveAttribute("aria-selected", "true");
+    const panel = totals.getByRole("tabpanel");
+    await expect(panel.getByText("Игры за сегодня: 17 мин", { exact: true })).toBeVisible();
+    const list = panel.getByRole("list", { name: "Игры: по программам" });
+    await expect(list.getByRole("listitem")).toHaveCount(3);
+    await expect(list.getByRole("listitem").nth(0)).toHaveText("game10 мин59%");
+    await expect(list.getByRole("listitem").nth(1)).toHaveText("game25 мин29%");
+    // Длинное название одной строкой (fitName, PL-22): целиком или обрезано одним «…» с полным в подсказке.
+    const long = await list.getByRole("listitem").nth(2).locator(".totals-name").evaluate((el) => ({
+      title: el.getAttribute("title"),
+      shown: el.querySelector('[aria-hidden="true"]')?.textContent ?? el.textContent,
+      width: el.clientWidth,
+    }));
+    const longOk = long.title === null ? long.shown === S39_LONG : long.title === S39_LONG && long.shown!.endsWith("…") && long.shown!.split("…").length === 2;
+    expect(longOk, `длинное название в окне ${w} x ${h}: ${JSON.stringify(long)}`).toBe(true);
+    await tabListFits(page, `окно ${w} x ${h}`);
+    await tabsState(page, "Игры", `окно ${w} x ${h}`);
+    await noHorizontalScroll(page);
+    await totals.scrollIntoViewIfNeeded();
+    // Кадр - окно (прокручивается область main.content, не документ): «Бонусы» ниже «Итогов» в той же
+    // прокрутке и достижимы ею, а не обрезаны вёрсткой.
+    const below = await page.evaluate(() => {
+      const sc = document.querySelector("main.content")!;
+      const tot = document.querySelector('[aria-labelledby="my-totals"]')!.getBoundingClientRect();
+      const bon = document.querySelector('[aria-labelledby="my-bonuses"]')!.getBoundingClientRect();
+      return { totalsBottom: tot.bottom, bonusesTop: bon.top, scrollH: sc.scrollHeight, clientH: sc.clientHeight, docScroll: document.documentElement.scrollHeight - document.documentElement.clientHeight };
+    });
+    expect(below.bonusesTop >= below.totalsBottom - 0.5 && below.docScroll <= 1, `«Бонусы» в окне ${w} x ${h}: ${JSON.stringify(below)}`).toBe(true);
+    await page.getByRole("region", { name: "Бонусы" }).scrollIntoViewIfNeeded();
+    await expect(page.getByRole("region", { name: "Бонусы" })).toBeInViewport();
+    await totals.scrollIntoViewIfNeeded();
+    await settled(page);
+    if (w === 800 && h === 640) await page.screenshot({ path: `${SCREENS}/s06-my-stats-games.png`, fullPage: true });
+    if (w === 640) await page.screenshot({ path: `${SCREENS}/s06-my-stats-games-small.png` });
+  });
+}
+
+// s31 — статистика родителя, вкладка «Игры» (FR-23, D-58, S39): те же строки, что у ребёнка.
+test("s31 статистика родителя: вкладка «Игры»", async ({ page }) => {
+  await tallWindow(page, 900);
+  await mockProgram(page, { mode: "parent", sessionActive: true, children: [s39Child(), child({ childId: 2, sid: "S-1-5-21-111-222-333-1002", name: "Даша", usedS: 600 })] });
+  await page.goto("/");
+  await page.getByRole("article", { name: "Миша" }).getByRole("button", { name: "Статистика" }).click();
+  const totals = page.getByRole("region", { name: "Итоги" });
+  const tabs = totals.getByRole("tablist", { name: "Итоги по категориям" });
+  await tabs.getByRole("tab", { name: "Игры", exact: true }).click();
+  const panel = totals.getByRole("tabpanel");
+  await expect(panel.getByText("Игры за сегодня: 17 мин", { exact: true })).toBeVisible();
+  await expect(panel.getByRole("list", { name: "Игры: по программам" }).getByRole("listitem").nth(0)).toHaveText("game10 мин59%");
+  await tabListFits(page, "статистика родителя");
+  await tabsState(page, "Игры", "статистика родителя");
+  await noHorizontalScroll(page);
+  await settled(page);
+  await page.screenshot({ path: `${SCREENS}/s31-parent-stats-games.png`, fullPage: true });
+  // Учёба: study 3 мин.
+  await tabs.getByRole("tab", { name: "Учёба", exact: true }).click();
+  await expect(panel.getByRole("list", { name: "Учёба: по программам" }).getByRole("listitem")).toHaveText(["study3 мин100%"]);
+});
+
+// Контраст текста вкладок и строк (WCAG AA 4,5:1) в светлой и тёмной теме, все вкладки по очереди.
+for (const scheme of ["light", "dark"] as const) {
+  test(`s06 моя статистика: контраст вкладок «Итогов», тема ${scheme}`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: scheme });
+    await mockProgram(page, { mode: "mystats", children: [s39Child()], myChildId: 1 });
+    await page.goto("/");
+    await expect(page.getByRole("region", { name: "Итоги" }).getByRole("tab")).toHaveCount(4);
+    await textContrast(page, `тема ${scheme}`);
+    await tabsState(page, "Прочее", `тема ${scheme}, после перебора`);
+  });
+}
+
+// FB-10 (0.3.1): «Использовано сегодня 22 мин» и плитка «Всего 25 мин» видны всегда, поэтому пояснение
+// с числами стоит под рядом вкладок при любой выбранной вкладке и связано с вкладкой «Всего».
+test("s06 моя статистика: пояснение «Всего» про учёбу", async ({ page }) => {
+  await mockProgram(page, { mode: "mystats", children: [s39Child()], myChildId: 1 });
+  await page.goto("/");
+  const totals = page.getByRole("region", { name: "Итоги" });
+  const panel = totals.getByRole("tabpanel");
+  const text = "Всего = 22 мин в счёт лимита + 3 мин учёбы вне лимита";
+  await expect(panel.getByText("Всего за сегодня: 25 мин", { exact: true })).toBeVisible();
+  for (const name of ["Всего", "Игры", "Учёба", "Прочее"]) {
+    await totals.getByRole("tab", { name, exact: true }).click();
+    const note = totals.getByText(text, { exact: true });
+    await expect(note).toBeVisible();
+    await expect(panel.getByText(text, { exact: true })).toHaveCount(0);
+    // Замер после щелчка: щелчок прокручивает страницу к вкладке.
+    const tablist = await boxOf(totals.getByRole("tablist", { name: "Итоги по категориям" }));
+    const nb = await boxOf(note);
+    const pb = await boxOf(panel);
+    expect(nb.top, "пояснение не под вкладками").toBeGreaterThanOrEqual(tablist.bottom - 0.5);
+    expect(nb.bottom, "пояснение не над панелью").toBeLessThanOrEqual(pb.top + 0.5);
+  }
+  await expect(totals.getByRole("tab", { name: "Всего", exact: true })).toHaveAccessibleDescription(new RegExp(text.replace(/[+=]/g, "\\$&")));
+  await noHorizontalScroll(page);
+});
+
+// Пустая вкладка (8.2.6 п.3): «Пока ничего не запускалось», списка нет; снимок s06-my-stats-empty-tab.
+test("s06 моя статистика: пустая вкладка", async ({ page }) => {
+  await mockProgram(page, {
+    mode: "mystats",
+    children: [child({ usedS: 600, gamesUsedS: 0, studyUsedS: 0, programsToday: [{ path: "c:\\tools\\brave.exe", name: "Brave", category: "other", seconds: 600 }] })],
+    myChildId: 1,
+  });
+  await page.goto("/");
+  const totals = page.getByRole("region", { name: "Итоги" });
+  await totals.getByRole("tab", { name: "Игры", exact: true }).click();
+  const panel = totals.getByRole("tabpanel");
+  await expect(panel.getByText("Игры за сегодня: 0 мин", { exact: true })).toBeVisible();
+  await expect(panel.getByText("Пока ничего не запускалось", { exact: true })).toBeVisible();
+  await expect(panel.getByRole("list")).toHaveCount(0);
+  await expect(totals.getByText(/учёбы вне лимита/)).toHaveCount(0);
+  await tabsState(page, "Игры", "пустая вкладка");
+  await totals.scrollIntoViewIfNeeded();
+  await settled(page);
+  await page.screenshot({ path: `${SCREENS}/s06-my-stats-empty-tab.png` });
+});
+
 // s06 — панель «Позови родителя» (FR-10): пароль родителя и +15 / +30 / +60 / своё число.
 test("s06 панель «Позови родителя»", async ({ page }) => {
   await mockProgram(page, { mode: "mystats", children: [child({ bonusBalance: 45 })], myChildId: 1 });
@@ -617,6 +942,33 @@ test("s06 копилка в запретные часы недоступна с 
 });
 
 // s06 — «Бонусы» у ребёнка: копилка, автобонус простыми словами, промокод (R25, R26).
+// Замечание заказчика к 0.2.4: «Ввести промокод» касается названия «PC Block» у шапки. Причина -
+// скрытая подпись таблицы правил вне области прокрутки растягивала само окно; переход к полю
+// промокода (Tab, щелчок) прокручивал окно вместе с шапкой. Шапка стоит на месте, окно не прокручено.
+for (const [w, h] of [
+  [800, 480],
+  [640, 520],
+]) {
+  test(`s06 промокод: шапка на месте после перехода к полю, окно ${w} x ${h}`, async ({ page }) => {
+    await page.setViewportSize({ width: w, height: h });
+    await mockProgram(page, { mode: "mystats", children: [child({ bonusBalance: 45 })], myChildId: 1 });
+    await page.goto("/");
+    const field = page.getByRole("textbox", { name: "Промокод" });
+    await field.focus();
+    await expect(field).toBeFocused();
+    await expect(field).toBeInViewport();
+    // Самая «жадная» прокрутка к полю (так прокручивают переход по ссылке и часть движков окна):
+    // поле к верху видимой области, все прокручиваемые предки вплоть до окна.
+    await field.evaluate((el) => el.scrollIntoView({ block: "start" }));
+    const state = await page.evaluate(() => ({
+      docTop: document.scrollingElement!.scrollTop,
+      barTop: document.querySelector("header.topbar")!.getBoundingClientRect().top,
+    }));
+    expect(state, `окно ${w} x ${h}: ${JSON.stringify(state)}`).toEqual({ docTop: 0, barTop: 0 });
+    await noHorizontalScroll(page);
+  });
+}
+
 test("s06 бонусы ребёнка и промокод", async ({ page }) => {
   await tallWindow(page, 1000);
   const now = Date.now();
@@ -751,7 +1103,7 @@ async function pathsOneLine(page: Page) {
     }
     return out;
   });
-  expect(bad).toEqual([]);
+  expect(bad, `пути в одну строку: ${bad.join("; ")}`).toEqual([]);
 }
 
 // s11 — «Программы»: два ждущих решения (одна с пометкой «Раньше было: игра», другая с длинным
@@ -769,6 +1121,10 @@ test("s11 программы: ждут решения и список", async ({
   await blocksApart(page);
   await nothingSticksOut(page);
   await pathsOneLine(page);
+  await rowsEven(page);
+  const longName = page.getByRole("region", { name: "Все программы" }).locator('.program-name[title="Очень длинное название игры с пробелами и цифрами 2026"]');
+  await expect(longName).toHaveCount(1);
+  await expect(longName).toContainText("…");
   await noHorizontalScroll(page);
   await page.screenshot({ path: `${SCREENS}/s11-programs.png`, fullPage: true });
 });
@@ -781,10 +1137,13 @@ test("s11 программы: решение, фильтр и массовая �
   await expect(page.getByText("SuperGame: игра")).toBeVisible();
   await expect(page.getByRole("button", { name: "Отменить" })).toBeVisible();
   const all = page.getByRole("region", { name: "Все программы" });
-  await all.getByRole("group", { name: "Показать" }).getByRole("button", { name: "Игры" }).click();
-  await expect(all.getByRole("button", { name: "Игры" })).toHaveAttribute("aria-pressed", "true");
+  // Точное имя: у Playwright имя ищется подстрокой, а «Скрыть «Очень длинное название игры…»» содержит «игры».
+  const games = all.getByRole("group", { name: "Показать" }).getByRole("button", { name: "Игры", exact: true });
+  await games.click();
+  await expect(games).toHaveAttribute("aria-pressed", "true");
   await all.getByRole("checkbox", { name: "Выбрать всё в списке" }).check();
   await expect(all.getByText("Выбрано: 3")).toBeVisible();
+  await rowsEven(page);
   await decisionButtonsEven(page);
   await blocksApart(page);
   await nothingSticksOut(page);
@@ -792,6 +1151,273 @@ test("s11 программы: решение, фильтр и массовая �
   await noHorizontalScroll(page);
   await page.screenshot({ path: `${SCREENS}/s11-programs-filtered.png`, fullPage: true });
 });
+
+/**
+ * Строки таблицы программ ровные (замер, не глазом): название, «из файла: …» и издатель в одну
+ * строку с одним «…» (полное в title), видимый текст не шире строки; строка с длинным названием не
+ * выше обычной (±2 px); у каждой строки центры по вертикали времени за неделю, списка категории (или
+ * текста у скрытой) и кнопки «Скрыть» совпадают (±2 px). Обычная строка — без своего названия и не в
+ * режиме правки: подпись «из файла» и поле правки добавляют строку по задаче. При сбое все
+ * подробности — в тексте ошибки одной строкой (пометки сборки видят только её, PL-1).
+ */
+async function rowsEven(page: Page) {
+  const problems = await page.evaluate(() => {
+    const out: { row: number; name: string; what: string; px?: Record<string, number | null> }[] = [];
+    const rows = Array.from(document.querySelectorAll<HTMLElement>(".programs-table tbody tr"));
+    const info = rows.map((row, i) => {
+      const name = row.getAttribute("aria-label") ?? "";
+      const editing = row.querySelector(".name-editor") !== null;
+      const renamed = row.querySelector(".program-filename") !== null;
+      for (const line of Array.from(row.querySelectorAll<HTMLElement>(".line-fit"))) {
+        const visible = line.querySelector<HTMLElement>('[aria-hidden="true"]');
+        const shown = (visible ?? line).textContent ?? "";
+        const lh = parseFloat(getComputedStyle(line).lineHeight) || 20;
+        const lr = line.getBoundingClientRect();
+        // Название — не больше двух строк (data-lines), остальные строки — одна строка.
+        const allowed = Number(line.dataset.lines ?? "1");
+        if (lr.height > lh * (allowed + 0.5)) out.push({ row: i, name, what: `перенос «${shown}»`, px: { height: lr.height, line: lh, allowed } });
+        if ((shown.match(/…/g) ?? []).length > 1) out.push({ row: i, name, what: `два «…» в «${shown}»` });
+        if (shown.endsWith("…") && !line.title) out.push({ row: i, name, what: `обрезано без подсказки «${shown}»` });
+        // Видимый текст (без копии для диктора) не шире строки и строка не нулевой ширины.
+        const range = document.createRange();
+        range.selectNodeContents(visible ?? line);
+        const tw = range.getBoundingClientRect().width;
+        if (lr.width < 8) out.push({ row: i, name, what: `строка названия сжата до нуля «${shown}»`, px: { width: lr.width } });
+        else if (tw > lr.width + 1) out.push({ row: i, name, what: `текст шире строки «${shown}»`, px: { text: tw, box: lr.width } });
+      }
+      const centerOf = (el: Element | null) => {
+        if (!el) return null;
+        const r = el.getBoundingClientRect();
+        return r.height > 0 ? r.top + r.height / 2 : null;
+      };
+      const weekCell = row.querySelector<HTMLElement>(".col-week");
+      let week: number | null = null;
+      if (weekCell && weekCell.textContent?.trim()) {
+        const range = document.createRange();
+        range.selectNodeContents(weekCell);
+        const r = range.getBoundingClientRect();
+        week = r.top + r.height / 2;
+      }
+      const cat = centerOf(row.querySelector(".col-category select, .col-category .program-category"));
+      const btn = centerOf(row.querySelector(".col-action button"));
+      const centers = [week, cat, btn].filter((v): v is number => v !== null);
+      if (centers.length >= 2 && Math.max(...centers) - Math.min(...centers) > 2) {
+        out.push({ row: i, name, what: "центры ячеек на разной высоте", px: { week, category: cat, button: btn } });
+      }
+      const long = row.querySelector(".program-name[title]") !== null;
+      // Лишние строки: название во вторую строку (D-59, не больше двух) и путь, у которого имя файла
+      // не помещается в строку даже после «диск…» (имя файла не режется). Строка выше обычной ровно на них.
+      const linesOf = (el: HTMLElement | null) => {
+        if (!el) return 0;
+        const lh = parseFloat(getComputedStyle(el).lineHeight) || 20;
+        return Math.max(0, Math.round(el.getBoundingClientRect().height / lh) - 1) * lh;
+      };
+      // Название стоит в ряд со значком «Переименовать» (24 px): ряд растёт на высоту названия сверх
+      // одной строки или значка, смотря что выше.
+      const title = row.querySelector<HTMLElement>(".program-title");
+      const nameEl = row.querySelector<HTMLElement>(".program-name");
+      const pencil = title?.querySelector<HTMLElement>(".program-rename");
+      const nameExtra =
+        title && nameEl && linesOf(nameEl) > 0
+          ? title.getBoundingClientRect().height - Math.max(parseFloat(getComputedStyle(nameEl).lineHeight) || 20, pencil?.getBoundingClientRect().height ?? 0)
+          : 0;
+      const extra = nameExtra + linesOf(row.querySelector<HTMLElement>(".path-short"));
+      return { i, name, h: row.getBoundingClientRect().height, plain: !editing && !renamed, long, extra };
+    });
+    const plain = info.filter((x) => x.plain && !x.long && x.extra === 0);
+    if (plain.length > 0) {
+      const base = Math.min(...plain.map((x) => x.h));
+      for (const x of info.filter((y) => y.plain)) {
+        if (Math.abs(x.h - base - x.extra) > 2) out.push({ row: x.i, name: x.name, what: "строка выше обычной", px: { height: x.h, base, extra: x.extra } });
+      }
+    }
+    return out;
+  });
+  if (problems.length > 0) throw new Error(`строки таблицы программ неровные: ${JSON.stringify(problems)}`);
+}
+
+/**
+ * Кнопка «Скрыть» / «Показать» в своей колонке: не налезает на категорию и время за неделю (D-57).
+ * У запрещённой (видимой) кнопки нет: запрещённую скрыть нельзя (RF9-5).
+ */
+async function hideButtonsInColumn(page: Page) {
+  const bad = await page.evaluate(() => {
+    const out: string[] = [];
+    for (const row of Array.from(document.querySelectorAll<HTMLElement>(".programs-table tbody tr"))) {
+      const btn = row.querySelector<HTMLElement>(".col-action button");
+      const blocked = row.querySelector<HTMLSelectElement>(".col-category select")?.value === "blocked";
+      if (blocked) {
+        if (btn) out.push(`у запрещённой есть «Скрыть»: ${row.getAttribute("aria-label")}`);
+        continue;
+      }
+      const cat = row.querySelector<HTMLElement>(".col-category")?.getBoundingClientRect();
+      const week = row.querySelector<HTMLElement>(".col-week")?.getBoundingClientRect();
+      if (!btn || !cat || !week) {
+        out.push(`нет кнопки или колонок: ${row.getAttribute("aria-label")}`);
+        continue;
+      }
+      const b = btn.getBoundingClientRect();
+      if (b.left < week.right - 0.5 || b.left < cat.right - 0.5) out.push(`кнопка налезает: ${row.getAttribute("aria-label")}`);
+      if (b.height > 48) out.push(`кнопка в две строки: ${row.getAttribute("aria-label")}`);
+    }
+    return out;
+  });
+  expect(bad).toEqual([]);
+}
+
+// s11 — фильтр «Скрытые» (D-57, 8.3.4 п.4): скрыта запускалка Stalker2, в строке категория текстом
+// и «Показать»; в «Все» её нет. Фильтры помещаются в ряд с поиском.
+test("s11 программы: фильтр «Скрытые»", async ({ page }) => {
+  await tallWindow(page, 1300);
+  const list = [
+    ...programList(),
+    { path: "c:\\program files\\epic games\\stalker2\\stalker2.exe", name: "Stalker2", publisher: "Epic Games", category: "games" as const, source: "parent" as const, weekS: 0, hidden: true },
+    { path: "c:\\program files\\epic games\\stalker2\\binaries\\win64\\stalker2-win64-shipping.exe", name: "Stalker2-Win64-Shipping", publisher: "GSC Game World", category: "games" as const, source: "catalog" as const, weekS: 9000 },
+  ];
+  await openPrograms(page, { pending: [], programs: list });
+  const all = page.getByRole("region", { name: "Все программы" });
+  await expect(all.getByRole("row", { name: "Stalker2-Win64-Shipping", exact: true })).toBeVisible();
+  await expect(all.getByRole("row", { name: "Stalker2", exact: true })).toHaveCount(0);
+  await hideButtonsInColumn(page);
+  await rowsEven(page);
+  await nothingSticksOut(page);
+  const filters = all.getByRole("group", { name: "Показать" });
+  const first = await boxOf(filters.getByRole("button", { name: "Все", exact: true }));
+  const last = await boxOf(filters.getByRole("button", { name: "Скрытые", exact: true }));
+  expect(Math.abs(last.top - first.top), "фильтр «Скрытые» перенёсся на новую строку").toBeLessThanOrEqual(0.5);
+  await filters.getByRole("button", { name: "Скрытые", exact: true }).click();
+  await expect(all.getByRole("row", { name: "Stalker2", exact: true })).toBeVisible();
+  await expect(all.getByRole("button", { name: "Показать «Stalker2»", exact: true })).toBeVisible();
+  await hideButtonsInColumn(page);
+  await rowsEven(page);
+  await blocksApart(page);
+  await nothingSticksOut(page);
+  await pathsOneLine(page);
+  await noHorizontalScroll(page);
+  await page.screenshot({ path: `${SCREENS}/s11-programs-hidden.png`, fullPage: true });
+});
+
+/** Строка в режиме правки названия не налезает на колонки: поле и кнопки внутри своей ячейки (D-59). */
+async function editorInCell(page: Page) {
+  const bad = await page.evaluate(() => {
+    const out: string[] = [];
+    const editor = document.querySelector<HTMLElement>(".name-editor");
+    const cell = editor?.closest("td")?.getBoundingClientRect();
+    const cat = editor?.closest("tr")?.querySelector<HTMLElement>(".col-category")?.getBoundingClientRect();
+    if (!editor || !cell || !cat) return ["нет поля названия"];
+    for (const el of Array.from(editor.querySelectorAll<HTMLElement>("input, button, p"))) {
+      const r = el.getBoundingClientRect();
+      if (r.right > cell.right + 0.5 || r.left < cell.left - 0.5) out.push(`вылезает из ячейки: ${el.tagName} ${el.textContent?.slice(0, 30)}`);
+      if (r.right > cat.left + 0.5) out.push(`налезает на категорию: ${el.tagName} ${el.textContent?.slice(0, 30)}`);
+    }
+    return out;
+  });
+  expect(bad).toEqual([]);
+}
+
+// s11 — «Переименовать» (D-59, 8.3.4 п.5): поле на месте названия с «Сохранить»/«Отмена», затем
+// своё название с «из файла: …» и «Название изменено» с «Отменить».
+test("s11 программы: переименование", async ({ page }) => {
+  await tallWindow(page, 1300);
+  const list = [
+    ...programList(),
+    { path: "c:\\program files\\epic games\\stalker2\\binaries\\win64\\stalker2-win64-shipping.exe", name: "Stalker2-Win64-Shipping", publisher: "GSC Game World", category: "games" as const, source: "catalog" as const, weekS: 9000 },
+  ];
+  await openPrograms(page, { pending: [], programs: list });
+  const all = page.getByRole("region", { name: "Все программы" });
+  const row = all.getByRole("row", { name: "Stalker2-Win64-Shipping", exact: true });
+  // Точное имя внутри своей строки: имена соседних кнопок содержат название программы.
+  await row.getByRole("button", { name: "Переименовать «Stalker2-Win64-Shipping»", exact: true }).click();
+  const field = row.getByRole("textbox", { name: "Новое название для «Stalker2-Win64-Shipping»", exact: true });
+  await expect(field).toBeFocused();
+  await editorInCell(page);
+  await hideButtonsInColumn(page);
+  await rowsEven(page);
+  await noHorizontalScroll(page);
+  await page.screenshot({ path: `${SCREENS}/s11-programs-rename-edit.png`, fullPage: true });
+
+  await field.fill("Сталкер 2");
+  await row.getByRole("button", { name: "Сохранить", exact: true }).click();
+  await expect(page.getByText("Название изменено")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Отменить", exact: true })).toBeVisible();
+  const renamed = all.getByRole("row", { name: "Сталкер 2", exact: true });
+  await expect(renamed.getByText("из файла: Stalker2-Win64-Shipping", { exact: true })).toBeVisible();
+  await hideButtonsInColumn(page);
+  await rowsEven(page);
+  await nothingSticksOut(page);
+  await pathsOneLine(page);
+  await blocksApart(page);
+  await noHorizontalScroll(page);
+  await page.screenshot({ path: `${SCREENS}/s11-programs-rename.png`, fullPage: true });
+});
+
+// FB-9/FB-11 (UX-аудит 0.3.1): в окне 960 название резалось на 13 знаках («Minecraft Lau…»), а путь
+// терял имя файла («c:\\program…ncher.exe»), хотя справа в строке было пусто: узкие колонки «Категория»,
+// «За неделю», «Скрыть» были шире своего содержимого, а путь резал имя файла при коротком начале.
+// Окно родителя не уже 960 x 620 (app.go): проверяем 960 x 640 и 960 x 620.
+const fitList = () => [
+  ...programList(),
+  { path: "c:\\program files\\epic games\\stalker2\\binaries\\win64\\stalker2-win64-shipping.exe", name: "Сталкер 2", fileName: "Stalker2-Win64-Shipping", publisher: "GSC Game World", category: "games" as const, source: "catalog" as const, weekS: 9000 },
+  { path: "c:\\program files\\epic games\\fortnite\\fortnitegame\\binaries\\win64\\fortniteclient-win64-shipping.exe", name: "Fortnite", publisher: "Epic Games, Inc.", category: "games" as const, source: "catalog" as const, weekS: 600 },
+];
+
+for (const [w, h] of [
+  [960, 640],
+  [960, 620],
+]) {
+  test(`s11 программы: название и имя файла целиком в окне ${w} x ${h}`, async ({ page }) => {
+    await page.setViewportSize({ width: w, height: h });
+    await openPrograms(page, { pending: [], programs: fitList() });
+    const all = page.getByRole("region", { name: "Все программы" });
+    await expect(all.getByRole("row", { name: "Minecraft Launcher", exact: true })).toBeVisible();
+    const report = await page.evaluate(() => {
+      const out: Record<string, unknown>[] = [];
+      for (const row of Array.from(document.querySelectorAll<HTMLElement>(".programs-table tbody tr"))) {
+        const label = row.getAttribute("aria-label") ?? "";
+        const path = row.dataset.path ?? "";
+        const name = row.querySelector<HTMLElement>(".program-name")!;
+        const nameShown = (name.querySelector('[aria-hidden="true"]') ?? name).textContent ?? "";
+        const lh = parseFloat(getComputedStyle(name).lineHeight) || 20;
+        const short = row.querySelector<HTMLElement>(".path-short")!;
+        const tail = row.querySelector<HTMLElement>(".path-tail")!;
+        const sb = short.getBoundingClientRect();
+        const tb = tail.getBoundingClientRect();
+        const fileName = row.querySelector<HTMLElement>(".program-filename");
+        out.push({
+          label,
+          nameShown,
+          nameLines: Math.round(name.getBoundingClientRect().height / lh),
+          file: path.slice(path.lastIndexOf("\\")),
+          tail: tail.textContent,
+          tailInside: tb.left >= sb.left - 0.5 && tb.right <= sb.right + 0.5 && tb.bottom <= sb.bottom + 0.5 && tail.scrollWidth <= tail.clientWidth + 1,
+          fromFile: fileName ? (fileName.querySelector('[aria-hidden="true"]') ?? fileName).textContent : null,
+        });
+      }
+      return out;
+    });
+    const msg = JSON.stringify(report);
+    const row = (label: string) => report.find((r) => r.label === label)!;
+    // Название «Minecraft Launcher» видно целиком.
+    expect(row("Minecraft Launcher").nameShown, msg).toBe("Minecraft Launcher");
+    // Имя файла в пути у каждой строки целиком и в своей рамке (не обрезано и не спрятано).
+    for (const r of report) {
+      expect(r.tail, `имя файла обрезано: ${msg}`).toBe(r.file);
+      expect(r.tailInside, `имя файла не помещается в рамку: ${msg}`).toBe(true);
+    }
+    expect(row("Minecraft Launcher").tail).toBe("\\minecraftlauncher.exe");
+    expect(row("Сталкер 2").tail).toBe("\\stalker2-win64-shipping.exe");
+    expect(row("Сталкер 2").fromFile, msg).toBe("из файла: Stalker2-Win64-Shipping");
+    // Длинное название переносится на вторую строку, а не режется на первой: не больше двух строк.
+    const long = row("Очень длинное название игры с пробелами и цифрами 2026");
+    expect(long.nameLines, msg).toBe(2);
+    expect(String(long.nameShown).startsWith("Очень длинное название игры"), msg).toBe(true);
+    await hideButtonsInColumn(page);
+    await rowsEven(page);
+    await nothingSticksOut(page);
+    await noHorizontalScroll(page);
+    await page.screenshot({ path: `${SCREENS}/s11-programs-fit-${w}x${h}.png`, fullPage: true });
+  });
+}
 
 // s11 — «Программы» пустой: никто ничего не запускал.
 test("s11 программы: пусто", async ({ page }) => {

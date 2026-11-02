@@ -434,7 +434,7 @@ func TestClassifierConcurrent(t *testing.T) {
 
 // Ловит: строковое имя вердикта для журнала работы пустое.
 func TestVerdictString(t *testing.T) {
-	for v, want := range map[Verdict]string{VerdictSystem: "система", VerdictAllow: "разрешена", VerdictForbidden: "запрещена", VerdictUnknown: "незнакомая"} {
+	for v, want := range map[Verdict]string{VerdictSystem: "система", VerdictAllow: "разрешена", VerdictForbidden: "запрещена", VerdictUnknown: "незнакомая", VerdictHidden: "скрыта"} {
 		if got := v.String(); got != want {
 			t.Errorf("%d.String() = %q, want %q", v, got, want)
 		}

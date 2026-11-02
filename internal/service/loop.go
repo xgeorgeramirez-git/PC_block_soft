@@ -123,7 +123,8 @@ func (s *Service) sampleFor(cs *childState) (core.SessionSample, string) {
 // foregroundOf — категория секунды по программе переднего плана (RM3-1, RM3-7): категорию даёт
 // путь exe через классификатор, слова стража не учитываются (кроме «Видео и соцсети» — сайты M4).
 // Разрешённая программа — её категория; система, незнакомая, запрещённая, пустой или нечитаемый
-// путь — «Прочее» (PL-7/8): незнакомая не успевает засчитаться игрой. Отпечаток файла — тот, что
+// путь — «Прочее» (PL-7/8): незнакомая не успевает засчитаться игрой. Скрытая родителем — «Прочее»
+// без учёта по программе (D-57, RF9-3). Отпечаток файла — тот, что
 // видел наблюдатель (fpSeen), издатель тоже (pubSeen, RM3-13): подменённый файл не засчитывается по старому решению. Путь для
 // учёта — нормализованный, у системы «».
 func (s *Service) foregroundOf(sm ipc.SensorSample) (core.Category, string) {
@@ -140,6 +141,8 @@ func (s *Service) foregroundOf(sm ipc.SensorSample) (core.Category, string) {
 		return core.CatOther, ""
 	case programs.VerdictAllow:
 		return coreCategory(res.Category), norm
+	case programs.VerdictHidden:
+		return core.CatOther, "" // скрытая «никак не фигурирует» (D-57): общее время, без учёта по программе
 	}
 	return core.CatOther, norm
 }

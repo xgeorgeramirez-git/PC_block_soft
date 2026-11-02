@@ -114,6 +114,19 @@ func (a storeAdapter) SetProgramsCategory(paths []string, category string, at in
 	return programsOf(list), nil
 }
 
+func (a storeAdapter) SetProgramsHidden(paths []string, hidden bool) ([]service.Program, error) {
+	list, err := a.s.SetProgramsHidden(paths, hidden)
+	if err != nil {
+		return nil, err
+	}
+	return programsOf(list), nil
+}
+
+func (a storeAdapter) SetProgramName(path, name string) (service.Program, bool, error) {
+	p, ok, err := a.s.SetProgramName(path, name)
+	return service.Program(p), ok, err
+}
+
 func (a storeAdapter) RestoreProgram(p service.Program) error {
 	return a.s.RestoreProgram(storage.Program(p))
 }
@@ -186,6 +199,18 @@ func (a storeAdapter) SaveDayAndUsage(childID int64, st core.DayState, usage []s
 
 func (a storeAdapter) ProgramSeconds(fromDay string) (map[string]int, error) {
 	return a.s.ProgramSeconds(fromDay)
+}
+
+func (a storeAdapter) DayUsage(childID int64, day string) ([]service.UsageRow, error) {
+	list, err := a.s.DayUsage(childID, day)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]service.UsageRow, 0, len(list))
+	for _, u := range list {
+		out = append(out, service.UsageRow(u))
+	}
+	return out, nil
 }
 
 func (a storeAdapter) GetSchedule(childID int64) ([]core.Interval, error) {

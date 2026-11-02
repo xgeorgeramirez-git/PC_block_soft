@@ -389,18 +389,42 @@
             {
               "path": "c:\\program files\\bravesoftware\\brave-browser\\application\\brave.exe",
               "name": "Brave",
+              "fileName": "",
               "publisher": "Brave Software, Inc.",
               "category": "other",
               "source": "snapshot",
-              "weekS": 5400
+              "weekS": 5400,
+              "hidden": false
             },
             {
               "path": "c:\\program files\\minecraft launcher\\minecraftlauncher.exe",
               "name": "Minecraft Launcher",
+              "fileName": "",
               "publisher": "Mojang",
               "category": "games",
               "source": "catalog",
-              "weekS": 0
+              "weekS": 0,
+              "hidden": false
+            },
+            {
+              "path": "c:\\program files\\epic games\\stalker2\\stalker2.exe",
+              "name": "Stalker2",
+              "fileName": "",
+              "publisher": "Epic Games",
+              "category": "games",
+              "source": "parent",
+              "weekS": 0,
+              "hidden": true
+            },
+            {
+              "path": "c:\\program files\\epic games\\stalker2\\binaries\\win64\\stalker2-win64-shipping.exe",
+              "name": "Сталкер 2",
+              "fileName": "Stalker2-Win64-Shipping",
+              "publisher": "GSC Game World",
+              "category": "games",
+              "source": "catalog",
+              "weekS": 7200,
+              "hidden": false
             }
           ],
           "children": [
@@ -1321,18 +1345,42 @@
           {
             "path": "c:\\program files\\bravesoftware\\brave-browser\\application\\brave.exe",
             "name": "Brave",
+            "fileName": "",
             "publisher": "Brave Software, Inc.",
             "category": "other",
             "source": "snapshot",
-            "weekS": 5400
+            "weekS": 5400,
+            "hidden": false
           },
           {
             "path": "c:\\program files\\minecraft launcher\\minecraftlauncher.exe",
             "name": "Minecraft Launcher",
+            "fileName": "",
             "publisher": "Mojang",
             "category": "games",
             "source": "catalog",
-            "weekS": 0
+            "weekS": 0,
+            "hidden": false
+          },
+          {
+            "path": "c:\\program files\\epic games\\stalker2\\stalker2.exe",
+            "name": "Stalker2",
+            "fileName": "",
+            "publisher": "Epic Games",
+            "category": "games",
+            "source": "parent",
+            "weekS": 0,
+            "hidden": true
+          },
+          {
+            "path": "c:\\program files\\epic games\\stalker2\\binaries\\win64\\stalker2-win64-shipping.exe",
+            "name": "Сталкер 2",
+            "fileName": "Stalker2-Win64-Shipping",
+            "publisher": "GSC Game World",
+            "category": "games",
+            "source": "catalog",
+            "weekS": 7200,
+            "hidden": false
           }
         ],
         "children": [
@@ -1522,8 +1570,42 @@
             "text": "Когда время вышло: экран блокировки"
           }
         ],
-        "gamesS": 1200,
-        "studyS": 2400
+        "gamesS": 900,
+        "studyS": 180,
+        "otherS": 1200,
+        "allS": 2280,
+        "programs": [
+          {
+            "path": "c:\\games\\game.exe",
+            "name": "game",
+            "category": "games",
+            "seconds": 600
+          },
+          {
+            "path": "c:\\games\\game2.exe",
+            "name": "game2",
+            "category": "games",
+            "seconds": 300
+          },
+          {
+            "path": "c:\\school\\study.exe",
+            "name": "study",
+            "category": "study",
+            "seconds": 180
+          },
+          {
+            "path": "c:\\program files\\brave software\\brave-browser\\application\\brave.exe",
+            "name": "Brave",
+            "category": "other",
+            "seconds": 900
+          },
+          {
+            "path": "",
+            "name": "Остальное время",
+            "category": "other",
+            "seconds": 300
+          }
+        ]
       }
     }
   },
@@ -1561,7 +1643,10 @@
         "today": [],
         "rules": [],
         "gamesS": 0,
-        "studyS": 0
+        "studyS": 0,
+        "otherS": 0,
+        "allS": 0,
+        "programs": []
       }
     }
   },
@@ -1693,8 +1778,42 @@
             "text": "Когда время вышло: экран блокировки"
           }
         ],
-        "gamesS": 1200,
-        "studyS": 2400
+        "gamesS": 900,
+        "studyS": 180,
+        "otherS": 1200,
+        "allS": 2280,
+        "programs": [
+          {
+            "path": "c:\\games\\game.exe",
+            "name": "game",
+            "category": "games",
+            "seconds": 600
+          },
+          {
+            "path": "c:\\games\\game2.exe",
+            "name": "game2",
+            "category": "games",
+            "seconds": 300
+          },
+          {
+            "path": "c:\\school\\study.exe",
+            "name": "study",
+            "category": "study",
+            "seconds": 180
+          },
+          {
+            "path": "c:\\program files\\brave software\\brave-browser\\application\\brave.exe",
+            "name": "Brave",
+            "category": "other",
+            "seconds": 900
+          },
+          {
+            "path": "",
+            "name": "Остальное время",
+            "category": "other",
+            "seconds": 300
+          }
+        ]
       }
     }
   },
@@ -1947,6 +2066,108 @@
       "ok": false,
       "error": "Можно убрать от 1 до 240 минут",
       "field": "minutes"
+    }
+  },
+  "RenameProgram": {
+    "request": {
+      "path": "c:\\program files\\epic games\\stalker2\\binaries\\win64\\stalker2-win64-shipping.exe",
+      "name": "Сталкер 2"
+    },
+    "reply": {
+      "ok": true,
+      "payload": {
+        "message": "Название изменено",
+        "undoId": "p-6",
+        "undoUntilMs": 1760000010000,
+        "programs": {
+          "pending": [
+            {
+              "path": "c:\\users\\миша\\downloads\\supergame.exe",
+              "name": "SuperGame",
+              "publisher": "Без подписи издателя",
+              "description": "Super Game",
+              "attempts": 4,
+              "lastAttemptAt": 1759996400000,
+              "wasCategory": "games",
+              "byChild": [
+                {
+                  "childId": 1,
+                  "name": "Миша",
+                  "attempts": 3
+                },
+                {
+                  "childId": 2,
+                  "name": "Даша",
+                  "attempts": 1
+                }
+              ]
+            }
+          ],
+          "programs": [
+            {
+              "path": "c:\\program files\\bravesoftware\\brave-browser\\application\\brave.exe",
+              "name": "Brave",
+              "fileName": "",
+              "publisher": "Brave Software, Inc.",
+              "category": "other",
+              "source": "snapshot",
+              "weekS": 5400,
+              "hidden": false
+            },
+            {
+              "path": "c:\\program files\\minecraft launcher\\minecraftlauncher.exe",
+              "name": "Minecraft Launcher",
+              "fileName": "",
+              "publisher": "Mojang",
+              "category": "games",
+              "source": "catalog",
+              "weekS": 0,
+              "hidden": false
+            },
+            {
+              "path": "c:\\program files\\epic games\\stalker2\\stalker2.exe",
+              "name": "Stalker2",
+              "fileName": "",
+              "publisher": "Epic Games",
+              "category": "games",
+              "source": "parent",
+              "weekS": 0,
+              "hidden": true
+            },
+            {
+              "path": "c:\\program files\\epic games\\stalker2\\binaries\\win64\\stalker2-win64-shipping.exe",
+              "name": "Сталкер 2",
+              "fileName": "Stalker2-Win64-Shipping",
+              "publisher": "GSC Game World",
+              "category": "games",
+              "source": "catalog",
+              "weekS": 7200,
+              "hidden": false
+            }
+          ],
+          "children": [
+            {
+              "childId": 1,
+              "name": "Миша"
+            },
+            {
+              "childId": 2,
+              "name": "Даша"
+            }
+          ]
+        }
+      }
+    }
+  },
+  "RenameProgram#tooLong": {
+    "request": {
+      "path": "c:\\x.exe",
+      "name": "Очень длинное название"
+    },
+    "reply": {
+      "ok": false,
+      "error": "Название до 60 символов",
+      "field": "name"
     }
   },
   "ResetPassword": {
@@ -2523,18 +2744,135 @@
             {
               "path": "c:\\program files\\bravesoftware\\brave-browser\\application\\brave.exe",
               "name": "Brave",
+              "fileName": "",
               "publisher": "Brave Software, Inc.",
               "category": "other",
               "source": "snapshot",
-              "weekS": 5400
+              "weekS": 5400,
+              "hidden": false
             },
             {
               "path": "c:\\program files\\minecraft launcher\\minecraftlauncher.exe",
               "name": "Minecraft Launcher",
+              "fileName": "",
               "publisher": "Mojang",
               "category": "games",
               "source": "catalog",
-              "weekS": 0
+              "weekS": 0,
+              "hidden": false
+            },
+            {
+              "path": "c:\\program files\\epic games\\stalker2\\stalker2.exe",
+              "name": "Stalker2",
+              "fileName": "",
+              "publisher": "Epic Games",
+              "category": "games",
+              "source": "parent",
+              "weekS": 0,
+              "hidden": true
+            },
+            {
+              "path": "c:\\program files\\epic games\\stalker2\\binaries\\win64\\stalker2-win64-shipping.exe",
+              "name": "Сталкер 2",
+              "fileName": "Stalker2-Win64-Shipping",
+              "publisher": "GSC Game World",
+              "category": "games",
+              "source": "catalog",
+              "weekS": 7200,
+              "hidden": false
+            }
+          ],
+          "children": [
+            {
+              "childId": 1,
+              "name": "Миша"
+            },
+            {
+              "childId": 2,
+              "name": "Даша"
+            }
+          ]
+        }
+      }
+    }
+  },
+  "SetProgramsHidden": {
+    "request": {
+      "paths": [
+        "c:\\program files\\epic games\\stalker2\\stalker2.exe"
+      ],
+      "hidden": true
+    },
+    "reply": {
+      "ok": true,
+      "payload": {
+        "message": "Stalker2 скрыта",
+        "undoId": "p-5",
+        "undoUntilMs": 1760000010000,
+        "programs": {
+          "pending": [
+            {
+              "path": "c:\\users\\миша\\downloads\\supergame.exe",
+              "name": "SuperGame",
+              "publisher": "Без подписи издателя",
+              "description": "Super Game",
+              "attempts": 4,
+              "lastAttemptAt": 1759996400000,
+              "wasCategory": "games",
+              "byChild": [
+                {
+                  "childId": 1,
+                  "name": "Миша",
+                  "attempts": 3
+                },
+                {
+                  "childId": 2,
+                  "name": "Даша",
+                  "attempts": 1
+                }
+              ]
+            }
+          ],
+          "programs": [
+            {
+              "path": "c:\\program files\\bravesoftware\\brave-browser\\application\\brave.exe",
+              "name": "Brave",
+              "fileName": "",
+              "publisher": "Brave Software, Inc.",
+              "category": "other",
+              "source": "snapshot",
+              "weekS": 5400,
+              "hidden": false
+            },
+            {
+              "path": "c:\\program files\\minecraft launcher\\minecraftlauncher.exe",
+              "name": "Minecraft Launcher",
+              "fileName": "",
+              "publisher": "Mojang",
+              "category": "games",
+              "source": "catalog",
+              "weekS": 0,
+              "hidden": false
+            },
+            {
+              "path": "c:\\program files\\epic games\\stalker2\\stalker2.exe",
+              "name": "Stalker2",
+              "fileName": "",
+              "publisher": "Epic Games",
+              "category": "games",
+              "source": "parent",
+              "weekS": 0,
+              "hidden": true
+            },
+            {
+              "path": "c:\\program files\\epic games\\stalker2\\binaries\\win64\\stalker2-win64-shipping.exe",
+              "name": "Сталкер 2",
+              "fileName": "Stalker2-Win64-Shipping",
+              "publisher": "GSC Game World",
+              "category": "games",
+              "source": "catalog",
+              "weekS": 7200,
+              "hidden": false
             }
           ],
           "children": [
@@ -2850,18 +3188,42 @@
             {
               "path": "c:\\program files\\bravesoftware\\brave-browser\\application\\brave.exe",
               "name": "Brave",
+              "fileName": "",
               "publisher": "Brave Software, Inc.",
               "category": "other",
               "source": "snapshot",
-              "weekS": 5400
+              "weekS": 5400,
+              "hidden": false
             },
             {
               "path": "c:\\program files\\minecraft launcher\\minecraftlauncher.exe",
               "name": "Minecraft Launcher",
+              "fileName": "",
               "publisher": "Mojang",
               "category": "games",
               "source": "catalog",
-              "weekS": 0
+              "weekS": 0,
+              "hidden": false
+            },
+            {
+              "path": "c:\\program files\\epic games\\stalker2\\stalker2.exe",
+              "name": "Stalker2",
+              "fileName": "",
+              "publisher": "Epic Games",
+              "category": "games",
+              "source": "parent",
+              "weekS": 0,
+              "hidden": true
+            },
+            {
+              "path": "c:\\program files\\epic games\\stalker2\\binaries\\win64\\stalker2-win64-shipping.exe",
+              "name": "Сталкер 2",
+              "fileName": "Stalker2-Win64-Shipping",
+              "publisher": "GSC Game World",
+              "category": "games",
+              "source": "catalog",
+              "weekS": 7200,
+              "hidden": false
             }
           ],
           "children": [

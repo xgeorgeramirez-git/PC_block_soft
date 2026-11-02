@@ -8,6 +8,10 @@ import {
   decisionMessage,
   publisherText,
   fitPath,
+  hiddenMessage,
+  nameError,
+  clipName,
+  fitName,
   shortenPath,
   timesWord,
   visiblePrograms,
@@ -53,8 +57,8 @@ describe("подписи категорий", () => {
   });
 
   it("фильтр: Все, Игры, Учёба, Прочее, Запрещено", () => {
-    expect(FILTERS.map((f) => f.label)).toEqual(["Все", "Игры", "Учёба", "Прочее", "Запрещено"]);
-    expect(FILTERS.map((f) => f.id)).toEqual(["all", "games", "study", "other", "blocked"]);
+    expect(FILTERS.map((f) => f.label)).toEqual(["Все", "Игры", "Учёба", "Прочее", "Запрещено", "Скрытые"]);
+    expect(FILTERS.map((f) => f.id)).toEqual(["all", "games", "study", "other", "blocked", "hidden"]);
   });
 
   it("название категории для строки", () => {
@@ -112,21 +116,26 @@ describe("путь: обрезка по центру", () => {
   // («очень …\\», «… умножения.exe»), а предел длины нарушается (приёмка M3-R1 п.5).
   it("пути с пробелами в именах папок: без пробела у многоточия при разных длинах", () => {
     const game = "c:\\игры\\моя игра\\очень длинное имя файла игры с пробелами внутри и ещё.exe";
-    expect(shortenPath(game, 17)).toBe("c:\\игры\\…ещё.exe");
-    expect(shortenPath(game, 22)).toBe("c:\\игры\\моя…и ещё.exe");
-    expect(shortenPath(game, 36)).toBe("c:\\игры\\моя игра\\о…внутри и ещё.exe");
-    expect(shortenPath(game, 60)).toBe("c:\\игры\\моя игра\\очень длинное…с пробелами внутри и ещё.exe");
+    // Имя файла длиннее предела: целиком, от начала остаётся только диск.
+    const gameFile = "\\очень длинное имя файла игры с пробелами внутри и ещё.exe";
+    expect(shortenPath(game, 17)).toBe(`c:…${gameFile}`);
+    expect(shortenPath(game, 36)).toBe(`c:…${gameFile}`);
+    expect(shortenPath(game, 60)).toBe(`c:…${gameFile}`);
+    expect(shortenPath(game, 64)).toBe(`c:\\иг…${gameFile}`);
     const trainer =
       "c:\\users\\даша\\appdata\\local\\programs\\очень длинное название папки тренажёра по математике\\версия 2026.10.1\\тренажёр таблицы умножения.exe";
-    expect(shortenPath(trainer, 29)).toBe("c:\\users\\даша\\…умножения.exe");
+    expect(shortenPath(trainer, 29)).toBe("c:…\\тренажёр таблицы умножения.exe");
     expect(shortenPath(trainer, 80)).toBe("c:\\users\\даша\\appdata\\local\\programs\\очень длинн…\\тренажёр таблицы умножения.exe");
     const steam = "c:\\program files (x86)\\steam\\steamapps\\common\\очень длинное название игры с пробелами\\bin\\win64\\game.exe";
     expect(shortenPath(steam, 20)).toBe("c:\\program…\\game.exe");
     expect(shortenPath(steam, 40)).toBe("c:\\program files (x86)\\s…\\win64\\game.exe");
     for (const p of [game, trainer, steam]) {
+      const file = p.slice(p.lastIndexOf("\\"));
       for (let n = 12; n < p.length; n++) {
         const short = shortenPath(p, n);
-        expect(short.length).toBeLessThanOrEqual(n);
+        // Не длиннее предела, если имя файла помещается; иначе диск, «…» и имя файла целиком.
+        if (short !== `c:…${file}`) expect(short.length).toBeLessThanOrEqual(n);
+        expect(short.endsWith(file)).toBe(true);
         expect(short).not.toMatch(/\s…|…\s/);
       }
     }
@@ -141,8 +150,8 @@ describe("путь: обрезка по центру", () => {
     expect(fitPath(steam, 40, upTo(30))).toBe("c:\\program fil…\\win64\\game.exe");
     expect(fitPath(steam, 40, upTo(20))).toBe("c:\\program…\\game.exe");
     expect(fitPath("c:\\games\\a.exe", 40, upTo(100))).toBe("c:\\games\\a.exe");
-    // Не помещается даже самый короткий вид: самый короткий (имя файла остаётся, лишнее режет рамка).
-    expect(fitPath(steam, 40, () => false)).toBe(shortenPath(steam, 12));
+    // Не помещается даже самый короткий вид: диск, «…» и имя файла целиком (перенос делает вёрстка).
+    expect(fitPath(steam, 40, () => false)).toBe("c:…\\game.exe");
     for (const w of [14, 22, 33, 47]) {
       const got = fitPath(steam, 80, upTo(w));
       expect(got.length).toBeLessThanOrEqual(w);
@@ -151,13 +160,19 @@ describe("путь: обрезка по центру", () => {
     }
   });
 
-  it("очень длинное имя файла: всё равно предел и многоточие посередине", () => {
+  // Ловит FB-9/FB-11 (0.3.1): «c:\\program…ncher.exe» - имя файла резалось, когда до него оставалось
+  // меньше 8 знаков начала; родитель не отличал запускалку от игры.
+  it("имя файла всегда целиком: начало сокращается до диска", () => {
+    const launcher = "c:\\program files\\minecraft launcher\\minecraftlauncher.exe";
+    expect(shortenPath(launcher, 25)).toBe("c:…\\minecraftlauncher.exe");
+    expect(shortenPath(launcher, 22)).toBe("c:…\\minecraftlauncher.exe");
+    expect(shortenPath(launcher, 30)).toBe("c:\\prog…\\minecraftlauncher.exe");
+    const upTo = (n: number) => (s: string) => s.length <= n;
+    expect(fitPath(launcher, 80, upTo(25))).toBe("c:…\\minecraftlauncher.exe");
+    expect(fitPath(launcher, 80, upTo(24))).toBe("c:…\\minecraftlauncher.exe");
+    expect(fitPath(launcher, 80, () => false)).toBe("c:…\\minecraftlauncher.exe");
     const path = `c:\\downloads\\${"a".repeat(80)}.exe`;
-    const short = shortenPath(path, 30);
-    expect(short.length).toBe(30);
-    expect(short.startsWith("c:\\downloads")).toBe(true);
-    expect(short.endsWith("aaa.exe")).toBe(true);
-    expect(short).toContain("…");
+    expect(shortenPath(path, 30)).toBe(`c:…\\${"a".repeat(80)}.exe`);
   });
 });
 
@@ -244,6 +259,36 @@ describe("список: поиск, фильтр, сортировка", () => {
     expect(names(visiblePrograms(list, { ...base, query: "notepad" }))).toEqual([]);
   });
 
+  // Ловит (D-57, RF9-4): скрытая видна в «Все» или в своей категории; фильтр «Скрытые» показывает
+  // не скрытые; системная скрытая попадает в «Скрытые».
+  it("скрытые только в фильтре «Скрытые»", () => {
+    const withHidden: ProgramDTO[] = [
+      ...list,
+      { path: "c:\\program files\\epic\\stalker2.exe", name: "Stalker2", publisher: "Epic Games", category: "games", source: "parent", weekS: 0, hidden: true },
+      { path: "c:\\program files\\vendor\\driver.exe", name: "Драйвер", publisher: "", category: "system", source: "parent", weekS: 0, hidden: true },
+    ];
+    expect(names(visiblePrograms(withHidden, base))).toEqual(["Bad", "Brave", "Minecraft Launcher", "Учи.ру"]);
+    expect(names(visiblePrograms(withHidden, { ...base, filter: "games" }))).toEqual(["Minecraft Launcher"]);
+    expect(names(visiblePrograms(withHidden, { ...base, filter: "hidden" }))).toEqual(["Stalker2"]);
+    expect(names(visiblePrograms(withHidden, { ...base, filter: "hidden", query: "brave" }))).toEqual([]);
+    expect(names(visiblePrograms(list, { ...base, filter: "hidden" }))).toEqual([]);
+  });
+
+  it("сообщение о скрытии и показе", () => {
+    expect(hiddenMessage("Stalker2", true)).toBe("Stalker2 скрыта");
+    expect(hiddenMessage("Stalker2", false)).toBe("Stalker2 снова в списке");
+  });
+
+  // Ловит (D-59): поиск не находит переименованную по названию из файла (родитель помнит старое).
+  it("поиск и по своему названию, и по названию из файла", () => {
+    const renamed: ProgramDTO[] = [
+      ...list,
+      prog({ path: "c:\\program files\\epic\\shipping.exe", name: "Сталкер 2", fileName: "Stalker2-Win64-Shipping", category: "games" }),
+    ];
+    expect(names(visiblePrograms(renamed, { ...base, query: "сталкер" }))).toEqual(["Сталкер 2"]);
+    expect(names(visiblePrograms(renamed, { ...base, query: "win64-SHIPPING" }))).toEqual(["Сталкер 2"]);
+  });
+
   it("поиск и фильтр вместе", () => {
     expect(names(visiblePrograms(list, { ...base, query: "downloads", filter: "study" }))).toEqual(["Учи.ру"]);
   });
@@ -279,5 +324,37 @@ describe("список: поиск, фильтр, сортировка", () => {
     const copy = list.map((p) => ({ ...p }));
     visiblePrograms(list, { ...base, sort: { key: "week", dir: "desc" } });
     expect(list).toEqual(copy);
+  });
+});
+
+// Ловит (D-59): поле названия пропускает 61 символ или перевод строки; считает байты, а не
+// символы; не обрезает пробелы; пустое не считается сбросом.
+describe("своё название", () => {
+  it("1–60 символов после обрезки пробелов, пустое — сброс", () => {
+    expect(nameError("Сталкер 2")).toBe("");
+    expect(nameError("   ")).toBe("");
+    expect(nameError(" " + "я".repeat(60) + " ")).toBe("");
+    expect(nameError("я".repeat(61))).toBe("Название до 60 символов");
+    expect(nameError("Моя\nигра")).toBe("Название до 60 символов");
+  });
+});
+
+// Ловит: длинное название не обрезается (переносится на несколько строк), «…» два или пробел перед
+// ним, короткое трогается, буквы считаются байтами.
+describe("обрезка названия", () => {
+  it("clipName: с конца, одно «…», без пробела перед ним", () => {
+    expect(clipName("Очень длинное название", 6)).toBe("Очень…");
+    expect(clipName("Очень длинное", 7)).toBe("Очень…");
+    expect(clipName("Игра", 4)).toBe("Игра");
+    expect(clipName("Игра 2", 10)).toBe("Игра 2");
+  });
+
+  it("fitName: целиком, если помещается; иначе самое длинное, что помещается", () => {
+    const name = "Очень длинное название игры с пробелами и цифрами 2026";
+    expect(fitName("Brave", () => false)).toBe("Bra…");
+    expect(fitName(name, (s) => s.length <= 100)).toBe(name);
+    expect(fitName(name, (s) => s.length <= 20)).toBe("Очень длинное назва…");
+    expect(fitName(name, (s) => s.length <= 20).length).toBeLessThanOrEqual(20);
+    expect(fitName(name, () => false)).toBe("Оче…");
   });
 });

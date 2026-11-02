@@ -25,6 +25,7 @@ import type {
   ProgramCategory,
   ProgramDTO,
   ProgramsReply,
+  ProgramTime,
 } from "../types";
 
 export const DEFAULT_PASSWORD = "секрет-123";
@@ -67,6 +68,11 @@ export interface MockChild {
   gamesUsedS?: number;
   /** Учёба за сегодня, секунды (R3); в usedS не входит. */
   studyUsedS?: number;
+  /**
+   * Время программ за сегодня для вкладок «Итогов» (D-58), как отдаёт служба: скрытых нет, время
+   * без программы - строка «Остальное время» без пути. Нет - пустой список.
+   */
+  programsToday?: ProgramTime[];
 }
 
 /** Промокод в подменной программе (R26, D-50). */
@@ -452,7 +458,17 @@ function myToday(child: MockChild | undefined, nowMs: number): MyTodayReply {
   if (status.lock === "timeUp" && status.until) {
     today.push(status.until);
   }
-  return { status, today, rules: myRules(child), gamesS: child.gamesUsedS ?? 0, studyS: child.studyUsedS ?? 0 };
+  const gamesS = child.gamesUsedS ?? 0;
+  const studyS = child.studyUsedS ?? 0;
+  // «Прочее» и «Всего» - как у службы: общее время без игр (видео в M3 нет) и общее плюс учёба.
+  const otherS = Math.max(0, status.usedS - gamesS);
+  const programs = (child.programsToday ?? []).map((p) => ({ ...p }));
+  // Как служба: время категории, не названное строками, - строка «Остальное время» (сумма строк = итог).
+  for (const [category, total] of [["games", gamesS], ["study", studyS], ["other", otherS]] as const) {
+    const named = programs.filter((p) => p.category === category).reduce((n, p) => n + p.seconds, 0);
+    if (total > named) programs.push({ path: "", name: "Остальное время", category, seconds: total - named });
+  }
+  return { status, today, rules: myRules(child), gamesS, studyS, otherS, allS: status.usedS + studyS, programs };
 }
 
 const PARENT_COMMANDS = new Set([
@@ -491,6 +507,8 @@ const PARENT_COMMANDS = new Set([
   "ListPrograms",
   "DecideProgram",
   "SetProgramsCategory",
+  "SetProgramsHidden",
+  "RenameProgram",
   "UndoProgram",
 ]);
 
@@ -577,7 +595,10 @@ export function createBackend(opts: MockOptions = {}): MockBackend {
   const card = (child: MockChild, now: number) => cardOf(child, now, state.pending.length);
   const programsReply = (): ProgramsReply => ({
     pending: state.pending.map((p) => ({ ...p, byChild: [...p.byChild] })),
-    programs: [...state.programs].sort((a, b) => a.name.localeCompare(b.name)),
+    // Как служба: скрытая приходит с флагом и без времени за неделю (D-57).
+    programs: [...state.programs]
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .map((p) => (p.hidden ? { ...p, weekS: 0 } : { ...p })),
     children: state.children.map((c) => ({ childId: c.childId, name: c.name })),
   });
   const rememberUndo = (now: number) => {
@@ -1108,6 +1129,59 @@ export function createBackend(opts: MockOptions = {}): MockBackend {
         }
       }
       return okReply({ message: `Изменено программ: ${n}`, ...undo, programs: programsReply() });
+    },
+
+    SetProgramsHidden: (req, now) => {
+      const paths = new Set<string>((req.paths ?? []).map((x: string) => x.toLowerCase()));
+      if (paths.size > 200) return fail("Можно изменить не больше 200 программ за раз");
+      const hidden = req.hidden === true;
+      // Как служба (RF9-5): запрещённую не скрывают; ничего не изменилось — без «Отменить».
+      const listed = state.programs.filter((p) => paths.has(p.path) && p.category !== "system");
+      const blocked = hidden ? listed.filter((p) => p.category === "blocked").length : 0;
+      const known = listed.filter((p) => !(hidden && p.category === "blocked"));
+      const blockedText = blocked === 1 ? "Запрещённую программу нельзя скрыть: сначала разрешите её" : "Запрещённые программы нельзя скрыть: сначала разрешите их";
+      if (known.length === 0) return fail(blocked > 0 ? blockedText : "Такой программы нет в списке");
+      const changed = known.filter((p) => (p.hidden === true) !== hidden);
+      const undo = changed.length > 0 ? rememberUndo(now) : { undoId: "", undoUntilMs: 0 };
+      for (const p of changed) p.hidden = hidden;
+      const one = changed.length === 1 ? changed[0].name : "";
+      const word = (n: number) => (n % 10 === 1 && n % 100 !== 11 ? "программу" : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 12 || n % 100 > 14) ? "программы" : "программ");
+      if (changed.length > 0) {
+        const subject = one ? `«${one}»` : `${changed.length} ${word(changed.length)}`;
+        addEvent(now, undefined, hidden ? "program_hidden" : "program_shown", hidden ? `Вы скрыли ${subject}` : `Вы снова показали ${subject}`);
+      }
+      let message: string;
+      if (changed.length === 0) {
+        const single = known.length === 1 ? known[0].name : "";
+        message = single ? `${single} ${hidden ? "уже скрыта" : "уже в списке"}` : hidden ? "Эти программы уже скрыты" : "Эти программы уже в списке";
+      } else if (one) {
+        message = hidden ? `${one} скрыта` : `${one} снова в списке`;
+      } else {
+        message = hidden ? `Скрыто программ: ${changed.length}` : `Снова в списке программ: ${changed.length}`;
+      }
+      if (blocked > 0) message += `. ${blockedText}`;
+      return okReply({ message, ...undo, programs: programsReply() });
+    },
+
+    // Как служба (D-59): своё название 1–60 символов, пустое — снова из файла.
+    RenameProgram: (req, now) => {
+      const name = String(req.name ?? "").trim();
+      if (/[\u0000-\u001f\u007f-\u009f]/.test(name) || Array.from(name).length > 60) return fail("Название до 60 символов", "name");
+      const p = state.programs.find((x) => x.path === String(req.path ?? "").toLowerCase() && x.category !== "system");
+      if (!p) return fail("Такой программы нет в списке");
+      const file = p.fileName || p.name;
+      const custom = p.fileName ? p.name : "";
+      if (custom === name || (custom === "" && name === p.name)) return okReply({ message: "Название не изменилось", undoId: "", undoUntilMs: 0, programs: programsReply() });
+      const undo = rememberUndo(now);
+      const from = p.name;
+      const to = name || file;
+      p.name = to;
+      if (to === file) delete p.fileName;
+      else p.fileName = file;
+      if (from !== to) {
+        addEvent(now, undefined, "program_renamed", name ? `Вы переименовали «${from}» в «${to}»` : `Вы вернули «${from}» название из файла «${to}»`);
+      }
+      return okReply({ message: "Название изменено", ...undo, programs: programsReply() });
     },
 
     UndoProgram: (req, now) => {

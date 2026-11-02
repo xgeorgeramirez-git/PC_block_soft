@@ -46,7 +46,21 @@ const (
 	textTooManyPrograms = "Можно изменить не больше 200 программ за раз"
 	textProgramsChanged = "Изменено программ: %d"
 	textProgramUndone   = "Решение отменено"
-	textScanFailed      = "Не удалось найти программы. Их можно настроить позже в разделе «Программы»"
+	textProgramHidden   = "%s скрыта"
+	textProgramsHidden  = "Скрыто программ: %d"
+	textProgramShown    = "%s снова в списке"
+	textProgramsShown   = "Снова в списке программ: %d"
+	textProgramRenamed  = "Название изменено"
+	textNameUnchanged   = "Название не изменилось"
+	// Ничего не изменилось (всё уже скрыто или показано): без «Отменить».
+	textAlreadyHidden    = "%s уже скрыта"
+	textAllAlreadyHidden = "Эти программы уже скрыты"
+	textAlreadyShown     = "%s уже в списке"
+	textAllAlreadyShown  = "Эти программы уже в списке"
+	textHideBlockedOne   = "Запрещённую программу нельзя скрыть: сначала разрешите её"
+	textHideBlockedMany  = "Запрещённые программы нельзя скрыть: сначала разрешите их"
+	textNameTooLong      = "Название до 60 символов"
+	textScanFailed       = "Не удалось найти программы. Их можно настроить позже в разделе «Программы»"
 	// Плашки ребёнку о закрытой программе (FR-13, 8.2.4): на «ты»; закрытие по лимиту игр и в
 	// режиме «только учёба» берёт текст ядра (Decision.CloseReason).
 	textPlateUnknown   = "Программа «%s» ждёт разрешения родителя"
