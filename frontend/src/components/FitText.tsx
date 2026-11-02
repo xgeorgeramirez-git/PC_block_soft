@@ -8,13 +8,16 @@ import { fitName } from "../lib/programs";
  * Общий замер «помещается ли в строку» для пути и названий: после отрисовки и при смене размера
  * окна временный зонд с тем же шрифтом (вне разметки React, убирается сразу) меряет кандидатов,
  * fit выбирает самый длинный, что помещается. lines > 1: зонд шириной с место и с переносом по
- * словам, «помещается» = не выше lines строк. Без раскладки (тесты) — fallback.
+ * словам, «помещается» = не выше lines строк. slack — запас к ширине места: у названий +0,5 px
+ * (обрезка CSS скрывает долю пикселя), у пути −1 px (путь может переноситься, и лишняя доля
+ * пикселя переносит имя файла на вторую строку). Без раскладки (тесты) — fallback.
  */
 export function useFitted<T extends HTMLElement>(
   text: string,
   fallback: string,
   fit: (fits: (shown: string) => boolean) => string,
   lines = 1,
+  slack = 0.5,
 ): [RefObject<T | null>, string] {
   const [shown, setShown] = useState(fallback);
   const box = useRef<T>(null);
@@ -32,7 +35,7 @@ export function useFitted<T extends HTMLElement>(
       probe.className = lines > 1 ? "path-probe fit-probe-lines" : "path-probe";
       if (lines > 1) probe.style.width = `${el.clientWidth}px`;
       el.appendChild(probe);
-      const room = el.clientWidth + 0.5;
+      const room = el.clientWidth + slack;
       const style = getComputedStyle(el);
       const lineH = parseFloat(style.lineHeight) || parseFloat(style.fontSize) * 1.45;
       const tall = lineH * lines + 0.5;
@@ -53,7 +56,7 @@ export function useFitted<T extends HTMLElement>(
     void document.fonts?.ready.then(measure);
     return () => ro?.disconnect();
     // Пересчёт по тексту: fit берётся из ссылки (последний вид), fallback зависит от текста.
-  }, [text, fallback, lines]);
+  }, [text, fallback, lines, slack]);
   return [box, shown];
 }
 

@@ -649,7 +649,9 @@ function splitPath(shown: string): [string, string] {
  * подсказке, у диктора и по фокусу клавиатурой.
  */
 function PathText({ path, max }: { path: string; max: number }) {
-  const [box, shown] = useFitted<HTMLSpanElement>(path, shortenPath(path, max), (fits) => fitPath(path, max, fits));
+  // Запас −1 px: две части пути (начало и имя файла) рисуются отдельными блоками, и вид, который
+  // впритык помещается в замере одной строкой, на экране может перенести имя файла.
+  const [box, shown] = useFitted<HTMLSpanElement>(path, shortenPath(path, max), (fits) => fitPath(path, max, fits), 1, -1);
   const cut = shown !== path;
   const [head, tail] = splitPath(shown);
   return (
