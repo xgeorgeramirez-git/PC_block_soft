@@ -178,7 +178,7 @@ describe("MyStats: периоды", () => {
       return real(payload);
     });
     await user.click(screen.getByRole("tab", { name: "Неделя" }));
-    expect(within(box).getByRole("status").textContent).toBe("Загружаю");
+    expect(within(box).getByRole("status").textContent).toBe("Загружаю…");
     expect(box.getAttribute("aria-busy")).toBe("true");
     expect(screen.getByRole("region", { name: "Сколько осталось" })).toBeTruthy();
     expect(within(box).getByText("Использовано сегодня")).toBeTruthy();

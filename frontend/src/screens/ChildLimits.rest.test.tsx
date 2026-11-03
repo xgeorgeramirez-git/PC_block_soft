@@ -94,6 +94,7 @@ describe("ChildLimits: вкладка «Отдых»", () => {
     expect(await screen.findByText("Не меньше времени отдыха")).toBeTruthy();
     expect(num(SELF).getAttribute("aria-invalid")).toBe("true");
     expect(num(SELF).getAttribute("aria-describedby")).toContain(screen.getByText("Не меньше времени отдыха").id);
+    expect(document.activeElement).toBe(num(SELF));
     expect(sent()).toBeUndefined();
   });
 
@@ -106,7 +107,44 @@ describe("ChildLimits: вкладка «Отдых»", () => {
     await user.click(screen.getByRole("button", { name: "Сохранить" }));
     expect(await screen.findByText("Можно от 15 до 240 мин")).toBeTruthy();
     expect(screen.getByRole("tab", { name: "Отдых" }).getAttribute("aria-selected")).toBe("true");
+    // Фокус на первом неверном поле: родитель с клавиатурой сразу исправляет его.
+    expect(document.activeElement).toBe(num("Через сколько"));
     expect(sent()).toBeUndefined();
+  });
+
+  // Ловит: при двух неверных полях фокус не на первом по порядку; после ошибки сохранения фокус
+  // остаётся на кнопке «Сохранить».
+  it("фокус на первое неверное поле по порядку", async () => {
+    const user = setup(s43);
+    await openRest(user);
+    await retype(user, num("Отдых"), "4");
+    await retype(user, num(SELF), "3");
+    await user.click(screen.getByRole("button", { name: "Сохранить" }));
+    expect(await screen.findByText("Можно от 5 до 60 мин")).toBeTruthy();
+    expect(document.activeElement).toBe(num("Отдых"));
+  });
+
+  // Ловит: ошибка службы у поля «Отдыха» открывает вкладку, но фокус не на поле с ошибкой.
+  it("ошибка службы у поля: вкладка «Отдых» и фокус на поле", async () => {
+    const user = setup(s43);
+    await openRest(user);
+    await retype(user, num("Предупредить за"), "7");
+    await user.click(screen.getByRole("tab", { name: "Лимиты" }));
+    mock.override("SaveLimits", { ok: false, error: "Можно от 1 до 15 мин", field: "break.warnMin" }, 1);
+    await user.click(screen.getByRole("button", { name: "Сохранить" }));
+    expect(await screen.findByText("Можно от 1 до 15 мин")).toBeTruthy();
+    expect(document.activeElement).toBe(num("Предупредить за"));
+  });
+
+  // Ловит: итог словами - живая область: читалка экрана повторяет весь абзац на каждое нажатие
+  // цифры; браузер предлагает в поле сообщения прошлые вводы (нет name и autoComplete="off").
+  it("итог без живой области, поле сообщения без автозаполнения", async () => {
+    const user = setup(s43);
+    await openRest(user);
+    const summary = screen.getByText(/^После 60 мин игр ребёнок увидит/);
+    expect(summary.closest("[aria-live]")).toBeNull();
+    expect(message().getAttribute("autocomplete")).toBe("off");
+    expect(message().getAttribute("name")).toBe("breakMessage");
   });
 
   // Ловит: при увеличении «Отдыха» выше порога порог остаётся ниже, и появляется ошибка без

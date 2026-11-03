@@ -77,6 +77,8 @@ export default function RestSettings({ value, saved, onChange, errors }: Props) 
             </label>
             <input
               id={`${id}-msg`}
+              name="breakMessage"
+              autoComplete="off"
               className="field-input"
               type="text"
               maxLength={BREAK_MESSAGE_MAX}
@@ -120,7 +122,9 @@ export default function RestSettings({ value, saved, onChange, errors }: Props) 
           </div>
         </figure>
       </div>
-      <p className="rest-summary" aria-live="polite">
+      {/* Без живой области (Ruling): итог меняется на каждое нажатие цифры, читалка повторяла бы
+          весь абзац; он стоит сразу под полями и читается по порядку. */}
+      <p className="rest-summary">
         {breakSummary(value)}
       </p>
     </div>

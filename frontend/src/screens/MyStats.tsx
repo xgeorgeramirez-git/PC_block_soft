@@ -30,7 +30,7 @@ import type { GetBonusReply, MyTodayReply, StatsPeriod } from "../types";
 const LOAD_ERROR = "Не удалось получить данные. Попробуй через минуту";
 const NO_DATA = "За этот период пока нет данных";
 /** Признак загрузки периода (короткий, на месте: страница не мигает). */
-export const LOADING_PERIOD = "Загружаю";
+export const LOADING_PERIOD = "Загружаю…";
 const OPEN_FAILED = "Не получилось открыть окно. Попробуй ещё раз";
 
 /**

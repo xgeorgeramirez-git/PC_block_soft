@@ -72,6 +72,12 @@ export default function ChildLimits({ childId, others = [], onSaved, onOpenProgr
   const [loadError, setLoadError] = useState("");
   const [saving, setSaving] = useState(false);
   const alive = useRef(true);
+  /** Вкладка «Отдых» с ошибкой: после показа фокус на первое неверное поле (по счётчику). */
+  const restPanel = useRef<HTMLDivElement>(null);
+  const [focusRestError, setFocusRestError] = useState(0);
+  useEffect(() => {
+    if (focusRestError > 0) restPanel.current?.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus();
+  }, [focusRestError]);
 
   useEffect(() => {
     alive.current = true;
@@ -171,6 +177,7 @@ export default function ChildLimits({ childId, others = [], onSaved, onOpenProgr
     if (Object.keys(breakProblems).length > 0) {
       setErrors(breakProblems);
       setTab("rest");
+      setFocusRestError((n) => n + 1);
       return false;
     }
     setSaving(true);
@@ -218,6 +225,7 @@ export default function ChildLimits({ childId, others = [], onSaved, onOpenProgr
       } else if (field?.startsWith("break.")) {
         setErrors({ [field]: errorText(e) });
         setTab("rest");
+        setFocusRestError((n) => n + 1);
       } else if (field === "endMode") {
         setEndModeError(errorText(e));
         setTab("end");
@@ -312,7 +320,7 @@ export default function ChildLimits({ childId, others = [], onSaved, onOpenProgr
         </div>
       ) : null}
       {tab === "rest" ? (
-        <div role="tabpanel" aria-label="Отдых">
+        <div role="tabpanel" aria-label="Отдых" ref={restPanel}>
           <RestSettings value={draftBreak} saved={savedBreak} onChange={changeBreak} errors={errors} />
         </div>
       ) : null}
