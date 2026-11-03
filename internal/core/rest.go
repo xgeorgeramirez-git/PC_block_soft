@@ -247,6 +247,9 @@ func msPtr(t time.Time) *int64 {
 // нуля; тишина не короче порога «засчитать как отдых» — сам отошёл: счёт с нуля, плашка снята.
 func (e *Engine) restStep(now time.Time) {
 	if !e.restOn() {
+		if e.rest != (BreakState{}) {
+			e.saveNow = true // выключили: пустой счёт сразу в базу, иначе перезапуск вернёт старый
+		}
 		e.rest = BreakState{}
 		return
 	}

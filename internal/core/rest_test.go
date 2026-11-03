@@ -382,3 +382,25 @@ func TestRestSelfRestBeforeBreakAtWins(t *testing.T) {
 		})
 	}
 }
+
+// Ловит: выключение перерывов очищает счёт только в памяти — без сохранения сразу выключение
+// компьютера в эти секунды вернёт старый счёт (и плашку) из базы; повторное выключение уже
+// пустого счёта сохранения не требует.
+func TestRestDisableSavesNow(t *testing.T) {
+	e, c := restEngine(t, restRules())
+	c.Set(at(15, 59, 0))
+	e.DueSave(at(15, 59, 0)) // отрезок 30 с на границе — не наш случай
+	off := restRules()
+	off.Break.Enabled = false
+	e.SetRules(off)
+	if b := e.Break(); b != (BreakState{}) {
+		t.Fatalf("после выключения состояние %+v, want пустое", b)
+	}
+	if !e.DueSave(at(15, 59, 0)) {
+		t.Fatal("выключение перерывов: DueSave = false, want true (сохранить сразу)")
+	}
+	e.SetRules(off)
+	if e.DueSave(at(15, 59, 0)) {
+		t.Fatal("повторное выключение пустого счёта: DueSave = true, want false")
+	}
+}
