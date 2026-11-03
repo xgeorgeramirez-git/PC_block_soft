@@ -8,7 +8,9 @@
 import contract from "../../../internal/ipc/testdata/contract.json";
 import { formatDuration, formatHour, formatLimit, localOffsetMin, weekdayOfMs, weekdayShort } from "../lib/format";
 import { normalizeLimits } from "../lib/limits";
+import { breakEqual, DEFAULT_BREAK, validateBreak } from "../lib/rest";
 import type {
+  BreakRules,
   Account,
   BonusEntry,
   ChildInfo,
@@ -65,6 +67,8 @@ export interface MockChild {
   forbiddenUntil?: string;
   /** «Когда время вышло» (R8, FR-18); по умолчанию экран блокировки. */
   endMode?: EndMode;
+  /** «Отдых» (FR-37); по умолчанию выключен (DEFAULT_BREAK). */
+  break?: BreakRules;
   /** Игры за сегодня, секунды (R5); входят и в usedS. */
   gamesUsedS?: number;
   /** Учёба за сегодня, секунды (R3); в usedS не входит. */
@@ -845,7 +849,7 @@ export function createBackend(opts: MockOptions = {}): MockBackend {
     GetChildRules: (req) => {
       const child = childById(req.childId);
       if (!child) return fail("Ребёнок не найден");
-      return okReply({ childId: child.childId, name: child.name, limits: limitsWithGames(child.limits), endMode: child.endMode ?? "lock" });
+      return okReply({ childId: child.childId, name: child.name, limits: limitsWithGames(child.limits), endMode: child.endMode ?? "lock", break: child.break ?? DEFAULT_BREAK });
     },
 
     SaveLimits: (req, now) => {
@@ -854,7 +858,12 @@ export function createBackend(opts: MockOptions = {}): MockBackend {
       if (req.endMode && req.endMode !== "lock" && req.endMode !== "study_only") {
         return fail("Выберите, что делать, когда время вышло", "endMode");
       }
-      const onlyMode = !(req.limits ?? []).length && Boolean(req.endMode);
+      if (req.break) {
+        // Пределы как у службы (handlers_0_3_2.go): первая ошибка с полем.
+        const bad = Object.entries(validateBreak(req.break as BreakRules))[0];
+        if (bad) return fail(bad[1], bad[0]);
+      }
+      const onlyMode = !(req.limits ?? []).length && Boolean(req.endMode || req.break);
       if (!onlyMode) {
         const bad = limitsError(req.limits ?? []);
         if (bad) return bad;
@@ -865,8 +874,12 @@ export function createBackend(opts: MockOptions = {}): MockBackend {
         child.endMode = req.endMode;
         addEvent(now, child, "settings", `${child.name}: изменён режим, когда время вышло`);
       }
+      if (req.break && !breakEqual(req.break as BreakRules, child.break ?? DEFAULT_BREAK)) {
+        child.break = { ...(req.break as BreakRules), message: (req.break as BreakRules).message.trim() };
+        addEvent(now, child, "settings", `${child.name}: изменены настройки отдыха`);
+      }
       return okReply({
-        rules: { childId: child.childId, name: child.name, limits: limitsWithGames(child.limits), endMode: child.endMode ?? "lock" },
+        rules: { childId: child.childId, name: child.name, limits: limitsWithGames(child.limits), endMode: child.endMode ?? "lock", break: child.break ?? DEFAULT_BREAK },
         card: card(child, now),
         message: "Сохранено. Новые правила уже действуют",
       });
@@ -898,6 +911,7 @@ export function createBackend(opts: MockOptions = {}): MockBackend {
         limits: limitsWithGames(from.limits),
         intervals: from.schedule ?? [],
         endMode: from.endMode ?? "lock",
+        break: from.break ?? DEFAULT_BREAK,
         message: "Правила скопированы. Проверьте и сохраните",
       });
     },

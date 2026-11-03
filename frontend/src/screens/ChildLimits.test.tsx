@@ -490,7 +490,7 @@ describe("ChildLimits: «Когда время вышло» (FR-18, R8)", () => 
   it("два варианта с пояснениями, выбран сохранённый", async () => {
     const user = setup();
     await openEnd(user);
-    expect(screen.getAllByRole("tab").map((t) => t.textContent)).toEqual(["Лимиты", "Запретные часы", "Когда время вышло"]);
+    expect(screen.getAllByRole("tab").map((t) => t.textContent)).toEqual(["Лимиты", "Запретные часы", "Когда время вышло", "Отдых"]);
     expect(lockRadio().checked).toBe(true);
     expect(studyRadio().checked).toBe(false);
     expect(screen.getByText("Компьютер закрывается экраном блокировки, игры закрываются, остальные окна сохраняются")).toBeTruthy();

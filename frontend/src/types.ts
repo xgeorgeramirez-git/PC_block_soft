@@ -228,11 +228,26 @@ export interface ChildRequest {
   childId: number;
 }
 
+/** Что считать к перерыву (R27): «all» — всё, кроме учёбы; «games» — только игры. */
+export type BreakCounts = "all" | "games";
+
+/** Вкладка «Отдых» (FR-37, R27). message «» — стандартный текст экрана перерыва. */
+export interface BreakRules {
+  enabled: boolean;
+  afterMin: number;
+  counts: BreakCounts;
+  warnMin: number;
+  restMin: number;
+  selfRestMin: number;
+  message: string;
+}
+
 export interface ChildRules {
   childId: number;
   name: string;
   limits: WeekdayLimit[];
   endMode: EndMode;
+  break: BreakRules;
 }
 
 /** endMode пусто - режим не меняется; limits пусто при endMode - меняется только режим. */
@@ -240,6 +255,8 @@ export interface SaveLimitsRequest {
   childId: number;
   limits: WeekdayLimit[];
   endMode?: EndMode;
+  /** «Отдых» (FR-37); нет — не меняется. */
+  break?: BreakRules;
 }
 
 export interface SaveLimitsReply {
@@ -487,6 +504,7 @@ export interface CopyRulesReply {
   limits: WeekdayLimit[];
   intervals: Interval[];
   endMode: EndMode;
+  break: BreakRules;
   message: string;
 }
 

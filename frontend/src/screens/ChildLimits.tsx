@@ -2,13 +2,15 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { copyRules, getChildRules, getSchedule, listPrograms, saveLimits, saveSchedule } from "../api";
 import LimitsTable from "../components/LimitsTable";
 import Notice from "../components/Notice";
+import RestSettings from "../components/RestSettings";
 import SaveBar from "../components/SaveBar";
 import ScheduleEditor from "../components/ScheduleEditor";
 import { useRegisterGuard } from "../guard";
 import { CallError, errorText } from "../lib/errors";
 import { copyDay, limitErrorKey, limitsEqual, normalizeLimits, validateLimits, wireLimits, WORKDAYS } from "../lib/limits";
+import { breakDraft, breakEqual, DEFAULT_BREAK, validateBreak, wireBreak } from "../lib/rest";
 import { schedulesEqual } from "../lib/schedule";
-import type { EndMode, Interval, TodayCard, WeekdayLimit } from "../types";
+import type { BreakRules, EndMode, Interval, TodayCard, WeekdayLimit } from "../types";
 
 interface Props {
   childId: number;
@@ -37,17 +39,18 @@ const END_MODES: { mode: EndMode; title: string; text: string }[] = [
   },
 ];
 
-type Tab = "limits" | "schedule" | "end";
+type Tab = "limits" | "schedule" | "end" | "rest";
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "limits", label: "Лимиты" },
   { id: "schedule", label: "Запретные часы" },
   { id: "end", label: "Когда время вышло" },
+  { id: "rest", label: "Отдых" },
 ];
 
 /**
- * Правила ребёнка (FR-16…FR-19, FR-33): вкладки «Лимиты», «Запретные часы» и «Когда время вышло»,
- * одна панель «Сохранить».
+ * Правила ребёнка (FR-16…FR-19, FR-33, FR-37): вкладки «Лимиты», «Запретные часы», «Когда время
+ * вышло» и «Отдых», одна панель «Сохранить».
  */
 export default function ChildLimits({ childId, others = [], onSaved, onOpenPrograms }: Props) {
   const [tab, setTab] = useState<Tab>("limits");
@@ -59,6 +62,8 @@ export default function ChildLimits({ childId, others = [], onSaved, onOpenProgr
   const [savedEndMode, setSavedEndMode] = useState<EndMode>("lock");
   const [draftEndMode, setDraftEndMode] = useState<EndMode>("lock");
   const [endModeError, setEndModeError] = useState("");
+  const [savedBreak, setSavedBreak] = useState<BreakRules>(breakDraft(DEFAULT_BREAK));
+  const [draftBreak, setDraftBreak] = useState<BreakRules>(breakDraft(DEFAULT_BREAK));
   /** Есть ли учебные программы (FR-18); null - не удалось узнать, предупреждения нет. */
   const [hasStudy, setHasStudy] = useState<boolean | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -89,6 +94,8 @@ export default function ChildLimits({ childId, others = [], onSaved, onOpenProgr
       setDraftSchedule(sched.intervals);
       setSavedEndMode(rules.endMode ?? "lock");
       setDraftEndMode(rules.endMode ?? "lock");
+      setSavedBreak(breakDraft(rules.break));
+      setDraftBreak(breakDraft(rules.break));
       setEndModeError("");
       setErrors({});
       setFormError("");
@@ -114,7 +121,8 @@ export default function ChildLimits({ childId, others = [], onSaved, onOpenProgr
   const limitsDirty = savedLimits !== null && !limitsEqual(draftLimits, savedLimits);
   const scheduleDirty = !schedulesEqual(draftSchedule, savedSchedule);
   const endModeDirty = draftEndMode !== savedEndMode;
-  const dirty = limitsDirty || scheduleDirty || endModeDirty;
+  const breakDirty = !breakEqual(draftBreak, savedBreak);
+  const dirty = limitsDirty || scheduleDirty || endModeDirty || breakDirty;
 
   const changeLimits = (next: WeekdayLimit[]) => {
     setDraftLimits(next);
@@ -135,8 +143,16 @@ export default function ChildLimits({ childId, others = [], onSaved, onOpenProgr
     setMessage("");
   };
 
+  const changeBreak = (next: BreakRules) => {
+    setDraftBreak(next);
+    setErrors({});
+    setFormError("");
+    setMessage("");
+  };
+
   const discard = () => {
     if (savedLimits) setDraftLimits(savedLimits);
+    setDraftBreak(savedBreak);
     setDraftSchedule(savedSchedule);
     setDraftEndMode(savedEndMode);
     setEndModeError("");
@@ -151,12 +167,25 @@ export default function ChildLimits({ childId, others = [], onSaved, onOpenProgr
       setTab("limits");
       return false;
     }
+    const breakProblems = validateBreak(draftBreak);
+    if (Object.keys(breakProblems).length > 0) {
+      setErrors(breakProblems);
+      setTab("rest");
+      return false;
+    }
     setSaving(true);
     setFormError("");
     try {
-      if (limitsDirty || endModeDirty) {
+      if (limitsDirty || endModeDirty || breakDirty) {
         // Правила целиком (RM3-9): оба столбца всех дней и режим, даже если менялось одно поле.
-        const reply = await saveLimits(childId, wireLimits(draftLimits), draftEndMode);
+        // Меняли только «Отдых» — лимиты и режим не отправляются (служба их не трогает).
+        const rules = limitsDirty || endModeDirty;
+        const reply = await saveLimits(
+          childId,
+          rules ? wireLimits(draftLimits) : [],
+          rules ? draftEndMode : undefined,
+          breakDirty ? wireBreak(draftBreak) : undefined,
+        );
         if (!alive.current) return true;
         const limits = reply.rules.limits.length > 0 ? normalizeLimits(reply.rules.limits) : draftLimits;
         const mode = reply.rules.endMode || draftEndMode;
@@ -164,6 +193,9 @@ export default function ChildLimits({ childId, others = [], onSaved, onOpenProgr
         setDraftLimits(limits);
         setSavedEndMode(mode);
         setDraftEndMode(mode);
+        const brk = breakDraft(reply.rules.break);
+        setSavedBreak(brk);
+        setDraftBreak(brk);
       }
       if (scheduleDirty) {
         const reply = await saveSchedule(childId, draftSchedule);
@@ -183,6 +215,9 @@ export default function ChildLimits({ childId, others = [], onSaved, onOpenProgr
       if (key) {
         setErrors({ [key]: errorText(e) });
         setTab("limits");
+      } else if (field?.startsWith("break.")) {
+        setErrors({ [field]: errorText(e) });
+        setTab("rest");
       } else if (field === "endMode") {
         setEndModeError(errorText(e));
         setTab("end");
@@ -205,6 +240,7 @@ export default function ChildLimits({ childId, others = [], onSaved, onOpenProgr
       setDraftLimits(normalizeLimits(r.limits));
       setDraftSchedule(r.intervals);
       if (r.endMode) setDraftEndMode(r.endMode);
+      setDraftBreak(breakDraft(r.break));
       setMessage(r.message || "Правила скопированы. Проверьте и сохраните");
     } catch (e) {
       if (alive.current) setFormError(errorText(e));
@@ -273,6 +309,11 @@ export default function ChildLimits({ childId, others = [], onSaved, onOpenProgr
             noStudy={hasStudy === false}
             onOpenPrograms={onOpenPrograms}
           />
+        </div>
+      ) : null}
+      {tab === "rest" ? (
+        <div role="tabpanel" aria-label="Отдых">
+          <RestSettings value={draftBreak} saved={savedBreak} onChange={changeBreak} errors={errors} />
         </div>
       ) : null}
 

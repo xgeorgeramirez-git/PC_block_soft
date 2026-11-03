@@ -1637,6 +1637,74 @@ test("s12 мастер, шаг времени в узком окне", async ({ 
   await page.screenshot({ path: `${SCREENS}/s12-wizard-time-720.png`, fullPage: true });
 });
 
+/** Блоки вкладки «Отдых» не налезают друг на друга и целиком в окне по ширине (PL-26). */
+async function restBlocksApart(page: Page) {
+  const bad = await page.evaluate(() => {
+    const out: string[] = [];
+    const sel = ".rest-tab .field-label, .rest-tab .field-input, .rest-tab .limits-unit, .rest-tab .field-hint, .rest-tab .field-error, .rest-count, .rest-sample, .rest-summary, .rest-switch";
+    const els = [...document.querySelectorAll(sel)].filter((el) => !el.closest(".rest-sample-screen") || el.classList.contains("rest-sample"));
+    const boxes = els.map((el) => ({ el, r: el.getBoundingClientRect(), name: `${el.className} «${(el.textContent ?? (el as HTMLInputElement).value ?? "").slice(0, 24)}»` }));
+    const width = document.documentElement.clientWidth;
+    for (const b of boxes) {
+      if (b.r.width < 1) out.push(`${b.name}: сжато до нуля`);
+      if (b.r.right > width + 0.5) out.push(`${b.name}: за правым краем окна`);
+    }
+    for (let i = 0; i < boxes.length; i++) {
+      for (let k = i + 1; k < boxes.length; k++) {
+        const a = boxes[i];
+        const b = boxes[k];
+        if (a.el.contains(b.el) || b.el.contains(a.el)) continue;
+        const x = Math.min(a.r.right, b.r.right) - Math.max(a.r.left, b.r.left);
+        const y = Math.min(a.r.bottom, b.r.bottom) - Math.max(a.r.top, b.r.top);
+        if (x > 0.5 && y > 0.5) out.push(`${a.name} налезает на ${b.name}`);
+      }
+    }
+    return out;
+  });
+  expect(bad, "на вкладке «Отдых» что-то налезает или вылезает").toEqual([]);
+}
+
+// s12 — вкладка «Отдых» (FR-37, 8.3.3 п.7): включено, «Только игры», порог 30, своё сообщение;
+// итог словами совпадает с полями, образец «Как увидит ребёнок» с сообщением; светлая и тёмная
+// тема, обычное окно родителя и самое узкое (960x620).
+for (const v of [
+  { name: "s12-rest-tab", scheme: "light" as const, w: 1200, h: 820 },
+  { name: "s12-rest-tab-dark", scheme: "dark" as const, w: 1200, h: 820 },
+  { name: "s12-rest-tab-960", scheme: "light" as const, w: 960, h: 620 },
+]) {
+  test(`s12 вкладка «Отдых»: ${v.name}`, async ({ page }) => {
+    await page.setViewportSize({ width: v.w, height: v.h });
+    await page.emulateMedia({ colorScheme: v.scheme });
+    await mockProgram(page, {
+      mode: "parent",
+      sessionActive: true,
+      children: [child({ limits: gamesWeek(), break: { enabled: true, afterMin: 60, counts: "games", warnMin: 5, restMin: 15, selfRestMin: 30, message: "Пойди погуляй с собакой" } })],
+    });
+    await page.goto("/");
+    await page.getByRole("button", { name: "Дети" }).click();
+    await page.getByRole("tablist", { name: "Правила ребёнка" }).getByRole("tab", { name: "Отдых", exact: true }).click();
+    await expect(page.getByRole("checkbox", { name: "Перерывы на отдых" })).toBeChecked();
+    await expect(page.getByLabel("Засчитать как отдых, если не играл подряд")).toHaveValue("30");
+    await expect(
+      page.getByText("После 60 мин игр ребёнок увидит «Пора отдохнуть», через 5 мин компьютер закроется на 15 мин. Если сам не играл 30 мин подряд, это засчитается как отдых"),
+    ).toBeVisible();
+    const sample = page.getByRole("figure", { name: "Как увидит ребёнок" });
+    await expect(sample.getByText("Пойди погуляй с собакой")).toBeVisible();
+    await expect(sample.getByRole("img", { name: "Таймер 00:15:00" })).toBeVisible();
+    // Картинка образца загрузилась (не пустой значок битой картинки).
+    expect(await sample.locator("img.rest-sample-cat").evaluate((el) => (el as HTMLImageElement).naturalWidth)).toBeGreaterThan(0);
+    // Ошибка у поля: порог меньше отдыха.
+    await page.getByLabel("Засчитать как отдых, если не играл подряд").fill("10");
+    await page.getByRole("button", { name: "Сохранить" }).click();
+    await expect(page.getByText("Не меньше времени отдыха")).toBeVisible();
+    await page.evaluate(() => Promise.all(document.getAnimations().map((a) => a.finished)));
+    await restBlocksApart(page);
+    await noHorizontalScroll(page);
+    await wholePage(page);
+    await page.screenshot({ path: `${SCREENS}/${v.name}.png`, fullPage: true });
+  });
+}
+
 /** Вкладка «Когда время вышло»: карточки вариантов не слипаются (зазор ≥ 16 px, приёмка P2 п.2). */
 async function endModesApart(page: Page) {
   const cards = page.locator(".end-mode");

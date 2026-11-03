@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Спящий котик на подушке для экрана «Перерыв на отдых» (PC Block, ТЗ 8.2.3 п.12).
+     Нарисован для программы, своя лицензия проекта. Плоские формы, светлые линии для тёмного
+     фона, прозрачный фон. PNG для окна стража: tools/rest-cat-png.sh. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="160" height="160" viewBox="0 0 160 160">
+  <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <!-- подушка -->
+    <path d="M14 122 Q14 104 40 102 L120 102 Q146 104 146 122 Q146 140 120 142 L40 142 Q14 140 14 122 Z"
+          fill="#5B6F96" stroke="#DCE5F2" stroke-width="3"/>
+    <path d="M30 112 Q80 106 130 112" stroke="#A9B9D6" stroke-width="2"/>
+    <circle cx="20" cy="120" r="3" fill="#DCE5F2" stroke="none"/>
+    <circle cx="140" cy="120" r="3" fill="#DCE5F2" stroke="none"/>
+    <!-- хвост вокруг клубка -->
+    <path d="M118 112 Q132 126 108 132 Q80 138 56 130" stroke="#DCE5F2" stroke-width="11"/>
+    <path d="M118 112 Q132 126 108 132 Q80 138 56 130" stroke="#F0B878" stroke-width="6"/>
+    <!-- тело клубком -->
+    <ellipse cx="88" cy="104" rx="38" ry="25" fill="#F0B878" stroke="#FFF4E3" stroke-width="3"/>
+    <path d="M78 84 Q86 92 82 102" stroke="#C98A4E" stroke-width="3"/>
+    <path d="M94 82 Q102 92 98 104" stroke="#C98A4E" stroke-width="3"/>
+    <path d="M110 88 Q116 96 113 106" stroke="#C98A4E" stroke-width="3"/>
+    <!-- голова на лапках -->
+    <path d="M38 88 L34 66 L50 78 Z" fill="#F0B878" stroke="#FFF4E3" stroke-width="3"/>
+    <path d="M62 80 L72 60 L74 82 Z" fill="#F0B878" stroke="#FFF4E3" stroke-width="3"/>
+    <path d="M39 84 L37 72 L46 79 Z" fill="#F7C9C9" stroke="none"/>
+    <path d="M65 80 L71 67 L71 81 Z" fill="#F7C9C9" stroke="none"/>
+    <ellipse cx="54" cy="98" rx="24" ry="20" fill="#F0B878" stroke="#FFF4E3" stroke-width="3"/>
+    <!-- закрытые глаза, носик, усы -->
+    <path d="M40 96 Q45 101 50 96" stroke="#3A2A1E" stroke-width="2.5"/>
+    <path d="M58 96 Q63 101 68 96" stroke="#3A2A1E" stroke-width="2.5"/>
+    <path d="M52 104 L56 104 L54 107 Z" fill="#E58B8B" stroke="#E58B8B" stroke-width="1.5"/>
+    <path d="M36 106 L26 104 M36 109 L27 111 M72 106 L82 104 M72 109 L81 111" stroke="#FFF4E3" stroke-width="1.6"/>
+    <!-- лапки под головой -->
+    <ellipse cx="44" cy="117" rx="9" ry="5" fill="#F7D3A6" stroke="#FFF4E3" stroke-width="2.5"/>
+    <ellipse cx="64" cy="118" rx="9" ry="5" fill="#F7D3A6" stroke="#FFF4E3" stroke-width="2.5"/>
+    <!-- z-z-z -->
+    <path d="M84 56 L94 56 L84 66 L94 66" stroke="#DCE5F2" stroke-width="3"/>
+    <path d="M102 38 L116 38 L102 52 L116 52" stroke="#DCE5F2" stroke-width="3.5"/>
+    <path d="M124 14 L142 14 L124 32 L142 32" stroke="#DCE5F2" stroke-width="4"/>
+  </g>
+</svg>
