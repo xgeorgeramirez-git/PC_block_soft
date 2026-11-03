@@ -83,12 +83,18 @@ func TestRestPlateLifeAndDuplicate(t *testing.T) {
 	}
 }
 
-// Ловит: предупреждение о лимите в том же опросе теряется из-за плашки отдыха.
+// Ловит: предупреждение о лимите в том же опросе теряется из-за плашки отдыха; плашка отдыха,
+// ждавшая табло лимита, не показывается после его закрытия.
 func TestRestPlateYieldsToLimit(t *testing.T) {
 	m := NewModel()
 	m.OnWarnings(t0, runningDecision(300), false, []Incoming{restWarn(), {Threshold: 5, Text: "Через 5 минут время закончится. Сохрани игру", Event: ipc.WarnEventLimit, EventS: 300}})
 	if v := m.View(t0); v.Warning == nil || v.Warning.Kind != ipc.PlateBoard || v.Warning.Board.Title == "ПОРА ОТДОХНУТЬ" {
 		t.Fatalf("плашка %+v, want табло лимита", v.Warning)
+	}
+	// Табло лимита закрылось само через 5 с: ждавшая плашка отдыха показывается, а не теряется.
+	m.Tick(at(5 * time.Second))
+	if v := m.View(at(5 * time.Second)); v.Warning == nil || v.Warning.Kind != "rest" || v.Warning.Board.Seconds != "55" {
+		t.Fatalf("через 5 с %+v, want «ПОРА ОТДОХНУТЬ» 00:04:55", v.Warning)
 	}
 }
 
@@ -205,5 +211,68 @@ func TestWrapMessage(t *testing.T) {
 				t.Errorf("пробелы по краям в %q", l)
 			}
 		}
+	}
+}
+
+// Ловит: плашка отдыха следующим опросом заменяет плашку 1 мин (у неё нет срока, на ней копилка
+// и «Попросить ещё», FR-9): через 5 с плашка отдыха закрывается, и последние секунды идут без
+// предупреждения; ждущая плашка отдыха теряется навсегда, когда порог 1 мин снят (добавили время).
+func TestRestPlateWaitsBehindLastMinute(t *testing.T) {
+	m := NewModel()
+	m.OnDecision(t0, runningDecision(60), false, []int{1})
+	one := m.View(t0).Warning
+	for s := 1; s < 30; s++ {
+		m.OnDecision(at(time.Duration(s)*time.Second), runningDecision(60-s), false, nil)
+	}
+	m.OnWarnings(at(30*time.Second), runningDecision(30), false, []Incoming{restWarn()})
+	for s := 31; s <= 40; s++ {
+		m.OnDecision(at(time.Duration(s)*time.Second), runningDecision(60-s), false, nil)
+	}
+	w := m.View(at(40 * time.Second)).Warning
+	if w == nil || w.ID != one.ID || w.Text != "Осталась 1 минута: 0:20" {
+		t.Fatalf("через 10 с после плашки отдыха: %+v, want прежняя плашка 1 мин «0:20»", w)
+	}
+	if !slices.Contains(labelsOf(w.Buttons), "Попросить ещё") {
+		t.Fatalf("кнопки плашки 1 мин %v", labelsOf(w.Buttons))
+	}
+	// Родитель добавил 20 минут: плашка 1 мин снята, ждущая плашка отдыха показывается со звуком.
+	m.OnDecision(at(41*time.Second), runningDecision(1200), false, nil)
+	r := m.View(at(41 * time.Second)).Warning
+	if r == nil || r.Kind != "rest" || !r.Sound || r.ID == one.ID || r.Board == nil {
+		t.Fatalf("после снятия плашки 1 мин: %+v, want «ПОРА ОТДОХНУТЬ»", r)
+	}
+	if got := r.Board.Hours + ":" + r.Board.Minutes + ":" + r.Board.Seconds; got != "00:04:49" {
+		t.Fatalf("плитки отдыха %s, want 00:04:49 (300 с от 30-й секунды)", got)
+	}
+	m.Tick(at(46 * time.Second))
+	if v := m.View(at(46 * time.Second)); v.Warning != nil {
+		t.Fatalf("плашка отдыха не закрылась через 5 с: %+v", v.Warning)
+	}
+	m.OnDecision(at(47*time.Second), runningDecision(1194), false, nil)
+	if v := m.View(at(47 * time.Second)); v.Warning != nil {
+		t.Fatalf("плашка отдыха показана второй раз: %+v", v.Warning)
+	}
+}
+
+// Ловит: ждущая плашка отдыха появляется поверх экрана блокировки или после него (экран сильнее,
+// плашки поверх нет), либо после момента начала перерыва.
+func TestRestPlateWaitDropped(t *testing.T) {
+	m := NewModel()
+	m.OnDecision(t0, runningDecision(60), false, []int{1})
+	m.OnWarnings(at(time.Second), runningDecision(59), false, []Incoming{restWarn()})
+	m.OnDecision(at(2*time.Second), timeUpDecision(), false, nil)
+	m.OnDecision(at(3*time.Second), runningDecision(1200), false, nil) // родитель добавил время на экране
+	if v := m.View(at(3 * time.Second)); v.Warning != nil {
+		t.Fatalf("после экрана «время вышло»: %+v, want без плашки", v.Warning)
+	}
+	m2 := NewModel()
+	m2.OnDecision(t0, runningDecision(60), false, []int{1})
+	w := restWarn()
+	w.EventS = 20
+	m2.OnWarnings(at(time.Second), runningDecision(59), false, []Incoming{w})
+	keepAlive(m2, runningDecision(40), 2, 21)
+	m2.OnDecision(at(22*time.Second), runningDecision(1200), false, nil) // момент начала перерыва прошёл
+	if v := m2.View(at(22 * time.Second)); v.Warning != nil {
+		t.Fatalf("плашка отдыха после начала перерыва: %+v", v.Warning)
 	}
 }

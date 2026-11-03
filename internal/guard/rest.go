@@ -59,15 +59,48 @@ func splitRest(ws []Incoming) (rest *Incoming, others []Incoming) {
 }
 
 // restPlate ставит плашку «ПОРА ОТДОХНУТЬ», если служба прислала её впервые (повтор того же
-// момента начала перерыва — та же плашка, без второго звука).
+// момента начала перерыва — та же плашка, без второго звука). Старшинство (Ruling FB14-9):
+// предупреждение о конце времени, запретных часах или паузе и «Добавлено N минут» важнее —
+// плашка отдыха их не заменяет, а ждёт (restWait), пока они не закроются; плашка 1 мин срока
+// не имеет и уходит, только когда порог снят (добавили время) или её сменил экран.
 func (m *Model) restPlate(now time.Time, w Incoming) {
 	deadline := now.Add(time.Duration(w.EventS) * time.Second / time.Duration(m.speed))
 	if d := deadline.Sub(m.lastRest); !m.lastRest.IsZero() && d > -3*time.Second && d < 3*time.Second {
 		return
 	}
+	if m.warn != nil && m.warn.kind != plateRest {
+		m.restWait = &restWait{text: w.Text, threshold: w.Threshold, deadline: deadline}
+		return
+	}
+	m.showRest(now, w.Text, w.Threshold, deadline)
+}
+
+// restWait — плашка отдыха, которая ждёт, пока закроется более важная.
+type restWait struct {
+	text      string
+	threshold int
+	deadline  time.Time // начало перерыва по настоящим часам
+}
+
+func (m *Model) showRest(now time.Time, text string, threshold int, deadline time.Time) {
+	m.restWait = nil
 	m.lastRest = deadline
-	m.newPlate(now, plateRest, w.Threshold, 0)
-	m.warn.text, m.warn.event, m.warn.deadline = w.Text, ipc.WarnEventRest, deadline
+	m.newPlate(now, plateRest, threshold, 0)
+	m.warn.text, m.warn.event, m.warn.deadline = text, ipc.WarnEventRest, deadline
+}
+
+// flushRest показывает ждущую плашку отдыха, когда более важной плашки уже нет. Перерыв уже
+// начался или пауза — ждущая плашка отбрасывается (её сменит экран, пауза снимает и её).
+func (m *Model) flushRest(now time.Time) {
+	r := m.restWait
+	switch {
+	case r == nil:
+		return
+	case !now.Before(r.deadline) || m.dec.Status == core.StatusPaused:
+		m.restWait = nil
+	case m.warn == nil:
+		m.showRest(now, r.text, r.threshold, r.deadline)
+	}
 }
 
 // restBoard — табло плашки отдыха: плитки до начала перерыва, заголовок «ПОРА ОТДОХНУТЬ»,

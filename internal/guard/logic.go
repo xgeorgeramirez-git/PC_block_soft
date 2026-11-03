@@ -390,6 +390,7 @@ type Model struct {
 
 	lastRest     time.Time // начало перерыва по последней плашке «ПОРА ОТДОХНУТЬ» (повтор — та же плашка)
 	restDeadline time.Time // конец перерыва по настоящим часам для таймера экрана перерыва
+	restWait     *restWait // плашка отдыха ждёт, пока закроется более важная (Ruling FB14-9)
 
 	events []Event
 }
@@ -447,6 +448,7 @@ func (m *Model) resetUI() {
 	m.blockedUntil = time.Time{}
 	m.warn = nil
 	m.blocked = nil
+	m.restWait = nil
 	m.wasShown = false
 }
 
@@ -479,6 +481,9 @@ func (m *Model) advance(now time.Time) {
 	}
 	if m.warn != nil && m.warn.expired(now) {
 		m.warn = nil
+	}
+	if m.hasDec && !m.hidden && m.dec.Lock == core.LockNone {
+		m.flushRest(now) // более важная плашка закрылась сама: показать ждущую плашку отдыха
 	}
 	if m.blocked != nil && m.blocked.expired(now) {
 		m.blocked = nil
@@ -529,6 +534,9 @@ func (m *Model) OnWarnings(now time.Time, d core.Decision, hideForParent bool, n
 		m.warn = nil
 		m.blocked = nil
 	}
+	if shown {
+		m.restWait = nil // экран сильнее плашки отдыха: после него она не всплывает
+	}
 	if shown && !m.wasShown || isRest(d) {
 		// Экран появился: отсчёт автосмены идёт, пока он показан. На экране перерыва автосмены нет
 		// (8.2.3 п.12): срок держится впереди, и после перерыва экран «время вышло» начнёт свой.
@@ -546,12 +554,18 @@ func (m *Model) OnWarnings(now time.Time, d core.Decision, hideForParent bool, n
 		m.last = lastWarn{} // остаток снова больше порога: событие отодвинулось, порог можно показать снова
 	}
 	rest, newWarnings := splitRest(newWarnings)
+	defer m.flushRest(now)
 	w, ok := mostUrgent(newWarnings)
 	if !ok {
 		if rest != nil {
-			m.restPlate(now, *rest) // предупреждение о лимите в том же опросе важнее
+			m.restPlate(now, *rest)
 		}
 		return
+	}
+	if rest != nil {
+		// Предупреждение о лимите в том же опросе важнее: плашка отдыха ждёт, пока оно закроется.
+		m.restWait = &restWait{text: rest.Text, threshold: rest.Threshold,
+			deadline: now.Add(time.Duration(rest.EventS) * time.Second / time.Duration(m.speed))}
 	}
 	deadline := now.Add(time.Duration(w.EventS) * time.Second / time.Duration(m.speed))
 	if m.duplicate(w, deadline) {
