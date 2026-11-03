@@ -1317,6 +1317,8 @@
             "text": ""
           }
         ],
+        "restTimer": "",
+        "restMessage": "",
         "exits": [
           "switchUser"
         ],
@@ -1344,6 +1346,8 @@
           "plateClose"
         ],
         "fields": [],
+        "restTimer": "",
+        "restMessage": "",
         "exits": [],
         "foregroundPath": "c:\\users\\миша\\downloads\\supergame.exe"
       }
@@ -1366,6 +1370,37 @@
         "plateKind": "",
         "buttons": [],
         "fields": [],
+        "restTimer": "",
+        "restMessage": "",
+        "exits": [],
+        "foregroundPath": ""
+      }
+    }
+  },
+  "GuardState#rest": {
+    "reply": {
+      "ok": true,
+      "payload": {
+        "warnings": [],
+        "sounds": [],
+        "ui": {
+          "tickMs": 0,
+          "ticks": 0,
+          "panic": ""
+        },
+        "lockShown": true,
+        "lockKind": "rest",
+        "plate": "",
+        "plateKind": "",
+        "buttons": [
+          "parentPassword",
+          "shutdown",
+          "logoff",
+          "switchUser"
+        ],
+        "fields": [],
+        "restTimer": "00:14:59",
+        "restMessage": "Пойди погуляй с собакой",
         "exits": [],
         "foregroundPath": ""
       }

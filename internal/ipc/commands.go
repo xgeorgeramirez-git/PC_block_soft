@@ -797,6 +797,10 @@ type GuardStateReply struct {
 	PlateKind string         `json:"plateKind"` // вид видимой плашки: Plate* или Blocked*; пусто — плашки нет
 	Buttons   []string       `json:"buttons"`   // видимые кнопки (Button*)
 	Fields    []GuardField   `json:"fields"`    // поля ввода и их текст
+	// Экран перерыва на отдых (LockKind == LockRest, R27): таймер плитками «00:14:59» и сообщение
+	// родителя; у других экранов пусто. Таймер уменьшается вживую (приёмка S43, PL-16).
+	RestTimer   string `json:"restTimer"`
+	RestMessage string `json:"restMessage"`
 	// Exits — выходы, о которых страж просил службу в тестовом режиме (Exit*), по порядку.
 	// В тестовом режиме служба их не выполняет, а записывает: раннер CI нельзя выключить или
 	// отключить. Заполняет служба при чтении; то, что прислал страж, отбрасывается.

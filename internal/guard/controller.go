@@ -785,6 +785,9 @@ func StateFromView(v View, lockKind string, shown []ipc.ShownWarning, sounds []i
 	}
 	add(v.Buttons)
 	add(v.Choices)
+	if v.Rest != nil {
+		st.RestTimer, st.RestMessage = timerText(v.Rest), v.Rest.Message
+	}
 	if v.Warning != nil {
 		add(v.Warning.Buttons)
 		st.Plate, st.PlateKind = v.Warning.Text, v.Warning.Kind

@@ -5,6 +5,9 @@ package guard
 import (
 	"fmt"
 	"strings"
+	"unsafe"
+
+	"pcblock/internal/systray"
 )
 
 // Идентификаторы дочерних окон экрана блокировки: кнопка получает idButtonBase плюс номер
@@ -50,8 +53,22 @@ type lockUI struct {
 	buttons  map[Button]uintptr
 	views    map[Button]ButtonView
 
+	rest restPaint // экран перерыва: картинка и плитки таймера
+
 	onPress func(Button)
 	onEdit  func(string)
+}
+
+// restPaint — готовые пиксели экрана перерыва (8.2.3 п.12): картинка и плитки таймера уже на
+// фоне экрана (OverBackground), цифры рисует шрифт системы поверх плиток каждую секунду.
+type restPaint struct {
+	showCat, showTiles bool
+	catRc, tilesRc     rect
+	catSize            int32
+	catPx              []byte
+	tiles              systray.CardLayout
+	tilesPx            []byte
+	fonts              map[[2]int]uintptr // шрифт цифр и подписей по размеру и жирности
 }
 
 func newLockUI(w *LockWindow, onPress func(Button), onEdit func(string)) *lockUI {
@@ -81,15 +98,18 @@ func (u *lockUI) area() rect {
 func toRect(r Rect) rect { return rect{r.Left, r.Top, r.Right, r.Bottom} }
 
 // apply показывает вид v и короткое сообщение notice под заголовком. Вызывается часто:
-// если вид тот же, ничего не перерисовывается.
+// если вид тот же, ничего не перерисовывается; у экрана перерыва новая секунда таймера
+// перерисовывает только плитки (LayoutKey, TimerChanged).
 func (u *lockUI) apply(v View, notice string) {
-	shown := v
-	shown.Warning = nil
-	sig := fmt.Sprintf("%+v|%s", shown, notice)
-	if sig == u.sig {
+	key := LayoutKey(v, notice)
+	if key == u.sig {
+		if TimerChanged(u.view, v) {
+			u.view.Rest = v.Rest
+			invalidateRect(u.w.hwnd, u.rest.tilesRc)
+		}
 		return
 	}
-	u.sig = sig
+	u.sig = key
 	u.view, u.notice = v, notice
 	u.layout()
 }
@@ -100,6 +120,8 @@ const (
 	entText entryKind = iota
 	entEdit
 	entButton
+	entCat   // картинка экрана перерыва
+	entTiles // плитки таймера экрана перерыва
 )
 
 // entry — блок столбца экрана до раскладки.
@@ -134,9 +156,27 @@ func (u *lockUI) layout() {
 		h := measureHeight(hdc, font, text, textW)
 		es = append(es, entry{kind: entText, item: FlowItem{W: textW, H: h, Gap: gap}, text: text, font: font, color: color})
 	}
+	untilGap := s(16)
 	addText(v.Lock.Reason, u.fonts.title, colorText, 0)
+	if v.Rest != nil {
+		// Экран перерыва (8.2.3 п.12): под заголовком крупный таймер плитками табло остатка.
+		tl := RestTiles(u.dpi)
+		es = append(es, entry{kind: entTiles, item: FlowItem{W: int32(tl.W), H: int32(tl.H), Gap: s(restTilesGap)}})
+		untilGap = s(restUntilGap)
+	}
 	addText(v.Lock.Detail, u.fonts.body, colorSecondary, s(12))
-	addText(v.Lock.Until, u.fonts.body, colorSecondary, s(16))
+	addText(v.Lock.Until, u.fonts.body, colorSecondary, untilGap)
+	if v.Rest != nil {
+		// Сообщение родителя — не больше двух строк, длинное слово переносится по буквам.
+		fits := func(line string) bool { return measureWidth(hdc, u.fonts.body, line) <= textW }
+		for i, line := range WrapMessage(v.Rest.Message, restMessageLines, fits) {
+			gap := s(restMsgLineGp)
+			if i == 0 {
+				gap = s(restMsgGap)
+			}
+			addText(line, u.fonts.body, colorText, gap)
+		}
+	}
 	addText(v.Lock.Used, u.fonts.body, colorSecondary, s(6))
 	addText(v.Lock.Hint, u.fonts.body, colorSecondary, s(16))
 	addText(v.PanelText, u.fonts.body, colorText, s(32))
@@ -175,10 +215,20 @@ func (u *lockUI) layout() {
 	for i, e := range es {
 		items[i] = e.item
 	}
+	if v.Rest != nil {
+		// Картинка над заголовком; на низком экране меньше или без неё (RestCatSize).
+		if cat := RestCatSize(u.dpi, area.bottom-area.top, FlowHeight(items)); cat > 0 && len(es) > 0 {
+			es[0].item.Gap = s(restCatGapPx)
+			es = append([]entry{{kind: entCat, item: FlowItem{W: cat, H: cat}}}, es...)
+			items = append([]FlowItem{es[0].item}, items...)
+			items[1] = es[1].item
+		}
+	}
 	top := FlowTop(Rect{area.left, area.top, area.right, area.bottom}, FlowHeight(items), s(24))
 	rects := Flow(Rect{area.left, area.top, area.right, area.bottom}, top, items)
 
 	u.texts, u.hasFrame = u.texts[:0], false
+	u.rest.showCat, u.rest.showTiles = false, false
 	want := map[Button]rect{}
 	var order []Button
 	for i, e := range es {
@@ -188,6 +238,11 @@ func (u *lockUI) layout() {
 			u.texts = append(u.texts, lockText{text: e.text, rc: rc, font: e.font, color: e.color})
 		case entEdit:
 			u.frame, u.hasFrame = rc, true
+		case entCat:
+			u.rest.showCat, u.rest.catRc = u.prepareCat(rc.right-rc.left), rc
+		case entTiles:
+			u.prepareTiles()
+			u.rest.showTiles, u.rest.tilesRc = true, rc
 		case entButton:
 			want[e.btn.Button] = rc
 			order = append(order, e.btn.Button)
@@ -318,8 +373,73 @@ func (u *lockUI) setMasked(masked bool) {
 	u.masked, u.maskSet = masked, true
 }
 
+// bgBytes — цвет фона экрана байтами r, g, b (COLORREF хранит 0x00BBGGRR).
+func bgBytes() (r, g, b byte) { return byte(colorBg), byte(colorBg >> 8), byte(colorBg >> 16) }
+
+// prepareCat готовит пиксели картинки стороной size на фоне экрана; false — картинки нет.
+func (u *lockUI) prepareCat(size int32) bool {
+	if u.rest.catSize != size || u.rest.catPx == nil {
+		px, err := RestCatBGRA(int(size))
+		if err != nil || len(px) != int(size*size*4) {
+			return false
+		}
+		r, g, b := bgBytes()
+		u.rest.catPx, u.rest.catSize = OverBackground(px, r, g, b), size
+	}
+	return true
+}
+
+// prepareTiles готовит пиксели плиток таймера один раз: dpi окна не меняется.
+func (u *lockUI) prepareTiles() {
+	if u.rest.tilesPx != nil {
+		return
+	}
+	r, g, b := bgBytes()
+	u.rest.tiles = RestTiles(u.dpi)
+	u.rest.tilesPx = RestTimerPixels(u.rest.tiles, r, g, b)
+}
+
+// paintRest рисует картинку и плитки с цифрами экрана перерыва.
+func (u *lockUI) paintRest(hdc uintptr) {
+	if u.rest.showCat {
+		blitBGRA(hdc, u.rest.catRc.left, u.rest.catRc.top, u.rest.catSize, u.rest.catSize, u.rest.catPx)
+	}
+	if !u.rest.showTiles || u.view.Rest == nil {
+		return
+	}
+	l, at := u.rest.tiles, u.rest.tilesRc
+	blitBGRA(hdc, at.left, at.top, int32(l.W), int32(l.H), u.rest.tilesPx)
+	for _, r := range systray.TileTexts(l, RestTimerView(*u.view.Rest)) {
+		rc := rect{at.left + int32(r.Rect.Left), at.top + int32(r.Rect.Top), at.left + int32(r.Rect.Right), at.top + int32(r.Rect.Bottom)}
+		old, _, _ := procSelectObject.Call(hdc, u.restFont(r.Px, r.Bold))
+		procSetTextColor.Call(hdc, rgb(uint32(r.Color.R), uint32(r.Color.G), uint32(r.Color.B)))
+		procDrawText.Call(hdc, uintptr(unsafe.Pointer(utf16(r.Text))), ^uintptr(0), uintptr(unsafe.Pointer(&rc)),
+			dtCenter|dtSingleLine|dtVCenter|dtNoPrefix)
+		procSelectObject.Call(hdc, old)
+	}
+}
+
+// restFont — шрифт цифр и подписей плиток (как у табло значка: Bahnschrift).
+func (u *lockUI) restFont(px int, bold bool) uintptr {
+	weight := 400
+	if bold {
+		weight = 700
+	}
+	k := [2]int{px, weight}
+	if f, ok := u.rest.fonts[k]; ok {
+		return f
+	}
+	if u.rest.fonts == nil {
+		u.rest.fonts = map[[2]int]uintptr{}
+	}
+	f := makeFontFace(int32(px), weight, "Bahnschrift")
+	u.rest.fonts[k] = f
+	return f
+}
+
 // paint рисует тексты и рамку поля пароля; фон уже залит окном.
 func (u *lockUI) paint(hdc uintptr, rc *rect) {
+	u.paintRest(hdc)
 	for _, t := range u.texts {
 		drawWrapped(hdc, t.font, t.color, t.text, t.rc, dtCenter)
 	}
@@ -435,6 +555,10 @@ func (u *lockUI) mainButton() Button {
 // close освобождает шрифты и кисть.
 func (u *lockUI) close() {
 	u.fonts.free()
+	for k, f := range u.rest.fonts {
+		procDeleteObject.Call(f)
+		delete(u.rest.fonts, k)
+	}
 	if u.surfaceBrush != 0 {
 		procDeleteObject.Call(u.surfaceBrush)
 		u.surfaceBrush = 0

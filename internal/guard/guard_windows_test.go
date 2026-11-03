@@ -470,3 +470,60 @@ func TestBlockedPlateKeepsFocusAndPresses(t *testing.T) {
 		t.Fatalf("заголовок окна для диктора: %q", title)
 	}
 }
+
+// Ловит: экран перерыва (8.2.3 п.12) без картинки и плиток на обычном экране, картинка не над
+// заголовком или налезает на него, плитки не под заголовком; сообщение родителя длиннее двух
+// строк или длинное слово вылезает за ширину текста; новая секунда таймера перестраивает окно
+// (кнопки создаются заново, фокус прыгает); на экране «Попросить ещё».
+func TestRestScreenDrawsCatTilesAndMessage(t *testing.T) {
+	r := newLockRig(t)
+	now := time.Now()
+	long := "Разомнись" + strings.Repeat("ааааааааааааааааааааааааааааааа", 6) + " попей воды, посмотри в окно и потом снова садись играть, если захочешь"
+	r.model.OnDecision(now, core.Decision{Lock: core.LockRest, Reason: core.ReasonRest, Until: "Можно снова в 16:20",
+		RestLeftS: 15 * 60, RestMessage: long}, false, nil)
+	v := r.show()
+	if v.Rest == nil || !r.ui.rest.showTiles {
+		t.Fatalf("плиток таймера нет: %+v", r.ui.rest)
+	}
+	area := r.ui.area()
+	title := r.ui.texts[0]
+	if title.text != core.ReasonRest {
+		t.Fatalf("первый текст %q, ждали заголовок", title.text)
+	}
+	if area.bottom-area.top >= 900 && !r.ui.rest.showCat {
+		t.Error("на экране выше 900 точек картинки нет")
+	}
+	if r.ui.rest.showCat && r.ui.rest.catRc.bottom > title.rc.top {
+		t.Errorf("картинка %v налезает на заголовок %v", r.ui.rest.catRc, title.rc)
+	}
+	if r.ui.rest.tilesRc.top < title.rc.bottom {
+		t.Errorf("плитки %v выше конца заголовка %v", r.ui.rest.tilesRc, title.rc)
+	}
+	hdc, _, _ := procGetDC.Call(r.w.hwnd)
+	defer procReleaseDC.Call(r.w.hwnd, hdc)
+	lines := 0
+	for _, tx := range r.ui.texts {
+		if tx.rc.top < r.ui.rest.tilesRc.bottom || tx.text == "Можно снова в 16:20" || tx.font != r.ui.fonts.body {
+			continue
+		}
+		lines++
+		if w := measureWidth(hdc, tx.font, tx.text); w > tx.rc.right-tx.rc.left {
+			t.Errorf("строка сообщения %q шире места: %d > %d", tx.text, w, tx.rc.right-tx.rc.left)
+		}
+	}
+	if lines < 1 || lines > 2 {
+		t.Errorf("строк сообщения %d, ждали 1–2", lines)
+	}
+	if r.ui.buttonHandle(ButtonAskMore) != 0 || r.ui.buttonHandle(ButtonParentPassword) == 0 {
+		t.Error("на экране перерыва «Попросить ещё» есть или нет «Пароль родителя»")
+	}
+	h, sig := r.ui.buttonHandle(ButtonParentPassword), r.ui.sig
+	time.Sleep(1100 * time.Millisecond)
+	v2 := r.show()
+	if !TimerChanged(v, v2) {
+		t.Fatalf("таймер не изменился: %v → %v", v.Rest.Tiles, v2.Rest.Tiles)
+	}
+	if r.ui.buttonHandle(ButtonParentPassword) != h || r.ui.sig != sig || r.ui.view.Rest.Tiles != v2.Rest.Tiles {
+		t.Error("новая секунда таймера перестроила окно или не дошла до плиток")
+	}
+}

@@ -384,6 +384,10 @@ func examples() map[string]example {
 			Exits:     []string{ExitSwitchUser},
 		}),
 		"GuardState#empty": ok(nil, GuardStateReply{}),
+		"GuardState#rest": ok(nil, GuardStateReply{
+			LockShown: true, LockKind: LockRest, RestTimer: "00:14:59", RestMessage: "Пойди погуляй с собакой",
+			Buttons: []string{ButtonParentPassword, ButtonShutdown, ButtonLogoff, ButtonSwitchUser},
+		}),
 		"GuardState#blocked": ok(nil, GuardStateReply{
 			Plate: "Программа «SuperGame» ждёт разрешения родителя", PlateKind: BlockedUnknown,
 			Buttons: []string{"askNow", "plateClose"}, ForegroundPath: `c:\users\миша\downloads\supergame.exe`,
