@@ -474,12 +474,14 @@ function Install-Pcb {
 # Включает тестовый режим: временная папка данных, ускорение, начало часов ядра в понедельник 19.10.2026
 # в 15:00 (день недели не зависит от времени запуска CI), учётка раннера как "ребёнок" (ТЗ 10.8).
 # ClockRealStart пишется сейчас: после перезапуска службы время ядра продолжается, а не идёт назад.
-function Enable-TestMode([int]$Speed = 1, [string]$ChildSid = $script:MySid, [bool]$ExpectFresh = $true, [int]$LockAutoSwitchS = 0) {
+# ClockStart — момент часов ядра в начале теста (местное время): по умолчанию пн 19.10.2026 15:00; S42 берёт
+# среду, чтобы понедельник недели, 1-е число и 2 января были прошлыми днями при любой дате раннера.
+function Enable-TestMode([int]$Speed = 1, [string]$ChildSid = $script:MySid, [bool]$ExpectFresh = $true, [int]$LockAutoSwitchS = 0, [string]$ClockStart = "2026-10-19T15:00:00") {
   New-Item -Path $script:TestKey -Force | Out-Null
   $realStart = [DateTime]::UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ")
   New-ItemProperty -Path $script:TestKey -Name DataDir -Value $script:Data -PropertyType String -Force | Out-Null
   New-ItemProperty -Path $script:TestKey -Name ClockSpeed -Value $Speed -PropertyType DWord -Force | Out-Null
-  New-ItemProperty -Path $script:TestKey -Name ClockStart -Value "2026-10-19T15:00:00" -PropertyType String -Force | Out-Null
+  New-ItemProperty -Path $script:TestKey -Name ClockStart -Value $ClockStart -PropertyType String -Force | Out-Null
   New-ItemProperty -Path $script:TestKey -Name ClockRealStart -Value $realStart -PropertyType String -Force | Out-Null
   New-ItemProperty -Path $script:TestKey -Name TestChildSID -Value $ChildSid -PropertyType String -Force | Out-Null
   # Папка тестовых программ (RM3-8): наблюдатель в тестовом режиме трогает только процессы внутри неё,
@@ -543,10 +545,10 @@ function Reset-Machine {
 }
 
 # Свежая установка и свежая папка данных (счётчик сбоев службы, Ruling 27), тестовый режим включён.
-function Initialize-Scenario([int]$Speed = 1, [int]$LockAutoSwitchS = 0) {
+function Initialize-Scenario([int]$Speed = 1, [int]$LockAutoSwitchS = 0, [string]$ClockStart = "2026-10-19T15:00:00") {
   Reset-Machine
   Install-Pcb
-  Enable-TestMode $Speed $script:MySid $true $LockAutoSwitchS
+  Enable-TestMode $Speed $script:MySid $true $LockAutoSwitchS $ClockStart
 }
 
 # Строки журнала службы про сеансы и решения «на экране или нет» (подробные логи, FR-25) и qwinsta.
@@ -1244,9 +1246,10 @@ function Set-TestForeground($Proc) {
 }
 
 # «Моя статистика» ребёнка этого сеанса (MyToday): статус, gamesS, studyS — счётчики дня ядра.
-function Get-MyToday {
-  $r = Send-Pcb "MyToday"
-  Assert-Reply $r "MyToday"
+# «Моя статистика» за период Period (today|week|month|year|all, D-61); без периода — сегодня.
+function Get-MyToday([string]$Period = "") {
+  $r = if ($Period) { Send-Pcb "MyToday" @{ period = $Period } } else { Send-Pcb "MyToday" }
+  Assert-Reply $r "MyToday $Period"
   return $r.payload
 }
 

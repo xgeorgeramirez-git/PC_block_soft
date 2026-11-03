@@ -34,6 +34,7 @@ var (
 	procIsChild                  = user32.NewProc("IsChild")
 	procDrawFocusRect            = user32.NewProc("DrawFocusRect")
 	procSetBkColor               = gdi32.NewProc("SetBkColor")
+	procSetDIBitsToDevice        = gdi32.NewProc("SetDIBitsToDevice")
 
 	procRoundRect = gdi32.NewProc("RoundRect")
 	procCreatePen = gdi32.NewProc("CreatePen")
@@ -144,13 +145,55 @@ func systemDPI() int {
 }
 
 // makeFont создаёт шрифт Segoe UI высотой px пикселей.
-func makeFont(px int32, weight int) uintptr {
+func makeFont(px int32, weight int) uintptr { return makeFontFace(px, weight, "Segoe UI") }
+
+// makeFontFace создаёт шрифт face высотой px пикселей.
+func makeFontFace(px int32, weight int, face string) uintptr {
 	f, _, _ := procCreateFont.Call(
 		uintptr(-px), 0, 0, 0, uintptr(weight), 0, 0, 0,
 		defaultCharset, 0, 0, clearType, 0,
-		uintptr(unsafe.Pointer(utf16("Segoe UI"))),
+		uintptr(unsafe.Pointer(utf16(face))),
 	)
 	return f
+}
+
+// measureWidth возвращает ширину текста одной строкой.
+func measureWidth(hdc, font uintptr, text string) int32 {
+	old, _, _ := procSelectObject.Call(hdc, font)
+	rc := rect{}
+	procDrawText.Call(hdc, uintptr(unsafe.Pointer(utf16(text))), ^uintptr(0),
+		uintptr(unsafe.Pointer(&rc)), dtCalcRect|dtSingleLine|dtNoPrefix)
+	procSelectObject.Call(hdc, old)
+	return rc.right - rc.left
+}
+
+// dibHeader — BITMAPINFOHEADER: 32 бита на пиксель, строки сверху вниз (высота со знаком минус).
+type dibHeader struct {
+	size          uint32
+	width, height int32
+	planes        uint16
+	bitCount      uint16
+	compression   uint32
+	sizeImage     uint32
+	xPelsPerMeter int32
+	yPelsPerMeter int32
+	clrUsed       uint32
+	clrImportant  uint32
+}
+
+// blitBGRA кладёт непрозрачные пиксели BGRA w×h (строки сверху вниз) в hdc в точку (x, y).
+func blitBGRA(hdc uintptr, x, y, w, h int32, px []byte) {
+	if w <= 0 || h <= 0 || len(px) < int(w*h*4) {
+		return
+	}
+	hdr := dibHeader{size: uint32(unsafe.Sizeof(dibHeader{})), width: w, height: -h, planes: 1, bitCount: 32}
+	procSetDIBitsToDevice.Call(hdc, uintptr(x), uintptr(y), uintptr(w), uintptr(h), 0, 0, 0, uintptr(h),
+		uintptr(unsafe.Pointer(&px[0])), uintptr(unsafe.Pointer(&hdr)), 0)
+}
+
+// invalidateRect помечает к перерисовке только часть окна, без стирания фона заранее.
+func invalidateRect(hwnd uintptr, rc rect) {
+	procInvalidateRect.Call(hwnd, uintptr(unsafe.Pointer(&rc)), 0)
 }
 
 // fontSet — шрифты одного окна, размеры уже с учётом dpi.

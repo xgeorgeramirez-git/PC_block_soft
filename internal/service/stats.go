@@ -22,15 +22,19 @@ const usageCatVideo = "video_social"
 // statsCatOrder — порядок категорий в ответе: как строки «Итогов».
 var statsCatOrder = map[string]int{programs.CatGames: 0, usageCatVideo: 1, programs.CatStudy: 2, programs.CatOther: 3}
 
-// programTimes собирает строки вкладок за день состояния day: сохранённый учёт по программам
-// (DayUsage) и ещё не сохранённый накопитель службы (cs.usage, сброс раз в 30 с). Название —
+// programTimes собирает строки вкладок за период с итогами day (day.Day — сегодня): учёт прошлых дней
+// периода past (PeriodUsage), сохранённый учёт сегодня (DayUsage) и ещё не сохранённый накопитель
+// службы за сегодня (cs.usage, сброс раз в 30 с). Название —
 // то же, что в списке программ и журнале (displayName, D-59); скрытая (D-57) имени не получает,
 // её секунды идут в «Остальное время» своей категории. «Остальное время» — итог категории минус названные строки:
 // сумма строк категории равна итогу категории. Внутри категории самые долгие сверху, «Остальное время»
 // последней. Ошибка чтения учёта — всё время категории в «Остальное время» (время не пропадает).
-func (s *Service) programTimes(cs *childState, day core.DayState) []ipc.ProgramTime {
+func (s *Service) programTimes(cs *childState, day core.DayState, past []UsageRow) []ipc.ProgramTime {
 	type key struct{ cat, path string }
 	secs := map[key]int{}
+	for _, u := range past {
+		secs[key{u.Category, u.Subject}] += u.Seconds
+	}
 	rows, err := s.cfg.Store.DayUsage(cs.child.ID, day.Day)
 	if err != nil {
 		s.logRate("dayusage", "не удалось прочитать время по программам за %s у %s: %v", day.Day, cs.child.Name, err)

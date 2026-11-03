@@ -28,6 +28,7 @@ const (
 	TargetPlateClose      = "plateClose"             // крестик плашки о закрытой программе (FR-13)
 	TargetSpendBonusPlate = "spendBonusPlate"        // «Взять из копилки» на плашке 1 мин (RM3-5)
 	TargetAskMorePlate    = "askMorePlate"           // «Попросить ещё» на плашке 1 мин (RM3-5)
+	TargetEndBreak        = "endBreak"               // «Закончить перерыв» после пароля (R27, приёмка S43)
 )
 
 // FieldPasswordID — идентификатор поля пароля в TestGuard (действие type) и в GuardState.Fields.
@@ -59,6 +60,7 @@ var targetNames = map[Button]string{
 	ButtonPlateClose:      TargetPlateClose,
 	ButtonPlateSpendBonus: TargetSpendBonusPlate,
 	ButtonPlateAskMore:    TargetAskMorePlate,
+	ButtonEndBreak:        TargetEndBreak,
 }
 
 // TargetName возвращает имя кнопки для канала связи; у ButtonNone и неизвестного значения пусто.

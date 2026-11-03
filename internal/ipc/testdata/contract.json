@@ -36,7 +36,10 @@
             "gamesUnlimited": false,
             "endMode": "lock",
             "closeGames": false,
-            "studyOnly": false
+            "studyOnly": false,
+            "restUntilMs": 0,
+            "restLeftS": 0,
+            "restMessage": ""
           },
           "extraMin": 30,
           "bonusBalance": 0,
@@ -100,7 +103,10 @@
             "gamesUnlimited": false,
             "endMode": "lock",
             "closeGames": false,
-            "studyOnly": false
+            "studyOnly": false,
+            "restUntilMs": 0,
+            "restLeftS": 0,
+            "restMessage": ""
           },
           "extraMin": 30,
           "bonusBalance": 0,
@@ -175,7 +181,10 @@
             "gamesUnlimited": false,
             "endMode": "lock",
             "closeGames": false,
-            "studyOnly": false
+            "studyOnly": false,
+            "restUntilMs": 0,
+            "restLeftS": 0,
+            "restMessage": ""
           },
           "extraMin": 0,
           "bonusBalance": 0,
@@ -236,7 +245,10 @@
             "gamesUnlimited": false,
             "endMode": "lock",
             "closeGames": false,
-            "studyOnly": false
+            "studyOnly": false,
+            "restUntilMs": 0,
+            "restLeftS": 0,
+            "restMessage": ""
           },
           "extraMin": 0,
           "bonusBalance": 0,
@@ -318,6 +330,15 @@
           }
         ],
         "endMode": "study_only",
+        "break": {
+          "enabled": true,
+          "afterMin": 60,
+          "counts": "games",
+          "warnMin": 5,
+          "restMin": 15,
+          "selfRestMin": 30,
+          "message": "Пойди погуляй с собакой"
+        },
         "message": "Правила скопированы. Проверьте и сохраните"
       }
     }
@@ -452,6 +473,67 @@
       "field": "category"
     }
   },
+  "EndBreak": {
+    "request": {
+      "childId": 1
+    },
+    "reply": {
+      "ok": true,
+      "payload": {
+        "card": {
+          "childId": 1,
+          "sid": "S-1-5-21-111-222-333-1001",
+          "name": "Миша",
+          "status": {
+            "name": "Миша",
+            "status": "ok",
+            "statusText": "Можно",
+            "label": "85",
+            "tooltip": "Осталось 1 ч 25 мин\nИгры: 20 мин",
+            "summary": "Сегодня осталось 1 ч 25 мин из 2 ч",
+            "day": "2026-10-19",
+            "remainingS": 5100,
+            "limitS": 7200,
+            "usedS": 2100,
+            "unlimited": false,
+            "lock": "none",
+            "reason": "",
+            "detail": "",
+            "until": "",
+            "pauseUntil": "",
+            "used": "Сегодня: 35 мин из 2 ч",
+            "bonusBalance": 0,
+            "forbiddenNote": "",
+            "gamesRemainingS": 1200,
+            "gamesLimitS": 3600,
+            "gamesUnlimited": false,
+            "endMode": "lock",
+            "closeGames": false,
+            "studyOnly": false,
+            "restUntilMs": 0,
+            "restLeftS": 0,
+            "restMessage": ""
+          },
+          "extraMin": 0,
+          "bonusBalance": 0,
+          "canClearBlock": false,
+          "noForbiddenToday": false,
+          "gamesText": "Игры 40 мин из 1 ч",
+          "pendingPrograms": 0
+        },
+        "message": "Перерыв закончен"
+      }
+    }
+  },
+  "EndBreak#none": {
+    "request": {
+      "childId": 1
+    },
+    "reply": {
+      "ok": false,
+      "error": "Перерыва сейчас нет"
+    }
+  },
   "ExtendSession": {
     "reply": {
       "ok": true,
@@ -578,7 +660,16 @@
             "gamesUnlimited": true
           }
         ],
-        "endMode": "lock"
+        "endMode": "lock",
+        "break": {
+          "enabled": false,
+          "afterMin": 60,
+          "counts": "all",
+          "warnMin": 5,
+          "restMin": 15,
+          "selfRestMin": 15,
+          "message": ""
+        }
       }
     }
   },
@@ -610,7 +701,10 @@
         "gamesUnlimited": false,
         "endMode": "lock",
         "closeGames": false,
-        "studyOnly": false
+        "studyOnly": false,
+        "restUntilMs": 0,
+        "restLeftS": 0,
+        "restMessage": ""
       }
     }
   },
@@ -642,7 +736,45 @@
         "gamesUnlimited": true,
         "endMode": "lock",
         "closeGames": false,
-        "studyOnly": false
+        "studyOnly": false,
+        "restUntilMs": 0,
+        "restLeftS": 0,
+        "restMessage": ""
+      }
+    }
+  },
+  "GetChildStatus#rest": {
+    "reply": {
+      "ok": true,
+      "payload": {
+        "name": "Миша",
+        "status": "ok",
+        "statusText": "Можно",
+        "label": "115",
+        "tooltip": "Осталось 1 ч 55 мин",
+        "summary": "Сегодня осталось 1 ч 55 мин из 3 ч",
+        "day": "2026-10-19",
+        "remainingS": 6900,
+        "limitS": 10800,
+        "usedS": 3900,
+        "unlimited": false,
+        "lock": "rest",
+        "reason": "Перерыв на отдых",
+        "detail": "",
+        "until": "Можно снова в 16:20",
+        "pauseUntil": "",
+        "used": "Сегодня: 1 ч 05 мин из 3 ч",
+        "bonusBalance": 0,
+        "forbiddenNote": "",
+        "gamesRemainingS": 0,
+        "gamesLimitS": 0,
+        "gamesUnlimited": true,
+        "endMode": "lock",
+        "closeGames": false,
+        "studyOnly": false,
+        "restUntilMs": 1760000900000,
+        "restLeftS": 900,
+        "restMessage": "Пойди погуляй с собакой"
       }
     }
   },
@@ -674,7 +806,10 @@
         "gamesUnlimited": true,
         "endMode": "study_only",
         "closeGames": false,
-        "studyOnly": true
+        "studyOnly": true,
+        "restUntilMs": 0,
+        "restLeftS": 0,
+        "restMessage": ""
       }
     }
   },
@@ -752,7 +887,10 @@
               "gamesUnlimited": false,
               "endMode": "lock",
               "closeGames": false,
-              "studyOnly": false
+              "studyOnly": false,
+              "restUntilMs": 0,
+              "restLeftS": 0,
+              "restMessage": ""
             },
             "extraMin": 0,
             "bonusBalance": 0,
@@ -790,7 +928,10 @@
               "gamesUnlimited": false,
               "endMode": "lock",
               "closeGames": false,
-              "studyOnly": false
+              "studyOnly": false,
+              "restUntilMs": 0,
+              "restLeftS": 0,
+              "restMessage": ""
             },
             "extraMin": 30,
             "bonusBalance": 0,
@@ -847,7 +988,10 @@
               "gamesUnlimited": false,
               "endMode": "lock",
               "closeGames": false,
-              "studyOnly": false
+              "studyOnly": false,
+              "restUntilMs": 0,
+              "restLeftS": 0,
+              "restMessage": ""
             },
             "extraMin": 0,
             "bonusBalance": 0,
@@ -966,7 +1110,10 @@
           "gamesUnlimited": false,
           "endMode": "lock",
           "closeGames": false,
-          "studyOnly": false
+          "studyOnly": false,
+          "restUntilMs": 0,
+          "restLeftS": 0,
+          "restMessage": ""
         },
         "warnings": [
           {
@@ -975,6 +1122,13 @@
             "sound": true,
             "event": "limit",
             "eventS": 60
+          },
+          {
+            "threshold": 5,
+            "text": "Через 5 минут перерыв на 15 минут. Сохрани игру",
+            "sound": true,
+            "event": "rest",
+            "eventS": 300
           }
         ],
         "commands": [
@@ -1038,7 +1192,10 @@
           "gamesUnlimited": false,
           "endMode": "lock",
           "closeGames": false,
-          "studyOnly": false
+          "studyOnly": false,
+          "restUntilMs": 0,
+          "restLeftS": 0,
+          "restMessage": ""
         },
         "warnings": [
           {
@@ -1105,7 +1262,10 @@
           "gamesUnlimited": false,
           "endMode": "lock",
           "closeGames": false,
-          "studyOnly": false
+          "studyOnly": false,
+          "restUntilMs": 0,
+          "restLeftS": 0,
+          "restMessage": ""
         },
         "warnings": [],
         "commands": []
@@ -1157,6 +1317,8 @@
             "text": ""
           }
         ],
+        "restTimer": "",
+        "restMessage": "",
         "exits": [
           "switchUser"
         ],
@@ -1184,6 +1346,8 @@
           "plateClose"
         ],
         "fields": [],
+        "restTimer": "",
+        "restMessage": "",
         "exits": [],
         "foregroundPath": "c:\\users\\миша\\downloads\\supergame.exe"
       }
@@ -1206,6 +1370,37 @@
         "plateKind": "",
         "buttons": [],
         "fields": [],
+        "restTimer": "",
+        "restMessage": "",
+        "exits": [],
+        "foregroundPath": ""
+      }
+    }
+  },
+  "GuardState#rest": {
+    "reply": {
+      "ok": true,
+      "payload": {
+        "warnings": [],
+        "sounds": [],
+        "ui": {
+          "tickMs": 0,
+          "ticks": 0,
+          "panic": ""
+        },
+        "lockShown": true,
+        "lockKind": "rest",
+        "plate": "",
+        "plateKind": "",
+        "buttons": [
+          "parentPassword",
+          "shutdown",
+          "logoff",
+          "switchUser"
+        ],
+        "fields": [],
+        "restTimer": "00:14:59",
+        "restMessage": "Пойди погуляй с собакой",
         "exits": [],
         "foregroundPath": ""
       }
@@ -1489,6 +1684,9 @@
     }
   },
   "MyToday": {
+    "request": {
+      "period": "today"
+    },
     "reply": {
       "ok": true,
       "payload": {
@@ -1517,7 +1715,10 @@
           "gamesUnlimited": false,
           "endMode": "lock",
           "closeGames": false,
-          "studyOnly": false
+          "studyOnly": false,
+          "restUntilMs": 0,
+          "restLeftS": 0,
+          "restMessage": ""
         },
         "today": [
           "Сегодня осталось 1 ч 25 мин из 2 ч",
@@ -1570,10 +1771,14 @@
             "text": "Когда время вышло: экран блокировки"
           }
         ],
+        "period": "today",
+        "usedS": 2100,
         "gamesS": 900,
         "studyS": 180,
         "otherS": 1200,
         "allS": 2280,
+        "extraMin": 0,
+        "bonusSpentMin": 0,
         "programs": [
           {
             "path": "c:\\games\\game.exe",
@@ -1610,6 +1815,9 @@
     }
   },
   "MyToday#empty": {
+    "request": {
+      "period": "today"
+    },
     "reply": {
       "ok": true,
       "payload": {
@@ -1638,15 +1846,129 @@
           "gamesUnlimited": true,
           "endMode": "lock",
           "closeGames": false,
-          "studyOnly": false
+          "studyOnly": false,
+          "restUntilMs": 0,
+          "restLeftS": 0,
+          "restMessage": ""
         },
         "today": [],
         "rules": [],
+        "period": "today",
+        "usedS": 0,
         "gamesS": 0,
         "studyS": 0,
         "otherS": 0,
         "allS": 0,
+        "extraMin": 0,
+        "bonusSpentMin": 0,
         "programs": []
+      }
+    }
+  },
+  "MyToday#week": {
+    "request": {
+      "period": "week"
+    },
+    "reply": {
+      "ok": true,
+      "payload": {
+        "status": {
+          "name": "Миша",
+          "status": "ok",
+          "statusText": "Можно",
+          "label": "85",
+          "tooltip": "Осталось 1 ч 25 мин\nИгры: 20 мин",
+          "summary": "Сегодня осталось 1 ч 25 мин из 2 ч",
+          "day": "2026-10-19",
+          "remainingS": 5100,
+          "limitS": 7200,
+          "usedS": 2100,
+          "unlimited": false,
+          "lock": "none",
+          "reason": "",
+          "detail": "",
+          "until": "",
+          "pauseUntil": "",
+          "used": "Сегодня: 35 мин из 2 ч",
+          "bonusBalance": 0,
+          "forbiddenNote": "",
+          "gamesRemainingS": 1200,
+          "gamesLimitS": 3600,
+          "gamesUnlimited": false,
+          "endMode": "lock",
+          "closeGames": false,
+          "studyOnly": false,
+          "restUntilMs": 0,
+          "restLeftS": 0,
+          "restMessage": ""
+        },
+        "today": [
+          "Сегодня осталось 1 ч 25 мин из 2 ч",
+          "Использовано 35 мин"
+        ],
+        "rules": [
+          {
+            "weekday": 1,
+            "day": "пн",
+            "text": "2 ч"
+          },
+          {
+            "weekday": 2,
+            "day": "вт",
+            "text": "2 ч"
+          },
+          {
+            "weekday": 3,
+            "day": "ср",
+            "text": "1 ч 30 мин"
+          },
+          {
+            "weekday": 4,
+            "day": "чт",
+            "text": "2 ч"
+          },
+          {
+            "weekday": 5,
+            "day": "пт",
+            "text": "2 ч"
+          },
+          {
+            "weekday": 6,
+            "day": "сб",
+            "text": "4 ч"
+          },
+          {
+            "weekday": 7,
+            "day": "вс",
+            "text": "Без лимита"
+          },
+          {
+            "weekday": 0,
+            "day": "",
+            "text": "Игры: до 1 ч в день"
+          },
+          {
+            "weekday": 0,
+            "day": "",
+            "text": "Когда время вышло: экран блокировки"
+          }
+        ],
+        "period": "week",
+        "usedS": 2400,
+        "gamesS": 2400,
+        "studyS": 0,
+        "otherS": 0,
+        "allS": 2400,
+        "extraMin": 30,
+        "bonusSpentMin": 15,
+        "programs": [
+          {
+            "path": "c:\\games\\game.exe",
+            "name": "game",
+            "category": "games",
+            "seconds": 2400
+          }
+        ]
       }
     }
   },
@@ -1695,7 +2017,8 @@
   },
   "ParentStats": {
     "request": {
-      "childId": 1
+      "childId": 1,
+      "period": "today"
     },
     "reply": {
       "ok": true,
@@ -1725,7 +2048,10 @@
           "gamesUnlimited": false,
           "endMode": "lock",
           "closeGames": false,
-          "studyOnly": false
+          "studyOnly": false,
+          "restUntilMs": 0,
+          "restLeftS": 0,
+          "restMessage": ""
         },
         "today": [
           "Сегодня осталось 1 ч 25 мин из 2 ч",
@@ -1778,10 +2104,14 @@
             "text": "Когда время вышло: экран блокировки"
           }
         ],
+        "period": "today",
+        "usedS": 2100,
         "gamesS": 900,
         "studyS": 180,
         "otherS": 1200,
         "allS": 2280,
+        "extraMin": 0,
+        "bonusSpentMin": 0,
         "programs": [
           {
             "path": "c:\\games\\game.exe",
@@ -1812,6 +2142,120 @@
             "name": "Остальное время",
             "category": "other",
             "seconds": 300
+          }
+        ]
+      }
+    }
+  },
+  "ParentStats#year": {
+    "request": {
+      "childId": 1,
+      "period": "year"
+    },
+    "reply": {
+      "ok": true,
+      "payload": {
+        "status": {
+          "name": "Миша",
+          "status": "ok",
+          "statusText": "Можно",
+          "label": "85",
+          "tooltip": "Осталось 1 ч 25 мин\nИгры: 20 мин",
+          "summary": "Сегодня осталось 1 ч 25 мин из 2 ч",
+          "day": "2026-10-19",
+          "remainingS": 5100,
+          "limitS": 7200,
+          "usedS": 2100,
+          "unlimited": false,
+          "lock": "none",
+          "reason": "",
+          "detail": "",
+          "until": "",
+          "pauseUntil": "",
+          "used": "Сегодня: 35 мин из 2 ч",
+          "bonusBalance": 0,
+          "forbiddenNote": "",
+          "gamesRemainingS": 1200,
+          "gamesLimitS": 3600,
+          "gamesUnlimited": false,
+          "endMode": "lock",
+          "closeGames": false,
+          "studyOnly": false,
+          "restUntilMs": 0,
+          "restLeftS": 0,
+          "restMessage": ""
+        },
+        "today": [
+          "Сегодня осталось 1 ч 25 мин из 2 ч",
+          "Использовано 35 мин"
+        ],
+        "rules": [
+          {
+            "weekday": 1,
+            "day": "пн",
+            "text": "2 ч"
+          },
+          {
+            "weekday": 2,
+            "day": "вт",
+            "text": "2 ч"
+          },
+          {
+            "weekday": 3,
+            "day": "ср",
+            "text": "1 ч 30 мин"
+          },
+          {
+            "weekday": 4,
+            "day": "чт",
+            "text": "2 ч"
+          },
+          {
+            "weekday": 5,
+            "day": "пт",
+            "text": "2 ч"
+          },
+          {
+            "weekday": 6,
+            "day": "сб",
+            "text": "4 ч"
+          },
+          {
+            "weekday": 7,
+            "day": "вс",
+            "text": "Без лимита"
+          },
+          {
+            "weekday": 0,
+            "day": "",
+            "text": "Игры: до 1 ч в день"
+          },
+          {
+            "weekday": 0,
+            "day": "",
+            "text": "Когда время вышло: экран блокировки"
+          }
+        ],
+        "period": "year",
+        "usedS": 3600,
+        "gamesS": 3600,
+        "studyS": 2400,
+        "otherS": 0,
+        "allS": 6000,
+        "extraMin": 0,
+        "bonusSpentMin": 0,
+        "programs": [
+          {
+            "path": "c:\\games\\game.exe",
+            "name": "game",
+            "category": "games",
+            "seconds": 3600
+          },
+          {
+            "path": "c:\\school\\study.exe",
+            "name": "study",
+            "category": "study",
+            "seconds": 2400
           }
         ]
       }
@@ -1854,7 +2298,10 @@
             "gamesUnlimited": false,
             "endMode": "lock",
             "closeGames": false,
-            "studyOnly": false
+            "studyOnly": false,
+            "restUntilMs": 0,
+            "restLeftS": 0,
+            "restMessage": ""
           },
           "extraMin": 0,
           "bonusBalance": 0,
@@ -1904,7 +2351,10 @@
               "gamesUnlimited": false,
               "endMode": "lock",
               "closeGames": false,
-              "studyOnly": false
+              "studyOnly": false,
+              "restUntilMs": 0,
+              "restLeftS": 0,
+              "restMessage": ""
             },
             "extraMin": 0,
             "bonusBalance": 0,
@@ -1967,7 +2417,10 @@
             "gamesUnlimited": false,
             "endMode": "lock",
             "closeGames": false,
-            "studyOnly": false
+            "studyOnly": false,
+            "restUntilMs": 0,
+            "restLeftS": 0,
+            "restMessage": ""
           },
           "extraMin": 30,
           "bonusBalance": 0,
@@ -2042,7 +2495,10 @@
             "gamesUnlimited": false,
             "endMode": "lock",
             "closeGames": false,
-            "studyOnly": false
+            "studyOnly": false,
+            "restUntilMs": 0,
+            "restLeftS": 0,
+            "restMessage": ""
           },
           "extraMin": 0,
           "bonusBalance": 0,
@@ -2292,7 +2748,16 @@
               "gamesUnlimited": true
             }
           ],
-          "endMode": "lock"
+          "endMode": "lock",
+          "break": {
+            "enabled": false,
+            "afterMin": 60,
+            "counts": "all",
+            "warnMin": 5,
+            "restMin": 15,
+            "selfRestMin": 15,
+            "message": ""
+          }
         },
         "card": {
           "childId": 1,
@@ -2323,7 +2788,10 @@
             "gamesUnlimited": false,
             "endMode": "lock",
             "closeGames": false,
-            "studyOnly": false
+            "studyOnly": false,
+            "restUntilMs": 0,
+            "restLeftS": 0,
+            "restMessage": ""
           },
           "extraMin": 0,
           "bonusBalance": 0,
@@ -2334,6 +2802,153 @@
         },
         "message": "Сохранено. Новые правила уже действуют"
       }
+    }
+  },
+  "SaveLimits#break": {
+    "request": {
+      "childId": 1,
+      "limits": [],
+      "break": {
+        "enabled": true,
+        "afterMin": 60,
+        "counts": "games",
+        "warnMin": 5,
+        "restMin": 15,
+        "selfRestMin": 30,
+        "message": "Пойди погуляй с собакой"
+      }
+    },
+    "reply": {
+      "ok": true,
+      "payload": {
+        "rules": {
+          "childId": 1,
+          "name": "Миша",
+          "limits": [
+            {
+              "weekday": 1,
+              "totalMin": 120,
+              "unlimited": false,
+              "gamesMin": 60,
+              "gamesUnlimited": false
+            },
+            {
+              "weekday": 2,
+              "totalMin": 120,
+              "unlimited": false,
+              "gamesMin": 0,
+              "gamesUnlimited": true
+            },
+            {
+              "weekday": 3,
+              "totalMin": 90,
+              "unlimited": false,
+              "gamesMin": 0,
+              "gamesUnlimited": false
+            },
+            {
+              "weekday": 4,
+              "totalMin": 120,
+              "unlimited": false,
+              "gamesMin": 0,
+              "gamesUnlimited": true
+            },
+            {
+              "weekday": 5,
+              "totalMin": 120,
+              "unlimited": false,
+              "gamesMin": 0,
+              "gamesUnlimited": true
+            },
+            {
+              "weekday": 6,
+              "totalMin": 240,
+              "unlimited": false,
+              "gamesMin": 120,
+              "gamesUnlimited": false
+            },
+            {
+              "weekday": 7,
+              "totalMin": 0,
+              "unlimited": true,
+              "gamesMin": 0,
+              "gamesUnlimited": true
+            }
+          ],
+          "endMode": "lock",
+          "break": {
+            "enabled": true,
+            "afterMin": 60,
+            "counts": "games",
+            "warnMin": 5,
+            "restMin": 15,
+            "selfRestMin": 30,
+            "message": "Пойди погуляй с собакой"
+          }
+        },
+        "card": {
+          "childId": 1,
+          "sid": "S-1-5-21-111-222-333-1001",
+          "name": "Миша",
+          "status": {
+            "name": "Миша",
+            "status": "ok",
+            "statusText": "Можно",
+            "label": "85",
+            "tooltip": "Осталось 1 ч 25 мин\nИгры: 20 мин",
+            "summary": "Сегодня осталось 1 ч 25 мин из 2 ч",
+            "day": "2026-10-19",
+            "remainingS": 5100,
+            "limitS": 7200,
+            "usedS": 2100,
+            "unlimited": false,
+            "lock": "none",
+            "reason": "",
+            "detail": "",
+            "until": "",
+            "pauseUntil": "",
+            "used": "Сегодня: 35 мин из 2 ч",
+            "bonusBalance": 0,
+            "forbiddenNote": "",
+            "gamesRemainingS": 1200,
+            "gamesLimitS": 3600,
+            "gamesUnlimited": false,
+            "endMode": "lock",
+            "closeGames": false,
+            "studyOnly": false,
+            "restUntilMs": 0,
+            "restLeftS": 0,
+            "restMessage": ""
+          },
+          "extraMin": 0,
+          "bonusBalance": 0,
+          "canClearBlock": false,
+          "noForbiddenToday": false,
+          "gamesText": "Игры 40 мин из 1 ч",
+          "pendingPrograms": 0
+        },
+        "message": "Сохранено. Новые правила уже действуют"
+      }
+    }
+  },
+  "SaveLimits#breakSelfRest": {
+    "request": {
+      "childId": 1,
+      "limits": [],
+      "break": {
+        "enabled": true,
+        "afterMin": 60,
+        "counts": "all",
+        "warnMin": 5,
+        "restMin": 20,
+        "selfRestMin": 15,
+        "message": ""
+      }
+    },
+    "reply": {
+      "ok": false,
+      "error": "Не меньше времени отдыха",
+      "field": "break.selfRestMin"
     }
   },
   "SaveLimits#endMode": {
@@ -2399,7 +3014,16 @@
               "gamesUnlimited": true
             }
           ],
-          "endMode": "study_only"
+          "endMode": "study_only",
+          "break": {
+            "enabled": false,
+            "afterMin": 60,
+            "counts": "all",
+            "warnMin": 5,
+            "restMin": 15,
+            "selfRestMin": 15,
+            "message": ""
+          }
         },
         "card": {
           "childId": 1,
@@ -2430,7 +3054,10 @@
             "gamesUnlimited": false,
             "endMode": "lock",
             "closeGames": false,
-            "studyOnly": false
+            "studyOnly": false,
+            "restUntilMs": 0,
+            "restLeftS": 0,
+            "restMessage": ""
           },
           "extraMin": 0,
           "bonusBalance": 0,
@@ -2512,7 +3139,10 @@
             "gamesUnlimited": false,
             "endMode": "lock",
             "closeGames": false,
-            "studyOnly": false
+            "studyOnly": false,
+            "restUntilMs": 0,
+            "restLeftS": 0,
+            "restMessage": ""
           },
           "extraMin": 0,
           "bonusBalance": 0,
@@ -2690,7 +3320,10 @@
             "gamesUnlimited": false,
             "endMode": "lock",
             "closeGames": false,
-            "studyOnly": false
+            "studyOnly": false,
+            "restUntilMs": 0,
+            "restLeftS": 0,
+            "restMessage": ""
           },
           "extraMin": 0,
           "bonusBalance": 0,
@@ -3009,7 +3642,10 @@
             "gamesUnlimited": false,
             "endMode": "lock",
             "closeGames": false,
-            "studyOnly": false
+            "studyOnly": false,
+            "restUntilMs": 0,
+            "restLeftS": 0,
+            "restMessage": ""
           },
           "extraMin": 30,
           "bonusBalance": 0,
@@ -3066,6 +3702,26 @@
         "action": "foreground",
         "text": "c:\\users\\runneradmin\\appdata\\local\\temp\\pcb\\game.exe"
       }
+    },
+    "reply": {
+      "ok": true,
+      "payload": {}
+    }
+  },
+  "TestSeedDay": {
+    "request": {
+      "childId": 1,
+      "day": "2026-10-19",
+      "totalS": 1800,
+      "gamesS": 1800,
+      "studyS": 0,
+      "usage": [
+        {
+          "path": "c:\\games\\game.exe",
+          "category": "games",
+          "seconds": 1800
+        }
+      ]
     },
     "reply": {
       "ok": true,
@@ -3139,7 +3795,10 @@
             "gamesUnlimited": false,
             "endMode": "lock",
             "closeGames": false,
-            "studyOnly": false
+            "studyOnly": false,
+            "restUntilMs": 0,
+            "restLeftS": 0,
+            "restMessage": ""
           },
           "extraMin": 0,
           "bonusBalance": 0,

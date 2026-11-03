@@ -76,6 +76,9 @@ func ChildStatusFrom(name string, d core.Decision) ChildStatus {
 		GamesUnlimited:  d.GamesUnlimited,
 		CloseGames:      d.CloseGames,
 		StudyOnly:       d.StudyOnly,
+		RestUntilMs:     d.RestUntilMs,
+		RestLeftS:       d.RestLeftS,
+		RestMessage:     d.RestMessage,
 		// Правило ребёнка ядро в решение не кладёт: служба ставит его из Rules (statusOf); здесь —
 		// то, что видно по решению («только учёба» сейчас действует или нет).
 		EndMode: EndModeLock,
@@ -171,6 +174,8 @@ func lockName(k core.LockKind) string {
 		return LockForbidden
 	case core.LockBypass:
 		return LockBypass
+	case core.LockRest:
+		return LockRest
 	default:
 		return LockNone
 	}

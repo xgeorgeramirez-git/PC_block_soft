@@ -70,6 +70,24 @@ func (a storeAdapter) SetEndMode(childID int64, mode string) error {
 
 func (a storeAdapter) GetEndMode(childID int64) (string, error) { return a.s.GetEndMode(childID) }
 
+// --- перерыв на отдых (FB-14) -------------------------------------------------------------
+
+func (a storeAdapter) GetBreakRules(childID int64) (core.BreakRules, error) {
+	return a.s.GetBreakRules(childID)
+}
+
+func (a storeAdapter) SetBreakRules(childID int64, b core.BreakRules) error {
+	return a.s.SetBreakRules(childID, b)
+}
+
+func (a storeAdapter) LoadBreakState(childID int64) (core.BreakState, error) {
+	return a.s.LoadBreakState(childID)
+}
+
+func (a storeAdapter) SaveBreakState(childID int64, b core.BreakState) error {
+	return a.s.SaveBreakState(childID, b)
+}
+
 // --- программы, «Ждут решения» и учёт (M3) ---------------------------------------------
 // service.Program и storage.Program совпадают по полям: преобразование типа без копирования по полю.
 
@@ -203,6 +221,22 @@ func (a storeAdapter) ProgramSeconds(fromDay string) (map[string]int, error) {
 
 func (a storeAdapter) DayUsage(childID int64, day string) ([]service.UsageRow, error) {
 	list, err := a.s.DayUsage(childID, day)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]service.UsageRow, 0, len(list))
+	for _, u := range list {
+		out = append(out, service.UsageRow(u))
+	}
+	return out, nil
+}
+
+func (a storeAdapter) PeriodDays(childID int64, fromDay, beforeDay string) (core.DayState, error) {
+	return a.s.PeriodDays(childID, fromDay, beforeDay)
+}
+
+func (a storeAdapter) PeriodUsage(childID int64, fromDay, beforeDay string) ([]service.UsageRow, error) {
+	list, err := a.s.PeriodUsage(childID, fromDay, beforeDay)
 	if err != nil {
 		return nil, err
 	}

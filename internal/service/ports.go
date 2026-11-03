@@ -121,8 +121,12 @@ type Store interface {
 	SetBypass(childID int64, detail string) error
 	SetDayLimits(childID int64, week [7]core.DayLimit) error
 	GetDayLimits(childID int64) ([7]core.DayLimit, error)
-	SetEndMode(childID int64, mode string) error // "lock" | "study_only", иное — ошибка
-	GetEndMode(childID int64) (string, error)    // нет ребёнка: "lock"
+	SetEndMode(childID int64, mode string) error           // "lock" | "study_only", иное — ошибка
+	GetEndMode(childID int64) (string, error)              // нет ребёнка: "lock"
+	GetBreakRules(childID int64) (core.BreakRules, error)  // «Отдых» (FR-37); нет строки — по умолчанию
+	SetBreakRules(childID int64, b core.BreakRules) error  // вне пределов FR-37 — ошибка
+	LoadBreakState(childID int64) (core.BreakState, error) // счёт к перерыву (R27); нет строки — пустой
+	SaveBreakState(childID int64, b core.BreakState) error
 	GetSchedule(childID int64) ([]core.Interval, error)
 	SetSchedule(childID int64, intervals []core.Interval) error
 	AppendBonus(childID int64, deltaMin int, reason string) (balanceAfter int, err error)
@@ -138,6 +142,12 @@ type Store interface {
 	AddUsage(childID int64, day, category, kind, subject string, seconds int) error
 	ProgramSeconds(fromDay string) (map[string]int, error)  // секунды по пути exe с fromDay, все дети
 	DayUsage(childID int64, day string) ([]UsageRow, error) // учёт по программам ребёнка за день (D-58); нет — []
+	// PeriodDays — суммы итогов дней ребёнка (общее, игры, видео, учёба, доп. время) с fromDay
+	// включительно до beforeDay не включительно (периоды «Итогов», D-61); Day у ответа пусто, нет дней — нули.
+	PeriodDays(childID int64, fromDay, beforeDay string) (core.DayState, error)
+	// PeriodUsage — учёт по программам ребёнка за те же дни, сложенный по категории и пути (Day пусто);
+	// скрытые тоже (их прячет служба); нет — [].
+	PeriodUsage(childID int64, fromDay, beforeDay string) ([]UsageRow, error)
 
 	// Программы и «Ждут решения» (M3: R12, FR-20, RM3-10).
 	UpsertProgram(p Program) error

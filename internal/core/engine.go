@@ -53,6 +53,14 @@ type Decision struct {
 	StudyOnly       bool   // режим «Оставить только учёбу» действует: экрана нет, открыта только учёба (R8)
 	CloseReason     string // текст плашки ребёнку о закрытии; «» — ничего не закрыто
 
+	RestWarn  bool   // на этом тике пора показать плашку «ПОРА ОТДОХНУТЬ» (R27, 8.2.2 п.7)
+	RestWarnS int    // секунды до начала перерыва для плиток плашки
+	RestText  string // строка под плитками плашки отдыха
+
+	RestUntilMs int64  // экран перерыва (LockRest): конец перерыва по часам, UTC мс; иначе 0
+	RestLeftS   int    // экран перерыва: секунды до конца по часам ядра (вверх), для таймера стража
+	RestMessage string // экран перерыва: сообщение родителя или стандартное (FR-37)
+
 	Counted    bool     // секунда этого тика засчитана (только Tick; в Current — false)
 	CountedCat Category // категория засчитанной секунды (для usage_daily службы)
 }
@@ -103,8 +111,9 @@ type Engine struct {
 	started  time.Time // начало учёта — первый тик (отсчёт сохранений, G10)
 	saveSlot int       // последний 30-секундный отрезок, на который ответили «сохранить»
 
-	pauseWasActive bool // пауза была активна на прошлом тике (для события EvPauseEnd)
-	saveNow        bool // момент последней минуты только что поставлен: сохранить на ближайшем DueSave (RF12-3)
+	rest           BreakState // счёт к перерыву на отдых (R27); не по дням
+	pauseWasActive bool       // пауза была активна на прошлом тике (для события EvPauseEnd)
+	saveNow        bool       // момент последней минуты только что поставлен: сохранить на ближайшем DueSave (RF12-3)
 }
 
 // NewEngine создаёт ядро ребёнка. loc — местный пояс (сутки и дни недели; nil —
@@ -135,9 +144,11 @@ func (e *Engine) Tick(s SessionSample) Decision {
 	closed := e.advance(now)
 	e.checkPauseEnd(now)
 	e.pullUp(now)
+	e.restStep(now)
 	cat := CategoryOf(s)
 	e.fg = cat
 	d := e.decide(e.acc.State(), true)
+	e.restWarn(&d, now)
 	// Пауза снимает все ограничения, но учёт идёт (R11): секунда засчитывается, даже если
 	// без паузы здесь была бы блокировка. Не засчитывается секунда под экраном блокировки и
 	// секунда программы, которой сейчас нельзя (игра при закрытых играх, всё, кроме учёбы,
@@ -146,6 +157,7 @@ func (e *Engine) Tick(s SessionSample) Decision {
 	if e.acc.Tick(now, s, blocked) {
 		d.Counted, d.CountedCat = true, cat
 	}
+	e.restCount(now, d.Counted, cat)
 	return e.finish(d, closed)
 }
 
@@ -269,6 +281,7 @@ func (e *Engine) Pause(until time.Time) (Decision, error) {
 	ms := until.UnixMilli()
 	e.cancelLastMinute()
 	e.acc.SetPause(&ms)
+	e.restStep(e.now()) // пауза снимает перерыв и предупреждение, счёт стоит (R27)
 	e.pauseWasActive = true
 	e.rearm()
 	e.pending = append(e.pending, Event{Kind: EvPause, Details: map[string]any{"until_ms": ms, "text": PauseText(e.now(), until)}})
@@ -354,6 +367,7 @@ func (e *Engine) SetRules(r Rules) Decision {
 	e.pullUp(e.now())
 	oldS, oldUnl := e.totalLimitS(e.acc.State())
 	e.rules = r
+	e.restStep(e.now()) // выключенные перерывы снимают счёт и идущий перерыв
 	e.limitChanged(oldS, oldUnl)
 	e.rearm()
 	return e.finish(e.decide(e.acc.State(), false), closed)
@@ -582,6 +596,7 @@ func (e *Engine) decide(st DayState, fire bool) Decision {
 			d.Status = StatusOK
 		}
 	}
+	e.restDecide(&d, now) // перерыв слабее паузы, запретных часов и окончания времени (R27)
 	return d
 }
 

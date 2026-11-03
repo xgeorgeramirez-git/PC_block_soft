@@ -369,8 +369,12 @@ func TestDecisionFromStatusKeepsEverythingTheScreenNeeds(t *testing.T) {
 		"время вышло": timeUpDecision(),
 		"обход":       bypassDecision(),
 		"идёт":        runningDecision(900),
+		"перерыв":     restDecision(899),
 	} {
 		got := DecisionFromStatus(ipc.ChildStatusFrom("Миша", d))
+		if got.RestLeftS != d.RestLeftS || got.RestMessage != d.RestMessage || got.RestUntilMs != d.RestUntilMs {
+			t.Errorf("%s: перерыв изменился по дороге: %+v", name, got)
+		}
 		if got.Lock != d.Lock || got.Reason != d.Reason || got.Detail != d.Detail || got.Until != d.Until ||
 			got.Used != d.Used || got.RemainingS != d.RemainingS || got.LimitS != d.LimitS ||
 			got.UsedS != d.UsedS || got.Unlimited != d.Unlimited || got.Day != d.Day {

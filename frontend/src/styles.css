@@ -677,24 +677,11 @@ p {
   font-size: 14px;
 }
 
-.periods-note {
-  margin: calc(-1 * var(--space-2)) 0 var(--space-4);
-}
-
 .stat-child-picker {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-2);
   margin-bottom: var(--space-3);
-}
-
-/* Неактивные вкладки периодов (ещё нет функции): плоская приглушённая подпись, а не
-   пунктирная рамка, которая читается как сломанная кнопка (B-13, H4/H6). */
-.tab[aria-disabled="true"] {
-  color: var(--text-muted);
-  background: transparent;
-  border-color: transparent;
-  cursor: not-allowed;
 }
 
 .stat-panel {
@@ -730,6 +717,25 @@ p {
 .stat-row-lead dt,
 .stat-row-lead dd {
   font-weight: 600;
+}
+
+/* Заголовок «Итогов» и признак загрузки периода (D-61): признак всегда занимает своё место, при
+   переключении периода страница не прыгает и не мигает. */
+.totals-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+
+.totals-head .section-title {
+  margin-bottom: 0;
+}
+
+.totals-loading {
+  color: var(--text-muted);
+  font-size: 14px;
 }
 
 /* Вкладки «Итогов» (D-58): четыре плитки «название и сумма»; выбранная залита основным цветом. */
@@ -1116,6 +1122,154 @@ html:has(.shell-child) body {
   background: var(--bg);
   color: var(--text);
   font-size: 14px;
+}
+
+/* «Отдых» (FR-37): поля слева, образец экрана перерыва справа; в узком окне образец под полями. */
+.rest-switch {
+  margin-bottom: var(--space-4);
+  font-weight: 600;
+}
+
+.rest-layout {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: var(--space-6);
+  margin-bottom: var(--space-4);
+}
+
+.rest-fields {
+  flex: 1 1 360px;
+  min-width: 0;
+  max-width: 560px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 0 var(--space-4);
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.rest-num-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.rest-counts,
+.rest-message {
+  grid-column: 1 / -1;
+}
+
+.rest-counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-6);
+  margin: 0 0 var(--space-4);
+  padding: 0;
+  border: 0;
+}
+
+.rest-counts legend {
+  width: 100%;
+  padding: 0;
+}
+
+.rest-count {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  cursor: pointer;
+}
+
+.rest-count input {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+}
+
+.rest-fields:disabled .field-label,
+.rest-fields:disabled .rest-count {
+  color: var(--text-muted);
+}
+
+.rest-sample {
+  flex: 0 1 300px;
+  min-width: 240px;
+  margin: 0;
+}
+
+/* Образец — картинка детского экрана: тёмный, как настоящий экран стража, в любой теме. */
+.rest-sample-screen {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-4) var(--space-3);
+  background: #15181b;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-panel);
+  color: #eef1f4;
+  text-align: center;
+}
+
+.rest-sample-cat {
+  display: block;
+}
+
+.rest-sample-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.rest-sample-tiles {
+  display: flex;
+  align-items: center;
+}
+
+.rest-sample-pair {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.rest-sample-colon {
+  margin: 0 5px;
+  font-weight: 700;
+}
+
+.rest-sample-tile {
+  display: inline-block;
+  width: 20px;
+  padding: 4px 0;
+  background: linear-gradient(#f7fafd, #eaf0f7);
+  border-radius: 5px;
+  color: #1e2b40;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.rest-sample-message {
+  margin: 0;
+  max-width: 100%;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  font-size: 14px;
+}
+
+.rest-summary {
+  max-width: 720px;
+  margin: 0 0 var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--primary);
+  border-radius: var(--radius-control);
 }
 
 .savebar {

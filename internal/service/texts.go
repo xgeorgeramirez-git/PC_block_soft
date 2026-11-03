@@ -136,3 +136,12 @@ func capitalize(s string) string {
 
 // itoa превращает число в строку.
 func itoa(n int) string { return fmt.Sprint(n) }
+
+// decapitalize делает первую букву строки строчной (текст ядра после имени ребёнка в журнале).
+func decapitalize(s string) string {
+	r := []rune(s)
+	if len(r) == 0 {
+		return s
+	}
+	return strings.ToLower(string(r[:1])) + string(r[1:])
+}

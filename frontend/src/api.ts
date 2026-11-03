@@ -7,9 +7,11 @@
 // Типы запросов и ответов - types.ts (зеркало internal/ipc/commands.go). Массивы в ответах
 // приводятся к пустым спискам: Go отдаёт nil-срез как null (урок L-22).
 import { CallError, linkError, replyError } from "./lib/errors";
+import { DEFAULT_BREAK } from "./lib/rest";
 import type {
   Account,
   AddExtraReply,
+  BreakRules,
   CardReply,
   ChildInfo,
   ChildRules,
@@ -21,6 +23,7 @@ import type {
   LoginDenied,
   LoginReply,
   MyTodayReply,
+  StatsPeriod,
   Reply,
   SaveLimitsReply,
   SessionStateReply,
@@ -203,20 +206,21 @@ export async function getChildRules(childId: number): Promise<ChildRules> {
   const r = await call<object, Omit<ChildRules, "limits"> & { limits?: WeekdayLimit[] | null }>("GetChildRules", {
     childId,
   });
-  return { ...r, limits: r.limits ?? [] };
+  return { ...r, limits: r.limits ?? [], break: r.break ?? DEFAULT_BREAK };
 }
 
 /**
- * Сохранить лимиты (общий и игр) и, если задан, режим «Когда время вышло» (FR-16, FR-18).
- * Пустые limits вместе с endMode меняют только режим.
+ * Сохранить лимиты (общий и игр) и, если заданы, режим «Когда время вышло» и «Отдых» (FR-16,
+ * FR-18, FR-37). Пустые limits вместе с endMode или brk меняют только их.
  */
-export async function saveLimits(childId: number, limits: WeekdayLimit[], endMode?: EndMode): Promise<SaveLimitsReply> {
+export async function saveLimits(childId: number, limits: WeekdayLimit[], endMode?: EndMode, brk?: BreakRules): Promise<SaveLimitsReply> {
   const r = await call<object, SaveLimitsReply & { rules: { limits?: WeekdayLimit[] | null } }>("SaveLimits", {
     childId,
     limits: withGames(limits),
     ...(endMode ? { endMode } : {}),
+    ...(brk ? { break: brk } : {}),
   });
-  return { ...r, rules: { ...r.rules, limits: r.rules.limits ?? [] } };
+  return { ...r, rules: { ...r.rules, limits: r.rules.limits ?? [], break: r.rules.break ?? DEFAULT_BREAK } };
 }
 
 export function addExtra(childId: number, minutes: number): Promise<AddExtraReply> {
@@ -241,9 +245,9 @@ export function clearBlock(childId: number): Promise<CardReply> {
   return call("ClearBlock", { childId });
 }
 
-/** Статистика выбранного ребёнка за сегодня для родителя (FR-23, D-44). */
-export async function parentStats(childId: number): Promise<MyTodayReply> {
-  const r = await call<object, Partial<MyTodayReply>>("ParentStats", { childId });
+/** Статистика выбранного ребёнка для родителя: «Итоги» за период (FR-23, D-44, D-61). */
+export async function parentStats(childId: number, period: StatsPeriod = "today"): Promise<MyTodayReply> {
+  const r = await call<object, Partial<MyTodayReply>>("ParentStats", { childId, period });
   return myTodayOf(r);
 }
 
@@ -280,22 +284,30 @@ export async function setChildren(req: Partial<SetChildrenRequest>): Promise<Chi
 
 // --- Ребёнок о себе (только свой сеанс, только чтение) ------------------------------
 
-/** «Сегодня» и «Мои правила» ребёнка. Пустые списки приходят как null: приводим к []. */
-export async function myToday(): Promise<MyTodayReply> {
-  const r = await call<object, Partial<MyTodayReply>>("MyToday");
+/** «Сегодня», «Мои правила» и «Итоги» за период ребёнка. Пустые списки приходят как null: приводим к []. */
+export async function myToday(period: StatsPeriod = "today"): Promise<MyTodayReply> {
+  const r = await call<object, Partial<MyTodayReply>>("MyToday", { period });
   return myTodayOf(r);
 }
 
-/** Пустые списки приходят как null, у старой службы нет итогов и времени программ: приводим к [] и 0. */
+/**
+ * Пустые списки приходят как null, у старой службы нет итогов, периода и времени программ: приводим к [] и 0.
+ * Служба без периодов отвечает за сегодня: «Использовано» тогда берётся из статуса.
+ */
 function myTodayOf(r: Partial<MyTodayReply>): MyTodayReply {
+  const status = r.status as MyTodayReply["status"];
   return {
-    status: r.status as MyTodayReply["status"],
+    status,
     today: r.today ?? [],
     rules: r.rules ?? [],
+    period: r.period ?? "today",
+    usedS: r.usedS ?? status?.usedS ?? 0,
     gamesS: r.gamesS ?? 0,
     studyS: r.studyS ?? 0,
     otherS: r.otherS ?? 0,
     allS: r.allS ?? 0,
+    extraMin: r.extraMin ?? 0,
+    bonusSpentMin: r.bonusSpentMin ?? 0,
     programs: r.programs ?? [],
   };
 }
@@ -368,7 +380,7 @@ export async function copyRules(fromChildId: number, toChildId: number): Promise
     fromChildId,
     toChildId,
   });
-  return { ...r, limits: r.limits ?? [], intervals: r.intervals ?? [] };
+  return { ...r, limits: r.limits ?? [], intervals: r.intervals ?? [], break: r.break ?? DEFAULT_BREAK };
 }
 
 /** «Попросить ещё» ребёнком с паролем родителя (FR-10). */

@@ -69,6 +69,7 @@ const (
 	ButtonPlateClose             // крестик «Закрыть» на плашке о закрытой программе (FR-13)
 	ButtonPlateSpendBonus        // «Взять из копилки» на плашке 1 мин (RM3-5, FR-11): без пароля
 	ButtonPlateAskMore           // «Попросить ещё» на плашке 1 мин (RM3-5): открывает «Мою статистику»
+	ButtonEndBreak               // «Закончить перерыв» после пароля на экране перерыва (R27)
 )
 
 // Panel — панель поверх экрана блокировки; одновременно открыта одна.
@@ -101,6 +102,7 @@ const (
 	ActRedeemPromo                     // отправить службе промокод Code, ответ вернуть в OnPromoResult (R26)
 	ActOpenPrograms                    // попросить службу открыть окно родителя на «Программах» (RM3-4)
 	ActOpenMyStats                     // попросить службу открыть «Мою статистику» (RM3-5, как значок)
+	ActEndBreak                        // попросить службу закончить перерыв на отдых (R27, после пароля)
 )
 
 // Action — результат нажатия. Пароль есть только у ActCheckPassword и только в этом
@@ -208,6 +210,9 @@ type View struct {
 
 	Warning *WarningView // плашка предупреждения; nil, если плашки нет
 
+	// Rest — экран перерыва на отдых (8.2.3 п.12): таймер и сообщение родителя; nil у других экранов.
+	Rest *RestView
+
 	// SuppressKeys: глушить Win, Alt+Tab, Alt+Esc, Esc, Alt+F4, Ctrl+Esc, Ctrl+Shift+Esc;
 	// истина только пока показан экран блокировки. Нажатия не записываются (R23).
 	SuppressKeys bool
@@ -295,6 +300,7 @@ const (
 	plateThreshold plateKind = iota // предупреждение за 30/15/5/1 минут
 	plateAdded                      // «Добавлено N минут»
 	plateBlocked                    // о закрытой программе (FR-13) или короткое сообщение стража
+	plateRest                       // «ПОРА ОТДОХНУТЬ» (R27): табло до начала перерыва, 5 с и крестик
 )
 
 // plate — плашка в состоянии модели.
@@ -324,6 +330,8 @@ func (p *plate) life() time.Duration {
 		return p.showFor
 	case p.kind == plateAdded:
 		return addedLife
+	case p.kind == plateRest:
+		return boardLife
 	case p.threshold == 1:
 		return 0
 	}
@@ -338,7 +346,7 @@ func (p *plate) expired(now time.Time) bool {
 // byClock: секунды до события идут по настоящим часам (запретные часы, конец паузы); для
 // лимита и игр они берутся из остатка службы, который стоит, когда время не считается (R2).
 func byClock(event string) bool {
-	return event == ipc.WarnEventForbidden || event == ipc.WarnEventPause
+	return event == ipc.WarnEventForbidden || event == ipc.WarnEventPause || event == ipc.WarnEventRest
 }
 
 // lastWarn — последний показанный порог: служба могла прислать его повторно (класс A).
@@ -379,6 +387,10 @@ type Model struct {
 	plateSeq int
 	last     lastWarn // последний показанный порог; пусто, когда событие отодвинулось
 	speed    int      // ускорение часов ядра в тестовом режиме (секунды до события по часам), иначе 1
+
+	lastRest     time.Time // начало перерыва по последней плашке «ПОРА ОТДОХНУТЬ» (повтор — та же плашка)
+	restDeadline time.Time // конец перерыва по настоящим часам для таймера экрана перерыва
+	restWait     *restWait // плашка отдыха ждёт, пока закроется более важная (Ruling FB14-9)
 
 	events []Event
 }
@@ -436,6 +448,7 @@ func (m *Model) resetUI() {
 	m.blockedUntil = time.Time{}
 	m.warn = nil
 	m.blocked = nil
+	m.restWait = nil
 	m.wasShown = false
 }
 
@@ -468,6 +481,9 @@ func (m *Model) advance(now time.Time) {
 	}
 	if m.warn != nil && m.warn.expired(now) {
 		m.warn = nil
+	}
+	if m.hasDec && !m.hidden && m.dec.Lock == core.LockNone {
+		m.flushRest(now) // более важная плашка закрылась сама: показать ждущую плашку отдыха
 	}
 	if m.blocked != nil && m.blocked.expired(now) {
 		m.blocked = nil
@@ -502,6 +518,9 @@ func (m *Model) OnWarnings(now time.Time, d core.Decision, hideForParent bool, n
 		}})
 	}
 	m.hasDec, m.lastOK, m.dec, m.hidden = true, now, d, hideForParent
+	if isRest(d) {
+		m.restDeadline = now.Add(time.Duration(d.RestLeftS) * time.Second / time.Duration(m.speed))
+	}
 
 	shown := d.Lock != core.LockNone && !hideForParent
 	switch {
@@ -515,8 +534,13 @@ func (m *Model) OnWarnings(now time.Time, d core.Decision, hideForParent bool, n
 		m.warn = nil
 		m.blocked = nil
 	}
-	if shown && !m.wasShown {
-		m.autoDue = now.Add(m.switchAfter()) // экран появился: отсчёт идёт, пока он показан
+	if shown {
+		m.restWait = nil // экран сильнее плашки отдыха: после него она не всплывает
+	}
+	if shown && !m.wasShown || isRest(d) {
+		// Экран появился: отсчёт автосмены идёт, пока он показан. На экране перерыва автосмены нет
+		// (8.2.3 п.12): срок держится впереди, и после перерыва экран «время вышло» начнёт свой.
+		m.autoDue = now.Add(m.switchAfter())
 	}
 	m.wasShown, m.shownKind = shown, d.Lock
 	if shown || hideForParent {
@@ -529,9 +553,19 @@ func (m *Model) OnWarnings(now time.Time, d core.Decision, hideForParent bool, n
 	if m.last.thr != 0 && !byClock(m.last.event) && m.moved(m.last.event, m.last.thr) {
 		m.last = lastWarn{} // остаток снова больше порога: событие отодвинулось, порог можно показать снова
 	}
+	rest, newWarnings := splitRest(newWarnings)
+	defer m.flushRest(now)
 	w, ok := mostUrgent(newWarnings)
 	if !ok {
+		if rest != nil {
+			m.restPlate(now, *rest)
+		}
 		return
+	}
+	if rest != nil {
+		// Предупреждение о лимите в том же опросе важнее: плашка отдыха ждёт, пока оно закроется.
+		m.restWait = &restWait{text: rest.Text, threshold: rest.Threshold,
+			deadline: now.Add(time.Duration(rest.EventS) * time.Second / time.Duration(m.speed))}
 	}
 	deadline := now.Add(time.Duration(w.EventS) * time.Second / time.Duration(m.speed))
 	if m.duplicate(w, deadline) {
@@ -602,6 +636,10 @@ func mostUrgent(newWarnings []Incoming) (Incoming, bool) {
 // её момент прошёл без экрана.
 func (m *Model) stale(now time.Time) bool {
 	p := m.warn
+	if p.kind == plateRest {
+		// Пауза снимает и предупреждение о перерыве (R27); момент начала прошёл — его сменит экран.
+		return m.dec.Status == core.StatusPaused || now.After(p.deadline.Add(staleGrace))
+	}
 	if p.kind != plateThreshold {
 		return false
 	}
@@ -789,6 +827,9 @@ func (m *Model) AutoSwitch(now time.Time) Action {
 	if !m.screenShown(now) || m.autoDue.IsZero() || now.Before(m.autoDue) {
 		return Action{}
 	}
+	if isRest(m.dec) {
+		return Action{} // на экране перерыва автосмены нет (8.2.3 п.12)
+	}
 	m.autoDue = now.Add(m.switchAfter())
 	if m.panel != PanelNone {
 		m.resetPanels()
@@ -805,7 +846,7 @@ func (m *Model) Press(now time.Time, b Button, password string) Action {
 	m.advance(now)
 	if b == ButtonWarningClose {
 		// Крестик есть только у табло 30/15/5; плашку 1 мин кнопкой не закрыть (FR-9).
-		if p := m.shownPlate(now); p != nil && p == m.warn && p.kind == plateThreshold && p.threshold != 1 {
+		if p := m.shownPlate(now); p != nil && p == m.warn && (p.kind == plateRest || p.kind == plateThreshold && p.threshold != 1) {
 			m.warn = nil
 		}
 		return Action{}
@@ -849,6 +890,9 @@ func (m *Model) pressPromo(b Button, code string) Action {
 }
 
 func (m *Model) pressScreen(b Button) Action {
+	if isRest(m.dec) && (b == ButtonAskMore || b == ButtonSpendBonus || b == ButtonPromo) {
+		return Action{} // на экране перерыва этих кнопок нет: время не кончилось (8.2.3 п.12)
+	}
 	switch b {
 	case ButtonParentPassword, ButtonAskMore:
 		// «Попросить ещё» и «Пароль родителя» открывают ввод пароля: после верного пароля
@@ -911,8 +955,14 @@ func (m *Model) pressChoices(b Button) Action {
 	switch b {
 	case ButtonCancel:
 		m.panel = PanelNone
+	case ButtonEndBreak:
+		if !isRest(m.dec) {
+			return Action{}
+		}
+		m.panel = PanelNone
+		return Action{Kind: ActEndBreak}
 	case ButtonAdd15, ButtonAdd30, ButtonAdd60:
-		if bypass {
+		if bypass || isRest(m.dec) {
 			return Action{}
 		}
 		m.panel = PanelNone
@@ -1034,7 +1084,13 @@ func (m *Model) View(now time.Time) View {
 	}
 	v.LockShown, v.SuppressKeys = true, true
 	v.Lock = LockView{Reason: reason, Detail: d.Detail, Until: d.Until, Used: d.Used}
-	if d.Lock != core.LockBypass {
+	switch d.Lock {
+	case core.LockRest:
+		// Экран перерыва: время не кончилось, «Сегодня…» и «Попроси родителя…» не нужны (8.2.3 п.12).
+		v.Lock.Used = ""
+		v.Rest = &RestView{Tiles: restTiles(m.restSecs(now)), Message: d.RestMessage}
+	case core.LockBypass:
+	default:
 		v.Lock.Hint = textChildAskParent
 	}
 	v.Panel = m.panel
@@ -1082,7 +1138,8 @@ func (m *Model) lockButtons(d core.Decision) []ButtonView {
 		{Button: ButtonLogoff, Label: textLogoff, Enabled: true},
 		{Button: ButtonSwitchUser, Label: textSwitchUser, Enabled: true},
 	}
-	if d.Lock == core.LockBypass {
+	if d.Lock == core.LockBypass || isRest(d) {
+		// При обходе и на экране перерыва (8.2.3 п.12): «Пароль родителя» и выходы.
 		return append([]ButtonView{
 			{Button: ButtonParentPassword, Label: textParentPassword, Main: true, Enabled: true},
 		}, exits...)
@@ -1128,6 +1185,9 @@ func (m *Model) choicesView() []ButtonView {
 	if m.dec.Lock == core.LockBypass {
 		return []ButtonView{{Button: ButtonClearBlock, Label: textClearBlock, Main: true, Enabled: true}, settings, cancel}
 	}
+	if isRest(m.dec) {
+		return []ButtonView{{Button: ButtonEndBreak, Label: textEndBreak, Main: true, Enabled: true}, settings, cancel}
+	}
 	return []ButtonView{
 		{Button: ButtonAdd15, Label: "+15", Enabled: true},
 		{Button: ButtonAdd30, Label: "+30", Enabled: true},
@@ -1144,6 +1204,10 @@ func (m *Model) plateView(now time.Time, p *plate) *WarningView {
 		return w
 	case plateBlocked:
 		w.Kind, w.Text = p.blockedKind, p.text
+		return w
+	case plateRest:
+		w.Kind, w.Text, w.Threshold, w.Sound = ipc.PlateRest, p.text, p.threshold, true
+		w.Board = restBoard(m.eventSecs(now), p.text)
 		return w
 	}
 	w.Threshold, w.Sound = p.threshold, true
@@ -1183,6 +1247,8 @@ func (m *Model) plateButtons(p *plate) []ButtonView {
 			out = append(out, ButtonView{Button: ButtonAskNow, Label: textAskNow, Main: true, Enabled: true})
 		}
 		return append(out, ButtonView{Button: ButtonPlateClose, Label: textWarningClose, Enabled: true})
+	case p.kind == plateRest:
+		return []ButtonView{{Button: ButtonWarningClose, Label: textWarningClose, Enabled: true}}
 	case p.kind != plateThreshold:
 		return []ButtonView{}
 	case p.threshold != 1:

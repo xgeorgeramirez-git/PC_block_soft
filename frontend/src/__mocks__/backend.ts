@@ -8,7 +8,9 @@
 import contract from "../../../internal/ipc/testdata/contract.json";
 import { formatDuration, formatHour, formatLimit, localOffsetMin, weekdayOfMs, weekdayShort } from "../lib/format";
 import { normalizeLimits } from "../lib/limits";
+import { breakEqual, DEFAULT_BREAK, validateBreak } from "../lib/rest";
 import type {
+  BreakRules,
   Account,
   BonusEntry,
   ChildInfo,
@@ -26,6 +28,7 @@ import type {
   ProgramDTO,
   ProgramsReply,
   ProgramTime,
+  StatsPeriod,
 } from "../types";
 
 export const DEFAULT_PASSWORD = "секрет-123";
@@ -64,6 +67,8 @@ export interface MockChild {
   forbiddenUntil?: string;
   /** «Когда время вышло» (R8, FR-18); по умолчанию экран блокировки. */
   endMode?: EndMode;
+  /** «Отдых» (FR-37); по умолчанию выключен (DEFAULT_BREAK). */
+  break?: BreakRules;
   /** Игры за сегодня, секунды (R5); входят и в usedS. */
   gamesUsedS?: number;
   /** Учёба за сегодня, секунды (R3); в usedS не входит. */
@@ -73,6 +78,59 @@ export interface MockChild {
    * без программы - строка «Остальное время» без пути. Нет - пустой список.
    */
   programsToday?: ProgramTime[];
+  /**
+   * Прошлые дни для периодов «Итогов» (D-61, S42), как их хранит служба (day_state и usage_daily):
+   * итоги дня и время программ без строки «Остальное время». Сегодня - usedS, gamesUsedS, studyUsedS и
+   * programsToday; день сегодня или позже в периоды не входит (его ведёт ядро).
+   */
+  history?: MockDay[];
+}
+
+/** Прошлый день ребёнка в подменной программе (периоды «Итогов», D-61). */
+export interface MockDay {
+  /** YYYY-MM-DD по местному времени. */
+  day: string;
+  /** Общее время в счёт лимита, с (игры и прочее). */
+  totalS?: number;
+  gamesS?: number;
+  studyS?: number;
+  extraMin?: number;
+  bonusSpentMin?: number;
+  programs?: ProgramTime[];
+}
+
+/** «Сейчас» данных S42: среда 21.10.2026 15:00 (понедельник недели, 1-е число и 2 января уже прошли). */
+export const S42_NOW = new Date(2026, 9, 21, 15, 0, 0);
+
+const S42_GAME = "c:\\games\\game.exe";
+const S42_STUDY = "c:\\school\\study.exe";
+
+/**
+ * Прошлые дни S42 для S42_NOW: в понедельник этой недели игры 30 мин (game.exe), 1-го числа игры 20 мин,
+ * 2 января учёба 40 мин (study.exe), в прошлом году прочее 50 мин без программы; строка «завтра» в
+ * периоды не входит.
+ */
+export function s42History(): MockDay[] {
+  return [
+    { day: "2026-10-19", totalS: 1800, gamesS: 1800, extraMin: 30, programs: [{ path: S42_GAME, name: "game", category: "games", seconds: 1800 }] },
+    { day: "2026-10-01", totalS: 1200, gamesS: 1200, programs: [{ path: S42_GAME, name: "game", category: "games", seconds: 1200 }] },
+    { day: "2026-01-02", studyS: 2400, bonusSpentMin: 15, programs: [{ path: S42_STUDY, name: "study", category: "study", seconds: 2400 }] },
+    { day: "2025-06-15", totalS: 3000 },
+    // Завтра (часы компьютера могли уйти назад): в периоды не входит, как у службы.
+    { day: "2026-10-22", totalS: 999, gamesS: 999, programs: [{ path: S42_GAME, name: "game", category: "games", seconds: 999 }] },
+  ];
+}
+
+/** Ребёнок S42: прошлые дни s42History и сегодня game.exe 10 мин. */
+export function s42Child(over: Partial<MockChild> = {}): MockChild {
+  return mockChild({
+    usedS: 600,
+    gamesUsedS: 600,
+    studyUsedS: 0,
+    programsToday: [{ path: S42_GAME, name: "game", category: "games", seconds: 600 }],
+    history: s42History(),
+    ...over,
+  });
 }
 
 /** Промокод в подменной программе (R26, D-50). */
@@ -176,6 +234,8 @@ export interface MockBackend {
   override(command: string, spec: Override, times?: number): void;
   /** Сколько раз вызывали команду. */
   count(command: string): number;
+  /** Обычный ответ команды без подмены (для подмены, которая только задерживает ответ). */
+  handler(command: string): (request: any) => Reply;
 }
 
 type Examples = Record<string, { request?: unknown; reply: Reply }>;
@@ -448,27 +508,82 @@ function gamesRuleText(limits: WeekdayLimit[]): string {
   return `Игры: ${limited.map((l) => `${weekdayShort(l.weekday)} ${word(l.gamesMin ?? 0)}`).join(", ")}`;
 }
 
-/** Ответ MyToday ребёнка: строки «Сегодня» и правила. Не ребёнок - пустые списки (не null). */
-function myToday(child: MockChild | undefined, nowMs: number): MyTodayReply {
+/** Первый день периода по местному времени момента nowMs, как служба (periodFrom); неизвестный - "". */
+function periodFromDay(period: string, nowMs: number): string {
+  const now = new Date(nowMs);
+  const day = (y: number, m: number, d: number) => isoDay(new Date(y, m, d, 12, 0, 0).getTime());
+  switch (period) {
+    case "today":
+      return isoDay(nowMs);
+    case "week":
+      return day(now.getFullYear(), now.getMonth(), now.getDate() - ((now.getDay() + 6) % 7));
+    case "month":
+      return day(now.getFullYear(), now.getMonth(), 1);
+    case "year":
+      return day(now.getFullYear(), 0, 1);
+    case "all":
+      return "0001-01-01";
+  }
+  return "";
+}
+
+/**
+ * Ответ MyToday ребёнка: строки «Сегодня» и правила за сегодня, «Итоги» за период (D-61): прошлые дни
+ * history строго до сегодня плюс сегодня. Не ребёнок - пустые списки (не null).
+ */
+function myToday(child: MockChild | undefined, nowMs: number, period: StatsPeriod = "today"): MyTodayReply {
   if (!child) {
-    return examples["MyToday#empty"].reply.payload as MyTodayReply;
+    return { ...(examples["MyToday#empty"].reply.payload as MyTodayReply), period };
   }
   const status = statusOf(child, nowMs);
   const today = [status.summary, `Использовано ${formatDuration(status.usedS)}`];
   if (status.lock === "timeUp" && status.until) {
     today.push(status.until);
   }
-  const gamesS = child.gamesUsedS ?? 0;
-  const studyS = child.studyUsedS ?? 0;
+  const todayDay = isoDay(nowMs);
+  const from = periodFromDay(period, nowMs);
+  const past = (child.history ?? []).filter((d) => d.day >= from && d.day < todayDay);
+  const sum = (pick: (d: MockDay) => number | undefined) => past.reduce((n, d) => n + (pick(d) ?? 0), 0);
+  const usedS = status.usedS + sum((d) => d.totalS);
+  const gamesS = (child.gamesUsedS ?? 0) + sum((d) => d.gamesS);
+  const studyS = (child.studyUsedS ?? 0) + sum((d) => d.studyS);
   // «Прочее» и «Всего» - как у службы: общее время без игр (видео в M3 нет) и общее плюс учёба.
-  const otherS = Math.max(0, status.usedS - gamesS);
-  const programs = (child.programsToday ?? []).map((p) => ({ ...p }));
+  const otherS = Math.max(0, usedS - gamesS);
+  const merged = new Map<string, ProgramTime>();
+  for (const p of [...(child.programsToday ?? []), ...past.flatMap((d) => d.programs ?? [])]) {
+    const key = `${p.category}|${p.path}`;
+    const cur = merged.get(key);
+    if (cur) cur.seconds += p.seconds;
+    else merged.set(key, { ...p });
+  }
+  const programs = [...merged.values()];
   // Как служба: время категории, не названное строками, - строка «Остальное время» (сумма строк = итог).
   for (const [category, total] of [["games", gamesS], ["study", studyS], ["other", otherS]] as const) {
     const named = programs.filter((p) => p.category === category).reduce((n, p) => n + p.seconds, 0);
     if (total > named) programs.push({ path: "", name: "Остальное время", category, seconds: total - named });
   }
-  return { status, today, rules: myRules(child), gamesS, studyS, otherS, allS: status.usedS + studyS, programs };
+  return {
+    status,
+    today,
+    rules: myRules(child),
+    period,
+    usedS,
+    gamesS,
+    studyS,
+    otherS,
+    allS: usedS + studyS,
+    extraMin: (child.extraMin ?? 0) + sum((d) => d.extraMin),
+    bonusSpentMin: sum((d) => d.bonusSpentMin),
+    programs,
+  };
+}
+
+const PERIODS_OK = new Set(["today", "week", "month", "year", "all"]);
+
+/** Период запроса MyToday или ParentStats: нет - «Сегодня»; неизвестный - null (служба отвечает отказом). */
+function periodArg(req: { period?: string } | undefined): StatsPeriod | null {
+  const p = req?.period ?? "today";
+  return PERIODS_OK.has(p) ? (p as StatsPeriod) : null;
 }
 
 const PARENT_COMMANDS = new Set([
@@ -734,7 +849,7 @@ export function createBackend(opts: MockOptions = {}): MockBackend {
     GetChildRules: (req) => {
       const child = childById(req.childId);
       if (!child) return fail("Ребёнок не найден");
-      return okReply({ childId: child.childId, name: child.name, limits: limitsWithGames(child.limits), endMode: child.endMode ?? "lock" });
+      return okReply({ childId: child.childId, name: child.name, limits: limitsWithGames(child.limits), endMode: child.endMode ?? "lock", break: child.break ?? DEFAULT_BREAK });
     },
 
     SaveLimits: (req, now) => {
@@ -743,7 +858,12 @@ export function createBackend(opts: MockOptions = {}): MockBackend {
       if (req.endMode && req.endMode !== "lock" && req.endMode !== "study_only") {
         return fail("Выберите, что делать, когда время вышло", "endMode");
       }
-      const onlyMode = !(req.limits ?? []).length && Boolean(req.endMode);
+      if (req.break) {
+        // Пределы как у службы (handlers_0_3_2.go): первая ошибка с полем.
+        const bad = Object.entries(validateBreak(req.break as BreakRules))[0];
+        if (bad) return fail(bad[1], bad[0]);
+      }
+      const onlyMode = !(req.limits ?? []).length && Boolean(req.endMode || req.break);
       if (!onlyMode) {
         const bad = limitsError(req.limits ?? []);
         if (bad) return bad;
@@ -754,8 +874,12 @@ export function createBackend(opts: MockOptions = {}): MockBackend {
         child.endMode = req.endMode;
         addEvent(now, child, "settings", `${child.name}: изменён режим, когда время вышло`);
       }
+      if (req.break && !breakEqual(req.break as BreakRules, child.break ?? DEFAULT_BREAK)) {
+        child.break = { ...(req.break as BreakRules), message: (req.break as BreakRules).message.trim() };
+        addEvent(now, child, "settings", `${child.name}: изменены настройки отдыха`);
+      }
       return okReply({
-        rules: { childId: child.childId, name: child.name, limits: limitsWithGames(child.limits), endMode: child.endMode ?? "lock" },
+        rules: { childId: child.childId, name: child.name, limits: limitsWithGames(child.limits), endMode: child.endMode ?? "lock", break: child.break ?? DEFAULT_BREAK },
         card: card(child, now),
         message: "Сохранено. Новые правила уже действуют",
       });
@@ -787,6 +911,7 @@ export function createBackend(opts: MockOptions = {}): MockBackend {
         limits: limitsWithGames(from.limits),
         intervals: from.schedule ?? [],
         endMode: from.endMode ?? "lock",
+        break: from.break ?? DEFAULT_BREAK,
         message: "Правила скопированы. Проверьте и сохраните",
       });
     },
@@ -909,7 +1034,9 @@ export function createBackend(opts: MockOptions = {}): MockBackend {
     ParentStats: (req, now) => {
       const child = childById(req.childId);
       if (!child) return fail("Ребёнок не найден");
-      return okReply(myToday(child, now));
+      const period = periodArg(req);
+      if (!period) return fail("Не удалось разобрать запрос. Попробуйте ещё раз");
+      return okReply(myToday(child, now, period));
     },
 
     GetDiag: () => okReply({ verbose: state.verboseLogs, logsPath: MOCK_LOGS_PATH }),
@@ -958,7 +1085,11 @@ export function createBackend(opts: MockOptions = {}): MockBackend {
       return okReply({ children });
     },
 
-    MyToday: (_req, now) => okReply(myToday(childById(state.myChildId ?? -1), now)),
+    MyToday: (req, now) => {
+      const period = periodArg(req);
+      if (!period) return fail("Не удалось разобрать запрос. Попробуй ещё раз");
+      return okReply(myToday(childById(state.myChildId ?? -1), now, period));
+    },
 
     FirstRunSeen: () => {
       state.firstRunSeen = true;
@@ -1252,6 +1383,7 @@ export function createBackend(opts: MockOptions = {}): MockBackend {
       overrides.set(command, { spec, left: times });
     },
     count: (command) => calls.filter((c) => c.command === command).length,
+    handler: (command) => (request) => handlers[command](request, Date.now()),
   };
 }
 

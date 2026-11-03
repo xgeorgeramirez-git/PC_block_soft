@@ -8,7 +8,7 @@ import (
 
 func TestTargetNamesAreUniqueAndRoundTrip(t *testing.T) {
 	seen := map[string]Button{}
-	for b := ButtonParentPassword; b <= ButtonWarningClose; b++ {
+	for b := ButtonParentPassword; b <= ButtonEndBreak; b++ {
 		name := TargetName(b)
 		if name == "" {
 			t.Errorf("у кнопки %d нет имени для канала", b)

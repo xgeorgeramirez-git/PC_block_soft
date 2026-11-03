@@ -215,22 +215,7 @@ func RenderCardBase(l CardLayout, v CountdownView, st CardState) *image.RGBA {
 
 	switch v.Kind {
 	case CountdownTime:
-		tileR := 18 * s
-		for _, t := range l.Tiles {
-			shadowRound(img, t, tileR, 4*s, 9*s, 0.34)
-		}
-		for _, t := range l.Tiles {
-			top, h := float64(t.Top), float64(t.Dy())
-			fillRound(img, t, tileR, func(x, y float64) (color.RGBA, float64) {
-				return mix(cardTileTop, cardTileBot, (y-top)/h), 1
-			})
-		}
-		for _, c := range l.Colons {
-			cx := float64(c.Left+c.Right) / 2
-			cy := float64(c.Top+c.Bottom) / 2
-			disc(img, cx, cy-cardColonDot*s, cardDotRadius*s, colorWhite, 1)
-			disc(img, cx, cy+cardColonDot*s, cardDotRadius*s, colorWhite, 1)
-		}
+		drawTiles(img, l)
 	default:
 		fillRound(img, l.Body, 18*s, solid(colorWhite, 0.13))
 	}
@@ -342,16 +327,7 @@ func CardTexts(l CardLayout, v CountdownView) []TextRun {
 		if v.Line != "" && l.Line.Dy() > 0 {
 			runs = append(runs, TextRun{Role: RoleLine, Text: v.Line, Rect: l.Line, Px: px(24), Bold: true, Color: colorWhite, Align: AlignCenter, Wrap: true})
 		}
-		digits := []rune(v.Hours + v.Minutes + v.Seconds)
-		for i, d := range digits {
-			if i >= len(l.Tiles) {
-				break
-			}
-			runs = append(runs, TextRun{Role: RoleDigit, Text: string(d), Rect: l.Tiles[i], Px: px(68), Bold: true, Color: digitColor(v.Status), Align: AlignCenter})
-		}
-		for i, name := range []string{textLabelHours, textLabelMinutes, textLabelSeconds} {
-			runs = append(runs, TextRun{Role: RoleLabel, Text: name, Rect: l.Labels[i], Px: px(25), Bold: true, Color: colorLabel, Align: AlignCenter})
-		}
+		runs = append(runs, TileTexts(l, v)...)
 	case CountdownMessage:
 		runs = append(runs, TextRun{Role: RoleMessage, Text: v.Big, Rect: l.Text, Px: px(28), Bold: true, Color: colorWhite, Align: AlignCenter, Wrap: true})
 	case CountdownError:

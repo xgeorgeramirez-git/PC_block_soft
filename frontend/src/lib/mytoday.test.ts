@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   ASK_PRESETS,
+  PERIODS,
   allWithStudyText,
+  periodEmpty,
+  periodOf,
   askMinutes,
   EMPTY_TAB,
   TOTALS_TABS,
@@ -53,7 +56,21 @@ function status(over: Partial<ChildStatus> = {}): ChildStatus {
 }
 
 function reply(over: Partial<ChildStatus> = {}, today: string[] = []): MyTodayReply {
-  return { status: status(over), today, rules: [], gamesS: 0, studyS: 0, otherS: 0, allS: 0, programs: [] };
+  const st = status(over);
+  return {
+    status: st,
+    today,
+    rules: [],
+    period: "today",
+    usedS: st.usedS,
+    gamesS: 0,
+    studyS: 0,
+    otherS: 0,
+    allS: 0,
+    extraMin: 0,
+    bonusSpentMin: 0,
+    programs: [],
+  };
 }
 
 describe("firstRunLines: пересказ правил на сегодня", () => {
@@ -114,12 +131,25 @@ describe("summaryLines: «Итоги»", () => {
   it("пустой ответ - пустой список", () => {
     expect(summaryLines(reply({}, []))).toEqual([]);
   });
+
+  // Ловит: во время перерыва на отдых (R27) время не кончилось, а «Сегодня осталось …» не убрана и
+  // повторяет «Осталось всего» (у родителя в «Итогах» - дважды).
+  it("перерыв на отдых: повтор остатка убран, как когда время есть", () => {
+    const r = reply({ usedS: 2100, lock: "rest" }, ["Сегодня осталось 1 ч 25 мин из 2 ч", "Использовано 35 мин"]);
+    expect(summaryLines(r)).toEqual([]);
+  });
 });
 
 // Ловит FB-10 (0.3.1): «Использовано сегодня 22 мин» и вкладка «Всего 25 мин» рядом без объяснения,
 // пояснение было только внутри «Всего»; числа в пояснении должны совпадать с теми, что на экране.
 describe("allWithStudyText: «Всего» с учёбой", () => {
   const r = (usedS: number, studyS: number, allS: number): MyTodayReply => ({ ...reply({ usedS }), studyS, allS });
+
+  // Ловит (D-61): за неделю пояснение берёт «в счёт лимита» из статуса (сегодня), а не за период.
+  it("за неделю - время в счёт лимита за неделю, не за сегодня", () => {
+    const week: MyTodayReply = { ...reply({ usedS: 600 }), period: "week", usedS: 3900, studyS: 2400, allS: 6300 };
+    expect(allWithStudyText(week)).toBe("Всего = 1 ч 05 мин в счёт лимита + 40 мин учёбы вне лимита");
+  });
 
   it("22 мин в лимите и 3 мин учёбы", () => {
     expect(allWithStudyText(r(1320, 180, 1500))).toBe("Всего = 22 мин в счёт лимита + 3 мин учёбы вне лимита");
@@ -210,6 +240,13 @@ describe("todayRows: остаток, лимиты, запретные часы, 
     expect(rows({ ...g, status: "timeUp", lock: "timeUp" })["Игры"]).toBe("Осталось 0 мин из 1 ч");
     expect(rows({ ...g, studyOnly: true })["Игры"]).toBe("Осталось 0 мин из 1 ч");
     expect(rows({ ...g, status: "admin" })["Игры"]).toBe("Не действует");
+  });
+
+  // Ловит: во время перерыва на отдых (R27) остаток показан «0 мин», как будто время вышло.
+  it("перерыв на отдых: остаток общего времени и игр не обнуляется", () => {
+    const r = rows({ lock: "rest", gamesUnlimited: false, gamesLimitS: 3600, gamesRemainingS: 1200 });
+    expect(r["Осталось всего"]).toBe("1 ч 25 мин");
+    expect(r["Игры"]).toBe("Осталось 20 мин из 1 ч");
   });
 
   it("запретные часы сейчас: остаток не показывается как «0 мин»", () => {
@@ -357,5 +394,36 @@ describe("вкладки «Итогов»", () => {
     expect(tabRows(totalsReply([], { gamesS: 0 }), "games")).toEqual([]);
     expect(tabRows(totalsReply(S39.filter((x) => x.category !== "study"), { studyS: 0 }), "study")).toEqual([]);
     expect(EMPTY_TAB).toBe("Пока ничего не запускалось");
+  });
+});
+
+// Периоды «Итогов» (8.2.6 п.2-3, D-61): подписи строки «Использовано» и сумм вкладок, пустой период.
+describe("периоды «Итогов»", () => {
+  it("пять периодов по порядку", () => {
+    expect(PERIODS.map((p) => p.label)).toEqual(["Сегодня", "Неделя", "Месяц", "Год", "Всё время"]);
+    expect(PERIODS.map((p) => p.id)).toEqual(["today", "week", "month", "year", "all"]);
+  });
+
+  // Ловит: на неделе строка «Использовано сегодня» (8.2.6 п.3) или «Игры за сегодня» под суммой недели.
+  it("подписи «Использовано …» и сумм вкладок", () => {
+    expect(PERIODS.map((p) => p.used)).toEqual([
+      "Использовано сегодня",
+      "Использовано за неделю",
+      "Использовано за месяц",
+      "Использовано за год",
+      "Использовано за всё время",
+    ]);
+    expect(PERIODS.map((p) => p.sum)).toEqual(["за сегодня", "за неделю", "за месяц", "за год", "за всё время"]);
+    expect(periodOf("year").used).toBe("Использовано за год");
+    expect(periodOf("нет такого" as never).id).toBe("today");
+  });
+
+  // Ловит: пустая неделя показывает нули во вкладках вместо «За этот период пока нет данных» (8.2.6 п.9);
+  // «Сегодня» с нулями пустым не считается (вкладки и «Пока ничего не запускалось», как раньше).
+  it("пустой период", () => {
+    expect(periodEmpty({ ...reply({ usedS: 0 }), period: "week" })).toBe(true);
+    expect(periodEmpty({ ...reply({ usedS: 0 }), period: "today" })).toBe(false);
+    expect(periodEmpty({ ...reply({ usedS: 0 }), period: "all", allS: 60 })).toBe(false);
+    expect(periodEmpty({ ...reply({ usedS: 0 }), period: "month", extraMin: 15 })).toBe(false);
   });
 });

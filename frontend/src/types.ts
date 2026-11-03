@@ -38,7 +38,8 @@ export type StatusKind =
   | "admin"
   | "notChild";
 
-export type LockKind = "none" | "timeUp" | "forbidden" | "bypass";
+/** Экран блокировки ребёнка (ipc ChildStatus.Lock); "rest" - перерыв на отдых (R27): время не кончилось. */
+export type LockKind = "none" | "timeUp" | "forbidden" | "bypass" | "rest";
 
 export interface ChildStatus {
   name: string;
@@ -228,11 +229,26 @@ export interface ChildRequest {
   childId: number;
 }
 
+/** Что считать к перерыву (R27): «all» — всё, кроме учёбы; «games» — только игры. */
+export type BreakCounts = "all" | "games";
+
+/** Вкладка «Отдых» (FR-37, R27). message «» — стандартный текст экрана перерыва. */
+export interface BreakRules {
+  enabled: boolean;
+  afterMin: number;
+  counts: BreakCounts;
+  warnMin: number;
+  restMin: number;
+  selfRestMin: number;
+  message: string;
+}
+
 export interface ChildRules {
   childId: number;
   name: string;
   limits: WeekdayLimit[];
   endMode: EndMode;
+  break: BreakRules;
 }
 
 /** endMode пусто - режим не меняется; limits пусто при endMode - меняется только режим. */
@@ -240,6 +256,8 @@ export interface SaveLimitsRequest {
   childId: number;
   limits: WeekdayLimit[];
   endMode?: EndMode;
+  /** «Отдых» (FR-37); нет — не меняется. */
+  break?: BreakRules;
 }
 
 export interface SaveLimitsReply {
@@ -341,20 +359,34 @@ export interface MyRule {
   text: string;
 }
 
-/** Ответ MyToday: «Сегодня» и «Мои правила» текстом, только чтение (internal/ipc.MyTodayReply). */
+/** Период «Итогов» (8.2.6 п.2, D-61): календарный по местному времени, включает сегодня. */
+export type StatsPeriod = "today" | "week" | "month" | "year" | "all";
+
+/**
+ * Ответ MyToday и ParentStats (internal/ipc.MyTodayReply): статус, «Сегодня» и «Мои правила» за сегодня,
+ * «Итоги» за период period (D-61), только чтение.
+ */
 export interface MyTodayReply {
   status: ChildStatus;
   /** Строки «Сегодня». */
   today: string[];
   rules: MyRule[];
-  /** Игры и учёба за сегодня, с (итоги, S13); счётчики ядра. */
+  /** За какой период «Итоги». */
+  period: StatsPeriod;
+  /** Общее время за период в счёт лимита, с («Использовано за неделю»). */
+  usedS: number;
+  /** Игры и учёба за период, с (итоги, S13). */
   gamesS: number;
   studyS: number;
-  /** «Прочее» за сегодня, с: общее время без игр и «Видео и соцсетей». */
+  /** «Прочее» за период, с: общее время без игр и «Видео и соцсетей». */
   otherS: number;
-  /** «Всего» за сегодня, с: общее время и учёба (учёба в лимит не входит, D-7). */
+  /** «Всего» за период, с: общее время и учёба (учёба в лимит не входит, D-7). */
   allS: number;
-  /** Время каждой программы за сегодня (вкладки «Итогов», D-58): самые долгие сверху, скрытых нет. */
+  /** Доп. время за период, мин: от родителя, из копилки и по промокодам. */
+  extraMin: number;
+  /** Из доп. времени взято из копилки, мин. */
+  bonusSpentMin: number;
+  /** Время каждой программы за период (вкладки «Итогов», D-58): самые долгие сверху, скрытых нет. */
   programs: ProgramTime[];
 }
 
@@ -473,6 +505,7 @@ export interface CopyRulesReply {
   limits: WeekdayLimit[];
   intervals: Interval[];
   endMode: EndMode;
+  break: BreakRules;
   message: string;
 }
 

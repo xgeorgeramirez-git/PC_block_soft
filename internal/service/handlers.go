@@ -434,8 +434,16 @@ func (s *Service) hSaveLimits(c *callCtx) ipc.Reply {
 	if req.EndMode != "" && req.EndMode != ipc.EndModeLock && req.EndMode != ipc.EndModeStudyOnly {
 		return ipc.FailField(textEndModeBad, ipc.FieldEndMode)
 	}
-	// Только режим «Когда время вышло» (вкладка FR-18): лимиты не присланы и не меняются.
-	saveLimits := len(req.Limits) > 0 || req.EndMode == ""
+	var brk core.BreakRules
+	if req.Break != nil {
+		var field, text string
+		if brk, field, text = breakFromIPC(*req.Break); field != "" {
+			return ipc.FailField(text, field)
+		}
+	}
+	// Только режим «Когда время вышло» (вкладка FR-18) или только «Отдых» (FR-37): лимиты не
+	// присланы и не меняются.
+	saveLimits := len(req.Limits) > 0 || (req.EndMode == "" && req.Break == nil)
 	var week [7]core.DayLimit
 	if saveLimits {
 		var field, text string
@@ -456,6 +464,13 @@ func (s *Service) hSaveLimits(c *callCtx) ipc.Reply {
 			return ipc.Fail(textSaveFailed)
 		}
 	}
+	breakChanged := req.Break != nil && brk != cs.rules.Break
+	if breakChanged {
+		if err := s.cfg.Store.SetBreakRules(cs.child.ID, brk); err != nil {
+			s.logRate("break", "настройки отдыха не записаны: %v", err)
+			return ipc.Fail(textSaveFailed)
+		}
+	}
 	// FR-19: правила действуют сразу, ближайший ответ стражу уже несёт новое решение. Правила
 	// берутся из базы целиком (RM3-9): лимиты, игры, расписание и режим.
 	cs.rulesAt = c.real
@@ -465,6 +480,9 @@ func (s *Service) hSaveLimits(c *callCtx) ipc.Reply {
 	}
 	if modeChanged {
 		s.journal.Write(cs.child.ID, "settings_changed", map[string]any{"text": "изменён режим, когда время вышло"})
+	}
+	if breakChanged {
+		s.journal.Write(cs.child.ID, "settings_changed", map[string]any{"text": "изменены настройки отдыха"})
 	}
 	return ipc.OK(ipc.SaveLimitsReply{Rules: rulesView(cs), Card: s.cardOf(cs), Message: textSaved})
 }
@@ -805,40 +823,61 @@ func (s *Service) hSetChildren(c *callCtx) ipc.Reply {
 var weekdayShort = [7]string{"пн", "вт", "ср", "чт", "пт", "сб", "вс"}
 
 func (s *Service) hMyToday(c *callCtx) ipc.Reply {
-	return ipc.OK(s.myTodayOf(s.childBySID(c.peer.SID)))
+	var req ipc.MyTodayRequest
+	if c.msg.Into(&req) != nil {
+		return bad()
+	}
+	if _, ok := periodFrom(req.Period, time.Time{}); !ok {
+		return bad()
+	}
+	return ipc.OK(s.myTodayOf(s.childBySID(c.peer.SID), req.Period))
 }
 
-// hParentStats возвращает статистику выбранного ребёнка за сегодня для родительской сессии
-// (FR-23, D-44): та же «Моя статистика», что видит ребёнок, только для просмотра.
+// hParentStats возвращает статистику выбранного ребёнка за период для родительской сессии
+// (FR-23, D-44, D-61): та же «Моя статистика», что видит ребёнок, только для просмотра.
 func (s *Service) hParentStats(c *callCtx) ipc.Reply {
 	var req ipc.ParentStatsRequest
 	if c.msg.Into(&req) != nil {
+		return bad()
+	}
+	if _, ok := periodFrom(req.Period, time.Time{}); !ok {
 		return bad()
 	}
 	cs := s.childArg(c, req.ChildID)
 	if cs == nil {
 		return ipc.Fail(textNoSuchChild)
 	}
-	return ipc.OK(s.myTodayOf(cs))
+	return ipc.OK(s.myTodayOf(cs, req.Period))
 }
 
-// myTodayOf собирает «Моя статистика» за сегодня (FR-12, FR-23): статус, строки «Сегодня» и
-// «Мои правила» текстом. Один источник для ребёнка (hMyToday) и родителя (hParentStats).
-func (s *Service) myTodayOf(cs *childState) ipc.MyTodayReply {
+// myTodayOf собирает «Моя статистика» (FR-12, FR-23): статус, строки «Сегодня» и «Мои правила»
+// текстом за сегодня и «Итоги» за период period (D-61; «» — сегодня, период уже проверен). Один
+// источник для ребёнка (hMyToday) и родителя (hParentStats).
+func (s *Service) myTodayOf(cs *childState, period string) ipc.MyTodayReply {
+	if period == "" {
+		period = ipc.PeriodToday
+	}
 	if cs == nil {
-		return ipc.MyTodayReply{Status: ipc.ChildStatusNotChild(), Today: []string{}, Rules: []ipc.MyRule{}, Programs: []ipc.ProgramTime{}}
+		return ipc.MyTodayReply{Status: ipc.ChildStatusNotChild(), Today: []string{}, Rules: []ipc.MyRule{}, Period: period, Programs: []ipc.ProgramTime{}}
 	}
 	st := s.statusOf(cs)
-	out := ipc.MyTodayReply{Status: st, Today: []string{st.Summary, "Использовано " + core.FormatDuration(st.UsedS)}, Rules: []ipc.MyRule{}}
-	// Игры и учёба за сегодня — счётчики дня ядра; счётчики прошлого дня (сутки ещё не
-	// сменились в ядре) сегодняшними не считаются.
-	out.Programs = []ipc.ProgramTime{}
-	if day, _ := cs.eng.State(); day.Day == core.DayOf(s.cfg.Clock.Now().In(s.cfg.Loc)) {
-		out.GamesS, out.StudyS = day.GamesS, day.StudyS
-		out.OtherS = max(0, day.TotalS-day.GamesS-day.VideoS)
-		out.AllS = day.TotalS + day.StudyS
-		out.Programs = s.programTimes(cs, day)
+	out := ipc.MyTodayReply{Status: st, Today: []string{st.Summary, "Использовано " + core.FormatDuration(st.UsedS)}, Rules: []ipc.MyRule{}, Period: period}
+	// Сегодня — счётчики дня ядра; счётчики прошлого дня (сутки ещё не сменились в ядре)
+	// сегодняшними не считаются. Прошлые дни периода — из базы (RF13-1).
+	now := s.cfg.Clock.Now().In(s.cfg.Loc)
+	today := core.DayOf(now)
+	var live core.DayState
+	if day, _ := cs.eng.State(); day.Day == today {
+		live = day
 	}
+	from, _ := periodFrom(period, now)
+	sum, past := s.periodTotals(cs, from, today, live)
+	out.UsedS, out.GamesS, out.StudyS = sum.TotalS, sum.GamesS, sum.StudyS
+	out.OtherS = max(0, sum.TotalS-sum.GamesS-sum.VideoS)
+	out.AllS = sum.TotalS + sum.StudyS
+	out.ExtraMin = sum.ExtraMin
+	out.BonusSpentMin = s.periodBonusSpent(cs, from)
+	out.Programs = s.programTimes(cs, sum, past)
 	// Строка «Можно снова…» нужна при любой блокировке: показываем, когда блокировка есть и
 	// ядро назвало срок (B-6).
 	if st.Lock != "" && st.Lock != ipc.LockNone && st.Until != "" {

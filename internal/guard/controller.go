@@ -206,6 +206,7 @@ func DecisionFromStatus(s ipc.ChildStatus) core.Decision {
 		BonusBalance: s.BonusBalance, Unlimited: s.Unlimited, Events: []core.Event{},
 		GamesRemainingS: s.GamesRemainingS, GamesLimitS: s.GamesLimitS, GamesUnlimited: s.GamesUnlimited,
 		CloseGames: s.CloseGames, StudyOnly: s.StudyOnly,
+		RestUntilMs: s.RestUntilMs, RestLeftS: s.RestLeftS, RestMessage: s.RestMessage,
 	}
 	switch s.Lock {
 	case ipc.LockTimeUp:
@@ -214,6 +215,8 @@ func DecisionFromStatus(s ipc.ChildStatus) core.Decision {
 		d.Lock = core.LockForbidden
 	case ipc.LockBypass:
 		d.Lock = core.LockBypass
+	case ipc.LockRest:
+		d.Lock = core.LockRest
 	}
 	switch s.Status {
 	case ipc.StatusOK:
@@ -653,6 +656,11 @@ func (c *Controller) Run(act Action) {
 		if err := ipc.Call(c.call, ipc.CmdClearBlock, "", ipc.ChildRequest{}, nil); err != nil {
 			c.setNotice(failureText(err, textNoticeRetry))
 		}
+	case ActEndBreak:
+		// «Закончить перерыв» после пароля (R27): служба пишет журнал, экран снимет следующий опрос.
+		if err := ipc.Call(c.call, ipc.CmdEndBreak, "", ipc.ChildRequest{}, nil); err != nil {
+			c.setNotice(failureText(err, textNoticeRetry))
+		}
 	case ActOpenSettings:
 		if err := ipc.Call(c.call, ipc.CmdOpenWindow, "", ipc.OpenWindowRequest{Kind: ipc.WindowParent}, nil); err != nil {
 			c.setNotice(failureText(err, textNoticeRetry))
@@ -777,6 +785,9 @@ func StateFromView(v View, lockKind string, shown []ipc.ShownWarning, sounds []i
 	}
 	add(v.Buttons)
 	add(v.Choices)
+	if v.Rest != nil {
+		st.RestTimer, st.RestMessage = timerText(v.Rest), v.Rest.Message
+	}
 	if v.Warning != nil {
 		add(v.Warning.Buttons)
 		st.Plate, st.PlateKind = v.Warning.Text, v.Warning.Kind
