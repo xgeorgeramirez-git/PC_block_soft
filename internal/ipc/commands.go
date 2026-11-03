@@ -239,6 +239,7 @@ type ChildStatus struct {
 
 	// Экран перерыва на отдых (Lock == LockRest, R27): конец по часам и сообщение родителя.
 	RestUntilMs int64  `json:"restUntilMs"` // UTC мс; 0 — перерыва нет
+	RestLeftS   int    `json:"restLeftS"`   // секунды до конца перерыва по часам службы (таймер стража)
 	RestMessage string `json:"restMessage"` // сообщение на экране перерыва (FR-37); «» — перерыва нет
 }
 
@@ -812,6 +813,7 @@ const (
 	PlateOneMinute = "oneMinute" // плашка 1 мин с отсчётом
 	PlateAdded     = "added"     // «Добавлено N минут»
 	PlateNotice    = "notice"    // короткое сообщение стража (команда службе не прошла)
+	PlateRest      = "rest"      // табло «ПОРА ОТДОХНУТЬ» (R27, 8.2.2 п.7)
 )
 
 // Выходы с экрана блокировки для GuardStateReply.Exits (тестовый режим).

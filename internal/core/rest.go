@@ -325,5 +325,6 @@ func (e *Engine) restDecide(d *Decision, now time.Time) {
 	}
 	d.Lock, d.Reason, d.Until = LockRest, ReasonRest, RestUntilText(until)
 	d.RestUntilMs = until.UnixMilli()
+	d.RestLeftS = int((until.Sub(now) + time.Second - 1) / time.Second)
 	d.RestMessage = e.rules.Break.MessageText()
 }

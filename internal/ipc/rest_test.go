@@ -10,8 +10,8 @@ import (
 // плашка отдыха без звука или с видом события лимита (страж показал бы плашку 1 мин).
 func TestRestStatusAndWarning(t *testing.T) {
 	st := ChildStatusFrom("Миша", core.Decision{Status: core.StatusOK, Lock: core.LockRest, Reason: core.ReasonRest,
-		Until: "Можно снова в 16:20", RestUntilMs: 1792419600000, RestMessage: "Пойди погуляй с собакой"})
-	if st.Lock != "rest" || st.RestUntilMs != 1792419600000 || st.RestMessage != "Пойди погуляй с собакой" || st.Until != "Можно снова в 16:20" {
+		Until: "Можно снова в 16:20", RestUntilMs: 1792419600000, RestLeftS: 899, RestMessage: "Пойди погуляй с собакой"})
+	if st.Lock != "rest" || st.RestUntilMs != 1792419600000 || st.RestLeftS != 899 || st.RestMessage != "Пойди погуляй с собакой" || st.Until != "Можно снова в 16:20" {
 		t.Fatalf("статус перерыва %+v", st)
 	}
 	w := NewGuardRestWarning(60, "Через 1 минуту перерыв на 5 минут. Сохрани игру")

@@ -155,7 +155,7 @@ func TestRestScreenDecision(t *testing.T) {
 	c.Set(at(16, 10, 0))
 	d := e.Current()
 	if d.Lock != LockRest || d.Reason != "Перерыв на отдых" || d.Until != "Можно снова в 16:20" ||
-		d.RestUntilMs != at(16, 20, 0).UnixMilli() || d.RestMessage != "Пойди погуляй с собакой" {
+		d.RestUntilMs != at(16, 20, 0).UnixMilli() || d.RestLeftS != 600 || d.RestMessage != "Пойди погуляй с собакой" {
 		t.Fatalf("экран перерыва %+v", d)
 	}
 	if d.Allows(CatGames) || d.CloseGames || d.StudyOnly {

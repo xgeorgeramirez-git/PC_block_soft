@@ -148,7 +148,7 @@ func restStatus() ChildStatus {
 	return ChildStatusFrom("Миша", core.Decision{
 		Day: "2026-10-19", Status: core.StatusOK, Lock: core.LockRest, Reason: core.ReasonRest, Until: "Можно снова в 16:20",
 		Used: "Сегодня: 1 ч 05 мин из 3 ч", RemainingS: 115 * 60, LimitS: 180 * 60, UsedS: 65 * 60, GamesUnlimited: true,
-		RestUntilMs: t0 + 900_000, RestMessage: "Пойди погуляй с собакой",
+		RestUntilMs: t0 + 900_000, RestLeftS: 900, RestMessage: "Пойди погуляй с собакой",
 	})
 }
 

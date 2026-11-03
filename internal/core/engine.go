@@ -58,6 +58,7 @@ type Decision struct {
 	RestText  string // строка под плитками плашки отдыха
 
 	RestUntilMs int64  // экран перерыва (LockRest): конец перерыва по часам, UTC мс; иначе 0
+	RestLeftS   int    // экран перерыва: секунды до конца по часам ядра (вверх), для таймера стража
 	RestMessage string // экран перерыва: сообщение родителя или стандартное (FR-37)
 
 	Counted    bool     // секунда этого тика засчитана (только Tick; в Current — false)

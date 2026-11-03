@@ -77,6 +77,7 @@ func ChildStatusFrom(name string, d core.Decision) ChildStatus {
 		CloseGames:      d.CloseGames,
 		StudyOnly:       d.StudyOnly,
 		RestUntilMs:     d.RestUntilMs,
+		RestLeftS:       d.RestLeftS,
 		RestMessage:     d.RestMessage,
 		// Правило ребёнка ядро в решение не кладёт: служба ставит его из Rules (statusOf); здесь —
 		// то, что видно по решению («только учёба» сейчас действует или нет).
