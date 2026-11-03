@@ -292,7 +292,7 @@ func (s *Service) hSpendBonus(c *callCtx) ipc.Reply {
 		return ipc.FailField("Из копилки можно взять с "+core.FormatClock(end), ipc.FieldMinutes)
 	}
 	// Проверить баланс и списать атомарно (storage): трата сверх баланса отклоняется.
-	bal, err := s.cfg.Store.AppendBonus(cs.child.ID, -req.Minutes, "взято из копилки")
+	bal, err := s.cfg.Store.AppendBonus(cs.child.ID, -req.Minutes, reasonBonusSpent)
 	if err != nil {
 		cur, _ := s.cfg.Store.GetBonusBalance(cs.child.ID)
 		return ipc.FailField(fmt.Sprintf("В копилке %d мин, столько взять нельзя", cur), ipc.FieldMinutes)
@@ -300,7 +300,7 @@ func (s *Service) hSpendBonus(c *callCtx) ipc.Reply {
 	d, err := cs.eng.SpendBonus(req.Minutes)
 	if err != nil {
 		// Откат списания, если ядро не приняло (не должно случиться — границы те же).
-		_, _ = s.cfg.Store.AppendBonus(cs.child.ID, req.Minutes, "возврат: трата не применена")
+		_, _ = s.cfg.Store.AppendBonus(cs.child.ID, req.Minutes, reasonBonusRefund)
 		return ipc.FailField(textMinutesRange, ipc.FieldMinutes)
 	}
 	s.afterDecision(cs, d, nil)
