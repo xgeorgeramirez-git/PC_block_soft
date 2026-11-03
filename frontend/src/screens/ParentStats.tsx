@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getToday, parentStats } from "../api";
 import Notice from "../components/Notice";
+import PeriodTabs from "../components/PeriodTabs";
 import { errorText } from "../lib/errors";
-import type { MyTodayReply } from "../types";
+import type { MyTodayReply, StatsPeriod } from "../types";
 import { Rules, Totals } from "./MyStats";
 
 interface PickChild {
@@ -11,15 +12,19 @@ interface PickChild {
 }
 
 /**
- * Статистика родителя за сегодня с выбором ребёнка (FR-23, D-44): та же «Моя статистика»,
- * что видит ребёнок, только для просмотра. Полная версия с периодами — в вехе M5.
+ * Статистика родителя с выбором ребёнка и периода «Итогов» (FR-23, D-44, D-61): та же «Моя статистика»,
+ * что видит ребёнок, только для просмотра. «По дням» и журнал с фильтрами — в вехе M5.
  */
 export default function ParentStats({ initialChildId }: { initialChildId?: number }) {
   const [children, setChildren] = useState<PickChild[]>([]);
   const [childId, setChildId] = useState<number | null>(initialChildId ?? null);
   const [data, setData] = useState<MyTodayReply | null>(null);
   const [error, setError] = useState("");
+  const [period, setPeriod] = useState<StatsPeriod>("today");
+  const [busy, setBusy] = useState(false);
   const alive = useRef(true);
+  // Номер последнего запроса: поздний ответ прошлого периода или ребёнка не перекрывает выбранный.
+  const seq = useRef(0);
 
   useEffect(() => {
     alive.current = true;
@@ -38,19 +43,23 @@ export default function ParentStats({ initialChildId }: { initialChildId?: numbe
     };
   }, []);
 
-  const load = useCallback(async (id: number) => {
+  const load = useCallback(async (id: number, p: StatsPeriod) => {
+    const my = ++seq.current;
+    setBusy(true);
     setError("");
     try {
-      const reply = await parentStats(id);
-      if (alive.current) setData(reply);
+      const reply = await parentStats(id, p);
+      if (alive.current && my === seq.current) setData(reply);
     } catch (e) {
-      if (alive.current) setError(errorText(e));
+      if (alive.current && my === seq.current) setError(errorText(e));
+    } finally {
+      if (alive.current && my === seq.current) setBusy(false);
     }
   }, []);
 
   useEffect(() => {
-    if (childId != null) void load(childId);
-  }, [childId, load]);
+    if (childId != null) void load(childId, period);
+  }, [childId, period, load]);
 
   return (
     <div className="my-stats">
@@ -59,7 +68,7 @@ export default function ParentStats({ initialChildId }: { initialChildId?: numbe
         <span className="read-only-badge">Только просмотр</span>
         <span className="topbar-spacer" />
         {childId != null ? (
-          <button type="button" className="btn btn-small" onClick={() => void load(childId)}>
+          <button type="button" className="btn btn-small" onClick={() => void load(childId, period)}>
             Обновить
           </button>
         ) : null}
@@ -81,7 +90,7 @@ export default function ParentStats({ initialChildId }: { initialChildId?: numbe
         </div>
       ) : null}
 
-      <p className="field-hint periods-note">Пока показываем сегодня. Неделя, месяц, год и всё время появятся позже.</p>
+      {children.length > 0 ? <PeriodTabs value={period} onChange={setPeriod} panelId="period-panel" /> : null}
 
       {error ? (
         <Notice tone="warn" urgent>
@@ -94,8 +103,8 @@ export default function ParentStats({ initialChildId }: { initialChildId?: numbe
       ) : data === null ? (
         error ? null : <p className="panel-text">Загружаю данные</p>
       ) : (
-        <div>
-          <Totals data={data} />
+        <div id="period-panel" role="tabpanel" aria-labelledby={`period-${period}`}>
+          <Totals data={data} busy={busy} />
           <Rules data={data} />
         </div>
       )}

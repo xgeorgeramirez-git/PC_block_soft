@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import MyStats from "./MyStats";
-import { DEFAULT_PASSWORD, installBackend, mockChild, uninstallBackend, type MockBackend } from "../__mocks__/backend";
+import { DEFAULT_PASSWORD, installBackend, mockChild, S42_NOW, s42Child, uninstallBackend, type MockBackend } from "../__mocks__/backend";
 import type { ProgramTime } from "../types";
 
 // FR-12, R21, сценарий 8.2.6: окно «Моя статистика» только для чтения, в M1 - «Сегодня» и «Мои правила».
@@ -73,25 +73,133 @@ describe("MyStats: окно только для чтения (R21)", () => {
 });
 
 describe("MyStats: периоды", () => {
-  it("пять периодов, выбран «Сегодня»", async () => {
+  it("пять периодов, выбран «Сегодня», все доступны", async () => {
     setup();
     const tabs = within(await screen.findByRole("tablist", { name: "Период" })).getAllByRole("tab");
     expect(tabs.map((t) => t.textContent)).toEqual(["Сегодня", "Неделя", "Месяц", "Год", "Всё время"]);
     expect(screen.getByRole("tab", { name: "Сегодня" }).getAttribute("aria-selected")).toBe("true");
+    expect(tabs.filter((t) => t.getAttribute("aria-disabled"))).toEqual([]);
+    expect(screen.queryByText(/появятся/)).toBeNull();
+    expect(mock.calls.find((c) => c.command === "MyToday")?.payload).toEqual({ period: "today" });
   });
 
-  // Ловит: недоступный период без объяснения (L-17) или с обещанием не к месту.
-  it("остальные периоды недоступны и объясняют почему", async () => {
-    const user = setup();
-    for (const name of ["Неделя", "Месяц", "Год", "Всё время"]) {
-      const tab = await screen.findByRole("tab", { name });
-      expect(tab.getAttribute("aria-disabled")).toBe("true");
-      expect(tab.getAttribute("aria-selected")).toBe("false");
-      await user.click(tab);
-      expect(screen.getByRole("tab", { name: "Сегодня" }).getAttribute("aria-selected")).toBe("true");
+  // Ловит (S42, D-61): период не меняет «Итоги»; неделя тянет 1-е число, месяц - 2 января; подпись
+  // «Использовано сегодня» и «Игры за сегодня» на неделе; «Сколько осталось» зависит от периода.
+  it("S42: игры 10 / 40 / 60 / 60 / 60 мин, учёба за год 40 мин, всего за всё время 2 ч 30 мин", async () => {
+    vi.setSystemTime(S42_NOW);
+    const user = setup({ children: [s42Child()] });
+    const box = await screen.findByRole("region", { name: "Итоги" });
+    const value = (label: string) =>
+      within(within(box).getByRole("tablist", { name: "Итоги по категориям" })).getByRole("tab", { name: label }).querySelector(".totals-tab-value")?.textContent;
+    const left = () => within(screen.getByRole("region", { name: "Сколько осталось" })).getByText("Осталось всего").closest("div")?.textContent;
+    const leftToday = left();
+    const want: [string, string, string, string, string, string][] = [
+      // период, «Использовано …», игры, учёба, всего, прочее
+      ["Сегодня", "Использовано сегодня10 мин", "10 мин", "0 мин", "10 мин", "0 мин"],
+      ["Неделя", "Использовано за неделю40 мин", "40 мин", "0 мин", "40 мин", "0 мин"],
+      ["Месяц", "Использовано за месяц1 ч 00 мин", "1 ч 00 мин", "0 мин", "1 ч 00 мин", "0 мин"],
+      ["Год", "Использовано за год1 ч 00 мин", "1 ч 00 мин", "40 мин", "1 ч 40 мин", "0 мин"],
+      ["Всё время", "Использовано за всё время1 ч 50 мин", "1 ч 00 мин", "40 мин", "2 ч 30 мин", "50 мин"],
+    ];
+    for (const [name, used, games, study, all, other] of want) {
+      await user.click(screen.getByRole("tab", { name }));
+      await vi.waitFor(() => expect(within(box).getByText(used.replace(/\d.*$/, "")).closest("div")?.textContent).toBe(used));
+      expect(screen.getByRole("tab", { name }).getAttribute("aria-selected")).toBe("true");
+      expect([value("Игры"), value("Учёба"), value("Всего"), value("Прочее")]).toEqual([games, study, all, other]);
+      expect(left()).toBe(leftToday);
     }
-    expect(screen.getByText("Неделя, месяц, год и всё время появятся в полной статистике")).toBeTruthy();
-    expect(mock.count("MyToday")).toBe(1);
+    await user.click(within(box).getByRole("tab", { name: "Игры" }));
+    expect(within(box).getByText("Игры за всё время: 1 ч 00 мин")).toBeTruthy();
+    expect(within(within(box).getByRole("list", { name: "Игры: по программам" })).getAllByRole("listitem").map((li) => li.textContent)).toEqual([
+      "game1 ч 00 мин100%",
+    ]);
+    await user.click(within(box).getByRole("tab", { name: "Прочее" }));
+    expect(within(within(box).getByRole("list", { name: "Прочее: по программам" })).getAllByRole("listitem").map((li) => li.textContent)).toEqual([
+      "Остальное время50 мин100%",
+    ]);
+    expect(mock.calls.filter((c) => c.command === "MyToday").map((c) => c.payload.period)).toEqual(["today", "today", "week", "month", "year", "all"]);
+  });
+
+  // Ловит (8.2.6 п.3): доп. время и взятое из копилки за период не показаны.
+  it("доп. время и «Взято из копилки» за период", async () => {
+    vi.setSystemTime(S42_NOW);
+    const user = setup({ children: [s42Child({ extraMin: 10 })] });
+    const box = await screen.findByRole("region", { name: "Итоги" });
+    const row = (label: string) => within(box).getByText(label).closest("div")?.textContent;
+    expect([row("Доп. время"), row("Взято из копилки")]).toEqual(["Доп. время10 мин", "Взято из копилки0 мин"]);
+    await user.click(screen.getByRole("tab", { name: "Всё время" }));
+    await vi.waitFor(() => expect(row("Доп. время")).toBe("Доп. время40 мин"));
+    expect(row("Взято из копилки")).toBe("Взято из копилки15 мин");
+  });
+
+  // Ловит (8.2.6 п.9): пустой период показывает нули вместо «За этот период пока нет данных».
+  it("пустой период: «За этот период пока нет данных»", async () => {
+    const user = setup({ children: [mockChild({ usedS: 0 })] });
+    const box = await screen.findByRole("region", { name: "Итоги" });
+    expect(within(box).queryByText("За этот период пока нет данных")).toBeNull();
+    await user.click(screen.getByRole("tab", { name: "Месяц" }));
+    expect(await within(box).findByText("За этот период пока нет данных")).toBeTruthy();
+    expect(within(box).queryByRole("tablist")).toBeNull();
+  });
+
+  // Ловит: стрелки не ходят по периодам (та же разметка, что у вкладок «Итогов»), фокус теряется.
+  it("стрелки, Home и End переключают период и фокус", async () => {
+    const user = setup();
+    const today = await screen.findByRole("tab", { name: "Сегодня" });
+    today.focus();
+    await user.keyboard("{ArrowRight}");
+    expect(document.activeElement).toBe(screen.getByRole("tab", { name: "Неделя" }));
+    expect(screen.getByRole("tab", { name: "Неделя" }).getAttribute("aria-selected")).toBe("true");
+    await user.keyboard("{End}");
+    expect(document.activeElement).toBe(screen.getByRole("tab", { name: "Всё время" }));
+    await user.keyboard("{ArrowRight}");
+    expect(document.activeElement).toBe(screen.getByRole("tab", { name: "Сегодня" }));
+    await user.keyboard("{ArrowLeft}");
+    expect(document.activeElement).toBe(screen.getByRole("tab", { name: "Всё время" }));
+    await user.keyboard("{Home}");
+    expect(screen.getByRole("tab", { name: "Сегодня" }).getAttribute("aria-selected")).toBe("true");
+    const tabs = within(screen.getByRole("tablist", { name: "Период" })).getAllByRole("tab");
+    expect(tabs.map((t) => t.tabIndex)).toEqual([0, -1, -1, -1, -1]);
+    expect(screen.getByRole("tabpanel", { name: "Сегодня" })).toBeTruthy();
+  });
+
+  // Ловит: на время загрузки периода окно мигает («Загружаю данные» вместо всей страницы) или нет признака
+  // загрузки; поздний ответ прошлого периода перекрывает выбранный.
+  it("загрузка периода: страница на месте, короткий признак, поздний ответ не перекрывает выбранный", async () => {
+    vi.setSystemTime(S42_NOW);
+    const user = setup({ children: [s42Child()] });
+    const box = await screen.findByRole("region", { name: "Итоги" });
+    await within(box).findByText("Использовано сегодня");
+    let releaseWeek: () => void = () => {};
+    const weekGate = new Promise<void>((r) => (releaseWeek = r));
+    const real = mock.handler("MyToday");
+    mock.override("MyToday", async (payload) => {
+      if ((payload as { period?: string }).period === "week") await weekGate;
+      return real(payload);
+    });
+    await user.click(screen.getByRole("tab", { name: "Неделя" }));
+    expect(within(box).getByRole("status").textContent).toBe("Загружаю");
+    expect(box.getAttribute("aria-busy")).toBe("true");
+    expect(screen.getByRole("region", { name: "Сколько осталось" })).toBeTruthy();
+    expect(within(box).getByText("Использовано сегодня")).toBeTruthy();
+    await user.click(screen.getByRole("tab", { name: "Месяц" }));
+    await within(box).findByText("Использовано за месяц");
+    releaseWeek();
+    await new Promise((r) => setTimeout(r, 20));
+    expect(within(box).getByText("Использовано за месяц")).toBeTruthy();
+    expect(within(box).queryByText("Использовано за неделю")).toBeNull();
+    expect(within(box).getByRole("status").textContent).toBe("");
+    expect(box.getAttribute("aria-busy")).toBe("false");
+  });
+
+  // Ловит: «Обновить» и возврат в окно сбрасывают выбранный период на «Сегодня».
+  it("«Обновить» перезапрашивает выбранный период", async () => {
+    const user = setup();
+    await user.click(await screen.findByRole("tab", { name: "Год" }));
+    await screen.findByText("Использовано за год");
+    await user.click(screen.getByRole("button", { name: "Обновить" }));
+    await vi.waitFor(() => expect(mock.calls.filter((c) => c.command === "MyToday").at(-1)?.payload).toEqual({ period: "year" }));
+    expect(screen.getByText("Использовано за год")).toBeTruthy();
   });
 });
 

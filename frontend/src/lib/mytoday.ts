@@ -1,6 +1,6 @@
 // Тексты окон ребёнка (FR-12, FR-32). Числа и слова приходят из MyToday готовыми: здесь они
 // только раскладываются по строкам окна, ничего не пересчитывается (один источник с значком).
-import type { ChildStatus, MyRule, MyTodayReply } from "../types";
+import type { ChildStatus, MyRule, MyTodayReply, StatsPeriod } from "../types";
 import { formatDuration, formatLimit, weekdayOfMs, localOffsetMin } from "./format";
 
 const NO_RULES = ["admin", "safe", "notChild"];
@@ -58,20 +58,53 @@ export const TOTALS_TABS: { id: TotalsTab; label: string }[] = [
 /** Пустая вкладка. */
 export const EMPTY_TAB = "Пока ничего не запускалось";
 
+/** Период «Итогов» (8.2.6 п.2-3, D-61): вкладка, строка «Использовано …» и подпись суммы вкладки. */
+export interface PeriodInfo {
+  id: StatsPeriod;
+  label: string;
+  /** «Использовано сегодня», «Использовано за неделю». */
+  used: string;
+  /** «Игры за неделю: 40 мин» - слова после названия вкладки. */
+  sum: string;
+}
+
+/** Периоды по порядку вкладок; по умолчанию «Сегодня». */
+export const PERIODS: PeriodInfo[] = [
+  { id: "today", label: "Сегодня", used: "Использовано сегодня", sum: "за сегодня" },
+  { id: "week", label: "Неделя", used: "Использовано за неделю", sum: "за неделю" },
+  { id: "month", label: "Месяц", used: "Использовано за месяц", sum: "за месяц" },
+  { id: "year", label: "Год", used: "Использовано за год", sum: "за год" },
+  { id: "all", label: "Всё время", used: "Использовано за всё время", sum: "за всё время" },
+];
+
+/** Сведения о периоде; неизвестный - «Сегодня». */
+export function periodOf(id: StatsPeriod): PeriodInfo {
+  return PERIODS.find((p) => p.id === id) ?? PERIODS[0];
+}
+
 /**
- * Пояснение у вкладок «Итогов», когда «Всего» больше «Использовано сегодня» на учёбу (D-7, FB-10):
+ * Пустой период (8.2.6 п.9): за неделю, месяц, год или всё время ни секунды и ни минуты доп. времени -
+ * «За этот период пока нет данных». «Сегодня» пустым не бывает: там вкладки с нулями и
+ * «Пока ничего не запускалось», как раньше.
+ */
+export function periodEmpty(reply: MyTodayReply): boolean {
+  return reply.period !== "today" && reply.allS <= 0 && reply.extraMin <= 0 && reply.programs.length === 0;
+}
+
+/**
+ * Пояснение у вкладок «Итогов», когда «Всего» больше «Использовано …» на учёбу (D-7, FB-10):
  * «Всего = 22 мин в счёт лимита + 3 мин учёбы вне лимита». Числа - те, что на экране: первое как в
- * «Использовано сегодня», второе - разница с «Всего» в целых минутах (секунды не теряют минуту в
- * сумме). Без учёбы или без видимой разницы - пусто.
+ * «Использовано …» за тот же период, второе - разница с «Всего» в целых минутах (секунды не теряют
+ * минуту в сумме). Без учёбы или без видимой разницы - пусто.
  */
 export function allWithStudyText(reply: MyTodayReply): string {
-  const usedMin = Math.floor(Math.max(0, reply.status.usedS) / 60);
+  const usedMin = Math.floor(Math.max(0, reply.usedS) / 60);
   const studyMin = Math.floor(Math.max(0, reply.allS) / 60) - usedMin;
   if (reply.studyS <= 0 || studyMin <= 0) return "";
   return `Всего = ${formatDuration(usedMin * 60)} в счёт лимита + ${formatDuration(studyMin * 60)} учёбы вне лимита`;
 }
 
-/** Сумма вкладки за сегодня, секунды: счётчики службы, а не сумма строк (одно число - одно место). */
+/** Сумма вкладки за период, секунды: итоги службы, а не сумма строк (одно число - одно место). */
 export function tabSeconds(reply: MyTodayReply, tab: TotalsTab): number {
   switch (tab) {
     case "all":

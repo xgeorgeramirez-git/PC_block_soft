@@ -630,7 +630,7 @@ async function settled(page: Page) {
  * снизу имеет ровно та вкладка, у которой aria-selected, у остальных фон панели; панель подписана
  * выбранной вкладкой. Указатель уводится, чтобы наведение не мешало замеру. Всё в одной строке ошибки.
  */
-async function tabsState(page: Page, want: string, where: string) {
+async function tabsState(page: Page, want: string, where: string, sumWord = "за сегодня") {
   await page.mouse.move(1, 1);
   await settled(page);
   const totals = page.getByRole("region", { name: "Итоги" });
@@ -659,7 +659,7 @@ async function tabsState(page: Page, want: string, where: string) {
     if (on && (t.bg === report.surface || t.shadow === "none" || Number(t.weight) < 700)) problems.push(`«${t.label}» выбрана, но выглядит невыбранной`);
     if (!on && (t.bg !== report.surface || t.shadow !== "none" || Number(t.weight) >= 700)) problems.push(`«${t.label}» не выбрана, но выглядит выбранной`);
   }
-  if (!report.sum.startsWith(`${want} за сегодня`)) problems.push(`заголовок списка «${report.sum}»`);
+  if (!report.sum.startsWith(`${want} ${sumWord}`)) problems.push(`заголовок списка «${report.sum}»`);
   if (report.labelledBy !== sel[0]?.id) problems.push("панель подписана не выбранной вкладкой");
   expect(problems, `${where}: ${problems.join("; ")} | ${JSON.stringify(report)}`).toEqual([]);
 }
@@ -808,6 +808,126 @@ test("s31 статистика родителя: вкладка «Игры»", a
   await tabs.getByRole("tab", { name: "Учёба", exact: true }).click();
   await expect(panel.getByRole("list", { name: "Учёба: по программам" }).getByRole("listitem")).toHaveText(["study3 мин100%"]);
 });
+
+// S42 (D-61): «сейчас» - среда 21.10.2026 15:00; прошлые дни как у службы (day_state и usage_daily): пн этой
+// недели игры 30 мин, 1-е число игры 20 мин, 2 января учёба 40 мин, прошлый год прочее 50 мин; сегодня game 10 мин.
+const S42_NOW = new Date(2026, 9, 21, 15, 0, 0);
+const S42_GAME = "c:\\games\\game.exe";
+const s42Child = (over: Partial<MockChild> = {}) =>
+  child({
+    usedS: 600,
+    gamesUsedS: 600,
+    studyUsedS: 0,
+    programsToday: [{ path: S42_GAME, name: "game", category: "games", seconds: 600 }],
+    history: [
+      { day: "2026-10-19", totalS: 1800, gamesS: 1800, extraMin: 30, programs: [{ path: S42_GAME, name: "game", category: "games", seconds: 1800 }] },
+      { day: "2026-10-01", totalS: 1200, gamesS: 1200, programs: [{ path: S42_GAME, name: "game", category: "games", seconds: 1200 }] },
+      { day: "2026-01-02", studyS: 2400, programs: [{ path: "c:\\school\\study.exe", name: "study", category: "study", seconds: 2400 }] },
+      { day: "2025-06-15", totalS: 3000 },
+    ],
+    ...over,
+  });
+
+/**
+ * Вкладки периодов (D-61) помещаются: ни одна не налезает на соседнюю, подпись целиком внутри своей
+ * кнопки, ряд не шире области окна. При сбое все размеры в одной строке ошибки.
+ */
+async function periodTabsFit(page: Page, where: string) {
+  const report = await page.getByRole("tablist", { name: "Период" }).evaluate((list) => {
+    const r = (el: Element) => {
+      const b = el.getBoundingClientRect();
+      return { l: Math.round(b.left * 10) / 10, r: Math.round(b.right * 10) / 10, t: Math.round(b.top * 10) / 10, b: Math.round(b.bottom * 10) / 10 };
+    };
+    const content = document.querySelector("main.content")!;
+    return {
+      list: r(list),
+      content: r(content),
+      tabs: [...list.querySelectorAll('[role="tab"]')].map((t) => ({ text: t.textContent ?? "", box: r(t), scroll: (t as HTMLElement).scrollWidth, client: (t as HTMLElement).clientWidth })),
+    };
+  });
+  const problems: string[] = [];
+  report.tabs.forEach((t, i) => {
+    if (t.box.l < report.content.l - 0.5 || t.box.r > report.content.r + 0.5) problems.push(`«${t.text}» вне окна`);
+    if (t.scroll > t.client + 1) problems.push(`«${t.text}»: подпись не помещается (${t.scroll} > ${t.client})`);
+    for (const o of report.tabs.slice(i + 1)) {
+      const apart = t.box.r <= o.box.l + 0.5 || o.box.r <= t.box.l + 0.5 || t.box.b <= o.box.t + 0.5 || o.box.b <= t.box.t + 0.5;
+      if (!apart) problems.push(`«${t.text}» и «${o.text}» налезают`);
+    }
+  });
+  expect(problems, `${where}: ${problems.join("; ")} | ${JSON.stringify(report)}`).toEqual([]);
+}
+
+// s06 — периоды «Итогов» в окне ребёнка (S42, D-61): «Неделя» - игры 40 мин, строка game за неделю; окно
+// не прокручивается целиком и строки не налезают на всех размерах, включая самые узкие.
+for (const [w, h] of [
+  [800, 640],
+  [800, 480],
+  [640, 520],
+]) {
+  test(`s06 моя статистика: неделя в окне ${w} x ${h}`, async ({ page }) => {
+    await page.clock.setFixedTime(S42_NOW);
+    await page.setViewportSize({ width: w, height: h });
+    await mockProgram(page, { mode: "mystats", children: [s42Child()], myChildId: 1 });
+    await page.goto("/");
+    const totals = page.getByRole("region", { name: "Итоги" });
+    await expect(totals.getByText("Использовано сегодня", { exact: true })).toBeVisible();
+    await page.getByRole("tablist", { name: "Период" }).getByRole("tab", { name: "Неделя", exact: true }).click();
+    await expect(page.getByRole("tab", { name: "Неделя", exact: true })).toHaveAttribute("aria-selected", "true");
+    await expect(totals.getByText("Использовано за неделю", { exact: true })).toBeVisible();
+    await expect(totals.locator(".stat-row").filter({ hasText: "Использовано за неделю" })).toHaveText("Использовано за неделю40 мин");
+    await expect(totals.locator(".stat-row").filter({ hasText: "Доп. время" })).toHaveText("Доп. время30 мин");
+    await expect(totals.getByRole("status")).toHaveText("");
+    const tabs = totals.getByRole("tablist", { name: "Итоги по категориям" });
+    await tabs.getByRole("tab", { name: "Игры", exact: true }).click();
+    const panel = totals.getByRole("tabpanel");
+    await expect(panel.getByText("Игры за неделю: 40 мин", { exact: true })).toBeVisible();
+    await expect(panel.getByRole("list", { name: "Игры: по программам" }).getByRole("listitem")).toHaveText(["game40 мин100%"]);
+    // «Сколько осталось» - за сегодня, от периода не зависит.
+    await expect(page.getByRole("region", { name: "Сколько осталось" }).locator(".stat-row").first()).toHaveText("Осталось всего1 ч 50 мин");
+    await periodTabsFit(page, `окно ${w} x ${h}`);
+    await tabListFits(page, `неделя, окно ${w} x ${h}`);
+    await tabsState(page, "Игры", `неделя, окно ${w} x ${h}`, "за неделю");
+    await noHorizontalScroll(page);
+    await totals.scrollIntoViewIfNeeded();
+    await settled(page);
+    if (w === 800 && h === 640) await page.screenshot({ path: `${SCREENS}/s06-my-stats-week.png`, fullPage: true });
+    if (w === 640) await page.screenshot({ path: `${SCREENS}/s06-my-stats-week-small.png` });
+  });
+}
+
+// s31 — статистика родителя за год (S42, D-61): игры 1 ч, учёба 40 мин со строкой study, «Использовано за
+// год»; те же цифры, что в окне ребёнка; окно не прокручивается целиком.
+for (const [w, h] of [
+  [960, 900],
+  [800, 480],
+]) {
+  test(`s31 статистика родителя: год в окне ${w} x ${h}`, async ({ page }) => {
+    await page.clock.setFixedTime(S42_NOW);
+    await page.setViewportSize({ width: w, height: h });
+    await mockProgram(page, { mode: "parent", sessionActive: true, children: [s42Child(), child({ childId: 2, sid: "S-1-5-21-111-222-333-1002", name: "Даша", usedS: 600 })] });
+    await page.goto("/");
+    await page.getByRole("article", { name: "Миша" }).getByRole("button", { name: "Статистика" }).click();
+    const totals = page.getByRole("region", { name: "Итоги" });
+    await page.getByRole("tablist", { name: "Период" }).getByRole("tab", { name: "Год", exact: true }).click();
+    await expect(totals.locator(".stat-row").filter({ hasText: "Использовано за год" })).toHaveText("Использовано за год1 ч 00 мин");
+    const tabs = totals.getByRole("tablist", { name: "Итоги по категориям" });
+    await expect(tabs.getByRole("tab", { name: "Игры", exact: true }).locator(".totals-tab-value")).toHaveText("1 ч 00 мин");
+    await expect(tabs.getByRole("tab", { name: "Всего", exact: true }).locator(".totals-tab-value")).toHaveText("1 ч 40 мин");
+    await tabs.getByRole("tab", { name: "Учёба", exact: true }).click();
+    const panel = totals.getByRole("tabpanel");
+    await expect(panel.getByText("Учёба за год: 40 мин", { exact: true })).toBeVisible();
+    await expect(panel.getByRole("list", { name: "Учёба: по программам" }).getByRole("listitem")).toHaveText(["study40 мин100%"]);
+    await periodTabsFit(page, `статистика родителя ${w} x ${h}`);
+    await tabListFits(page, `статистика родителя за год ${w} x ${h}`);
+    await tabsState(page, "Учёба", `статистика родителя за год ${w} x ${h}`, "за год");
+    await noHorizontalScroll(page);
+    await settled(page);
+    if (w === 960) await page.screenshot({ path: `${SCREENS}/s31-parent-stats-year.png`, fullPage: true });
+    // «Всё время»: «Всего» 2 ч 30 мин (50 + 60 + 40), как в S42.
+    await page.getByRole("tablist", { name: "Период" }).getByRole("tab", { name: "Всё время", exact: true }).click();
+    await expect(tabs.getByRole("tab", { name: "Всего", exact: true }).locator(".totals-tab-value")).toHaveText("2 ч 30 мин");
+  });
+}
 
 // Контраст текста вкладок и строк (WCAG AA 4,5:1) в светлой и тёмной теме, все вкладки по очереди.
 for (const scheme of ["light", "dark"] as const) {

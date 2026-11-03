@@ -677,24 +677,11 @@ p {
   font-size: 14px;
 }
 
-.periods-note {
-  margin: calc(-1 * var(--space-2)) 0 var(--space-4);
-}
-
 .stat-child-picker {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-2);
   margin-bottom: var(--space-3);
-}
-
-/* Неактивные вкладки периодов (ещё нет функции): плоская приглушённая подпись, а не
-   пунктирная рамка, которая читается как сломанная кнопка (B-13, H4/H6). */
-.tab[aria-disabled="true"] {
-  color: var(--text-muted);
-  background: transparent;
-  border-color: transparent;
-  cursor: not-allowed;
 }
 
 .stat-panel {
@@ -730,6 +717,25 @@ p {
 .stat-row-lead dt,
 .stat-row-lead dd {
   font-weight: 600;
+}
+
+/* Заголовок «Итогов» и признак загрузки периода (D-61): признак всегда занимает своё место, при
+   переключении периода страница не прыгает и не мигает. */
+.totals-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+
+.totals-head .section-title {
+  margin-bottom: 0;
+}
+
+.totals-loading {
+  color: var(--text-muted);
+  font-size: 14px;
 }
 
 /* Вкладки «Итогов» (D-58): четыре плитки «название и сумма»; выбранная залита основным цветом. */

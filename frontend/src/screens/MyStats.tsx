@@ -3,6 +3,7 @@ import { getBonus, myToday, openWindow } from "../api";
 import AskMoreDialog from "../components/AskMoreDialog";
 import { LineText } from "../components/FitText";
 import Notice from "../components/Notice";
+import PeriodTabs from "../components/PeriodTabs";
 import PromoRedeem from "../components/PromoRedeem";
 import SpendBonusDialog from "../components/SpendBonusDialog";
 import { historyText } from "../lib/bonus";
@@ -13,6 +14,8 @@ import {
   EMPTY_TAB,
   NOT_COUNTED,
   TOTALS_TABS,
+  periodEmpty,
+  periodOf,
   spendBlockedNote,
   splitRules,
   summaryLines,
@@ -22,15 +25,18 @@ import {
   todayRuleWeekday,
   type TotalsTab,
 } from "../lib/mytoday";
-import type { GetBonusReply, MyTodayReply } from "../types";
+import type { GetBonusReply, MyTodayReply, StatsPeriod } from "../types";
 
 const LOAD_ERROR = "Не удалось получить данные. Попробуй через минуту";
 const NO_DATA = "За этот период пока нет данных";
-const PERIODS = ["Сегодня", "Неделя", "Месяц", "Год", "Всё время"] as const;
-const PERIODS_NOTE = "Неделя, месяц, год и всё время появятся в полной статистике";
+/** Признак загрузки периода (короткий, на месте: страница не мигает). */
+export const LOADING_PERIOD = "Загружаю";
 const OPEN_FAILED = "Не получилось открыть окно. Попробуй ещё раз";
 
-/** Окно «Моя статистика» (FR-12, R21, сценарий 8.2.6): только просмотр, свои данные, в M1 - сегодня и правила. */
+/**
+ * Окно «Моя статистика» (FR-12, R21, сценарий 8.2.6): только просмотр, свои данные. Период (D-61) меняет
+ * только «Итоги»; остаток, копилка и «Мои правила» - за сегодня.
+ */
 export default function MyStats() {
   const [data, setData] = useState<MyTodayReply | null>(null);
   const [bonus, setBonus] = useState<GetBonusReply | null>(null);
@@ -38,17 +44,30 @@ export default function MyStats() {
   const [dialog, setDialog] = useState<"ask" | "spend" | null>(null);
   const [done, setDone] = useState("");
   const [openError, setOpenError] = useState("");
+  const [period, setPeriod] = useState<StatsPeriod>("today");
+  const [busy, setBusy] = useState(false);
   const alive = useRef(true);
+  const periodRef = useRef<StatsPeriod>("today");
+  // Номер последнего запроса: поздний ответ прошлого периода не перекрывает выбранный.
+  const seq = useRef(0);
 
-  const load = useCallback(async () => {
+  const loadStats = useCallback(async (p: StatsPeriod) => {
+    const my = ++seq.current;
+    setBusy(true);
     setError("");
     try {
-      const reply = await myToday();
-      if (alive.current) setData(reply);
+      const reply = await myToday(p);
+      if (alive.current && my === seq.current) setData(reply);
     } catch (e) {
       // Сбой связи говорит «Не удалось получить данные»; слова самой программы оставляем (L-112).
-      if (alive.current) setError(LOAD_ERROR_FOR(e));
+      if (alive.current && my === seq.current) setError(LOAD_ERROR_FOR(e));
+    } finally {
+      if (alive.current && my === seq.current) setBusy(false);
     }
+  }, []);
+
+  const load = useCallback(async () => {
+    await loadStats(periodRef.current);
     // Своя копилка (номер 0 — «моя»): раздел «Бонусы» (R25, R26). Не вышло — раздел без истории.
     try {
       const b = await getBonus(0);
@@ -56,7 +75,13 @@ export default function MyStats() {
     } catch {
       if (alive.current) setBonus(null);
     }
-  }, []);
+  }, [loadStats]);
+
+  const choosePeriod = (p: StatsPeriod) => {
+    periodRef.current = p;
+    setPeriod(p);
+    void loadStats(p);
+  };
 
   useEffect(() => {
     alive.current = true;
@@ -110,40 +135,16 @@ export default function MyStats() {
         </Notice>
       ) : null}
 
-      <div className="tabs" role="tablist" aria-label="Период">
-        {PERIODS.map((name) => {
-          const current = name === "Сегодня";
-          return (
-            <button
-              key={name}
-              type="button"
-              role="tab"
-              id={`period-${name}`}
-              className="tab"
-              aria-selected={current}
-              aria-disabled={current ? undefined : "true"}
-              aria-describedby={current ? undefined : "periods-note"}
-              aria-controls={current ? "period-panel" : undefined}
-              tabIndex={current ? 0 : -1}
-              onClick={current ? undefined : (e) => e.preventDefault()}
-            >
-              {name}
-            </button>
-          );
-        })}
-      </div>
-      <p id="periods-note" className="field-hint periods-note">
-        {PERIODS_NOTE}
-      </p>
+      <PeriodTabs value={period} onChange={choosePeriod} panelId="period-panel" />
 
       {data === null ? (
         error ? null : <p className="panel-text">Загружаю данные</p>
       ) : (
-        <div id="period-panel" role="tabpanel" aria-labelledby="period-Сегодня">
+        <div id="period-panel" role="tabpanel" aria-labelledby={`period-${period}`}>
           {data.status.status === "notChild" ? null : (
             <Remaining data={data} onAsk={() => setDialog("ask")} onSpend={() => setDialog("spend")} />
           )}
-          <Totals data={data} />
+          <Totals data={data} busy={busy} />
           {data.status.status === "notChild" ? null : <Bonuses bonus={bonus} onChange={() => void load()} />}
           <Rules data={data} />
           <p className="my-foot">
@@ -219,12 +220,14 @@ export function Remaining({ data, onAsk, onSpend }: { data: MyTodayReply; onAsk:
 }
 
 /**
- * «Итоги» (8.2.6 п.3, D-58): строки «Всего», «Игры», «Учёба», «Прочее» - вкладки; выбранная
- * показывает сумму и каждую программу «название, время, доля», самые долгие сверху. «Видео и
- * соцсети» - строка без вкладки (сайты, M4). Общий для окна ребёнка и статистики родителя.
+ * «Итоги» (8.2.6 п.3, D-58, D-61) за период ответа: строки «Всего», «Игры», «Учёба», «Прочее» - вкладки;
+ * выбранная показывает сумму и каждую программу «название, время, доля», самые долгие сверху. «Видео и
+ * соцсети» - строка без вкладки (сайты, M4). busy - идёт загрузка другого периода: прежние цифры стоят,
+ * у заголовка короткий признак. Общий для окна ребёнка и статистики родителя.
  */
-export function Totals({ data }: { data: MyTodayReply }) {
-  const empty = data.status.status === "notChild" || data.today.length === 0;
+export function Totals({ data, busy = false }: { data: MyTodayReply; busy?: boolean }) {
+  const empty = data.status.status === "notChild" || data.today.length === 0 || periodEmpty(data);
+  const info = periodOf(data.period);
   const [tab, setTab] = useState<TotalsTab>("all");
   const tabs = useRef(new Map<TotalsTab, HTMLButtonElement>());
   const onKey = (e: KeyboardEvent<HTMLButtonElement>, index: number) => {
@@ -244,10 +247,15 @@ export function Totals({ data }: { data: MyTodayReply }) {
   const rows = empty ? [] : tabRows(data, current.id);
   const studyNote = empty ? "" : allWithStudyText(data);
   return (
-    <section className="panel stat-panel" aria-labelledby="my-totals">
-      <h3 id="my-totals" className="section-title">
-        Итоги
-      </h3>
+    <section className="panel stat-panel totals" aria-labelledby="my-totals" aria-busy={busy}>
+      <div className="totals-head">
+        <h3 id="my-totals" className="section-title">
+          Итоги
+        </h3>
+        <span className="totals-loading" role="status">
+          {busy ? LOADING_PERIOD : ""}
+        </span>
+      </div>
       {empty ? (
         <p className="panel-text">{NO_DATA}</p>
       ) : (
@@ -259,12 +267,20 @@ export function Totals({ data }: { data: MyTodayReply }) {
           ))}
           <dl className="stat-list">
             <div className="stat-row">
-              <dt>Использовано сегодня</dt>
-              <dd>{formatDuration(data.status.usedS)}</dd>
+              <dt>{info.used}</dt>
+              <dd>{formatDuration(data.usedS)}</dd>
             </div>
             <div className="stat-row stat-row-muted">
               <dt>Видео и соцсети</dt>
               <dd>{NOT_COUNTED}</dd>
+            </div>
+            <div className="stat-row">
+              <dt>Доп. время</dt>
+              <dd>{formatLimit(data.extraMin)}</dd>
+            </div>
+            <div className="stat-row">
+              <dt>Взято из копилки</dt>
+              <dd>{formatLimit(data.bonusSpentMin)}</dd>
             </div>
           </dl>
           <div className="totals-tabs" role="tablist" aria-label="Итоги по категориям">
@@ -300,7 +316,7 @@ export function Totals({ data }: { data: MyTodayReply }) {
             </p>
           ) : null}
           <div id="totals-panel" className="totals-panel" role="tabpanel" tabIndex={0} aria-labelledby={`totals-tab-${current.id}`}>
-            <p className="totals-sum">{`${current.label} за сегодня: ${formatDuration(tabSeconds(data, current.id))}`}</p>
+            <p className="totals-sum">{`${current.label} ${info.sum}: ${formatDuration(tabSeconds(data, current.id))}`}</p>
             {rows.length === 0 ? (
               <p className="panel-text totals-empty">{EMPTY_TAB}</p>
             ) : (

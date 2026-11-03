@@ -21,6 +21,7 @@ import type {
   LoginDenied,
   LoginReply,
   MyTodayReply,
+  StatsPeriod,
   Reply,
   SaveLimitsReply,
   SessionStateReply,
@@ -241,9 +242,9 @@ export function clearBlock(childId: number): Promise<CardReply> {
   return call("ClearBlock", { childId });
 }
 
-/** Статистика выбранного ребёнка за сегодня для родителя (FR-23, D-44). */
-export async function parentStats(childId: number): Promise<MyTodayReply> {
-  const r = await call<object, Partial<MyTodayReply>>("ParentStats", { childId });
+/** Статистика выбранного ребёнка для родителя: «Итоги» за период (FR-23, D-44, D-61). */
+export async function parentStats(childId: number, period: StatsPeriod = "today"): Promise<MyTodayReply> {
+  const r = await call<object, Partial<MyTodayReply>>("ParentStats", { childId, period });
   return myTodayOf(r);
 }
 
@@ -280,22 +281,30 @@ export async function setChildren(req: Partial<SetChildrenRequest>): Promise<Chi
 
 // --- Ребёнок о себе (только свой сеанс, только чтение) ------------------------------
 
-/** «Сегодня» и «Мои правила» ребёнка. Пустые списки приходят как null: приводим к []. */
-export async function myToday(): Promise<MyTodayReply> {
-  const r = await call<object, Partial<MyTodayReply>>("MyToday");
+/** «Сегодня», «Мои правила» и «Итоги» за период ребёнка. Пустые списки приходят как null: приводим к []. */
+export async function myToday(period: StatsPeriod = "today"): Promise<MyTodayReply> {
+  const r = await call<object, Partial<MyTodayReply>>("MyToday", { period });
   return myTodayOf(r);
 }
 
-/** Пустые списки приходят как null, у старой службы нет итогов и времени программ: приводим к [] и 0. */
+/**
+ * Пустые списки приходят как null, у старой службы нет итогов, периода и времени программ: приводим к [] и 0.
+ * Служба без периодов отвечает за сегодня: «Использовано» тогда берётся из статуса.
+ */
 function myTodayOf(r: Partial<MyTodayReply>): MyTodayReply {
+  const status = r.status as MyTodayReply["status"];
   return {
-    status: r.status as MyTodayReply["status"],
+    status,
     today: r.today ?? [],
     rules: r.rules ?? [],
+    period: r.period ?? "today",
+    usedS: r.usedS ?? status?.usedS ?? 0,
     gamesS: r.gamesS ?? 0,
     studyS: r.studyS ?? 0,
     otherS: r.otherS ?? 0,
     allS: r.allS ?? 0,
+    extraMin: r.extraMin ?? 0,
+    bonusSpentMin: r.bonusSpentMin ?? 0,
     programs: r.programs ?? [],
   };
 }
