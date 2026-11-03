@@ -208,7 +208,7 @@ func (e *Engine) restActive(now time.Time) (time.Time, bool) {
 	switch {
 	case e.rest.RestUntilMs != nil:
 		until = time.UnixMilli(*e.rest.RestUntilMs)
-	case e.rest.BreakAtMs != nil && !now.Before(time.UnixMilli(*e.rest.BreakAtMs)):
+	case e.rest.BreakAtMs != nil && !now.Before(time.UnixMilli(*e.rest.BreakAtMs)) && !e.selfRestBy(time.UnixMilli(*e.rest.BreakAtMs)):
 		until = time.UnixMilli(*e.rest.BreakAtMs).Add(time.Duration(e.rules.Break.RestMin) * time.Minute)
 	default:
 		return time.Time{}, false
@@ -227,12 +227,20 @@ func (e *Engine) quietAt(now time.Time) int {
 	return q
 }
 
+// selfRestBy: тишина достигла порога «засчитать как отдых» не позже момента t (R27, «сам
+// отошёл»). Начало перерыва в t тогда не наступает: ребёнок уже отдохнул, счёт с нуля, как если
+// бы тик пришёл в момент достижения порога (тиков могло не быть: компьютер выключен).
+func (e *Engine) selfRestBy(t time.Time) bool {
+	return e.quietAt(t) >= e.rules.Break.SelfRestMin*60
+}
+
 func msPtr(t time.Time) *int64 {
 	ms := t.UnixMilli()
 	return &ms
 }
 
 // restStep переводит счёт к перерыву по часам на момент now (перед решением тика и командами):
+// тишина достигла порога не позже момента начала — сам отошёл, перерыва нет (selfRestBy);
 // выключено — счёт пуст; пауза — снимает перерыв и предупреждение, тишина замораживается;
 // наступил момент начала — перерыв до «начало + отдых» (сохранить сразу, RF14-2; если он уже
 // весь прошёл по часам, пока никого не было, — просто счёт с нуля); перерыв кончился — счёт с
@@ -252,6 +260,10 @@ func (e *Engine) restStep(now time.Time) {
 		return
 	}
 	b := e.rules.Break
+	if r.BreakAtMs != nil && !now.Before(time.UnixMilli(*r.BreakAtMs)) && e.selfRestBy(time.UnixMilli(*r.BreakAtMs)) {
+		r.CountedS, r.BreakAtMs = 0, nil // сам отошёл раньше начала: перерыва нет, плашка снята
+		e.saveNow = true
+	}
 	if r.BreakAtMs != nil && !now.Before(time.UnixMilli(*r.BreakAtMs)) {
 		until := time.UnixMilli(*r.BreakAtMs).Add(time.Duration(b.RestMin) * time.Minute)
 		*r = BreakState{}

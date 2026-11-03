@@ -340,3 +340,45 @@ func TestRestQuietBeforePauseKept(t *testing.T) {
 		t.Fatalf("15 мин тишины вне паузы: счёт %d, want 0", got)
 	}
 }
+
+// Ловит: немонотонность «сам отошёл» (R27): ребёнок ушёл сразу после плашки, тишина достигла
+// порога «засчитать как отдых» раньше момента начала перерыва, но первый тик после возвращения
+// пришёл уже после этого момента — и начался перерыв, хотя вернись он раньше, счёт сбросился бы.
+// Граница: тишина с 16:00:01 достигает 5 мин в 16:05:01 — на секунду позже начала в 16:05:00: перерыв.
+func TestRestSelfRestBeforeBreakAtWins(t *testing.T) {
+	for _, tc := range []struct {
+		name               string
+		warn, self         int
+		back               time.Time
+		wantLock           LockKind
+		wantCounted        int
+		wantBreakAt, wantU bool
+	}{
+		{"вернулся до начала", 10, 5, at(16, 8, 0), LockNone, 1, false, false},
+		{"вернулся после начала", 10, 5, at(16, 12, 0), LockNone, 1, false, false},
+		{"порог через секунду после начала", 5, 5, at(16, 6, 0), LockRest, 0, false, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := restRules()
+			r.Break.WarnMin, r.Break.RestMin, r.Break.SelfRestMin = tc.warn, 5, tc.self
+			e, c := restEngine(t, r)
+			if got := restLog(e, c, at(15, 59, 0), at(16, 0, 1), gameSample()); !slices.Equal(got, []string{"16:00:00 плашка"}) {
+				t.Fatalf("плашка %v", got)
+			}
+			// Тишина с 16:00:01; тиков нет (компьютер выключен), первый — по возвращении.
+			c.Set(tc.back)
+			e.DueSave(tc.back)
+			if cur := e.Current(); cur.Lock != tc.wantLock {
+				t.Fatalf("Current в %s до тика: Lock %s, want %s", tc.back.Format(time.TimeOnly), lockName(cur.Lock), lockName(tc.wantLock))
+			}
+			d := e.Tick(gameSample())
+			b := e.Break()
+			if d.Lock != tc.wantLock || b.CountedS != tc.wantCounted || (b.BreakAtMs != nil) != tc.wantBreakAt || (b.RestUntilMs != nil) != tc.wantU {
+				t.Fatalf("в %s: Lock %s, состояние %+v; want %s, счёт %d", tc.back.Format(time.TimeOnly), lockName(d.Lock), b, lockName(tc.wantLock), tc.wantCounted)
+			}
+			if !e.DueSave(tc.back.Add(time.Second)) {
+				t.Fatal("сброс счёта или начало перерыва не сохранены сразу")
+			}
+		})
+	}
+}
