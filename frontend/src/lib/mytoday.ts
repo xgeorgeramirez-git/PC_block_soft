@@ -5,6 +5,14 @@ import { formatDuration, formatLimit, weekdayOfMs, localOffsetMin } from "./form
 
 const NO_RULES = ["admin", "safe", "notChild"];
 
+/**
+ * Время сейчас не закрыто экраном: экрана нет или идёт перерыв на отдых (R27) - время на сегодня
+ * не кончилось, остаток показывается как есть.
+ */
+function timeOpen(s: ChildStatus): boolean {
+  return s.lock === "none" || s.lock === "rest";
+}
+
 /** Строки окна «Теперь время за компьютером считается»: пересказ правил на сегодня. */
 export function firstRunLines(reply: MyTodayReply): string[] {
   const s = reply.status;
@@ -26,7 +34,7 @@ export function firstRunLines(reply: MyTodayReply): string[] {
  */
 export function summaryLines(reply: MyTodayReply): string[] {
   const used = `Использовано ${formatDuration(reply.status.usedS)}`;
-  const repeatsLeft = reply.status.lock === "none" ? reply.status.summary : used;
+  const repeatsLeft = timeOpen(reply.status) ? reply.status.summary : used;
   return reply.today.filter((line) => line !== used && line !== repeatsLeft);
 }
 
@@ -187,7 +195,7 @@ export function gamesLeftText(s: ChildStatus): string {
   if (s.gamesLimitS <= 0) {
     return "Сегодня нельзя";
   }
-  const left = s.lock === "none" && !s.studyOnly ? upToMinute(s.gamesRemainingS) : 0;
+  const left = timeOpen(s) && !s.studyOnly ? upToMinute(s.gamesRemainingS) : 0;
   return `Осталось ${formatDuration(left)} из ${formatLimit(Math.round(s.gamesLimitS / 60))}`;
 }
 
@@ -214,7 +222,7 @@ export function todayRows(s: ChildStatus): TodayRow[] {
   } else if (s.status === "forbidden") {
     left = "Сейчас нельзя";
   } else {
-    left = formatDuration(s.lock === "none" ? upToMinute(s.remainingS) : 0);
+    left = formatDuration(timeOpen(s) ? upToMinute(s.remainingS) : 0);
   }
   let limit: string;
   if (noRules) {

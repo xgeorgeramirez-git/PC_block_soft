@@ -38,7 +38,8 @@ export type StatusKind =
   | "admin"
   | "notChild";
 
-export type LockKind = "none" | "timeUp" | "forbidden" | "bypass";
+/** Экран блокировки ребёнка (ipc ChildStatus.Lock); "rest" - перерыв на отдых (R27): время не кончилось. */
+export type LockKind = "none" | "timeUp" | "forbidden" | "bypass" | "rest";
 
 export interface ChildStatus {
   name: string;
