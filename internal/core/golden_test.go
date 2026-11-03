@@ -22,7 +22,15 @@ package core
 //     с текстом плашки; нет ключа — не сравниваются), denied (запрещённые запуски: момент,
 //     категория, необязательный текст; нет ключа — не сравниваются), checkpoints (общее
 //     время к моменту, до тика), power_off (последнее сохранение перед выключением), days
-//     (итоги дней в секундах, остаток общего и игр).
+//     (итоги дней в секундах, остаток общего и игр);
+//   break — перерыв на отдых (R27, G14): after_min, counts ("all" или "games"), warn_min, rest_min,
+//     self_rest_min; нет ключа — перерывы выключены. action end_break — родитель закончил перерыв;
+//     expect.rest_warnings — плашки «ПОРА ОТДОХНУТЬ» (момент, секунды до перерыва in_s,
+//     необязательный текст), expect.unlocks — моменты, когда экран блокировки исчез внутри сеанса
+//     (нет ключа — не сравниваются), checkpoints[].rest_s — счёт к перерыву к моменту, до тика;
+//   variants — несколько сценариев одного эталона (G14): каждый — такой же объект со своим name,
+//     sessions, segments, actions и expect; tz_offset_min, limits_min, games_limits_min, end_mode,
+//     schedule и break, если их нет в варианте, берутся из общего объекта.
 
 import (
 	"bytes"
@@ -53,8 +61,26 @@ type goldenFile struct {
 	Segments    []goldenSegment  `json:"segments"`
 	Actions     []goldenAction   `json:"actions"`
 	Expect      *goldenExpect    `json:"expect"`
+	Break       *goldenBreak     `json:"break"`
+	Variants    []*goldenFile    `json:"variants"`
 
 	loc *time.Location
+}
+
+// goldenBreak — настройки перерыва на отдых (R27, FR-37).
+type goldenBreak struct {
+	AfterMin    int    `json:"after_min"`
+	Counts      string `json:"counts"`
+	WarnMin     int    `json:"warn_min"`
+	RestMin     int    `json:"rest_min"`
+	SelfRestMin int    `json:"self_rest_min"`
+}
+
+// goldenRestWarning — плашка «ПОРА ОТДОХНУТЬ» (8.2.2 п.7): момент, секунды до перерыва, текст.
+type goldenRestWarning struct {
+	At   string `json:"at"`
+	InS  int    `json:"in_s"`
+	Text string `json:"text"`
 }
 
 // goldenInterval — запретный интервал расписания (R7): день недели 1=пн..7=вс, минуты.
@@ -108,6 +134,9 @@ type goldenExpect struct {
 	Checkpoints []goldenCheckpoint `json:"checkpoints"`
 	PowerOff    []goldenPowerOff   `json:"power_off"`
 	Days        []goldenDay        `json:"days"`
+
+	RestWarnings []goldenRestWarning `json:"rest_warnings"`
+	Unlocks      []string            `json:"unlocks"`
 }
 
 type goldenWarning struct {
@@ -140,6 +169,7 @@ type goldenLock struct {
 type goldenCheckpoint struct {
 	At     string `json:"at"`
 	TotalS int    `json:"total_s"`
+	RestS  *int   `json:"rest_s"`
 }
 
 type goldenPowerOff struct {
@@ -176,22 +206,76 @@ func parseGolden(data []byte) (*goldenFile, error) {
 	if dec.More() {
 		return nil, errors.New("лишние данные после объекта")
 	}
+	if len(g.Variants) > 0 {
+		return &g, g.validateVariants()
+	}
+	if err := g.validate(); err != nil {
+		return nil, err
+	}
+	return &g, nil
+}
+
+// validateVariants проверяет эталон из нескольких сценариев (G14): у общего объекта нет своих
+// сеансов и ожиданий, каждый вариант получает общие поля и проверяется как обычный эталон.
+func (g *goldenFile) validateVariants() error {
+	if g.Name == "" || g.Source == "" {
+		return errors.New("нет name или source")
+	}
+	if len(g.Sessions) > 0 || g.Expect != nil || len(g.Segments) > 0 || len(g.Actions) > 0 {
+		return errors.New("у эталона с variants сеансы, отрезки, команды и ожидания — только в вариантах")
+	}
+	seen := map[string]bool{}
+	for i, v := range g.Variants {
+		if v.Name == "" || seen[v.Name] || len(v.Variants) > 0 {
+			return fmt.Errorf("вариант %d: нужно своё имя %q без вложенных variants", i, v.Name)
+		}
+		seen[v.Name] = true
+		if v.Source == "" {
+			v.Source = g.Source
+		}
+		if v.TzOffsetMin == nil {
+			v.TzOffsetMin = g.TzOffsetMin
+		}
+		if v.LimitsMin == nil {
+			v.LimitsMin = g.LimitsMin
+		}
+		if v.GamesLimits == nil {
+			v.GamesLimits = g.GamesLimits
+		}
+		if v.EndMode == nil {
+			v.EndMode = g.EndMode
+		}
+		if v.Schedule == nil {
+			v.Schedule = g.Schedule
+		}
+		if v.Break == nil {
+			v.Break = g.Break
+		}
+		if err := v.validate(); err != nil {
+			return fmt.Errorf("вариант %s: %w", v.Name, err)
+		}
+	}
+	return nil
+}
+
+// validate проверяет один сценарий эталона и ставит его пояс.
+func (g *goldenFile) validate() error {
 	switch {
 	case g.Name == "" || g.Source == "":
-		return nil, errors.New("нет name или source")
+		return errors.New("нет name или source")
 	case g.TzOffsetMin == nil:
-		return nil, errors.New("нет tz_offset_min")
+		return errors.New("нет tz_offset_min")
 	case g.LimitsMin == nil:
-		return nil, errors.New("нет limits_min")
+		return errors.New("нет limits_min")
 	case len(g.Sessions) == 0:
-		return nil, errors.New("нет sessions")
+		return errors.New("нет sessions")
 	case g.Expect == nil:
-		return nil, errors.New("нет expect")
+		return errors.New("нет expect")
 	case g.Expect.Warnings == nil || g.Expect.Locks == nil || len(g.Expect.Days) == 0:
-		return nil, errors.New("в expect нужны warnings, locks и days (пустые — [])")
+		return errors.New("в expect нужны warnings, locks и days (пустые — [])")
 	}
 	if g.EndMode != nil && *g.EndMode != "lock" && *g.EndMode != "study_only" {
-		return nil, fmt.Errorf("end_mode %q, want lock или study_only", *g.EndMode)
+		return fmt.Errorf("end_mode %q, want lock или study_only", *g.EndMode)
 	}
 	g.loc = time.FixedZone("golden", *g.TzOffsetMin*60)
 
@@ -199,13 +283,13 @@ func parseGolden(data []byte) (*goldenFile, error) {
 	for i, s := range g.Sessions {
 		from, to, err := g.span(s.From, s.To)
 		if err != nil {
-			return nil, fmt.Errorf("сеанс %d: %w", i, err)
+			return fmt.Errorf("сеанс %d: %w", i, err)
 		}
 		if s.End != "logoff" && s.End != "power_off" {
-			return nil, fmt.Errorf("сеанс %d: end %q, want logoff или power_off", i, s.End)
+			return fmt.Errorf("сеанс %d: end %q, want logoff или power_off", i, s.End)
 		}
 		if from.Before(prevEnd) {
-			return nil, fmt.Errorf("сеанс %d пересекается с предыдущим", i)
+			return fmt.Errorf("сеанс %d пересекается с предыдущим", i)
 		}
 		prevEnd = to
 	}
@@ -213,77 +297,91 @@ func parseGolden(data []byte) (*goldenFile, error) {
 	for i, s := range g.Segments {
 		from, to, err := g.span(s.From, s.To)
 		if err != nil {
-			return nil, fmt.Errorf("отрезок %d: %w", i, err)
+			return fmt.Errorf("отрезок %d: %w", i, err)
 		}
 		if _, ok := goldenForeground[s.Foreground]; !ok {
-			return nil, fmt.Errorf("отрезок %d: foreground %q", i, s.Foreground)
+			return fmt.Errorf("отрезок %d: foreground %q", i, s.Foreground)
 		}
 		if s.InputEveryS < 0 || from.Before(prevEnd) {
-			return nil, fmt.Errorf("отрезок %d: input_every_s < 0 или пересечение", i)
+			return fmt.Errorf("отрезок %d: input_every_s < 0 или пересечение", i)
 		}
 		prevEnd = to
 	}
 	for _, w := range g.Expect.Warnings {
 		if _, err := g.at(w.At); err != nil {
-			return nil, err
+			return err
 		}
 		if w.Event != "" && !slices.Contains(goldenWarnEvents, w.Event) {
-			return nil, fmt.Errorf("предупреждение %s: event %q, want одно из %v", w.At, w.Event, goldenWarnEvents)
+			return fmt.Errorf("предупреждение %s: event %q, want одно из %v", w.At, w.Event, goldenWarnEvents)
 		}
 	}
 	for _, c := range g.Expect.Closures {
 		if _, err := g.at(c.At); err != nil {
-			return nil, err
+			return err
 		}
 		if c.What != "games" && c.What != "study_only" {
-			return nil, fmt.Errorf("закрытие %s: what %q, want games или study_only", c.At, c.What)
+			return fmt.Errorf("закрытие %s: what %q, want games или study_only", c.At, c.What)
 		}
 	}
 	for _, d := range g.Expect.Denied {
 		if _, err := g.at(d.At); err != nil {
-			return nil, err
+			return err
 		}
 		if _, ok := goldenForeground[d.Category]; !ok {
-			return nil, fmt.Errorf("запрет %s: category %q", d.At, d.Category)
+			return fmt.Errorf("запрет %s: category %q", d.At, d.Category)
 		}
 	}
 	for _, l := range g.Expect.Locks {
 		if _, err := g.at(l.At); err != nil {
-			return nil, err
+			return err
 		}
 	}
 	for _, c := range g.Expect.Checkpoints {
 		if _, err := g.at(c.At); err != nil {
-			return nil, err
+			return err
 		}
 	}
 	for _, d := range g.Expect.Days {
 		if _, err := time.Parse(time.DateOnly, d.Day); err != nil || d.TotalS == nil {
-			return nil, fmt.Errorf("день %q: нужна дата YYYY-MM-DD и total_s", d.Day)
+			return fmt.Errorf("день %q: нужна дата YYYY-MM-DD и total_s", d.Day)
 		}
 	}
 	for i, a := range g.Actions {
 		if _, err := g.at(a.At); err != nil {
-			return nil, fmt.Errorf("action %d: %w", i, err)
+			return fmt.Errorf("action %d: %w", i, err)
 		}
 		switch a.Kind {
 		case "add_extra", "spend_bonus":
 			if a.Minutes < 1 {
-				return nil, fmt.Errorf("action %d (%s): нужно minutes >= 1", i, a.Kind)
+				return fmt.Errorf("action %d (%s): нужно minutes >= 1", i, a.Kind)
 			}
 		case "pause":
 			if _, err := g.at(a.Until); err != nil {
-				return nil, fmt.Errorf("action %d (pause): until %w", i, err)
+				return fmt.Errorf("action %d (pause): until %w", i, err)
 			}
+		case "end_break":
 		case "launch":
 			if _, ok := goldenForeground[a.Category]; !ok {
-				return nil, fmt.Errorf("action %d (launch): category %q", i, a.Category)
+				return fmt.Errorf("action %d (launch): category %q", i, a.Category)
 			}
 		default:
-			return nil, fmt.Errorf("action %d: неизвестный kind %q", i, a.Kind)
+			return fmt.Errorf("action %d: неизвестный kind %q", i, a.Kind)
 		}
 	}
-	return &g, nil
+	for _, w := range g.Expect.RestWarnings {
+		if _, err := g.at(w.At); err != nil {
+			return err
+		}
+	}
+	for _, u := range g.Expect.Unlocks {
+		if _, err := g.at(u); err != nil {
+			return err
+		}
+	}
+	if b := g.Break; b != nil && b.Counts != "all" && b.Counts != "games" {
+		return fmt.Errorf("break.counts %q, want all или games", b.Counts)
+	}
+	return nil
 }
 
 func (g *goldenFile) at(s string) (time.Time, error) {
@@ -334,6 +432,12 @@ func (g *goldenFile) rules() Rules {
 	for _, iv := range g.Schedule {
 		r.Schedule = append(r.Schedule, Interval{Weekday: Weekday(iv.Weekday), StartMin: iv.StartMin, EndMin: iv.EndMin})
 	}
+	if b := g.Break; b != nil {
+		r.Break = BreakRules{Enabled: true, AfterMin: b.AfterMin, WarnMin: b.WarnMin, RestMin: b.RestMin, SelfRestMin: b.SelfRestMin, Counts: BreakAll}
+		if b.Counts == "games" {
+			r.Break.Counts = BreakGames
+		}
+	}
 	return r
 }
 
@@ -344,7 +448,10 @@ type goldenResult struct {
 	closures    []goldenClosure
 	denied      []goldenDenied
 	checkpoints map[string]int
+	restCP      map[string]int
 	powerOff    []goldenPowerOff
+	restWarns   []goldenRestWarning
+	unlocks     []string
 	days        map[string]DayState
 }
 
@@ -354,7 +461,8 @@ func runGolden(g *goldenFile) goldenResult {
 	res := goldenResult{
 		warnings: []goldenWarning{}, locks: []goldenLock{}, powerOff: []goldenPowerOff{},
 		closures: []goldenClosure{}, denied: []goldenDenied{},
-		checkpoints: map[string]int{}, days: map[string]DayState{},
+		checkpoints: map[string]int{}, restCP: map[string]int{}, days: map[string]DayState{},
+		restWarns: []goldenRestWarning{}, unlocks: []string{},
 	}
 	wantCP := map[string]bool{}
 	for _, c := range g.Expect.Checkpoints {
@@ -382,6 +490,7 @@ func runGolden(g *goldenFile) goldenResult {
 	clock := &fakeClock{}
 	e := NewEngine(clock, g.loc, rules, DayState{}, "")
 	var saved DayState
+	var savedBreak BreakState
 	var savedDetail string
 	var savedAt time.Time
 	next := 0 // следующий ввод в inputs
@@ -409,9 +518,11 @@ func runGolden(g *goldenFile) goldenResult {
 			if wantCP[stamp] {
 				st, _ := e.State()
 				res.checkpoints[stamp] = st.TotalS
+				res.restCP[stamp] = e.Break().CountedS
 			}
 			if e.DueSave(t) {
 				saved, savedDetail = e.State()
+				savedBreak = e.Break()
 				savedAt = t
 			}
 			// Команды момента t применяются перед тиком (как в службе: доп. время, трата
@@ -435,6 +546,10 @@ func runGolden(g *goldenFile) goldenResult {
 					if _, err := e.Pause(until); err != nil {
 						panic(err)
 					}
+				case "end_break":
+					if _, ok := e.EndBreak(); !ok {
+						panic("end_break: перерыва нет в " + stamp)
+					}
 				case "launch":
 					cur := e.Current()
 					if cat := goldenForeground[a.Category]; !cur.Allows(cat) {
@@ -456,6 +571,12 @@ func runGolden(g *goldenFile) goldenResult {
 			if d.Lock != LockNone && prevLock == LockNone {
 				res.locks = append(res.locks, goldenLock{At: stamp, Reason: d.Reason, Until: d.Until, Used: d.Used})
 			}
+			if d.Lock == LockNone && prevLock != LockNone {
+				res.unlocks = append(res.unlocks, stamp)
+			}
+			if d.RestWarn {
+				res.restWarns = append(res.restWarns, goldenRestWarning{At: stamp, InS: d.RestWarnS, Text: d.RestText})
+			}
 			prevLock = d.Lock
 			if d.ClosedDay != nil {
 				res.days[d.ClosedDay.Day] = *d.ClosedDay
@@ -468,6 +589,7 @@ func runGolden(g *goldenFile) goldenResult {
 			}
 			res.powerOff = append(res.powerOff, goldenPowerOff{LastSaveAt: last, RestoredTotalS: saved.TotalS})
 			e = NewEngine(clock, g.loc, rules, saved, savedDetail)
+			e.RestoreBreak(savedBreak)
 		}
 	}
 	st, _ := e.State()
@@ -487,7 +609,7 @@ func TestGolden(t *testing.T) {
 	for _, p := range paths {
 		names = append(names, strings.TrimSuffix(filepath.Base(p), ".json"))
 	}
-	for _, need := range []string{"G1", "G2", "G3", "G4", "G5", "G6", "G7", "G8", "G9", "G10", "G11", "G12"} {
+	for _, need := range []string{"G1", "G2", "G3", "G4", "G5", "G6", "G7", "G8", "G9", "G10", "G11", "G12", "G13", "G14"} {
 		if !slices.Contains(names, need) {
 			t.Errorf("нет эталона testdata/golden/%s.json (M1: G1,G2,G3,G9,G10; M2: G6,G7,G8,G11; M3: G4,G5,G12)", need)
 		}
@@ -505,7 +627,12 @@ func TestGolden(t *testing.T) {
 			if g.Name != names[i] {
 				t.Fatalf("name %q не совпадает с именем файла %q", g.Name, names[i])
 			}
-			checkGolden(t, g, runGolden(g))
+			for _, v := range g.Variants {
+				t.Run(v.Name, func(t *testing.T) { checkGolden(t, v, runGolden(v)) })
+			}
+			if len(g.Variants) == 0 {
+				checkGolden(t, g, runGolden(g))
+			}
 		})
 	}
 }
@@ -532,6 +659,15 @@ func checkGolden(t *testing.T, g *goldenFile, res goldenResult) {
 		} else if got != c.TotalS {
 			t.Errorf("к %s общее %d с, want %d", c.At, got, c.TotalS)
 		}
+		if c.RestS != nil && res.restCP[c.At] != *c.RestS {
+			t.Errorf("к %s счёт к перерыву %d с, want %d", c.At, res.restCP[c.At], *c.RestS)
+		}
+	}
+	if ex.RestWarnings != nil && !restWarnsMatch(res.restWarns, ex.RestWarnings) {
+		t.Errorf("плашки «ПОРА ОТДОХНУТЬ»:\n got  %+v\n want %+v", res.restWarns, ex.RestWarnings)
+	}
+	if ex.Unlocks != nil && !slices.Equal(res.unlocks, ex.Unlocks) {
+		t.Errorf("экран исчез:\n got  %v\n want %v", res.unlocks, ex.Unlocks)
 	}
 	wantPO := ex.PowerOff
 	if wantPO == nil {
@@ -581,6 +717,19 @@ func warningsMatch(got, want []goldenWarning) bool {
 	}
 	for i := range want {
 		if got[i].At != want[i].At || got[i].Min != want[i].Min || (want[i].Event != "" && got[i].Event != want[i].Event) {
+			return false
+		}
+	}
+	return true
+}
+
+// restWarnsMatch сравнивает плашки отдыха: момент и секунды всегда, текст — если задан в эталоне.
+func restWarnsMatch(got, want []goldenRestWarning) bool {
+	if len(got) != len(want) {
+		return false
+	}
+	for i := range want {
+		if got[i].At != want[i].At || got[i].InS != want[i].InS || (want[i].Text != "" && got[i].Text != want[i].Text) {
 			return false
 		}
 	}
@@ -648,6 +797,9 @@ func TestGoldenLoaderRejectsBadFiles(t *testing.T) {
 		{"неизвестный ключ лимита игр", `"limits_min": {"mon": 120},`, `"limits_min": {"mon": 120}, "games_limits_min": {"monday": 60},`},
 		{"плохой вид предупреждения", `"warnings": [],`, `"warnings": [{"at": "2026-10-19T15:00:01", "min": 1, "event": "pause"}],`},
 		{"плохое закрытие", `"locks": [],`, `"locks": [], "closures": [{"at": "2026-10-19T15:00:01", "what": "all", "text": ""}],`},
+		{"плохой вид счёта перерыва", `"limits_min": {"mon": 120},`, `"limits_min": {"mon": 120}, "break": {"after_min": 60, "counts": "video", "warn_min": 5, "rest_min": 15, "self_rest_min": 15},`},
+		{"variants рядом со своими сеансами", `"name": "GX",`, `"name": "GX", "variants": [{"name": "a"}],`},
+		{"плохая плашка отдыха", `"locks": [],`, `"locks": [], "rest_warnings": [{"at": "15:00:01", "in_s": 300}],`},
 	}
 	for _, tc := range bad {
 		src := goldenMinimal + tc.to

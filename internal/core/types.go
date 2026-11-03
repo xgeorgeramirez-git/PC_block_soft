@@ -78,6 +78,7 @@ type Rules struct {
 	Week     [7]DayLimit
 	Schedule []Interval
 	EndMode  EndMode
+	Break    BreakRules // перерыв на отдых (R27, FR-37); нулевое значение — выключен
 	Broken   bool
 }
 
@@ -125,6 +126,7 @@ const (
 	LockTimeUp                    // «Время на сегодня закончилось» (R4)
 	LockForbidden                 // «Сейчас нельзя пользоваться компьютером» — запретный интервал (R7)
 	LockBypass                    // «Попытка обойти защиту» (R17)
+	LockRest                      // «Перерыв на отдых» (R27): без «Попросить ещё», копилки и промокода
 )
 
 // WarnEvent — вид ближайшего события, к которому относится предупреждение R9: от него
