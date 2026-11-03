@@ -115,7 +115,11 @@ describe("ParentStats", () => {
     await user.click(within(box).getByRole("tab", { name: "Учёба" }));
     expect(within(box).getByText("Учёба за год: 40 мин")).toBeTruthy();
     expect(mock.calls.filter((c) => c.command === "ParentStats").at(-1)?.payload).toEqual({ childId: 1, period: "year" });
-    expect(screen.getByRole("tabpanel", { name: "Год" })).toBeTruthy();
+    const panel = screen.getByRole("tabpanel", { name: "Год" });
+    // Панель периода - только «Итоги»: «Мои правила» всегда за сегодня (ревью FB-13).
+    expect(panel.contains(box)).toBe(true);
+    expect(panel.contains(screen.getByRole("region", { name: "Мои правила" }))).toBe(false);
+    for (const t of periods) expect(t.getAttribute("aria-controls")).toBe(panel.id);
   });
 
   // Ловит: переключение ребёнка сбрасывает выбранный период на «Сегодня».

@@ -4,7 +4,7 @@ import Notice from "../components/Notice";
 import PeriodTabs from "../components/PeriodTabs";
 import { errorText } from "../lib/errors";
 import type { MyTodayReply, StatsPeriod } from "../types";
-import { Rules, Totals } from "./MyStats";
+import { PERIOD_PANEL, Rules, Totals } from "./MyStats";
 
 interface PickChild {
   childId: number;
@@ -90,7 +90,7 @@ export default function ParentStats({ initialChildId }: { initialChildId?: numbe
         </div>
       ) : null}
 
-      {children.length > 0 ? <PeriodTabs value={period} onChange={setPeriod} panelId="period-panel" /> : null}
+      {children.length > 0 ? <PeriodTabs value={period} onChange={setPeriod} panelId={PERIOD_PANEL} /> : null}
 
       {error ? (
         <Notice tone="warn" urgent>
@@ -103,10 +103,13 @@ export default function ParentStats({ initialChildId }: { initialChildId?: numbe
       ) : data === null ? (
         error ? null : <p className="panel-text">Загружаю данные</p>
       ) : (
-        <div id="period-panel" role="tabpanel" aria-labelledby={`period-${period}`}>
-          <Totals data={data} busy={busy} />
+        <>
+          {/* Панель периода - только «Итоги»: «Мои правила» всегда за сегодня. */}
+          <div id={PERIOD_PANEL} role="tabpanel" aria-labelledby={`period-${period}`}>
+            <Totals data={data} busy={busy} />
+          </div>
           <Rules data={data} />
-        </div>
+        </>
       )}
     </div>
   );
