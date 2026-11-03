@@ -137,16 +137,15 @@ export default function MyStats() {
         </Notice>
       ) : null}
 
-      <PeriodTabs value={period} onChange={choosePeriod} panelId="period-panel" />
-
       {data === null ? (
         error ? null : <p className="panel-text">Загружаю данные</p>
       ) : (
-        <div id="period-panel" role="tabpanel" aria-labelledby={`period-${period}`}>
+        <>
           {data.status.status === "notChild" ? null : (
             <Remaining data={data} onAsk={() => setDialog("ask")} onSpend={() => setDialog("spend")} />
           )}
-          <Totals data={data} busy={busy} />
+          {/* Вкладки периодов - внутри «Итогов», рядом с данными, которые они меняют (UX-аудит FB-13). */}
+          <Totals data={data} busy={busy} periods={{ value: period, onChange: choosePeriod }} />
           {data.status.status === "notChild" ? null : <Bonuses bonus={bonus} onChange={() => void load()} />}
           <Rules data={data} />
           <p className="my-foot">
@@ -154,7 +153,7 @@ export default function MyStats() {
               Настройки для родителя
             </button>
           </p>
-        </div>
+        </>
       )}
 
       {dialog === "ask" ? <AskMoreDialog childId={bonus?.childId ?? null} onDone={finish} onClose={() => setDialog(null)} /> : null}
@@ -227,7 +226,16 @@ export function Remaining({ data, onAsk, onSpend }: { data: MyTodayReply; onAsk:
  * соцсети» - строка без вкладки (сайты, M4). busy - идёт загрузка другого периода: прежние цифры стоят,
  * у заголовка короткий признак. Общий для окна ребёнка и статистики родителя.
  */
-export function Totals({ data, busy = false }: { data: MyTodayReply; busy?: boolean }) {
+export function Totals({
+  data,
+  busy = false,
+  periods,
+}: {
+  data: MyTodayReply;
+  busy?: boolean;
+  /** Вкладки периодов под заголовком; содержимое «Итогов» - их панель (id PERIOD_PANEL). */
+  periods?: { value: StatsPeriod; onChange: (period: StatsPeriod) => void };
+}) {
   const empty = data.status.status === "notChild" || data.today.length === 0 || periodEmpty(data);
   const info = periodOf(data.period);
   const [tab, setTab] = useState<TotalsTab>("all");
@@ -248,17 +256,8 @@ export function Totals({ data, busy = false }: { data: MyTodayReply; busy?: bool
   const current = TOTALS_TABS.find((t) => t.id === tab) ?? TOTALS_TABS[0];
   const rows = empty ? [] : tabRows(data, current.id);
   const studyNote = empty ? "" : allWithStudyText(data);
-  return (
-    <section className="panel stat-panel totals" aria-labelledby="my-totals" aria-busy={busy}>
-      <div className="totals-head">
-        <h3 id="my-totals" className="section-title">
-          Итоги
-        </h3>
-        <span className="totals-loading" role="status">
-          {busy ? LOADING_PERIOD : ""}
-        </span>
-      </div>
-      {empty ? (
+  const content = (
+    empty ? (
         <p className="panel-text">{NO_DATA}</p>
       ) : (
         <>
@@ -334,6 +333,25 @@ export function Totals({ data, busy = false }: { data: MyTodayReply; busy?: bool
             )}
           </div>
         </>
+      )
+  );
+  return (
+    <section className="panel stat-panel totals" aria-labelledby="my-totals" aria-busy={busy}>
+      <div className="totals-head">
+        <h3 id="my-totals" className="section-title">
+          Итоги
+        </h3>
+        <span className="totals-loading" role="status">
+          {busy ? LOADING_PERIOD : ""}
+        </span>
+      </div>
+      {periods ? <PeriodTabs value={periods.value} onChange={periods.onChange} panelId={PERIOD_PANEL} /> : null}
+      {periods ? (
+        <div id={PERIOD_PANEL} role="tabpanel" aria-labelledby={`period-${periods.value}`}>
+          {content}
+        </div>
+      ) : (
+        content
       )}
     </section>
   );

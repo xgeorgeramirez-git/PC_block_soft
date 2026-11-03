@@ -139,7 +139,7 @@ describe("MyStats: периоды", () => {
     expect(within(box).queryByText("За этот период пока нет данных")).toBeNull();
     await user.click(screen.getByRole("tab", { name: "Месяц" }));
     expect(await within(box).findByText("За этот период пока нет данных")).toBeTruthy();
-    expect(within(box).queryByRole("tablist")).toBeNull();
+    expect(within(box).queryByRole("tablist", { name: "Итоги по категориям" })).toBeNull();
   });
 
   // Ловит: стрелки не ходят по периодам (та же разметка, что у вкладок «Итогов»), фокус теряется.
@@ -161,6 +161,27 @@ describe("MyStats: периоды", () => {
     const tabs = within(screen.getByRole("tablist", { name: "Период" })).getAllByRole("tab");
     expect(tabs.map((t) => t.tabIndex)).toEqual([0, -1, -1, -1, -1]);
     expect(screen.getByRole("tabpanel", { name: "Сегодня" })).toBeTruthy();
+  });
+
+  // Ловит (ревью и UX-аудит FB-13): вкладки периодов стоят над «Сколько осталось» и «Нужно больше
+  // времени?» (всегда за сегодня), а «Итоги», которые они меняют, - ниже сгиба; панель периода
+  // оборачивает и блоки за сегодня; aria-controls вкладок указывает не на панель.
+  it("вкладки периодов внутри «Итогов» под заголовком, панель периода - только «Итоги»", async () => {
+    setup();
+    const box = await screen.findByRole("region", { name: "Итоги" });
+    const periods = screen.getByRole("tablist", { name: "Период" });
+    const title = within(box).getByRole("heading", { name: "Итоги" });
+    const categories = within(box).getByRole("tablist", { name: "Итоги по категориям" });
+    const before = (a: Node, b: Node) => Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(box.contains(periods)).toBe(true);
+    expect(before(title, periods) && before(periods, categories)).toBe(true);
+    expect(before(screen.getByRole("region", { name: "Нужно больше времени?" }), box)).toBe(true);
+    const panel = screen.getByRole("tabpanel", { name: "Сегодня" });
+    expect(box.contains(panel) && panel.contains(categories)).toBe(true);
+    for (const name of ["Сколько осталось", "Нужно больше времени?", "Бонусы", "Мои правила"]) {
+      expect(panel.contains(screen.getByRole("region", { name })), name).toBe(false);
+    }
+    for (const t of within(periods).getAllByRole("tab")) expect(t.getAttribute("aria-controls")).toBe(panel.id);
   });
 
   // Ловит: на время загрузки периода окно мигает («Загружаю данные» вместо всей страницы) или нет признака
@@ -277,6 +298,15 @@ function listRows(box: HTMLElement): string[][] {
     .map((li) => [".totals-name", ".totals-time", ".totals-share"].map((c) => li.querySelector(c)?.textContent ?? ""));
 }
 
+/** Панель вкладки категорий «Итогов» (внутри панели периода - своя). */
+function categoryPanel(box: HTMLElement): HTMLElement {
+  const panels = within(box)
+    .getAllByRole("tabpanel")
+    .filter((p) => p.getAttribute("aria-labelledby")?.startsWith("totals-tab-"));
+  expect(panels).toHaveLength(1);
+  return panels[0];
+}
+
 describe("MyStats: вкладки «Итогов»", () => {
   // Ловит (S39): нажатие «Игры» не показывает сумму и игры по отдельности, доли не 67% и 33%.
   it("«Игры»: сумма 15 мин, game 10 мин 67%, game2 5 мин 33%", async () => {
@@ -287,7 +317,7 @@ describe("MyStats: вкладки «Итогов»", () => {
     await user.click(tabs.getByRole("tab", { name: "Игры" }));
     expect(tabs.getByRole("tab", { name: "Игры" }).getAttribute("aria-selected")).toBe("true");
     expect(tabs.getByRole("tab", { name: "Всего" }).getAttribute("aria-selected")).toBe("false");
-    const panel = within(box).getByRole("tabpanel");
+    const panel = categoryPanel(box);
     expect(panel.getAttribute("aria-labelledby")).toBe("totals-tab-games");
     expect(tabs.getByRole("tab", { name: "Игры" }).getAttribute("aria-controls")).toBe(panel.id);
     expect(within(panel).getByText("Игры за сегодня: 15 мин")).toBeTruthy();
@@ -305,7 +335,7 @@ describe("MyStats: вкладки «Итогов»", () => {
     const tab = within(box).getByRole("tab", { name: "Игры" });
     await user.click(tab);
     await user.tab();
-    const panel = within(box).getByRole("tabpanel");
+    const panel = categoryPanel(box);
     expect(panel.getAttribute("tabindex")).toBe("0");
     expect(document.activeElement).toBe(panel);
   });

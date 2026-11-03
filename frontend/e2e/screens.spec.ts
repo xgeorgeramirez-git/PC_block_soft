@@ -576,8 +576,8 @@ const s39Child = () => child({ usedS: 1320, gamesUsedS: 1020, studyUsedS: 180, p
  * список не шире панели. При сбое все размеры в одной строке ошибки (журналы Actions недоступны).
  */
 async function tabListFits(page: Page, where: string) {
-  // Окно ребёнка само лежит в панели вкладки «Сегодня»: панель «Итогов» ищем внутри «Итогов».
-  const report = await page.getByRole("region", { name: "Итоги" }).getByRole("tabpanel").evaluate((panel) => {
+  // «Итоги» лежат в панели периода (тоже tabpanel): панель категорий ищем по классу.
+  const report = await page.getByRole("region", { name: "Итоги" }).locator(CATEGORY_PANEL).evaluate((panel) => {
     const r = (el: Element | null) => {
       const b = el!.getBoundingClientRect();
       return { l: Math.round(b.left * 10) / 10, r: Math.round(b.right * 10) / 10, t: Math.round(b.top * 10) / 10, b: Math.round(b.bottom * 10) / 10 };
@@ -635,7 +635,7 @@ async function tabsState(page: Page, want: string, where: string, sumWord = "з�
   await settled(page);
   const totals = page.getByRole("region", { name: "Итоги" });
   const report = await totals.evaluate((box) => {
-    const tabs = [...box.querySelectorAll('[role="tab"]')].map((t) => {
+    const tabs = [...box.querySelectorAll('.totals-tab[role="tab"]')].map((t) => {
       const cs = getComputedStyle(t);
       return {
         id: t.id,
@@ -646,7 +646,7 @@ async function tabsState(page: Page, want: string, where: string, sumWord = "з�
         weight: getComputedStyle(t.querySelector(".totals-tab-label")!).fontWeight,
       };
     });
-    const panel = box.querySelector('[role="tabpanel"]');
+    const panel = box.querySelector('.totals-panel[role="tabpanel"]');
     const sum = box.querySelector(".totals-sum")?.textContent ?? "";
     const surface = getComputedStyle(box).backgroundColor;
     return { tabs, labelledBy: panel?.getAttribute("aria-labelledby"), sum, surface };
@@ -713,9 +713,13 @@ async function textContrast(page: Page, where: string) {
         const r = ratio(fg, bg);
         if (r < 4.5) out.push(`${what} «${el.textContent}» ${r.toFixed(2)}:1 (${getComputedStyle(el).color} на rgb(${bg.map(Math.round).join(",")}))`);
       };
-      for (const t of box.querySelectorAll('[role="tab"]')) {
+      for (const t of box.querySelectorAll('.totals-tab[role="tab"]')) {
         const state = t.getAttribute("aria-selected") === "true" ? "выбранная" : "невыбранная";
         for (const part of t.querySelectorAll(".totals-tab-label, .totals-tab-value")) check(part, bgOf(t), `вкладка ${state}`);
+      }
+      // Вкладки периодов теперь на фоне «Итогов» (UX-аудит FB-13): их контраст тоже к этому фону.
+      for (const t of box.querySelectorAll('[role="tablist"][aria-label="Период"] [role="tab"]')) {
+        check(t, bgOf(t), `период ${t.getAttribute("aria-selected") === "true" ? "выбранный" : "невыбранный"}`);
       }
       for (const el of box.querySelectorAll(".totals-sum, .totals-note, .totals-empty")) check(el, bgOf(el), "панель");
       for (const li of box.querySelectorAll(".totals-item")) {
@@ -751,7 +755,7 @@ for (const [w, h] of [
     await expect(tabs.getByRole("tab")).toHaveCount(4);
     await tabs.getByRole("tab", { name: "Игры", exact: true }).click();
     await expect(tabs.getByRole("tab", { name: "Игры", exact: true })).toHaveAttribute("aria-selected", "true");
-    const panel = totals.getByRole("tabpanel");
+    const panel = totals.locator(CATEGORY_PANEL);
     await expect(panel.getByText("Игры за сегодня: 17 мин", { exact: true })).toBeVisible();
     const list = panel.getByRole("list", { name: "Игры: по программам" });
     await expect(list.getByRole("listitem")).toHaveCount(3);
@@ -796,7 +800,7 @@ test("s31 статистика родителя: вкладка «Игры»", a
   const totals = page.getByRole("region", { name: "Итоги" });
   const tabs = totals.getByRole("tablist", { name: "Итоги по категориям" });
   await tabs.getByRole("tab", { name: "Игры", exact: true }).click();
-  const panel = totals.getByRole("tabpanel");
+  const panel = totals.locator(CATEGORY_PANEL);
   await expect(panel.getByText("Игры за сегодня: 17 мин", { exact: true })).toBeVisible();
   await expect(panel.getByRole("list", { name: "Игры: по программам" }).getByRole("listitem").nth(0)).toHaveText("game10 мин59%");
   await tabListFits(page, "статистика родителя");
@@ -827,6 +831,9 @@ const s42Child = (over: Partial<MockChild> = {}) =>
     ],
     ...over,
   });
+
+/** Панель вкладки категорий «Итогов»; в окне ребёнка она внутри панели периода (тоже tabpanel). */
+const CATEGORY_PANEL = '.totals-panel[role="tabpanel"]';
 
 /**
  * Вкладки периодов (D-61) помещаются: ни одна не налезает на соседнюю, подпись целиком внутри своей
@@ -879,7 +886,7 @@ for (const [w, h] of [
     await expect(totals.getByRole("status")).toHaveText("");
     const tabs = totals.getByRole("tablist", { name: "Итоги по категориям" });
     await tabs.getByRole("tab", { name: "Игры", exact: true }).click();
-    const panel = totals.getByRole("tabpanel");
+    const panel = totals.locator(CATEGORY_PANEL);
     await expect(panel.getByText("Игры за неделю: 40 мин", { exact: true })).toBeVisible();
     await expect(panel.getByRole("list", { name: "Игры: по программам" }).getByRole("listitem")).toHaveText(["game40 мин100%"]);
     // «Сколько осталось» - за сегодня, от периода не зависит.
@@ -888,6 +895,23 @@ for (const [w, h] of [
     await tabListFits(page, `неделя, окно ${w} x ${h}`);
     await tabsState(page, "Игры", `неделя, окно ${w} x ${h}`, "за неделю");
     await noHorizontalScroll(page);
+    // Вкладки периодов - внутри «Итогов», под заголовком, над вкладками категорий (UX-аудит FB-13).
+    const periods = page.getByRole("tablist", { name: "Период" });
+    await expect(totals.getByRole("tablist", { name: "Период" })).toHaveCount(1);
+    const [head, list, cats] = await Promise.all([
+      boxOf(totals.getByRole("heading", { name: "Итоги" })),
+      boxOf(periods),
+      boxOf(tabs),
+    ]);
+    expect(head.bottom, "вкладки периодов не под заголовком «Итогов»").toBeLessThanOrEqual(list.top + 0.5);
+    expect(list.bottom, "вкладки периодов не над вкладками категорий").toBeLessThanOrEqual(cats.top + 0.5);
+    if (w === 800 && h === 640) {
+      // Снимок до прокрутки к спискам: начало «Итогов» с выбранной вкладкой периода.
+      await totals.evaluate((el) => el.scrollIntoView({ block: "start" }));
+      await settled(page);
+      await expect(periods.getByRole("tab", { name: "Неделя", exact: true })).toBeInViewport();
+      await page.screenshot({ path: `${SCREENS}/s06-my-stats-week-top.png` });
+    }
     await totals.scrollIntoViewIfNeeded();
     await settled(page);
     if (w === 800 && h === 640) await page.screenshot({ path: `${SCREENS}/s06-my-stats-week.png`, fullPage: true });
@@ -914,7 +938,7 @@ for (const [w, h] of [
     await expect(tabs.getByRole("tab", { name: "Игры", exact: true }).locator(".totals-tab-value")).toHaveText("1 ч 00 мин");
     await expect(tabs.getByRole("tab", { name: "Всего", exact: true }).locator(".totals-tab-value")).toHaveText("1 ч 40 мин");
     await tabs.getByRole("tab", { name: "Учёба", exact: true }).click();
-    const panel = totals.getByRole("tabpanel");
+    const panel = totals.locator(CATEGORY_PANEL);
     await expect(panel.getByText("Учёба за год: 40 мин", { exact: true })).toBeVisible();
     await expect(panel.getByRole("list", { name: "Учёба: по программам" }).getByRole("listitem")).toHaveText(["study40 мин100%"]);
     await periodTabsFit(page, `статистика родителя ${w} x ${h}`);
@@ -935,7 +959,7 @@ for (const scheme of ["light", "dark"] as const) {
     await page.emulateMedia({ colorScheme: scheme });
     await mockProgram(page, { mode: "mystats", children: [s39Child()], myChildId: 1 });
     await page.goto("/");
-    await expect(page.getByRole("region", { name: "Итоги" }).getByRole("tab")).toHaveCount(4);
+    await expect(page.getByRole("region", { name: "Итоги" }).getByRole("tablist", { name: "Итоги по категориям" }).getByRole("tab")).toHaveCount(4);
     await textContrast(page, `тема ${scheme}`);
     await tabsState(page, "Прочее", `тема ${scheme}, после перебора`);
   });
@@ -947,7 +971,7 @@ test("s06 моя статистика: пояснение «Всего» про 
   await mockProgram(page, { mode: "mystats", children: [s39Child()], myChildId: 1 });
   await page.goto("/");
   const totals = page.getByRole("region", { name: "Итоги" });
-  const panel = totals.getByRole("tabpanel");
+  const panel = totals.locator(CATEGORY_PANEL);
   const text = "Всего = 22 мин в счёт лимита + 3 мин учёбы вне лимита";
   await expect(panel.getByText("Всего за сегодня: 25 мин", { exact: true })).toBeVisible();
   for (const name of ["Всего", "Игры", "Учёба", "Прочее"]) {
@@ -976,7 +1000,7 @@ test("s06 моя статистика: пустая вкладка", async ({ pa
   await page.goto("/");
   const totals = page.getByRole("region", { name: "Итоги" });
   await totals.getByRole("tab", { name: "Игры", exact: true }).click();
-  const panel = totals.getByRole("tabpanel");
+  const panel = totals.locator(CATEGORY_PANEL);
   await expect(panel.getByText("Игры за сегодня: 0 мин", { exact: true })).toBeVisible();
   await expect(panel.getByText("Пока ничего не запускалось", { exact: true })).toBeVisible();
   await expect(panel.getByRole("list")).toHaveCount(0);
