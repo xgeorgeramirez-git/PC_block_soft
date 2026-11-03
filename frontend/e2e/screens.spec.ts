@@ -1688,6 +1688,12 @@ for (const v of [
     await expect(
       page.getByText("После 60 мин игр ребёнок увидит «Пора отдохнуть», через 5 мин компьютер закроется на 15 мин. Если сам не играл 30 мин подряд, это засчитается как отдых"),
     ).toBeVisible();
+    // «Всё время, кроме учёбы»: учёба тоже засчитывается как отдых (R27), итог говорит это прямо.
+    await page.getByRole("radio", { name: "Всё время, кроме учёбы" }).check();
+    await expect(
+      page.getByText("После 60 мин за компьютером ребёнок увидит «Пора отдохнуть», через 5 мин компьютер закроется на 15 мин. Если сам 30 мин подряд не был за компьютером или занимался только учёбой, это засчитается как отдых"),
+    ).toBeVisible();
+    await page.getByRole("radio", { name: "Только игры" }).check();
     const sample = page.getByRole("figure", { name: "Как увидит ребёнок" });
     await expect(sample.getByText("Пойди погуляй с собакой")).toBeVisible();
     await expect(sample.getByRole("img", { name: "Таймер 00:15:00" })).toBeVisible();

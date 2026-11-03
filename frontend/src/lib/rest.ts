@@ -111,9 +111,14 @@ export function toggleBreak(d: BreakRules, on: boolean, saved: BreakRules): Brea
 export function breakSummary(d: BreakRules): string {
   if (!d.enabled) return "Перерывы на отдых выключены";
   const what = d.counts === "games" ? "игр" : "за компьютером";
-  const quiet = d.counts === "games" ? "не играл" : "не был за компьютером";
+  // «Сам отошёл» (R27): тишина - нет засчитанных к перерыву секунд, поэтому в режиме «всё, кроме
+  // учёбы» учёба тоже тишина, и итог говорит об этом прямо.
+  const quiet =
+    d.counts === "games"
+      ? `не играл ${d.selfRestMin} мин подряд`
+      : `${d.selfRestMin} мин подряд не был за компьютером или занимался только учёбой`;
   return (
     `После ${d.afterMin} мин ${what} ребёнок увидит «Пора отдохнуть», через ${d.warnMin} мин компьютер закроется на ${d.restMin} мин. ` +
-    `Если сам ${quiet} ${d.selfRestMin} мин подряд, это засчитается как отдых`
+    `Если сам ${quiet}, это засчитается как отдых`
   );
 }
