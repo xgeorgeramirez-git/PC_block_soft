@@ -71,6 +71,8 @@ func TestOpenCreatesFullSchema(t *testing.T) {
 		"usage_daily":        {"child_id", "day", "category", "subject_kind", "subject", "seconds"},
 		"day_state":          {"child_id", "day", "total_s", "games_s", "video_s", "study_s", "extra_min", "pause_until", "bonus_granted", "no_forbidden", "last_minute_end"},
 		"bonus_ledger":       {"id", "child_id", "at", "delta_min", "reason", "balance_after"},
+		"break_rules":        {"child_id", "enabled", "after_min", "counts", "warn_min", "rest_min", "self_rest_min", "message"},
+		"break_state":        {"child_id", "counted_s", "quiet_s", "quiet_since", "warned", "break_at", "rest_until"},
 		"events":             {"id", "child_id", "at", "tz_offset_min", "kind", "details"},
 		"promo_codes":        {"id", "code_norm", "code_display", "minutes", "created_at", "used_at", "used_by_child"},
 		"parent_auth":        {"id", "hash", "failed_count", "blocked_until", "changed_at"},
