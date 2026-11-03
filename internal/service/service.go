@@ -378,6 +378,12 @@ func (s *Service) addChild(c Child, real time.Time) *childState {
 		child: c, rules: rules, adminAt: real, rulesAt: real,
 		eng: core.NewEngine(s.cfg.Clock, s.cfg.Loc, rules, st, c.BypassDetail),
 	}
+	// Счёт к перерыву не по дням (R27): идущий перерыв продолжается по часам после перезапуска.
+	if bs, err := s.cfg.Store.LoadBreakState(c.ID); err != nil {
+		s.logRate(fmt.Sprint("loadbreak", c.ID), "не удалось прочитать счёт к перерыву для %s: %v", c.Name, err)
+	} else {
+		cs.eng.RestoreBreak(bs)
+	}
 	s.children[c.ID] = cs
 	s.names[c.ID] = c.Name
 	return cs
@@ -402,7 +408,12 @@ func (s *Service) readRules(id int64) core.Rules {
 		s.logRate(fmt.Sprint("endmode", id), "не удалось прочитать режим «Когда время вышло» ребёнка %d, ограничения не применяются: %v", id, err)
 		return core.Rules{Broken: true}
 	}
-	return core.Rules{Week: week, Schedule: sched, EndMode: core.EndModeFromString(mode)}
+	brk, err := s.cfg.Store.GetBreakRules(id)
+	if err != nil {
+		s.logRate(fmt.Sprint("break", id), "не удалось прочитать настройки отдыха ребёнка %d, ограничения не применяются: %v", id, err)
+		return core.Rules{Broken: true}
+	}
+	return core.Rules{Week: week, Schedule: sched, EndMode: core.EndModeFromString(mode), Break: brk}
 }
 
 // exempt сообщает, что для учётки сняты запрет A2 и правило R1 (тестовый режим, ТЗ 10.8).
@@ -445,6 +456,11 @@ func (s *Service) applyPolicy(sid string, disabled bool) {
 func (s *Service) saveDay(cs *childState) {
 	st, _ := cs.eng.State()
 	s.saveState(cs, st)
+	// Счёт к перерыву — тем же сохранением (DueSave: раз в 30 с и сразу после плашки, начала и
+	// конца перерыва, RF14-2).
+	if err := s.cfg.Store.SaveBreakState(cs.child.ID, cs.eng.Break()); err != nil {
+		s.logRate(fmt.Sprint("savebreak", cs.child.ID), "счёт к перерыву у %s не сохранён: %v", cs.child.Name, err)
+	}
 }
 
 func (s *Service) saveState(cs *childState, st core.DayState) {
@@ -494,6 +510,10 @@ func (s *Service) afterDecision(cs *childState, d core.Decision, extra map[strin
 		// Текст предупреждения зависит от вида ближайшего события (R9, FR-9): исчерпание
 		// времени, начало запретных часов или конец паузы.
 		cs.warns = append(cs.warns, pendingWarning{w: ipc.NewGuardWarningFor(d.Warning, d.WarningEvent, d.WarningS), at: s.real})
+	}
+	if d.RestWarn {
+		// «ПОРА ОТДОХНУТЬ» (R27, 8.2.2 п.7): ядро отдаёт её один раз на перерыв.
+		cs.warns = append(cs.warns, pendingWarning{w: ipc.NewGuardRestWarning(d.RestWarnS, d.RestText), at: s.real})
 	}
 }
 
@@ -605,7 +625,8 @@ func (s *Service) pendingCount() int {
 
 // rulesView возвращает недельные лимиты и режим «Когда время вышло» в виде команд канала.
 func rulesView(cs *childState) ipc.ChildRules {
-	return ipc.ChildRules{ChildID: cs.child.ID, Name: cs.child.Name, Limits: limitsView(cs.rules), EndMode: cs.rules.EndMode.String()}
+	return ipc.ChildRules{ChildID: cs.child.ID, Name: cs.child.Name, Limits: limitsView(cs.rules), EndMode: cs.rules.EndMode.String(),
+		Break: breakView(cs.rules)}
 }
 
 // limitsView — семь дней лимитов (общий и игр) в виде канала: правила ребёнка и FR-33.

@@ -235,10 +235,10 @@ func (s *Service) hCopyRules(c *callCtx) ipc.Reply {
 	rules := s.readRules(from.child.ID)
 	// Копирование возвращает правила для черновика приёмника (FR-19): запись делает родитель
 	// кнопкой «Сохранить», сразу в базу не пишем.
-	// FR-33: лимиты (общий и игр), запретные часы и «Когда время вышло».
+	// FR-33: лимиты (общий и игр), запретные часы, «Когда время вышло» и «Отдых».
 	return ipc.OK(ipc.CopyRulesReply{
 		Limits: limitsView(rules), Intervals: toIPCIntervals(rules.Schedule), EndMode: rules.EndMode.String(),
-		Message: "Правила скопированы. Проверьте и сохраните",
+		Break: breakView(rules), Message: "Правила скопированы. Проверьте и сохраните",
 	})
 }
 

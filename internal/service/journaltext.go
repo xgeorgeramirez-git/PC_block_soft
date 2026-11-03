@@ -101,6 +101,9 @@ func eventText(kind, name string, d map[string]any) string {
 		body = "закрыта «" + eventProgram(d) + "»: время на игры закончилось"
 	case evProgramClosedStudyOnly:
 		body = "закрыта «" + eventProgram(d) + "»: время вышло, доступна только учёба"
+	case core.EvRestBreak, core.EvRestEnded:
+		// «Миша: перерыв на отдых: 15 мин после 60 мин за компьютером», «Миша: вы закончили перерыв».
+		body = decapitalize(detStr(d, "text"))
 	default:
 		body = detStr(d, "text")
 		if body == "" {

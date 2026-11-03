@@ -129,6 +129,7 @@ type CopyRulesReply struct {
 	Limits    []WeekdayLimit `json:"limits"`    // общий лимит и лимит игр по дням
 	Intervals []Interval     `json:"intervals"` // запретные часы
 	EndMode   string         `json:"endMode"`   // «Когда время вышло» (FR-33 переносит и его)
+	Break     BreakRules     `json:"break"`     // «Отдых» (FR-33, FR-37)
 	Message   string         `json:"message"`
 }
 

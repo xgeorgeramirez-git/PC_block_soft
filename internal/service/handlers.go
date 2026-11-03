@@ -434,8 +434,16 @@ func (s *Service) hSaveLimits(c *callCtx) ipc.Reply {
 	if req.EndMode != "" && req.EndMode != ipc.EndModeLock && req.EndMode != ipc.EndModeStudyOnly {
 		return ipc.FailField(textEndModeBad, ipc.FieldEndMode)
 	}
-	// Только режим «Когда время вышло» (вкладка FR-18): лимиты не присланы и не меняются.
-	saveLimits := len(req.Limits) > 0 || req.EndMode == ""
+	var brk core.BreakRules
+	if req.Break != nil {
+		var field, text string
+		if brk, field, text = breakFromIPC(*req.Break); field != "" {
+			return ipc.FailField(text, field)
+		}
+	}
+	// Только режим «Когда время вышло» (вкладка FR-18) или только «Отдых» (FR-37): лимиты не
+	// присланы и не меняются.
+	saveLimits := len(req.Limits) > 0 || (req.EndMode == "" && req.Break == nil)
 	var week [7]core.DayLimit
 	if saveLimits {
 		var field, text string
@@ -456,6 +464,13 @@ func (s *Service) hSaveLimits(c *callCtx) ipc.Reply {
 			return ipc.Fail(textSaveFailed)
 		}
 	}
+	breakChanged := req.Break != nil && brk != cs.rules.Break
+	if breakChanged {
+		if err := s.cfg.Store.SetBreakRules(cs.child.ID, brk); err != nil {
+			s.logRate("break", "настройки отдыха не записаны: %v", err)
+			return ipc.Fail(textSaveFailed)
+		}
+	}
 	// FR-19: правила действуют сразу, ближайший ответ стражу уже несёт новое решение. Правила
 	// берутся из базы целиком (RM3-9): лимиты, игры, расписание и режим.
 	cs.rulesAt = c.real
@@ -465,6 +480,9 @@ func (s *Service) hSaveLimits(c *callCtx) ipc.Reply {
 	}
 	if modeChanged {
 		s.journal.Write(cs.child.ID, "settings_changed", map[string]any{"text": "изменён режим, когда время вышло"})
+	}
+	if breakChanged {
+		s.journal.Write(cs.child.ID, "settings_changed", map[string]any{"text": "изменены настройки отдыха"})
 	}
 	return ipc.OK(ipc.SaveLimitsReply{Rules: rulesView(cs), Card: s.cardOf(cs), Message: textSaved})
 }

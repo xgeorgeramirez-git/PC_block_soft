@@ -129,8 +129,27 @@ func programsReply() ProgramsReply {
 	}
 }
 
+func ptrBreak(b BreakRules) *BreakRules { return &b }
+
 func childRules() ChildRules {
-	return ChildRules{ChildID: 1, Name: "Миша", Limits: weekLimits(), EndMode: EndModeLock}
+	return ChildRules{ChildID: 1, Name: "Миша", Limits: weekLimits(), EndMode: EndModeLock, Break: defaultBreak()}
+}
+
+// defaultBreak — «Отдых» по умолчанию (FR-37): выключено, 60 / всё, кроме учёбы / 5 / 15 / 15.
+func defaultBreak() BreakRules { return BreakRulesFrom(core.DefaultBreakRules()) }
+
+// s43Break — «Отдых» из 8.3.3 п.7: включено, 60 / только игры / 5 / 15 / 30, своё сообщение.
+func s43Break() BreakRules {
+	return BreakRules{Enabled: true, AfterMin: 60, Counts: BreakCountsGames, WarnMin: 5, RestMin: 15, SelfRestMin: 30, Message: "Пойди погуляй с собакой"}
+}
+
+// restStatus — экран перерыва на отдых (8.2.3 п.12): до 16:20, сообщение родителя.
+func restStatus() ChildStatus {
+	return ChildStatusFrom("Миша", core.Decision{
+		Day: "2026-10-19", Status: core.StatusOK, Lock: core.LockRest, Reason: core.ReasonRest, Until: "Можно снова в 16:20",
+		Used: "Сегодня: 1 ч 05 мин из 3 ч", RemainingS: 115 * 60, LimitS: 180 * 60, UsedS: 65 * 60, GamesUnlimited: true,
+		RestUntilMs: t0 + 900_000, RestMessage: "Пойди погуляй с собакой",
+	})
 }
 
 // examples — по одному примеру на каждую команду из AllCommands и варианты с пустыми массивами и отказами.
@@ -186,9 +205,18 @@ func examples() map[string]example {
 		"SaveLimits#invalid": fail(SaveLimitsRequest{ChildID: 1, Limits: []WeekdayLimit{{Weekday: 3, TotalMin: 2000}}},
 			"Не больше 24 ч", LimitField(3), nil),
 		"SaveLimits#endMode": ok(SaveLimitsRequest{ChildID: 1, Limits: []WeekdayLimit{}, EndMode: EndModeStudyOnly}, SaveLimitsReply{
-			Rules: ChildRules{ChildID: 1, Name: "Миша", Limits: weekLimits(), EndMode: EndModeStudyOnly}, Card: card(okStatus(), 0, false),
+			Rules: ChildRules{ChildID: 1, Name: "Миша", Limits: weekLimits(), EndMode: EndModeStudyOnly, Break: defaultBreak()}, Card: card(okStatus(), 0, false),
 			Message: "Сохранено. Новые правила уже действуют",
 		}),
+		"SaveLimits#break": ok(SaveLimitsRequest{ChildID: 1, Limits: []WeekdayLimit{}, Break: ptrBreak(s43Break())}, SaveLimitsReply{
+			Rules: ChildRules{ChildID: 1, Name: "Миша", Limits: weekLimits(), EndMode: EndModeLock, Break: s43Break()}, Card: card(okStatus(), 0, false),
+			Message: "Сохранено. Новые правила уже действуют",
+		}),
+		"SaveLimits#breakSelfRest": fail(SaveLimitsRequest{ChildID: 1, Limits: []WeekdayLimit{}, Break: ptrBreak(BreakRules{Enabled: true, AfterMin: 60, Counts: BreakCountsAll, WarnMin: 5, RestMin: 20, SelfRestMin: 15})},
+			"Не меньше времени отдыха", FieldBreakSelfRestMin, nil),
+		CmdEndBreak:           ok(ChildRequest{ChildID: 1}, CardReply{Card: card(okStatus(), 0, false), Message: "Перерыв закончен"}),
+		"EndBreak#none":       fail(ChildRequest{ChildID: 1}, "Перерыва сейчас нет", "", nil),
+		"GetChildStatus#rest": ok(nil, restStatus()),
 		CmdAddExtra: ok(AddExtraRequest{ChildID: 1, Minutes: 30}, AddExtraReply{
 			Card: card(okStatus(), 30, false), Message: "Добавлено 30 минут", ExtraID: "e-17", UndoUntilMs: t0 + 10_000,
 		}),
@@ -273,7 +301,7 @@ func examples() map[string]example {
 		}}),
 		"GetBonus#empty": ok(GetBonusRequest{ChildID: 1}, GetBonusReply{ChildID: 1, Entries: []BonusEntry{}}),
 		CmdCopyRules: ok(CopyRulesRequest{FromChildID: 2, ToChildID: 1}, CopyRulesReply{
-			Limits: weekLimits(), Intervals: []Interval{{Weekday: 1, StartMin: 1260, EndMin: 420}}, EndMode: EndModeStudyOnly,
+			Limits: weekLimits(), Intervals: []Interval{{Weekday: 1, StartMin: 1260, EndMin: 420}}, EndMode: EndModeStudyOnly, Break: s43Break(),
 			Message: "Правила скопированы. Проверьте и сохраните",
 		}),
 		CmdAskMore: ok(AskMoreRequest{ChildID: 1, Minutes: 30, Password: "секрет-123"}, AskMoreReply{
@@ -319,7 +347,7 @@ func examples() map[string]example {
 			},
 		}, GuardPollReply{
 			Status:   lockedStatus(),
-			Warnings: []GuardWarning{NewGuardWarning(1)},
+			Warnings: []GuardWarning{NewGuardWarning(1), NewGuardRestWarning(300, core.RestPlateText(5, 15))},
 			Commands: []GuardCommand{
 				{Kind: GuardCmdNotice, Text: "Добавлено 30 минут"},
 				{Kind: GuardCmdHideLock},
@@ -436,8 +464,8 @@ func TestContractHasEveryCommand(t *testing.T) {
 			t.Errorf("пример для %s есть, а в AllCommands её нет", c)
 		}
 	}
-	if len(AllCommands) != 65 {
-		t.Errorf("команд %d, ждали 65 (тестовая TestSeedDay из раунда 0.3.2; 46 из M1/M2/0.2.1 без команд Помощника, 9 из фидбек-раунда 0.2.2: OpenLogs, SetNoForbidden, ClearBonus, ReduceBonus, CreatePromo, ListPromos, RedeemPromo, GetBonusRate, SetBonusRate, GuardClosing из раунда 0.2.3, тестовая TestSession из 0.2.5 и 5 программ M3: ListPrograms, DecideProgram, SetProgramsCategory, UndoProgram, ScanPrograms; SetProgramsHidden и RenameProgram из раунда 0.3.1)", len(AllCommands))
+	if len(AllCommands) != 66 {
+		t.Errorf("команд %d, ждали 66 (тестовая TestSeedDay и EndBreak из раунда 0.3.2; 46 из M1/M2/0.2.1 без команд Помощника, 9 из фидбек-раунда 0.2.2: OpenLogs, SetNoForbidden, ClearBonus, ReduceBonus, CreatePromo, ListPromos, RedeemPromo, GetBonusRate, SetBonusRate, GuardClosing из раунда 0.2.3, тестовая TestSession из 0.2.5 и 5 программ M3: ListPrograms, DecideProgram, SetProgramsCategory, UndoProgram, ScanPrograms; SetProgramsHidden и RenameProgram из раунда 0.3.1)", len(AllCommands))
 	}
 }
 

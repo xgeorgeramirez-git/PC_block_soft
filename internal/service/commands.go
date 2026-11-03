@@ -250,6 +250,8 @@ func init() {
 		ipc.CmdUndoBonus:    {parentToken(true), (*Service).hUndoBonus},
 		ipc.CmdGetBonus:     {or(parentToken(false), childSelf()), (*Service).hGetBonus},
 		ipc.CmdCopyRules:    {parentToken(true), (*Service).hCopyRules},
+		// «Закончить перерыв» (R27): родитель из своего окна или паролем на экране перерыва.
+		ipc.CmdEndBreak: {or(parentToken(true), bound()), (*Service).hEndBreak},
 
 		ipc.CmdMyToday:      {users(), (*Service).hMyToday},
 		ipc.CmdFirstRunSeen: {users(), (*Service).hFirstRunSeen},

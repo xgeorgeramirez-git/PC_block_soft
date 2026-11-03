@@ -49,6 +49,10 @@ type fakeStore struct {
 	failPeriod bool                       // PeriodDays отвечает ошибкой (FB-13)
 	now        func() int64               // момент записи копилки, UTC мс; nil — 0
 	usageLog   []savedUsage               // история SaveDayAndUsage
+
+	breakRules  map[int64]core.BreakRules // «Отдых» по ребёнку (FB-14); нет записи — по умолчанию
+	breakStates map[int64]core.BreakState // счёт к перерыву по ребёнку
+	failBreak   bool                      // GetBreakRules возвращает ошибку
 }
 
 type savedUsage struct {
@@ -1421,4 +1425,47 @@ func (f *fakeStore) SetProgramName(path, name string) (Program, bool, error) {
 	p.CustomName = name
 	f.programs[path] = p
 	return prev, true, nil
+}
+
+// --- перерыв на отдых (FB-14) ------------------------------------------------------------
+
+func (f *fakeStore) GetBreakRules(id int64) (core.BreakRules, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.failBreak {
+		return core.BreakRules{}, errFake
+	}
+	if b, ok := f.breakRules[id]; ok {
+		return b, nil
+	}
+	return core.DefaultBreakRules(), nil
+}
+
+func (f *fakeStore) SetBreakRules(id int64, b core.BreakRules) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if err := b.Validate(); err != nil {
+		return err
+	}
+	if f.breakRules == nil {
+		f.breakRules = map[int64]core.BreakRules{}
+	}
+	f.breakRules[id] = b
+	return nil
+}
+
+func (f *fakeStore) LoadBreakState(id int64) (core.BreakState, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.breakStates[id], nil
+}
+
+func (f *fakeStore) SaveBreakState(id int64, b core.BreakState) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.breakStates == nil {
+		f.breakStates = map[int64]core.BreakState{}
+	}
+	f.breakStates[id] = b
+	return nil
 }

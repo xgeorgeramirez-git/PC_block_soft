@@ -121,8 +121,12 @@ type Store interface {
 	SetBypass(childID int64, detail string) error
 	SetDayLimits(childID int64, week [7]core.DayLimit) error
 	GetDayLimits(childID int64) ([7]core.DayLimit, error)
-	SetEndMode(childID int64, mode string) error // "lock" | "study_only", иное — ошибка
-	GetEndMode(childID int64) (string, error)    // нет ребёнка: "lock"
+	SetEndMode(childID int64, mode string) error           // "lock" | "study_only", иное — ошибка
+	GetEndMode(childID int64) (string, error)              // нет ребёнка: "lock"
+	GetBreakRules(childID int64) (core.BreakRules, error)  // «Отдых» (FR-37); нет строки — по умолчанию
+	SetBreakRules(childID int64, b core.BreakRules) error  // вне пределов FR-37 — ошибка
+	LoadBreakState(childID int64) (core.BreakState, error) // счёт к перерыву (R27); нет строки — пустой
+	SaveBreakState(childID int64, b core.BreakState) error
 	GetSchedule(childID int64) ([]core.Interval, error)
 	SetSchedule(childID int64, intervals []core.Interval) error
 	AppendBonus(childID int64, deltaMin int, reason string) (balanceAfter int, err error)

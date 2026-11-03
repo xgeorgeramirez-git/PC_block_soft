@@ -103,6 +103,7 @@ var AllCommands = []string{
 	CmdListPrograms, CmdDecideProgram, CmdSetProgramsCategory, CmdUndoProgram, CmdScanPrograms, // M3 (commands_m3.go)
 	CmdSetProgramsHidden, CmdRenameProgram, // фидбек-раунд 0.3.1 (D-57, D-59)
 	CmdTestSeedDay, // фидбек-раунд 0.3.2 (S42)
+	CmdEndBreak,    // фидбек-раунд 0.3.2 (FB-14, commands_0_3_2.go)
 }
 
 // Имена полей, к которым служба привязывает ошибку (Reply.Field, L-121).
@@ -235,6 +236,10 @@ type ChildStatus struct {
 	EndMode         string `json:"endMode"`         // EndModeLock или EndModeStudyOnly (правило ребёнка, R8)
 	CloseGames      bool   `json:"closeGames"`      // игры закрыты: лимит игр исчерпан или экран блокировки
 	StudyOnly       bool   `json:"studyOnly"`       // действует «только учёба»: экрана нет, открыта только учёба
+
+	// Экран перерыва на отдых (Lock == LockRest, R27): конец по часам и сообщение родителя.
+	RestUntilMs int64  `json:"restUntilMs"` // UTC мс; 0 — перерыва нет
+	RestMessage string `json:"restMessage"` // сообщение на экране перерыва (FR-37); «» — перерыва нет
 }
 
 // --- Мастер и администратор --------------------------------------------------
@@ -361,6 +366,7 @@ type ChildRules struct {
 	Name    string         `json:"name"`
 	Limits  []WeekdayLimit `json:"limits"`  // семь дней, пн … вс
 	EndMode string         `json:"endMode"` // EndModeLock или EndModeStudyOnly (R8, FR-18)
+	Break   BreakRules     `json:"break"`   // вкладка «Отдых» (FR-37)
 }
 
 // SaveLimitsRequest — сохранить недельные лимиты одного ребёнка и (необязательно) режим «Когда
@@ -370,6 +376,7 @@ type SaveLimitsRequest struct {
 	ChildID int64          `json:"childId"`
 	Limits  []WeekdayLimit `json:"limits"`
 	EndMode string         `json:"endMode,omitempty"`
+	Break   *BreakRules    `json:"break,omitempty"` // вкладка «Отдых» (FR-37); nil — не меняется
 }
 
 // SaveLimitsReply — ответ SaveLimits: правила уже действуют (FR-19).
