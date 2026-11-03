@@ -40,13 +40,15 @@ type fakeStore struct {
 	failEndMode  bool // GetEndMode возвращает ошибку
 	failPrograms bool // ListPrograms возвращает ошибку
 
-	endModes  map[int64]string           // режим «Когда время вышло» (M3); нет записи — "lock"
-	programs  map[string]Program         // программы по пути (M3)
-	nextProg  int64                      // следующий номер программы
-	pending   map[string]*PendingProgram // «Ждут решения» по пути (M3)
-	usage     map[string]int             // учёт: "id|день|категория|вид|предмет" → секунды (M3)
-	failUsage bool                       // DayUsage отвечает ошибкой (FB-10)
-	usageLog  []savedUsage               // история SaveDayAndUsage
+	endModes   map[int64]string           // режим «Когда время вышло» (M3); нет записи — "lock"
+	programs   map[string]Program         // программы по пути (M3)
+	nextProg   int64                      // следующий номер программы
+	pending    map[string]*PendingProgram // «Ждут решения» по пути (M3)
+	usage      map[string]int             // учёт: "id|день|категория|вид|предмет" → секунды (M3)
+	failUsage  bool                       // DayUsage и PeriodUsage отвечают ошибкой (FB-10)
+	failPeriod bool                       // PeriodDays отвечает ошибкой (FB-13)
+	now        func() int64               // момент записи копилки, UTC мс; nil — 0
+	usageLog   []savedUsage               // история SaveDayAndUsage
 }
 
 type savedUsage struct {
@@ -397,6 +399,56 @@ func (f *fakeStore) DayUsage(id int64, day string) ([]UsageRow, error) {
 	return out, nil
 }
 
+// PeriodDays — как storage.PeriodDays: суммы дней from ≤ день < before.
+func (f *fakeStore) PeriodDays(id int64, from, before string) (core.DayState, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.failPeriod {
+		return core.DayState{}, errFake
+	}
+	var sum core.DayState
+	for k, st := range f.days {
+		if !strings.HasPrefix(k, fmt.Sprint(id)+"|") || st.Day < from || st.Day >= before {
+			continue
+		}
+		sum.TotalS += st.TotalS
+		sum.GamesS += st.GamesS
+		sum.VideoS += st.VideoS
+		sum.StudyS += st.StudyS
+		sum.ExtraMin += st.ExtraMin
+	}
+	return sum, nil
+}
+
+// PeriodUsage — как storage.PeriodUsage: учёт по программам за from ≤ день < before, сложенный по
+// категории и пути.
+func (f *fakeStore) PeriodUsage(id int64, from, before string) ([]UsageRow, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.failUsage {
+		return nil, errFake
+	}
+	type key struct{ cat, subject string }
+	sum := map[key]int{}
+	for k, sec := range f.usage {
+		parts := strings.SplitN(k, "|", 5)
+		if parts[0] == fmt.Sprint(id) && parts[1] >= from && parts[1] < before && parts[3] == "program" {
+			sum[key{parts[2], parts[4]}] += sec
+		}
+	}
+	out := []UsageRow{}
+	for k, sec := range sum {
+		out = append(out, UsageRow{Category: k.cat, Kind: "program", Subject: k.subject, Seconds: sec})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Category != out[j].Category {
+			return out[i].Category < out[j].Category
+		}
+		return out[i].Subject < out[j].Subject
+	})
+	return out, nil
+}
+
 func (f *fakeStore) ProgramSeconds(fromDay string) (map[string]int, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -523,7 +575,11 @@ func (f *fakeStore) AppendBonus(id int64, deltaMin int, reason string) (int, err
 	if after < 0 || after > 600 {
 		return 0, errFake
 	}
-	f.bonus[id] = append(f.bonus[id], BonusRecord{AtMs: timeNowService(), DeltaMin: deltaMin, Reason: reason, Balance: after})
+	at := timeNowService()
+	if f.now != nil {
+		at = f.now()
+	}
+	f.bonus[id] = append(f.bonus[id], BonusRecord{AtMs: at, DeltaMin: deltaMin, Reason: reason, Balance: after})
 	return after, nil
 }
 

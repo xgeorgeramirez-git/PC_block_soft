@@ -213,6 +213,22 @@ func (a storeAdapter) DayUsage(childID int64, day string) ([]service.UsageRow, e
 	return out, nil
 }
 
+func (a storeAdapter) PeriodDays(childID int64, fromDay, beforeDay string) (core.DayState, error) {
+	return a.s.PeriodDays(childID, fromDay, beforeDay)
+}
+
+func (a storeAdapter) PeriodUsage(childID int64, fromDay, beforeDay string) ([]service.UsageRow, error) {
+	list, err := a.s.PeriodUsage(childID, fromDay, beforeDay)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]service.UsageRow, 0, len(list))
+	for _, u := range list {
+		out = append(out, service.UsageRow(u))
+	}
+	return out, nil
+}
+
 func (a storeAdapter) GetSchedule(childID int64) ([]core.Interval, error) {
 	return a.s.GetSchedule(childID)
 }

@@ -1489,6 +1489,9 @@
     }
   },
   "MyToday": {
+    "request": {
+      "period": "today"
+    },
     "reply": {
       "ok": true,
       "payload": {
@@ -1570,10 +1573,14 @@
             "text": "Когда время вышло: экран блокировки"
           }
         ],
+        "period": "today",
+        "usedS": 2100,
         "gamesS": 900,
         "studyS": 180,
         "otherS": 1200,
         "allS": 2280,
+        "extraMin": 0,
+        "bonusSpentMin": 0,
         "programs": [
           {
             "path": "c:\\games\\game.exe",
@@ -1610,6 +1617,9 @@
     }
   },
   "MyToday#empty": {
+    "request": {
+      "period": "today"
+    },
     "reply": {
       "ok": true,
       "payload": {
@@ -1642,11 +1652,119 @@
         },
         "today": [],
         "rules": [],
+        "period": "today",
+        "usedS": 0,
         "gamesS": 0,
         "studyS": 0,
         "otherS": 0,
         "allS": 0,
+        "extraMin": 0,
+        "bonusSpentMin": 0,
         "programs": []
+      }
+    }
+  },
+  "MyToday#week": {
+    "request": {
+      "period": "week"
+    },
+    "reply": {
+      "ok": true,
+      "payload": {
+        "status": {
+          "name": "Миша",
+          "status": "ok",
+          "statusText": "Можно",
+          "label": "85",
+          "tooltip": "Осталось 1 ч 25 мин\nИгры: 20 мин",
+          "summary": "Сегодня осталось 1 ч 25 мин из 2 ч",
+          "day": "2026-10-19",
+          "remainingS": 5100,
+          "limitS": 7200,
+          "usedS": 2100,
+          "unlimited": false,
+          "lock": "none",
+          "reason": "",
+          "detail": "",
+          "until": "",
+          "pauseUntil": "",
+          "used": "Сегодня: 35 мин из 2 ч",
+          "bonusBalance": 0,
+          "forbiddenNote": "",
+          "gamesRemainingS": 1200,
+          "gamesLimitS": 3600,
+          "gamesUnlimited": false,
+          "endMode": "lock",
+          "closeGames": false,
+          "studyOnly": false
+        },
+        "today": [
+          "Сегодня осталось 1 ч 25 мин из 2 ч",
+          "Использовано 35 мин"
+        ],
+        "rules": [
+          {
+            "weekday": 1,
+            "day": "пн",
+            "text": "2 ч"
+          },
+          {
+            "weekday": 2,
+            "day": "вт",
+            "text": "2 ч"
+          },
+          {
+            "weekday": 3,
+            "day": "ср",
+            "text": "1 ч 30 мин"
+          },
+          {
+            "weekday": 4,
+            "day": "чт",
+            "text": "2 ч"
+          },
+          {
+            "weekday": 5,
+            "day": "пт",
+            "text": "2 ч"
+          },
+          {
+            "weekday": 6,
+            "day": "сб",
+            "text": "4 ч"
+          },
+          {
+            "weekday": 7,
+            "day": "вс",
+            "text": "Без лимита"
+          },
+          {
+            "weekday": 0,
+            "day": "",
+            "text": "Игры: до 1 ч в день"
+          },
+          {
+            "weekday": 0,
+            "day": "",
+            "text": "Когда время вышло: экран блокировки"
+          }
+        ],
+        "period": "week",
+        "usedS": 2400,
+        "gamesS": 2400,
+        "studyS": 0,
+        "otherS": 0,
+        "allS": 2400,
+        "extraMin": 30,
+        "bonusSpentMin": 15,
+        "programs": [
+          {
+            "path": "c:\\games\\game.exe",
+            "name": "game",
+            "category": "games",
+            "seconds": 2400
+          }
+        ]
       }
     }
   },
@@ -1695,7 +1813,8 @@
   },
   "ParentStats": {
     "request": {
-      "childId": 1
+      "childId": 1,
+      "period": "today"
     },
     "reply": {
       "ok": true,
@@ -1778,10 +1897,14 @@
             "text": "Когда время вышло: экран блокировки"
           }
         ],
+        "period": "today",
+        "usedS": 2100,
         "gamesS": 900,
         "studyS": 180,
         "otherS": 1200,
         "allS": 2280,
+        "extraMin": 0,
+        "bonusSpentMin": 0,
         "programs": [
           {
             "path": "c:\\games\\game.exe",
@@ -1812,6 +1935,117 @@
             "name": "Остальное время",
             "category": "other",
             "seconds": 300
+          }
+        ]
+      }
+    }
+  },
+  "ParentStats#year": {
+    "request": {
+      "childId": 1,
+      "period": "year"
+    },
+    "reply": {
+      "ok": true,
+      "payload": {
+        "status": {
+          "name": "Миша",
+          "status": "ok",
+          "statusText": "Можно",
+          "label": "85",
+          "tooltip": "Осталось 1 ч 25 мин\nИгры: 20 мин",
+          "summary": "Сегодня осталось 1 ч 25 мин из 2 ч",
+          "day": "2026-10-19",
+          "remainingS": 5100,
+          "limitS": 7200,
+          "usedS": 2100,
+          "unlimited": false,
+          "lock": "none",
+          "reason": "",
+          "detail": "",
+          "until": "",
+          "pauseUntil": "",
+          "used": "Сегодня: 35 мин из 2 ч",
+          "bonusBalance": 0,
+          "forbiddenNote": "",
+          "gamesRemainingS": 1200,
+          "gamesLimitS": 3600,
+          "gamesUnlimited": false,
+          "endMode": "lock",
+          "closeGames": false,
+          "studyOnly": false
+        },
+        "today": [
+          "Сегодня осталось 1 ч 25 мин из 2 ч",
+          "Использовано 35 мин"
+        ],
+        "rules": [
+          {
+            "weekday": 1,
+            "day": "пн",
+            "text": "2 ч"
+          },
+          {
+            "weekday": 2,
+            "day": "вт",
+            "text": "2 ч"
+          },
+          {
+            "weekday": 3,
+            "day": "ср",
+            "text": "1 ч 30 мин"
+          },
+          {
+            "weekday": 4,
+            "day": "чт",
+            "text": "2 ч"
+          },
+          {
+            "weekday": 5,
+            "day": "пт",
+            "text": "2 ч"
+          },
+          {
+            "weekday": 6,
+            "day": "сб",
+            "text": "4 ч"
+          },
+          {
+            "weekday": 7,
+            "day": "вс",
+            "text": "Без лимита"
+          },
+          {
+            "weekday": 0,
+            "day": "",
+            "text": "Игры: до 1 ч в день"
+          },
+          {
+            "weekday": 0,
+            "day": "",
+            "text": "Когда время вышло: экран блокировки"
+          }
+        ],
+        "period": "year",
+        "usedS": 3600,
+        "gamesS": 3600,
+        "studyS": 2400,
+        "otherS": 0,
+        "allS": 6000,
+        "extraMin": 0,
+        "bonusSpentMin": 0,
+        "programs": [
+          {
+            "path": "c:\\games\\game.exe",
+            "name": "game",
+            "category": "games",
+            "seconds": 3600
+          },
+          {
+            "path": "c:\\school\\study.exe",
+            "name": "study",
+            "category": "study",
+            "seconds": 2400
           }
         ]
       }
@@ -3066,6 +3300,26 @@
         "action": "foreground",
         "text": "c:\\users\\runneradmin\\appdata\\local\\temp\\pcb\\game.exe"
       }
+    },
+    "reply": {
+      "ok": true,
+      "payload": {}
+    }
+  },
+  "TestSeedDay": {
+    "request": {
+      "childId": 1,
+      "day": "2026-10-19",
+      "totalS": 1800,
+      "gamesS": 1800,
+      "studyS": 0,
+      "usage": [
+        {
+          "path": "c:\\games\\game.exe",
+          "category": "games",
+          "seconds": 1800
+        }
+      ]
     },
     "reply": {
       "ok": true,

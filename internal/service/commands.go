@@ -269,6 +269,7 @@ func init() {
 		ipc.CmdTestGuard:   {testMode(admins()), (*Service).hTestGuard},
 		ipc.CmdTestClock:   {testMode(admins()), (*Service).hTestClock},
 		ipc.CmdTestSession: {testMode(admins()), (*Service).hTestSession},
+		ipc.CmdTestSeedDay: {testMode(admins()), (*Service).hTestSeedDay},
 		ipc.CmdGuardState:  {testMode(kinds(kindGuard, kindAdmin, kindElev)), (*Service).hGuardState},
 
 		// M3: программы (FR-20) — только родитель; снимок для мастера (FR-2) — только до настройки.

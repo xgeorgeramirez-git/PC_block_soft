@@ -66,6 +66,8 @@ func newHarness(t *testing.T, opts ...hopt) *harness {
 			{SID: child2SID, Name: "Коля"},
 		}},
 	}
+	// Копилка в бою ставит момент по часам компьютера; в тестах это часы ядра (они и есть «сейчас»).
+	h.store.now = func() int64 { return h.clock.Now().UnixMilli() }
 	h.cfg = Config{
 		Store: h.store, Hasher: h.hasher, Launcher: h.launcher, Admins: h.admins, Accounts: h.accounts,
 		Policy: h.policy, Clock: h.clock, RealNow: h.real.Now, Loc: tzMSK, Version: "0.1.0-test", DataDir: h.dataDir,

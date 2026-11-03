@@ -138,6 +138,12 @@ type Store interface {
 	AddUsage(childID int64, day, category, kind, subject string, seconds int) error
 	ProgramSeconds(fromDay string) (map[string]int, error)  // секунды по пути exe с fromDay, все дети
 	DayUsage(childID int64, day string) ([]UsageRow, error) // учёт по программам ребёнка за день (D-58); нет — []
+	// PeriodDays — суммы итогов дней ребёнка (общее, игры, видео, учёба, доп. время) с fromDay
+	// включительно до beforeDay не включительно (периоды «Итогов», D-61); Day у ответа пусто, нет дней — нули.
+	PeriodDays(childID int64, fromDay, beforeDay string) (core.DayState, error)
+	// PeriodUsage — учёт по программам ребёнка за те же дни, сложенный по категории и пути (Day пусто);
+	// скрытые тоже (их прячет служба); нет — [].
+	PeriodUsage(childID int64, fromDay, beforeDay string) ([]UsageRow, error)
 
 	// Программы и «Ждут решения» (M3: R12, FR-20, RM3-10).
 	UpsertProgram(p Program) error

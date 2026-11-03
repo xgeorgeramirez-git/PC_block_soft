@@ -31,7 +31,7 @@ const (
 	CmdListEvents     = "ListEvents"
 	CmdChangePassword = "ChangePassword"
 	CmdSetChildren    = "SetChildren"
-	CmdParentStats    = "ParentStats" // статистика выбранного ребёнка за сегодня для родителя (FR-23, D-44)
+	CmdParentStats    = "ParentStats" // статистика выбранного ребёнка за период для родителя (FR-23, D-44, D-61)
 
 	// Диагностика: подробные логи (FR-25, D-42).
 	CmdGetDiag  = "GetDiag"  // прочитать, включены ли подробные логи
@@ -80,6 +80,7 @@ const (
 	CmdTestGuard   = "TestGuard"
 	CmdTestClock   = "TestClock"
 	CmdTestSession = "TestSession"
+	CmdTestSeedDay = "TestSeedDay" // прошлый день учёта для приёмки периодов (S42)
 	CmdGuardState  = "GuardState"
 )
 
@@ -101,6 +102,7 @@ var AllCommands = []string{
 	CmdTestGuard, CmdTestClock, CmdTestSession, CmdGuardState,
 	CmdListPrograms, CmdDecideProgram, CmdSetProgramsCategory, CmdUndoProgram, CmdScanPrograms, // M3 (commands_m3.go)
 	CmdSetProgramsHidden, CmdRenameProgram, // фидбек-раунд 0.3.1 (D-57, D-59)
+	CmdTestSeedDay, // фидбек-раунд 0.3.2 (S42)
 }
 
 // Имена полей, к которым служба привязывает ошибку (Reply.Field, L-121).
@@ -404,9 +406,24 @@ type ClearExtraRequest struct {
 	ChildID int64 `json:"childId"`
 }
 
-// ParentStatsRequest — статистика выбранного ребёнка за сегодня для родителя (FR-23, D-44).
+// ParentStatsRequest — статистика выбранного ребёнка за период для родителя (FR-23, D-44, D-61).
 type ParentStatsRequest struct {
-	ChildID int64 `json:"childId"`
+	ChildID int64  `json:"childId"`
+	Period  string `json:"period"` // Period*; «» — сегодня
+}
+
+// Периоды «Итогов» (8.2.6 п.2, D-61): календарные по местному времени, все включают сегодня.
+const (
+	PeriodToday = "today" // сегодня
+	PeriodWeek  = "week"  // с понедельника текущей недели
+	PeriodMonth = "month" // с 1-го числа текущего месяца
+	PeriodYear  = "year"  // с 1 января текущего года
+	PeriodAll   = "all"   // с установки программы
+)
+
+// MyTodayRequest — «Моя статистика» ребёнка за период (FR-12, D-61). Пустой запрос — сегодня.
+type MyTodayRequest struct {
+	Period string `json:"period"` // Period*; «» — сегодня
 }
 
 // DiagReply — состояние переключателя «Подробные логи для диагностики» (FR-25, D-42).
@@ -513,20 +530,30 @@ type MyRule struct {
 	Text    string `json:"text"`    // «2 ч», «Без лимита», «Нельзя», «Игры: до 1 ч в день»
 }
 
-// MyTodayReply — ответ MyToday: «Сегодня» и «Мои правила» текстом, только чтение.
+// MyTodayReply — ответ MyToday и ParentStats: статус, «Сегодня» и «Мои правила» текстом и «Итоги» за
+// период, только чтение. Status, Today и Rules — всегда за сегодня (остаток, лимиты дня, правила и
+// копилка от периода не зависят, 8.2.6 п.2); поля «Итогов» ниже — за период Period (D-61): прошлые
+// дни из базы, сегодня из счётчиков ядра, без двойного счёта сегодняшнего дня (RF13-1).
 type MyTodayReply struct {
 	Status ChildStatus `json:"status"`
 	Today  []string    `json:"today"` // строки «Сегодня»
 	Rules  []MyRule    `json:"rules"`
-	// GamesS, StudyS — игры и учёба за сегодня, с (итоги «Моей статистики», S13); счётчики ядра.
+	Period string      `json:"period"` // Period* — за какой период «Итоги»
+	// UsedS — общее время за период в счёт лимита, с («Использовано за неделю»).
+	UsedS int `json:"usedS"`
+	// GamesS, StudyS — игры и учёба за период, с (итоги «Моей статистики», S13).
 	GamesS int `json:"gamesS"`
 	StudyS int `json:"studyS"`
-	// OtherS — «Прочее» за сегодня, с: общее время без игр и «Видео и соцсетей» (рабочий стол,
+	// OtherS — «Прочее» за период, с: общее время без игр и «Видео и соцсетей» (рабочий стол,
 	// незнакомые и скрытые программы, дотяжка последней минуты). AllS — «Всего»: общее время и
-	// учёба (D-7: учёба в лимит не входит, но за компьютером была). Счётчики ядра.
+	// учёба (D-7: учёба в лимит не входит, но за компьютером была).
 	OtherS int `json:"otherS"`
 	AllS   int `json:"allS"`
-	// Programs — время каждой программы за сегодня по категориям учёта (D-58, вкладки «Итогов»):
+	// ExtraMin — доп. время за период, мин: добавленное родителем, взятое из копилки и по
+	// промокодам (как day_state.extra_min). BonusSpentMin — из него взято из копилки, мин.
+	ExtraMin      int `json:"extraMin"`
+	BonusSpentMin int `json:"bonusSpentMin"`
+	// Programs — время каждой программы за период по категориям учёта (D-58, вкладки «Итогов»):
 	// самые долгие сверху; скрытых нет (D-57). Пусто — [], не null.
 	Programs []ProgramTime `json:"programs"`
 }
@@ -690,6 +717,25 @@ const (
 	TestSessionDisconnect = "disconnect" // смена пользователя: сеанс отключён
 	TestSessionLogoff     = "logoff"     // выход из учётки
 )
+
+// TestSeedDayRequest — записать итоги прошлого дня ребёнка и учёт по программам за него (только
+// тестовый режим, приёмка S42): в CI нет прошлых дней, а ждать неделю нельзя. День — строго до
+// сегодняшнего по часам ядра: сегодняшний день ведёт ядро.
+type TestSeedDayRequest struct {
+	ChildID int64           `json:"childId"`
+	Day     string          `json:"day"`    // YYYY-MM-DD
+	TotalS  int             `json:"totalS"` // общее время в счёт лимита, с (игры и прочее)
+	GamesS  int             `json:"gamesS"`
+	StudyS  int             `json:"studyS"`
+	Usage   []TestSeedUsage `json:"usage"`
+}
+
+// TestSeedUsage — строка учёта по программе за прошлый день (usage_daily).
+type TestSeedUsage struct {
+	Path     string `json:"path"`
+	Category string `json:"category"` // ProgramCat*
+	Seconds  int    `json:"seconds"`
+}
 
 // TestClockRequest — поставить часы ядра на паузу или продолжить их (Ruling 4).
 type TestClockRequest struct {

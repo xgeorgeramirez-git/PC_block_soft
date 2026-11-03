@@ -493,3 +493,74 @@ func TestDayUsage(t *testing.T) {
 		t.Errorf("DayUsage с мусорным днём: %v, want ErrInvalid", err)
 	}
 }
+
+// Ловит (FB-13, D-61): период тянет день beforeDay (сегодняшний — его ведёт ядро, двойной счёт) или
+// теряет fromDay; суммы чужого ребёнка; учёт сайтов в строках программ; одна программа двумя строками
+// за два дня; пустой период — nil или ошибка; мусорный день принят.
+func TestPeriodDaysAndUsage(t *testing.T) {
+	s := openTemp(t)
+	misha := mustChild(t, s, "S-1", "Миша")
+	anya := mustChild(t, s, "S-2", "Аня")
+	for _, d := range []struct {
+		child int64
+		st    core.DayState
+	}{
+		{misha, core.DayState{Day: "2026-10-18", TotalS: 7, GamesS: 7}}, // до периода
+		{misha, core.DayState{Day: "2026-10-19", TotalS: 1800, GamesS: 1800, ExtraMin: 30}},
+		{misha, core.DayState{Day: "2026-10-20", TotalS: 900, GamesS: 300, VideoS: 100, StudyS: 120, ExtraMin: 15}},
+		{misha, core.DayState{Day: "2026-10-21", TotalS: 600, GamesS: 600}}, // beforeDay: не входит
+		{anya, core.DayState{Day: "2026-10-20", TotalS: 5000, GamesS: 5000}},
+	} {
+		if err := s.SaveDayState(d.child, d.st); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := s.PeriodDays(misha, "2026-10-19", "2026-10-21")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != (core.DayState{TotalS: 2700, GamesS: 2100, VideoS: 100, StudyS: 120, ExtraMin: 45}) {
+		t.Errorf("PeriodDays = %+v; want общее 2700, игры 2100, видео 100, учёба 120, доп. 45", got)
+	}
+	if got, err := s.PeriodDays(misha, "2027-01-01", "2027-02-01"); err != nil || got != (core.DayState{}) {
+		t.Errorf("PeriodDays без дней = %+v, %v; want нули", got, err)
+	}
+	if _, err := s.PeriodDays(misha, "19.10.2026", "2026-10-21"); !errors.Is(err, ErrInvalid) {
+		t.Errorf("PeriodDays с мусорным днём: %v, want ErrInvalid", err)
+	}
+
+	for _, u := range []struct {
+		child                        int64
+		day, category, kind, subject string
+		seconds                      int
+	}{
+		{misha, "2026-10-18", UsageGames, SubjectProgram, pathGame, 7},
+		{misha, "2026-10-19", UsageGames, SubjectProgram, pathGame, 1800},
+		{misha, "2026-10-20", UsageGames, SubjectProgram, pathGame, 300},
+		{misha, "2026-10-20", UsageStudy, SubjectProgram, pathWord, 120},
+		{misha, "2026-10-20", UsageVideoSocial, SubjectSite, "youtube.com", 100},
+		{misha, "2026-10-21", UsageGames, SubjectProgram, pathGame, 600},
+		{anya, "2026-10-20", UsageGames, SubjectProgram, pathGame, 5000},
+	} {
+		if err := s.AddUsage(u.child, u.day, u.category, u.kind, u.subject, u.seconds); err != nil {
+			t.Fatalf("AddUsage(%+v): %v", u, err)
+		}
+	}
+	rows, err := s.PeriodUsage(misha, "2026-10-19", "2026-10-21")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []UsageRow{
+		{Category: UsageGames, Kind: SubjectProgram, Subject: pathGame, Seconds: 2100},
+		{Category: UsageStudy, Kind: SubjectProgram, Subject: pathWord, Seconds: 120},
+	}
+	if !reflect.DeepEqual(rows, want) {
+		t.Errorf("PeriodUsage = %+v, want %+v", rows, want)
+	}
+	if rows, err := s.PeriodUsage(misha, "2027-01-01", "2027-02-01"); err != nil || rows == nil || len(rows) != 0 {
+		t.Errorf("PeriodUsage без учёта = %#v, %v; want пустой список", rows, err)
+	}
+	if _, err := s.PeriodUsage(misha, "2026-10-19", "завтра"); !errors.Is(err, ErrInvalid) {
+		t.Errorf("PeriodUsage с мусорным днём: %v, want ErrInvalid", err)
+	}
+}

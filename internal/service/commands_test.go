@@ -103,7 +103,7 @@ func wantAllowed(cmd, kind, tok string, test, configured bool) bool {
 		return kind == "child" || kind == "guard"
 	case ipc.CmdGuardPoll, ipc.CmdGuardLogoff, ipc.CmdGuardShutdown, ipc.CmdGuardSwitchUser, ipc.CmdGuardClosing:
 		return kind == "guard"
-	case ipc.CmdTestGuard, ipc.CmdTestClock, ipc.CmdTestSession:
+	case ipc.CmdTestGuard, ipc.CmdTestClock, ipc.CmdTestSession, ipc.CmdTestSeedDay:
 		return test && (kind == "admin" || kind == "elev")
 	case ipc.CmdGuardState:
 		return test && (kind == "guard" || kind == "admin" || kind == "elev")
