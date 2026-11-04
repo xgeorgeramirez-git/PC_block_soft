@@ -18,6 +18,10 @@ type RawSensors struct {
 	// ForegroundPath — путь exe программы на переднем плане (R3, M3) после ForegroundPathFor;
 	// «» — не определён, не прочитан или это окно PC Block.
 	ForegroundPath string
+	// ForegroundDomain — домен активной вкладки Brave на переднем плане (M4, RM4-1) из того же
+	// прохода, что и ForegroundPath; «» — не Brave или не прочитан. Только в памяти стража: в снимок
+	// службе (SensorSample) не идёт до M4 T3; полный адрес не хранится нигде (R23).
+	ForegroundDomain string
 }
 
 // ForegroundPathFor решает, какой путь переднего плана отправить службе: path — путь exe

@@ -70,6 +70,10 @@ type Controller struct {
 	fgSet  bool
 	fgPath string
 	lastFg string
+	// domainOf — источник домена активной вкладки Brave (SetDomainReader); lastDomain — домен из
+	// последнего опроса (GuardState в тестовом режиме). В службу домен пока не уходит (M4 T3).
+	domainOf   func() string
+	lastDomain string
 
 	closingMu   sync.Mutex
 	closingDone bool // GuardClosing в этом конце сеанса уже отправлен (или попытка не удалась)
@@ -116,6 +120,14 @@ func (c *Controller) NoteUITick(now time.Time) {
 func (c *Controller) SetSoundPlayer(play func() bool) {
 	c.mu.Lock()
 	c.play = play
+	c.mu.Unlock()
+}
+
+// SetDomainReader задаёт источник домена активной вкладки Brave (M4, RM4-1): f зовётся в PollOnce
+// сразу после чтения датчиков и отдаёт домен из того же прохода.
+func (c *Controller) SetDomainReader(f func() string) {
+	c.mu.Lock()
+	c.domainOf = f
 	c.mu.Unlock()
 }
 
@@ -305,6 +317,14 @@ func (c *Controller) PollOnce() PollResult {
 	now := c.now()
 	req := ipc.GuardPollRequest{Sample: c.read(now), Events: c.takeEvents()}
 	c.mu.Lock()
+	domainOf := c.domainOf
+	c.mu.Unlock()
+	domain := ""
+	if domainOf != nil {
+		domain = domainOf()
+	}
+	c.mu.Lock()
+	c.lastDomain = domain
 	if c.fgSet && c.testMode {
 		req.Sample.ForegroundPath = c.fgPath
 	}
@@ -812,6 +832,7 @@ func (c *Controller) PushState() {
 	st := StateFromView(c.last, c.lastLock, c.shown, c.sounds, c.fields)
 	st.UI = c.ui
 	st.ForegroundPath = c.lastFg
+	st.ForegroundDomain = c.lastDomain
 	c.mu.Unlock()
 	if p, ok := lastPanic.Load().(string); ok {
 		st.UI.Panic = p

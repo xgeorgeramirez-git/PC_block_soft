@@ -410,3 +410,33 @@ func TestPushStateNamesVisiblePlateText(t *testing.T) {
 		t.Fatalf("через 6 с плашка %q; ждали пусто", got)
 	}
 }
+
+// Ловит (проба M4 T0, PL-16): приёмка PROBE ждёт домен активной вкладки Brave в GuardState, а страж
+// его не присылает. Домен берётся из того же чтения датчиков, что и путь (PL-15): источник домена
+// зовётся сразу после read в PollOnce.
+func TestPushStateCarriesForegroundDomain(t *testing.T) {
+	r := newCtRig()
+	r.svc.test = true
+	r.svc.status = ctRunningStatus(600)
+	reads := 0
+	r.ctl.SetDomainReader(func() string {
+		reads++
+		if reads == 1 {
+			return "probe-site.test"
+		}
+		return ""
+	})
+	r.ctl.PollOnce()
+	r.ctl.PushState()
+	if got := lastPushed(t, r).ForegroundDomain; got != "probe-site.test" {
+		t.Fatalf("домен %q; ждали probe-site.test", got)
+	}
+	r.ctl.PollOnce()
+	r.ctl.PushState()
+	if got := lastPushed(t, r).ForegroundDomain; got != "" {
+		t.Fatalf("после второго опроса домен %q; ждали пусто", got)
+	}
+	if reads != 2 {
+		t.Fatalf("источник домена прочитан %d раз за два опроса", reads)
+	}
+}

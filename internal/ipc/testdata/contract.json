@@ -1322,7 +1322,8 @@
         "exits": [
           "switchUser"
         ],
-        "foregroundPath": ""
+        "foregroundPath": "",
+        "foregroundDomain": ""
       }
     }
   },
@@ -1349,7 +1350,33 @@
         "restTimer": "",
         "restMessage": "",
         "exits": [],
-        "foregroundPath": "c:\\users\\миша\\downloads\\supergame.exe"
+        "foregroundPath": "c:\\users\\миша\\downloads\\supergame.exe",
+        "foregroundDomain": ""
+      }
+    }
+  },
+  "GuardState#brave": {
+    "reply": {
+      "ok": true,
+      "payload": {
+        "warnings": [],
+        "sounds": [],
+        "ui": {
+          "tickMs": 0,
+          "ticks": 0,
+          "panic": ""
+        },
+        "lockShown": false,
+        "lockKind": "",
+        "plate": "",
+        "plateKind": "",
+        "buttons": [],
+        "fields": [],
+        "restTimer": "",
+        "restMessage": "",
+        "exits": [],
+        "foregroundPath": "c:\\program files\\bravesoftware\\brave-browser\\application\\brave.exe",
+        "foregroundDomain": "probe-site.test"
       }
     }
   },
@@ -1373,7 +1400,8 @@
         "restTimer": "",
         "restMessage": "",
         "exits": [],
-        "foregroundPath": ""
+        "foregroundPath": "",
+        "foregroundDomain": ""
       }
     }
   },
@@ -1402,7 +1430,8 @@
         "restTimer": "00:14:59",
         "restMessage": "Пойди погуляй с собакой",
         "exits": [],
-        "foregroundPath": ""
+        "foregroundPath": "",
+        "foregroundDomain": ""
       }
     }
   },

@@ -808,6 +808,9 @@ type GuardStateReply struct {
 	// ForegroundPath — путь переднего плана, который страж отправил службе последним снимком
 	// (M3; подмена TestForeground тоже видна здесь); «» — не определён.
 	ForegroundPath string `json:"foregroundPath"`
+	// ForegroundDomain — домен активной вкладки Brave, прочитанный стражем последним (M4, RM4-1);
+	// «» — на переднем плане не Brave или домен не прочитан. Только домен, без адреса (R23).
+	ForegroundDomain string `json:"foregroundDomain"`
 }
 
 // Виды плашек стража для GuardStateReply.PlateKind, кроме плашек о закрытых программах (их вид —

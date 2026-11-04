@@ -57,11 +57,34 @@ func ReadSensors(now time.Time, speed int) ipc.SensorSample {
 	return BuildSample(now, readRaw(), speed)
 }
 
-// readRaw читает датчики одним проходом: окно переднего плана берётся один раз, и полноэкранность
-// и путь относятся к одному окну (PL-15).
+// readRaw читает датчики одним проходом: окно переднего плана берётся один раз, и полноэкранность,
+// путь и домен вкладки Brave относятся к одному окну (PL-15).
 func readRaw() RawSensors {
 	fg, _, _ := procGetForegroundWin.Call()
-	return RawSensors{IdleMs: idleMs(), Fullscreen: windowIsFullscreen(fg), Locked: sessionLocked(), ForegroundPath: foregroundPath(fg)}
+	raw := RawSensors{IdleMs: idleMs(), Fullscreen: windowIsFullscreen(fg), Locked: sessionLocked(), ForegroundPath: foregroundPath(fg)}
+	if isBravePath(raw.ForegroundPath) {
+		raw.ForegroundDomain = braveDomain(windows.HWND(fg))
+	}
+	return raw
+}
+
+// Чтение домена Brave (RM4-1): один braveReader (поток COM) и память доменов окон на весь страж.
+var (
+	braveMu      sync.Mutex
+	braveRd      *braveReader
+	braveDomains domainMemo
+)
+
+// braveDomain — домен активной вкладки окна Brave fg. Текст поля адреса живёт только здесь и сразу
+// превращается в домен (R23). Поле в фокусе — прежний домен окна; ошибка UIA — «» (PL-9).
+func braveDomain(fg windows.HWND) string {
+	braveMu.Lock()
+	defer braveMu.Unlock()
+	if braveRd == nil {
+		braveRd = newBraveReader()
+	}
+	text, focused, _, err := braveRd.Read(fg)
+	return braveDomains.Next(uintptr(fg), text, focused, err)
 }
 
 // fgPathBuf — сколько символов пути читается: больше ipc.MaxForegroundPathLen, чтобы длинный путь

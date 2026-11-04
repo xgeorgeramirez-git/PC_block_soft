@@ -392,6 +392,10 @@ func examples() map[string]example {
 			Plate: "Программа «SuperGame» ждёт разрешения родителя", PlateKind: BlockedUnknown,
 			Buttons: []string{"askNow", "plateClose"}, ForegroundPath: `c:\users\миша\downloads\supergame.exe`,
 		}),
+		"GuardState#brave": ok(nil, GuardStateReply{
+			ForegroundPath:   `c:\program files\bravesoftware\brave-browser\application\brave.exe`,
+			ForegroundDomain: "probe-site.test",
+		}),
 		"TestGuard#foreground": ok(TestGuardRequest{Action: TestGuardAction{Action: TestForeground, Text: `c:\users\runneradmin\appdata\local\temp\pcb\game.exe`}}, Empty{}),
 
 		// M3: программы.
