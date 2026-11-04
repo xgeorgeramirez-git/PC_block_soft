@@ -21,11 +21,13 @@ $ErrorActionPreference = "Stop"
 $script:AutoPattern = "запускалась сама и закрыта"
 $script:TryPattern = "попытка открыть запрещённое"
 
-# Строки подробного журнала службы о закрытых программах (почему запуск ручной или сам): для текста ошибки.
+# Строки подробного журнала службы о закрытых программах (родитель, почему запуск ручной или сам, уточнение
+# по следующему снимку стража): для текста ошибки. Запись «запускалась сама» служба делает через 2 с после
+# закрытия (launchSettle): проверки журнала идут после 3 с наблюдения за плашкой.
 function Get-WatchLog {
   $log = Join-Path (Join-Path $script:Data "logs") "service.log"
   if (-not (Test-Path -LiteralPath $log)) { return "service.log нет" }
-  $lines = @(Get-Content -LiteralPath $log -Encoding UTF8 -ErrorAction SilentlyContinue | Where-Object { $_ -match 'наблюдатель закрыл' }) | Select-Object -Last 6
+  $lines = @(Get-Content -LiteralPath $log -Encoding UTF8 -ErrorAction SilentlyContinue | Where-Object { $_ -match 'наблюдатель (закрыл|: запуск|: .*«сама»)' }) | Select-Object -Last 8
   if ($lines.Count -eq 0) { return "в service.log нет строк «наблюдатель закрыл»" }
   return ($lines -join ' | ')
 }
