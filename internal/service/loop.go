@@ -133,7 +133,7 @@ func (s *Service) sampleFor(cs *childState) (core.SessionSample, string) {
 // путь — «Прочее» (PL-7/8): незнакомая не успевает засчитаться игрой. Скрытая родителем — hidden:
 // секунда не засчитывается вовсе (D-63, RF15-1), решает sampleFor. Отпечаток файла — тот, что
 // видел наблюдатель (fpSeen), издатель тоже (pubSeen, RM3-13): подменённый файл не засчитывается
-// по старому решению. Путь для учёта — нормализованный, у системы и скрытой «».
+// по старому решению. Путь для учёта — нормализованный, у системы, скрытой и запрещённой «».
 func (s *Service) foregroundOf(sm ipc.SensorSample) (cat core.Category, path string, hidden bool) {
 	if sm.Foreground == ipc.CatNameVideoSocial {
 		return core.CatVideoSocial, "", false
@@ -150,6 +150,10 @@ func (s *Service) foregroundOf(sm ipc.SensorSample) (cat core.Category, path str
 		return coreCategory(res.Category), norm, false
 	case programs.VerdictHidden:
 		return core.CatOther, "", true
+	case programs.VerdictForbidden:
+		// Секунды до закрытия — «Прочее» без программы: запрещённая не получает строку «Итогов»,
+		// даже если запрет по наследству, а не точной записью (D-64, RF16-1).
+		return core.CatOther, "", false
 	}
 	return core.CatOther, norm, false
 }

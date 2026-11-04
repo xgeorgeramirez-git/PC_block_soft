@@ -144,3 +144,22 @@ func TestForegroundUsesWatcherFingerprint(t *testing.T) {
 		t.Errorf("подменённый файл: жив %v, игры %d с, общее %d; want закрыт, 5, 10", w.alive(game2), st.GamesS, h.usedS())
 	}
 }
+
+// Ловит (D-64, RF16-1): секунды запрещённой программы на переднем плане (до того, как наблюдатель
+// её закрыл) пишутся в учёт по её пути: при запрете по наследству (тот же файл в новой папке
+// версии, PL-20), а не точной записью, строка с именем файла попала бы в «Итоги». Время идёт в
+// «Прочее» без программы, общее время не теряется.
+func TestForbiddenForegroundNotCountedByPath(t *testing.T) {
+	h := newHarness(t, configured(), withChild(childSID, "Миша", 120), withPrograms(typicalScan()))
+	h.start()
+	h.childLogsIn()
+	h.setCategory(pathChrome, "blocked")
+	h.run(10, fgSample(pathChrome, ipc.CatNameOther))
+	if got := h.usedS(); got != 10 {
+		t.Errorf("общее время: %d с, want 10 (секунды не теряются, идут в «Прочее» без программы)", got)
+	}
+	h.svc.Shutdown(h.real.Now())
+	if n := h.usageOf("2026-10-19", "other", pathChrome); n != 0 {
+		t.Errorf("учёт по пути запрещённой chrome: %d с, want 0", n)
+	}
+}
