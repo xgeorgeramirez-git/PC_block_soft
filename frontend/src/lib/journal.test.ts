@@ -7,6 +7,7 @@ describe("журнал", () => {
     expect(isViolation("bypass")).toBe(true);
     expect(isViolation("program_forbidden_try")).toBe(true);
     expect(isViolation("program_closed_games")).toBe(false);
+    expect(isViolation("program_auto_closed")).toBe(false); // запрещённая запустилась сама (D-65)
     expect(isViolation("program_closed_study_only")).toBe(false);
     expect(isViolation("program_pending")).toBe(false);
     expect(isViolation("program_decided")).toBe(false);
