@@ -6,4 +6,6 @@
 |------|---------|------|--------|--------------------|-----------|
 | разведка M4 | a922c1925ec927288 | reader (Explore) | done | карта датчиков, ядра игр, наблюдателя, каталога браузеров, WindowsApps, `site_rules`, реестра, команд канала, приёмки и CI; заглушки M4 не подключены, `video_min` не читается, видео не идёт в `usage_daily` | — |
 | ревью плана M4 | a560e3524f58b6701 | plan-reviewer | done | Issues Found: 0 critical, 8 important (стартовый набор сайтов, B-20, S46 в тестовом режиме, политики HKCU, Ctrl+W, окна без адреса, нагрузка UIA, проверка S20), 10 minor — внесено в план (7359135) | — |
-| пакет T0 | a721afca03e6865e3 | reader | running | — | — |
+| пакет T0 | a721afca03e6865e3 | reader | failed | ответ остановлен фильтром, пакет написал оркестратор (a2191ae) | — |
+| T0 проба Brave | afa9026170009b7f1 | writer | done | omnibox+UIA+Ctrl+W+проба+PROBE, 6 коммитов f64b12f…45ac4ef, Rulings RT0-1…8; факты — по прогону windows.yml 41863361154 | 0 |
+| пакеты T1/T2 | afce624bee7ca3e58 | reader | running | — | — |
