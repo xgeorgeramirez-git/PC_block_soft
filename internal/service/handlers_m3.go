@@ -23,6 +23,7 @@ const (
 	evProgramRenamed         = "program_renamed" // вы переименовали программу (D-59)
 	evProgramPending         = "program_pending"
 	evProgramForbiddenTry    = "program_forbidden_try"
+	evProgramAutoClosed      = "program_auto_closed" // запрещённая запустилась сама и закрыта (D-65): не нарушение
 	evProgramClosedGames     = "program_closed_games"
 	evProgramClosedStudyOnly = "program_closed_study_only"
 )

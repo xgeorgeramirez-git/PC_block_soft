@@ -97,6 +97,8 @@ func eventText(kind, name string, d map[string]any) string {
 		body = "программа «" + eventProgram(d) + "» ждёт решения"
 	case evProgramForbiddenTry:
 		body = "попытка открыть запрещённое: «" + eventProgram(d) + "»"
+	case evProgramAutoClosed:
+		body = "программа «" + eventProgram(d) + "» запускалась сама и закрыта"
 	case evProgramClosedGames:
 		body = "закрыта «" + eventProgram(d) + "»: время на игры закончилось"
 	case evProgramClosedStudyOnly:

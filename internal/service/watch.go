@@ -44,6 +44,10 @@ type watchEntry struct {
 	pubRead bool
 	closed  bool // Kill уже удался: записи сделаны, повторный Kill без записей
 	seen    uint64
+	// manual — запуск ручной (R13, D-65): решено по фактам в момент, когда процесс увиден впервые
+	// (родитель, ввод ребёнка, передний план, вход в учётку); why — почему (подробный журнал).
+	manual bool
+	why    string
 }
 
 // watchTarget — снимок сеанса ребёнка для одного прохода (под s.mu).
@@ -53,6 +57,14 @@ type watchTarget struct {
 	sid     string // SID учётки ребёнка: процессы другого пользователя в его сеансе не трогаются (R19)
 	d       core.Decision
 	own     map[uint32]bool // процессы PC Block этого сеанса (страж, значок, окна): не трогать никогда
+	// Факты для «ручной или сам» (R13, D-65, launchKind): момент прохода, вход ребёнка в сеанс,
+	// последний ввод и передний план по свежему снимку стража (нулевые и «» — данных нет),
+	// процессы сеанса по номерам (родитель запуска).
+	at      time.Time
+	logonAt time.Time
+	inputAt time.Time
+	fg      string
+	byPID   map[uint32]ProcInfo
 }
 
 // watchAct — процесс, который наблюдатель закрывает в этом проходе.
@@ -63,6 +75,7 @@ type watchAct struct {
 	res       programs.Result
 	cat       core.Category // для закрытия по правилу (игры, только учёба)
 	plateKind string        // ipc.Blocked*
+	auto      bool          // запрещённая запустилась сама (R13, D-65): без плашки и нарушения
 	killed    bool
 	again     bool // процесс уже закрывали: без записей
 	publisher string
@@ -101,7 +114,7 @@ func (s *Service) Watch(real time.Time) {
 	}
 	s.watch.mu.Lock()
 	defer s.watch.mu.Unlock()
-	targets, ok := s.watchSnapshot()
+	targets, ok := s.watchSnapshot(real)
 	if !ok {
 		return
 	}
@@ -120,6 +133,10 @@ func (s *Service) Watch(real time.Time) {
 			notes = append(notes, fmt.Sprintf("watch-list|%d\x00наблюдатель: процессы сеанса %d не прочитаны, ничего не закрывается: %v", t.session, t.session, err))
 			s.keepSession(t.session, gen)
 			continue
+		}
+		t.byPID = make(map[uint32]ProcInfo, len(list))
+		for _, p := range list {
+			t.byPID[p.PID] = p
 		}
 		for _, p := range list {
 			a, skip := s.watchDecide(t, p, gen)
@@ -181,8 +198,10 @@ func (s *Service) keepSession(session uint32, gen uint64) {
 // останавливается, список программ не готов (RM3-10, R18), не определены папка Windows или
 // каталог установки (класс «система» был бы пуст), тестовый режим без WatchDir (RM3-8).
 // Пауза (R11) и безопасный режим (R18): у ребёнка ничего не закрывается, его сеанс не опрашивается.
-// Сеансы взрослых (R19) и сеансы без пользователя не опрашиваются вовсе.
-func (s *Service) watchSnapshot() ([]watchTarget, bool) {
+// Сеансы взрослых (R19) и сеансы без пользователя не опрашиваются вовсе. Заодно снимаются факты
+// для «ручной или сам» (launchFacts): вход в сеанс, ввод и передний план по снимку стража этого
+// сеанса не старше sampleMaxAge; снимок с неактивным сеансом — данных о вводе нет.
+func (s *Service) watchSnapshot(real time.Time) ([]watchTarget, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if !s.started || s.stopping || !s.programsReady() {
@@ -228,7 +247,12 @@ func (s *Service) watchSnapshot() ([]watchTarget, bool) {
 				own[sp.pid] = true
 			}
 		}
-		out = append(out, watchTarget{session: id, childID: ss.childID, sid: cs.child.SID, d: d, own: own})
+		t := watchTarget{session: id, childID: ss.childID, sid: cs.child.SID, d: d, own: own, at: real, logonAt: ss.since}
+		if sm := cs.sample; cs.haveSample && cs.sampleSess == id && real.Sub(cs.sampleAt) <= sampleMaxAge && sm.SessionActive && sm.LastInputAgoMs >= 0 {
+			t.inputAt = cs.sampleAt.Add(-time.Duration(sm.LastInputAgoMs) * time.Millisecond)
+			t.fg = programs.Normalize(sm.ForegroundPath)
+		}
+		out = append(out, t)
 	}
 	return out, true
 }
@@ -265,6 +289,10 @@ func (s *Service) watchDecide(t *watchTarget, p ProcInfo, gen uint64) (*watchAct
 			return nil, skipUnreadable
 		}
 		e = &watchEntry{session: t.session, path: p.Path, norm: norm}
+		e.manual, e.why = launchKind(launchFacts{
+			At: t.at, LogonAt: t.logonAt, InputAt: t.inputAt, Self: norm,
+			Parent: launchParentOf(p, t.byPID, t.sid), Shell: launchShell(s.classifier.Roots().SystemRoot), Foreground: t.fg,
+		})
 		s.watch.procs[key] = e
 	}
 	e.seen = gen
@@ -290,7 +318,7 @@ func (s *Service) watchDecide(t *watchTarget, p ProcInfo, gen uint64) (*watchAct
 	case programs.VerdictUnknown:
 		a.plateKind = ipc.BlockedUnknown
 	case programs.VerdictForbidden:
-		a.plateKind = ipc.BlockedForbidden
+		a.plateKind, a.auto = ipc.BlockedForbidden, !e.manual
 	default:
 		a.cat = coreCategory(res.Category)
 		if t.d.Allows(a.cat) {
@@ -349,7 +377,7 @@ func (s *Service) applyWatch(acts []watchAct, notes []string, unreadable, others
 		if cs == nil {
 			continue
 		}
-		s.vlogf("наблюдатель закрыл %s (PID %d) в сеансе %d: %s", a.e.norm, a.p.PID, a.t.session, a.res.Verdict)
+		s.vlogf("наблюдатель закрыл %s (PID %d, родитель %d) в сеансе %d: %s; запуск ручной: %v (%s)", a.e.norm, a.p.PID, a.p.ParentPID, a.t.session, a.res.Verdict, a.e.manual, a.e.why)
 		s.recordClosed(cs, a, real)
 	}
 }
@@ -378,6 +406,13 @@ func (s *Service) recordClosed(cs *childState, a *watchAct, real time.Time) {
 			s.logRate("pending-add", "попытка запуска %s не записана в «Ждут решения»: %v", a.e.norm, err)
 		}
 	case ipc.BlockedForbidden:
+		if a.auto {
+			// Запустилась сама (R13, D-65): ребёнку ничего, нарушения нет, родителю раз в день.
+			if s.autoClosedOnce(cs.child.ID, a.t.d.Day, a.e.norm, real) {
+				s.journal.Write(cs.child.ID, evProgramAutoClosed, details)
+			}
+			return
+		}
 		kind = evProgramForbiddenTry
 		plate.Text = fmt.Sprintf(textPlateForbidden, name)
 	case ipc.BlockedStudyOnly:
@@ -400,6 +435,35 @@ func (s *Service) recordClosed(cs *childState, a *watchAct, real time.Time) {
 		s.journal.Write(cs.child.ID, kind, details)
 	}
 	s.blockedPlate(a.t.session, cs.child.ID, plate, real)
+}
+
+// autoClosedDay — запрещённые программы, уже записанные как «запускалась сама» в день day.
+type autoClosedDay struct {
+	day   string
+	paths map[string]bool
+}
+
+// autoClosedOnce — true, если о запрещённой программе path, запустившейся сама, сегодня (день
+// учёта day ребёнка childID; пустой — местная дата real) ещё не писали (R13, D-65: одна запись в
+// день на программу и ребёнка). Память только в службе: после её перезапуска запись может
+// повториться в тот же день. Вызывать под s.mu.
+func (s *Service) autoClosedOnce(childID int64, day, path string, real time.Time) bool {
+	if day == "" {
+		day = real.In(s.cfg.Loc).Format(time.DateOnly)
+	}
+	if s.autoClosed == nil {
+		s.autoClosed = map[int64]*autoClosedDay{}
+	}
+	d := s.autoClosed[childID]
+	if d == nil || d.day != day {
+		d = &autoClosedDay{day: day, paths: map[string]bool{}}
+		s.autoClosed[childID] = d
+	}
+	if d.paths[path] {
+		return false
+	}
+	d.paths[path] = true
+	return true
 }
 
 // blockedPlate ставит плашку о закрытой программе в очередь стража сеанса (как noticeGuards):

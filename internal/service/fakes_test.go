@@ -1322,6 +1322,20 @@ func (w *fakeWatcher) start(session uint32, path string) ProcInfo {
 	return p
 }
 
+// startFrom запускает процесс с путём path от имени ребёнка; его родитель — процесс parent (R13, D-65).
+func (w *fakeWatcher) startFrom(session uint32, path string, parent ProcInfo) ProcInfo {
+	p := w.start(session, path)
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	for i := range w.procs {
+		if w.procs[i].PID == p.PID {
+			w.procs[i].ParentPID = parent.PID
+		}
+	}
+	p.ParentPID = parent.PID
+	return p
+}
+
 // startAs запускает процесс от имени пользователя sid (ok = false: пользователь не прочитан).
 func (w *fakeWatcher) startAs(session uint32, path, sid string, ok bool) ProcInfo {
 	w.mu.Lock()
