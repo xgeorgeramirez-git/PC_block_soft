@@ -5,7 +5,8 @@
 # Дано: game.exe и launcher.exe «Игры», лимит игр 2 мин. Когда: родитель скрывает launcher.exe командой
 # SetProgramsHidden, ребёнок запускает обе, игры кончаются. Тогда: launcher.exe нет в списке программ
 # (только с флагом hidden для фильтра «Скрытые») и в «Ждут решения»; минуты launcher.exe на переднем
-# плане идут в общее время, но не в игры; в 0 игр game.exe закрыта, launcher.exe работает; в журнале
+# плане не засчитываются: остаток, общее время, игры и «Прочее» стоят (D-63); в 0 игр game.exe закрыта,
+# launcher.exe работает; в журнале
 # «вы скрыли «X»»; после «Показать» launcher.exe снова «Игры» и закрывается, повторный запуск тоже.
 # Снимок: s38-hidden-alive.png.
 $ErrorActionPreference = "Stop"
@@ -28,7 +29,7 @@ function Set-Hidden([string]$Path, [bool]$Hidden) {
   return $rep.payload
 }
 
-Invoke-Scenario "S38" "Скрытая программа: не закрывается и не идёт в игры, после «Показать» снова игра" {
+Invoke-Scenario "S38" "Скрытая программа: не закрывается и не засчитывается, после «Показать» снова игра" {
   Initialize-Scenario 60
 
   Step "Имитация ввода доходит до сеанса" {
@@ -73,15 +74,25 @@ Invoke-Scenario "S38" "Скрытая программа: не закрывае�
     Assert-AppAlive $script:Game "game.exe («Игры», время на игры есть)"
   }
 
-  Step "launcher.exe на переднем плане: общее время идёт, игры нет" {
+  Step "launcher.exe на переднем плане 2 мин часов ядра: остаток, общее время, игры и «Прочее» стоят (D-63)" {
     Set-TestForeground $script:Launcher
     Start-Sleep -Seconds 2 # часы на паузе: служба получает снимок стража уже со скрытой на переднем плане
     $before = Get-Status
+    $m0 = Get-MyToday
+    $t0 = Get-CoreNowMs
     Resume-Clock
-    $st = Wait-Status { param($st) $st.usedS -ge $before.usedS + 60 } 30 "минута общего времени со скрытой на переднем плане"
+    Wait-Until { (Get-CoreNowMs) -ge $t0 + 120000 } 30 "две минуты часов ядра со скрытой на переднем плане"
     Suspend-Clock
+    $passedS = [int](((Get-CoreNowMs) - $t0) / 1000)
     $st = Get-Status
-    Write-Log "Скрытая на переднем плане: общее $($before.usedS) → $($st.usedS) с, остаток игр $($st.gamesRemainingS) с"
+    $m = Get-MyToday
+    $fg = ([string](Get-GuardState).foregroundPath).ToLowerInvariant()
+    $was = "общее $($before.usedS) → $($st.usedS) с, остаток $($before.remainingS) → $($st.remainingS) с, игры $($m0.gamesS) → $($m.gamesS) с, прочее $($m0.otherS) → $($m.otherS) с, всего $($m0.allS) → $($m.allS) с, остаток игр $($st.gamesRemainingS) с"
+    Write-Log "Скрытая на переднем плане $passedS с часов ядра (передний план $fg): $was"
+    # Без этого «время стоит» могло бы значить, что скрытая и не была на переднем плане (PL-22).
+    Assert-That ($fg -eq $script:LauncherPath.ToLowerInvariant()) "На переднем плане у стража «$fg», ждали launcher.exe $($script:LauncherPath.ToLowerInvariant()): проверка ничего не проверяет"
+    Assert-That ($st.usedS -eq $before.usedS -and $st.remainingS -eq $before.remainingS) "Скрытая $passedS с потратила время: $was; ждали без изменений"
+    Assert-That ($m.allS -eq $m0.allS -and $m.otherS -eq $m0.otherS -and $m.gamesS -eq $m0.gamesS) "Скрытая $passedS с попала в «Итоги»: $was; ждали без изменений"
     Assert-That ($st.gamesRemainingS -eq 120) "Остаток игр $($st.gamesRemainingS) с, ждали 120: минуты скрытой ушли в игры"
     Assert-That (-not $st.closeGames) "Игры закрыты, хотя играли только в скрытую"
   }
@@ -129,5 +140,5 @@ Invoke-Scenario "S38" "Скрытая программа: не закрывае�
     }
   }
 
-  Write-Log "S38: скрытая launcher.exe не закрыта и не идёт в игры, game.exe закрыта в 0 игр, после «Показать» launcher.exe снова игра"
+  Write-Log "S38: скрытая launcher.exe не закрыта и не засчитывается, game.exe закрыта в 0 игр, после «Показать» launcher.exe снова игра"
 }
