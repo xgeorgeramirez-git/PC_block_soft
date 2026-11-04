@@ -80,3 +80,39 @@ func omniboxDomain(text string) string {
 	}
 	return s
 }
+
+// isBravePath — путь переднего плана это brave.exe (оканчивается на «\brave.exe», регистр не важен).
+func isBravePath(path string) bool {
+	return strings.HasSuffix(strings.ToLower(path), `\brave.exe`)
+}
+
+// domainMemo — последний домен каждого окна Brave (только домен, R23). Пока поле адреса в фокусе
+// клавиатуры (ребёнок печатает адрес или поисковую фразу), домен окна не меняется (RM4-1). Ошибка
+// чтения — «» и память окна забыта (PL-9: не знаю — ничего не утверждать). Окна, которых больше
+// нет, вытесняются: память держит не больше maxMemoWindows окон.
+type domainMemo struct {
+	last map[uintptr]string
+}
+
+const maxMemoWindows = 64
+
+// Next — домен окна hwnd по прочитанному полю адреса: text — текст поля (только в этой функции,
+// дальше не идёт), focused — поле в фокусе клавиатуры, err — ошибка чтения.
+func (m *domainMemo) Next(hwnd uintptr, text string, focused bool, err error) string {
+	if m.last == nil {
+		m.last = map[uintptr]string{}
+	}
+	if err != nil {
+		delete(m.last, hwnd)
+		return ""
+	}
+	if focused {
+		return m.last[hwnd]
+	}
+	d := omniboxDomain(text)
+	if _, ok := m.last[hwnd]; !ok && len(m.last) >= maxMemoWindows {
+		m.last = map[uintptr]string{}
+	}
+	m.last[hwnd] = d
+	return d
+}
