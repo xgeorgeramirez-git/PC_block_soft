@@ -1042,9 +1042,11 @@ func (s *Service) hGuardSwitchUser(c *callCtx) ipc.Reply {
 
 // --- тестовый режим -------------------------------------------------------------------------------
 
+// testActions — действия стражу, которые служба передаёт в тестовом режиме (TestGuard, Ruling 5);
+// TestForeground — подмена переднего плана (приёмка S38, S44, S45).
 var testActions = map[string]bool{
 	ipc.TestClick: true, ipc.TestType: true, ipc.TestWMClose: true, ipc.TestAltF4: true, ipc.TestEsc: true,
-	ipc.TestEndSession: true,
+	ipc.TestEndSession: true, ipc.TestForeground: true,
 }
 
 func (s *Service) hTestGuard(c *callCtx) ipc.Reply {

@@ -719,6 +719,31 @@ func TestTestGuardAcceptsEndSession(t *testing.T) {
 	}
 }
 
+// Ловит (S38, S44, S45): подмена переднего плана (TestForeground) не доходит до стража: служба
+// отвергает её как незнакомое действие («Не удалось разобрать запрос»), хотя страж её умеет и
+// приёмка на неё опирается; вне тестового режима подмена принимается.
+func TestTestGuardAcceptsForeground(t *testing.T) {
+	const fg = `C:\Program Files\PowerShell\7\pwsh.exe`
+	h := newHarness(t, withChild(childSID, "Миша", 120), withTestMode(TestMode{ClockSpeed: 60}))
+	h.start()
+	h.childLogsIn()
+	h.ok(adminPeer(), "", ipc.CmdTestGuard, ipc.TestGuardRequest{Action: ipc.TestGuardAction{Action: ipc.TestForeground, Text: fg}}, nil)
+	h.ok(adminPeer(), "", ipc.CmdTestGuard, ipc.TestGuardRequest{Action: ipc.TestGuardAction{Action: ipc.TestForeground}}, nil)
+	rep := h.poll(activeSample)
+	if len(rep.Commands) != 2 || rep.Commands[0].Test == nil || rep.Commands[0].Test.Action != "foreground" || rep.Commands[0].Test.Text != fg ||
+		rep.Commands[1].Test == nil || rep.Commands[1].Test.Action != "foreground" || rep.Commands[1].Test.Text != "" {
+		t.Fatalf("команды стражу: %s; want подмена %s и снятие подмены", jsonOf(t, rep.Commands), fg)
+	}
+
+	off := newHarness(t, withChild(childSID, "Миша", 120))
+	off.start()
+	off.childLogsIn()
+	off.fail(adminPeer(), "", ipc.CmdTestGuard, ipc.TestGuardRequest{Action: ipc.TestGuardAction{Action: ipc.TestForeground, Text: fg}})
+	if rep := off.poll(activeSample); len(rep.Commands) != 0 {
+		t.Fatalf("вне тестового режима стражу ушло: %s", jsonOf(t, rep.Commands))
+	}
+}
+
 // Ловит: при нескольких стражах команда без сеанса уходит наугад; без стража принимается молча.
 func TestTestGuardSessionAmbiguity(t *testing.T) {
 	h := newHarness(t, withChild(childSID, "Миша", 120), withChild(child2SID, "Коля", 120), withTestMode(TestMode{ClockSpeed: 1}))
