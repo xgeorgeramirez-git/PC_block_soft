@@ -13,7 +13,7 @@ on:
   workflow_dispatch:
     inputs:
       scenario:
-        description: "Что прогнать после сборки: пусто = обычная сборка, smoke = ранний смоук службы (tools/accept/smoke.ps1), accept = приёмка S1...S15, S25...S27, S33...S41, LE1, LE2, FB1, FB5 (tools/accept/run-all.ps1)"
+        description: "Что прогнать после сборки: пусто = обычная сборка, smoke = ранний смоук службы (tools/accept/smoke.ps1), accept = приёмка S1...S15, S25...S27, S33...S41, LE1, LE2, FB1, FB5, PROBE (tools/accept/run-all.ps1), probe = проба Brave (TestBraveProbe, M4 T0)"
         required: false
         default: ""
         type: string
@@ -89,6 +89,42 @@ jobs:
             fi
           fi
 
+      # Brave для пробы M4 T0 и приёмки сайтов (RM4-12): ставится только при scenario=accept или probe.
+      # Сначала пакет choco, нет brave.exe — офлайн-установщик последнего стабильного выпуска с GitHub.
+      # Адреса проб в hosts ведут на 127.0.0.1: из сети ничего не грузится. Есть brave.exe — тесты Go
+      # получают PCB_BRAVE_PROBE=1 (TestBraveProbe).
+      - name: Brave для пробы и приёмки
+        if: github.event_name == 'workflow_dispatch' && (inputs.scenario == 'accept' || inputs.scenario == 'probe')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          exec > >(tee -a "$RUNNER_TEMP/ci.log") 2>&1
+          find_brave() {
+            for d in "$PROGRAMFILES" "${PROGRAMFILES} (x86)" "$LOCALAPPDATA"; do
+              f="$(cygpath -u "$d")/BraveSoftware/Brave-Browser/Application/brave.exe"
+              if [ -f "$f" ]; then echo "$f"; return 0; fi
+            done
+            return 1
+          }
+          how="choco"
+          choco install brave -y --no-progress || echo "choco install brave: код $?"
+          if ! exe=$(find_brave); then
+            how="офлайн-установщик GitHub"
+            tag=$(gh api repos/brave/brave-browser/releases/latest --jq .tag_name)
+            echo "Последний стабильный выпуск Brave: $tag"
+            gh release download "$tag" -R brave/brave-browser -p BraveBrowserStandaloneSetup.exe -D "$RUNNER_TEMP" --clobber
+            "$RUNNER_TEMP/BraveBrowserStandaloneSetup.exe" /silent /install || echo "установщик Brave: код $?"
+            for i in $(seq 1 60); do exe=$(find_brave) && break; sleep 5; done
+          fi
+          if ! exe=$(find_brave); then
+            echo "::error title=Brave::brave.exe не найден после choco и офлайн-установщика"
+            exit 1
+          fi
+          ver=$(powershell -NoProfile -Command "(Get-Item -LiteralPath '$(cygpath -w "$exe")').VersionInfo.FileVersion")
+          echo "::notice title=Brave::$how: $(cygpath -w "$exe"), версия $ver"
+          printf '\r\n127.0.0.1 probe-site.test probe-two.test probe-app.test blocked-probe.test\r\n' >> /c/Windows/System32/drivers/etc/hosts
+          echo "PCB_BRAVE_PROBE=1" >> "$GITHUB_ENV"
+
       - name: Тесты Go на Windows
         run: |
           exec > >(tee -a "$RUNNER_TEMP/ci.log") 2>&1
@@ -104,6 +140,17 @@ jobs:
             cat "$f"
           else
             echo "::warning title=Сухой прогон наблюдателя::итог не записан: тест TestWatcherDryRun не дошёл до конца"
+          fi
+
+      # Проба Brave (M4 T0): TestBraveProbe пишет факты пометками ::notice в файл, здесь они выводятся.
+      - name: Проба Brave (пометки)
+        if: always() && env.PCB_BRAVE_PROBE == '1'
+        run: |
+          f="$RUNNER_TEMP/pcb-brave-probe.txt"
+          if [ -s "$f" ]; then
+            cat "$f"
+          else
+            echo "::warning title=Проба Brave::факты не записаны: тест TestBraveProbe не дошёл до первого шага"
           fi
 
       - name: Ошибки — в пометки сборки (их видно без журнала)
