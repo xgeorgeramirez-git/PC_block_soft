@@ -76,9 +76,13 @@ type sessState struct {
 	listSeen ScreenState // и вывод из него
 	offHold  time.Time   // до этого момента список Windows не возвращает «на экране» поверх события отключения
 	locked   bool        // сеанс заблокирован: по событиям блокировки и разблокировки; сбрасывается снимком стража (FB-3)
-	guard    *supProc
-	tray     *supProc
-	windows  map[string]*supProc
+	// since — когда служба увидела сеанс с этим пользователем: вход в учётку для правила
+	// автозагрузки (R13, D-65). После перезапуска службы это момент перезапуска, и первые 60 с
+	// запуски из Проводника считаются автоматическими (Ruling RF18-3).
+	since   time.Time
+	guard   *supProc
+	tray    *supProc
+	windows map[string]*supProc
 }
 
 // OnSession принимает событие сеанса от диспетчера служб: служба сверяет сеансы и запускает
@@ -219,7 +223,7 @@ func (s *Service) syncSessions(real time.Time) {
 			ss = nil
 		}
 		if ss == nil {
-			ss = &sessState{id: si.ID, user: si.User, sid: si.SID, windows: map[string]*supProc{}}
+			ss = &sessState{id: si.ID, user: si.User, sid: si.SID, since: real, windows: map[string]*supProc{}}
 			s.sessions[si.ID] = ss
 		}
 		if si.Screen != ScreenUnknown {

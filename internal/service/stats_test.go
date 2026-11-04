@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"pcblock/internal/core"
 	"pcblock/internal/ipc"
 )
 
@@ -132,5 +133,89 @@ func TestMyTodayProgramsEmptyAndYesterday(t *testing.T) {
 	h.ok(childPeer(), "", ipc.CmdMyToday, nil, &my)
 	if len(my.Programs) != 0 || my.AllS != 0 || my.OtherS != 0 {
 		t.Errorf("после полуночи: %+v, всего %d, прочее %d", my.Programs, my.AllS, my.OtherS)
+	}
+}
+
+// Ловит (D-64, RF16-1, S44): запрещённая программа, использованная до запрета, остаётся строкой
+// «Итогов» за «Сегодня» или «Неделю» у ребёнка или у родителя; её минуты пропадают из итога вместо
+// строки «Остальное время» (сумма строк ≠ итог, PL-28); итоги меняются от запрета; вместе с
+// запрещённой пропадают и разрешённые программы той же категории.
+func TestStatsBlockedProgramHidden(t *testing.T) {
+	h := newHarness(t, configured(), withChild(childSID, "Миша", 240), withPrograms(typicalScan()), withClockAt(wed1500))
+	h.start()
+	h.childLogsIn()
+	id := h.childID(childSID)
+	// Понедельник этой недели: chrome 10 мин «Прочего».
+	if err := h.store.SaveDayAndUsage(id, core.DayState{Day: "2026-10-19", TotalS: 600},
+		[]UsageRow{{Category: "other", Kind: usageKindProgram, Subject: pathChrome, Seconds: 600}}); err != nil {
+		t.Fatal(err)
+	}
+	h.run(300, fgSample(pathChrome, ipc.CatNameOther))
+	h.run(60, fgSample(pathBrave, ipc.CatNameOther))
+	if got := strings.Join(rowsOf(h.periodReply(ipc.PeriodToday).Programs, "other"), ", "); got != "chrome=300, Brave=60" {
+		t.Fatalf("до запрета сегодня «Прочее»: %q, want «chrome=300, Brave=60»", got)
+	}
+	tok := h.login(adminPeer())
+	h.ok(adminPeer(), tok, ipc.CmdSetProgramsCategory, ipc.SetProgramsCategoryRequest{Paths: []string{pathChrome}, Category: "blocked"}, nil)
+
+	cases := []struct {
+		period, rows string
+		other, all   int
+	}{
+		{ipc.PeriodToday, "Brave=60, Остальное время=300", 360, 360},
+		{ipc.PeriodWeek, "Brave=60, Остальное время=900", 960, 960},
+	}
+	for _, c := range cases {
+		my := h.periodReply(c.period)
+		var ps ipc.MyTodayReply
+		h.ok(adminPeer(), tok, ipc.CmdParentStats, ipc.ParentStatsRequest{ChildID: id, Period: c.period}, &ps)
+		for who, r := range map[string]ipc.MyTodayReply{"ребёнок": my, "родитель": ps} {
+			if got := strings.Join(rowsOf(r.Programs, "other"), ", "); got != c.rows {
+				t.Errorf("%s, %s: «Прочее» %q, want %q", who, c.period, got, c.rows)
+			}
+			for _, row := range r.Programs {
+				if row.Path == pathChrome || row.Name == "chrome" {
+					t.Errorf("%s, %s: запрещённая в «Итогах»: %+v", who, c.period, row)
+				}
+			}
+			if r.OtherS != c.other || r.AllS != c.all {
+				t.Errorf("%s, %s: прочее %d, всего %d; want %d, %d", who, c.period, r.OtherS, r.AllS, c.other, c.all)
+			}
+			if s := sumOf(r.Programs, "other"); s != r.OtherS {
+				t.Errorf("%s, %s: сумма строк «Прочего» %d, итог %d", who, c.period, s, r.OtherS)
+			}
+			if s := sumOf(r.Programs, ""); s != r.AllS {
+				t.Errorf("%s, %s: сумма всех строк %d, итог «Всего» %d", who, c.period, s, r.AllS)
+			}
+		}
+	}
+	// В «Программах» запрещённая видна как раньше (RF16-1).
+	var list ipc.ProgramsReply
+	h.ok(adminPeer(), tok, ipc.CmdListPrograms, nil, &list)
+	if p, ok := programDTO(list, pathChrome); !ok || p.Category != "blocked" {
+		t.Errorf("в «Программах» chrome: %+v (есть: %v), want «blocked»", p, ok)
+	}
+}
+
+// Ловит (D-57, D-64): список программ не прочитался, а «Итоги» всё равно показывают строки по
+// путям учёта: скрытые и запрещённые попадают туда именами файлов. При ошибке всё время категорий
+// идёт строкой «Остальное время», итоги не меняются.
+func TestStatsProgramsListErrorHidesNames(t *testing.T) {
+	h := newHarness(t, configured(), withChild(childSID, "Миша", 240), withPrograms(typicalScan()))
+	h.start()
+	h.childLogsIn()
+	h.setCategory(pathGeoGebra, "study")
+	h.run(30, fgSample(pathMinecraft, ipc.CatNameOther))
+	h.run(20, fgSample(pathBrave, ipc.CatNameOther))
+	h.store.mu.Lock()
+	h.store.failPrograms = true
+	h.store.mu.Unlock()
+	r := h.periodReply(ipc.PeriodToday)
+	got := strings.Join(rowsOf(r.Programs, "games"), ", ") + " | " + strings.Join(rowsOf(r.Programs, "other"), ", ")
+	if want := "Остальное время=30 | Остальное время=20"; got != want {
+		t.Errorf("строки при ошибке списка программ: %q, want %q", got, want)
+	}
+	if r.GamesS != 30 || r.OtherS != 20 || sumOf(r.Programs, "") != r.AllS {
+		t.Errorf("итоги: игры %d, прочее %d, сумма строк %d, всего %d; want 30, 20, сумма = всего", r.GamesS, r.OtherS, sumOf(r.Programs, ""), r.AllS)
 	}
 }

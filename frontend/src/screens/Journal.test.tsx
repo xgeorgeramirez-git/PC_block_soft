@@ -114,6 +114,18 @@ describe("Journal", () => {
     expect(screen.queryByText(/доп. время/)).toBeNull();
   });
 
+  // Ловит (R13, D-65, FB-18): запрещённая, запустившаяся сама, видна родителю в журнале, но
+  // попадает в «только нарушения» (автозапуск не нарушение) или теряет текст.
+  it("«запускалась сама и закрыта» видна во всех событиях, но не в нарушениях", async () => {
+    const auto = event({ kind: "program_auto_closed", text: "Миша: программа «Revo Uninstaller» запускалась сама и закрыта" });
+    installBackend({ sessionActive: true, events: [auto] });
+    const user = userEvent.setup();
+    render(<Journal violationsOnly />);
+    expect(await screen.findByText("Нарушений пока нет")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Показать все события" }));
+    expect(screen.getByText("Миша: программа «Revo Uninstaller» запускалась сама и закрыта")).toBeTruthy();
+  });
+
   it("нарушений нет: так и говорит", async () => {
     installBackend({ sessionActive: true, events: [event({ kind: "extra_time", text: "Миша: доп. время +30 мин" })] });
     render(<Journal violationsOnly />);

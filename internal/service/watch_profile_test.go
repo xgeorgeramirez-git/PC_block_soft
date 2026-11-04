@@ -68,7 +68,7 @@ func TestWatchProfileUpdateKeepsDecision(t *testing.T) {
 		}
 	}
 	h.svc.mu.Lock()
-	cat, _ := h.svc.foregroundOf(ipc.SensorSample{SessionActive: true, ForegroundPath: pathRoblox222})
+	cat, _, _ := h.svc.foregroundOf(ipc.SensorSample{SessionActive: true, ForegroundPath: pathRoblox222})
 	h.svc.mu.Unlock()
 	if cat != core.CatGames {
 		t.Errorf("секунда новой версии Roblox: %v, want игры", cat)

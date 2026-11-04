@@ -38,7 +38,8 @@ func TestWatchPlatesAndJournal(t *testing.T) {
 	w := newWatcher()
 	h := watchHarness(t, w, withRules(120, 0, "lock"))
 	h.setCategory(pathChrome, "blocked")
-	startAll(w, pathSuperGame, pathChrome, pathMinecraft)
+	explorer := h.manualReady(w) // ребёнок запускает сам: запрещённая с плашкой и нарушением (D-65)
+	startManual(w, explorer, pathSuperGame, pathChrome, pathMinecraft)
 	h.watch()
 	want := []ipc.BlockedPlate{
 		{Kind: ipc.BlockedForbidden, Text: "Программа «chrome» запрещена родителем", ShowS: 10, Path: pathChrome},
@@ -64,7 +65,8 @@ func TestWatchPlatesAndJournal(t *testing.T) {
 
 	// Через секунду ребёнок запускает всё снова: закрыто, попытка записана, но ни плашки, ни журнала.
 	h.real.Advance(time.Second)
-	startAll(w, pathSuperGame, pathChrome, pathMinecraft)
+	h.poll(activeSample) // ребёнок только что нажал клавишу
+	startManual(w, explorer, pathSuperGame, pathChrome, pathMinecraft)
 	h.watch()
 	if got := platesOf(h.poll(activeSample)); len(got) != 0 {
 		t.Errorf("повтор через 1 с: плашки %s, want нет", jsonOf(t, got))
@@ -74,7 +76,8 @@ func TestWatchPlatesAndJournal(t *testing.T) {
 	}
 	// Через 6 с — снова плашки, журнал ещё молчит (60 с).
 	h.real.Advance(6 * time.Second)
-	startAll(w, pathSuperGame, pathChrome, pathMinecraft)
+	h.poll(activeSample) // ребёнок только что нажал клавишу
+	startManual(w, explorer, pathSuperGame, pathChrome, pathMinecraft)
 	h.watch()
 	if got := platesOf(h.poll(activeSample)); len(got) != 3 {
 		t.Errorf("повтор через 7 с: плашек %d, want 3", len(got))
@@ -84,7 +87,8 @@ func TestWatchPlatesAndJournal(t *testing.T) {
 	}
 	// Через 60 с после первой записи — журнал снова пишет.
 	h.real.Advance(watchRepeatEvery)
-	startAll(w, pathSuperGame, pathChrome, pathMinecraft)
+	h.poll(activeSample) // ребёнок только что нажал клавишу
+	startManual(w, explorer, pathSuperGame, pathChrome, pathMinecraft)
 	h.watch()
 	for kind := range journal {
 		if n := len(h.store.eventsOf(kind)); n != 2 {

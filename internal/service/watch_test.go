@@ -197,7 +197,7 @@ func TestWatchVerdicts(t *testing.T) {
 			h := watchHarness(t, w, k.rules)
 			h.setCategory(pathGeoGebra, "study")
 			h.setCategory(pathChrome, "blocked")
-			procs := startAll(w, all...)
+			procs := startManual(w, h.manualReady(w), all...) // ручной запуск: запрещённая с плашкой и нарушением (D-65)
 			h.watch()
 			if got, want := sortedStrings(w.killedPaths()), sortedStrings(k.want); jsonOf(t, got) != jsonOf(t, want) {
 				t.Errorf("закрыты %v, want %v", got, want)

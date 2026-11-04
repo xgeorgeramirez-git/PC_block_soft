@@ -15,7 +15,7 @@
 | `internal/ipc` | 14 (8) | ipc — канал связи службы программы с её окнами, стражем сеанса и значком на том |
 | `internal/launch` | 1 (1) | launch разбирает ключи запуска программы: в каком режиме работает PCBlock.exe. |
 | `internal/programs` | 3 (3) | programs — классификация программ по пути exe (веха M3: R12, R13, RM3-1, RM3-12): |
-| `internal/service` | 23 (32) | service — служба PCBlock: фоновая часть, которая считает время за компьютером, |
+| `internal/service` | 24 (34) | service — служба PCBlock: фоновая часть, которая считает время за компьютером, |
 | `internal/service/winhost` | 27 (7) | winhost — Windows-обвязка службы PCBlock: всё, что внутри internal/service |
 | `internal/sound` | 3 (1) | sound — звук предупреждения заказчика (D-55, FR-9). Файл заказчика |
 | `internal/storage` | 7 (12) | storage — хранилище программы: SQLite в режиме WAL (ТЗ 3.1, 3.4, 4), драйвер на чистом Go. |
