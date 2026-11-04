@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"pcblock/internal/core"
 	"pcblock/internal/ipc"
 	"pcblock/internal/programs"
 )
@@ -407,29 +408,91 @@ func TestNoChangeNoUndo(t *testing.T) {
 	}
 }
 
-// Ловит (RF9-3, R3): секунда скрытой игры на переднем плане идёт в игры, не в общее время, или
-// пишется в учёт по программе (Ruling: не пишется — скрытая «никак не фигурирует», D-57).
-func TestHiddenForegroundCountsAsOther(t *testing.T) {
-	h := newHarness(t, configured(), withChild(childSID, "Миша", 120), withPrograms(typicalScan()), withStalker())
+// hiddenStalker — ребёнок с лимитом min мин, запускалка Stalker2 скрыта родителем, перерывы на
+// отдых br сохранены до старта вместе со счётом к перерыву counted.
+func hiddenStalker(t *testing.T, min int, br core.BreakRules, counted int) (*harness, int64, string) {
+	t.Helper()
+	h := newHarness(t, configured(), withChild(childSID, "Миша", min), withPrograms(typicalScan()), withStalker())
+	id := h.childID(childSID)
+	h.store.SetBreakRules(id, br)
+	h.store.SaveBreakState(id, core.BreakState{CountedS: counted})
 	h.start()
 	h.childLogsIn()
 	tok := h.login(adminPeer())
-	id := h.childID(childSID)
 	h.hide(tok, true, pathLauncher)
-	h.run(10, fgSample(pathLauncher, ipc.CatNameGames))
-	h.run(5, fgSample(pathShipping, ipc.CatNameOther))
+	return h, id, tok
+}
+
+// Ловит (D-63, RF15-1, R2, R3): секунда со скрытой программой на переднем плане тратит лимит,
+// идёт в общее время, «Игры» или «Прочее», в учёт по программе или к перерыву на отдых; после
+// «Показать» та же программа не считается снова как «Игры».
+func TestHiddenForegroundNotCounted(t *testing.T) {
+	br := core.BreakRules{Enabled: true, AfterMin: 60, Counts: core.BreakAll, WarnMin: 5, RestMin: 15, SelfRestMin: 15}
+	h, id, tok := hiddenStalker(t, 120, br, 0)
+	h.run(60, fgSample(pathLauncher, ipc.CatNameGames)) // ввод только что, страж говорит «игра»
 	st, _ := h.svc.children[id].eng.State()
-	if h.usedS() != 15 || st.GamesS != 5 {
-		t.Errorf("общее %d с, игры %d с; want 15, 5 (скрытая — «Прочее»)", h.usedS(), st.GamesS)
+	if s := h.status(); s.UsedS != 0 || s.RemainingS != 7200 {
+		t.Errorf("скрытая 60 с: общее %d с, остаток %d с; want 0 и 7200", s.UsedS, s.RemainingS)
+	}
+	if st.TotalS != 0 || st.GamesS != 0 || st.StudyS != 0 || st.VideoS != 0 {
+		t.Errorf("скрытая 60 с: день %+v; want все секунды 0 (и «Прочее» = 0)", st)
+	}
+	if b := h.svc.children[id].eng.Break(); b.CountedS != 0 {
+		t.Errorf("скрытая 60 с: к перерыву %d с, want 0", b.CountedS)
+	}
+	h.hide(tok, false, pathLauncher)
+	h.run(10, fgSample(pathLauncher, ipc.CatNameGames))
+	st, _ = h.svc.children[id].eng.State()
+	if s := h.status(); s.UsedS != 10 || s.RemainingS != 7190 || st.GamesS != 10 {
+		t.Errorf("после «Показать» 10 с: общее %d с, остаток %d с, игры %d с; want 10, 7190, 10", s.UsedS, s.RemainingS, st.GamesS)
+	}
+	if b := h.svc.children[id].eng.Break(); b.CountedS != 10 {
+		t.Errorf("после «Показать» к перерыву %d с, want 10", b.CountedS)
 	}
 	h.svc.Shutdown(h.real.Now())
 	const day = "2026-10-19"
-	for _, cat := range []string{"games", "other"} {
-		if n := h.usageOf(day, cat, pathLauncher); n != 0 {
-			t.Errorf("учёт скрытой (%s) = %d с, want 0", cat, n)
-		}
+	if n := h.usageOf(day, "other", pathLauncher); n != 0 {
+		t.Errorf("учёт скрытой как «Прочее» = %d с, want 0", n)
 	}
-	if n := h.usageOf(day, "games", pathShipping); n != 5 {
-		t.Errorf("учёт игры = %d с, want 5", n)
+	if n := h.usageOf(day, "games", pathLauncher); n != 10 {
+		t.Errorf("учёт запускалки в играх = %d с, want 10 (только после «Показать»)", n)
+	}
+}
+
+// Ловит (RF15-1, R27 «сам отошёл»): скрытая на переднем плане не тишина для перерыва (счёт
+// растёт или не сбрасывается за «засчитать как отдых»), или после сброса счёт не продолжается
+// с нуля по видимой программе.
+func TestHiddenForegroundIsQuietForRest(t *testing.T) {
+	br := core.BreakRules{Enabled: true, AfterMin: 60, Counts: core.BreakAll, WarnMin: 5, RestMin: 5, SelfRestMin: 5}
+	h, id, _ := hiddenStalker(t, 120, br, 600)
+	h.run(299, fgSample(pathLauncher, ipc.CatNameGames))
+	if b := h.svc.children[id].eng.Break(); b.CountedS != 600 {
+		t.Fatalf("скрытая 299 с: к перерыву %d с, want 600 (ещё не «сам отошёл»)", b.CountedS)
+	}
+	h.run(2, fgSample(pathLauncher, ipc.CatNameGames))
+	if b := h.svc.children[id].eng.Break(); b.CountedS != 0 {
+		t.Fatalf("скрытая 5 мин: к перерыву %d с, want 0 («сам отошёл»)", b.CountedS)
+	}
+	h.run(3, fgSample(pathShipping, ipc.CatNameGames))
+	if b := h.svc.children[id].eng.Break(); b.CountedS != 3 {
+		t.Fatalf("игра 3 с после отдыха: к перерыву %d с, want 3", b.CountedS)
+	}
+}
+
+// Ловит (D-60, PL-24, RF15-1): последняя минута останавливается, пока на переднем плане скрытая
+// программа: остаток должен дойти до нуля по часам и включить экран «Время вышло».
+func TestHiddenForegroundLastMinuteRunsByClock(t *testing.T) {
+	h, _, _ := hiddenStalker(t, 2, core.BreakRules{}, 0)
+	h.run(61, activeSample) // порог 1 мин на тике 15:01:01, конец по часам в 15:02:01
+	if s := h.status(); s.RemainingS != 59 {
+		t.Fatalf("после порога 1 мин остаток %d, want 59", s.RemainingS)
+	}
+	h.run(30, fgSample(pathLauncher, ipc.CatNameGames))
+	if s := h.status(); s.RemainingS != 30 {
+		t.Fatalf("скрытая 30 с в последнюю минуту (15:01:31): остаток %d, want 30 (по часам до 15:02:01)", s.RemainingS)
+	}
+	h.run(30, fgSample(pathLauncher, ipc.CatNameGames))
+	if s := h.status(); s.RemainingS != 0 || s.Lock != ipc.LockTimeUp {
+		t.Fatalf("скрытая до конца минуты: остаток %d, экран %q; want 0 и timeUp", s.RemainingS, s.Lock)
 	}
 }

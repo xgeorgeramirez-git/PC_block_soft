@@ -103,7 +103,10 @@ func (s *Service) runGuarded(where string, f func()) {
 // Но и стражу она не верит там, где знает больше него (FB-3, R2): страж в отключённом сеансе
 // не может открыть рабочий стол ввода и считает сеанс незаблокированным, а после выхода из
 // учётки его последний снимок ещё живёт до sampleMaxAge. Сеанса нет, в нём другой пользователь,
-// он отключён или заблокирован: секунда не идёт.
+// он отключён или заблокирован: секунда не идёт. На переднем плане программа, скрытая родителем
+// (D-63, RF15-1): секунда тоже не идёт, как простой — не тратит лимит, не идёт ни в одну
+// категорию и к перерыву на отдых (для «сам отошёл» это тишина); последняя минута (D-60) идёт
+// по часам в ядре и от снимка не зависит.
 func (s *Service) sampleFor(cs *childState) (core.SessionSample, string) {
 	if !cs.haveSample || s.real.Sub(cs.sampleAt) > sampleMaxAge {
 		return core.SessionSample{}, ""
@@ -113,38 +116,42 @@ func (s *Service) sampleFor(cs *childState) (core.SessionSample, string) {
 		s.noteSampleVerdict(cs, "не учитывается", ss)
 		return core.SessionSample{}, ""
 	}
+	cat, path, hidden := s.foregroundOf(cs.sample)
+	if hidden {
+		s.noteSampleVerdict(cs, "не учитывается: на переднем плане скрытая программа", ss)
+		return core.SessionSample{}, ""
+	}
 	s.noteSampleVerdict(cs, "учитывается", ss)
 	sm := cs.sample.ToCore()
-	var path string
-	sm.Foreground, path = s.foregroundOf(cs.sample)
+	sm.Foreground = cat
 	return sm, path
 }
 
 // foregroundOf — категория секунды по программе переднего плана (RM3-1, RM3-7): категорию даёт
 // путь exe через классификатор, слова стража не учитываются (кроме «Видео и соцсети» — сайты M4).
 // Разрешённая программа — её категория; система, незнакомая, запрещённая, пустой или нечитаемый
-// путь — «Прочее» (PL-7/8): незнакомая не успевает засчитаться игрой. Скрытая родителем — «Прочее»
-// без учёта по программе (D-57, RF9-3). Отпечаток файла — тот, что
-// видел наблюдатель (fpSeen), издатель тоже (pubSeen, RM3-13): подменённый файл не засчитывается по старому решению. Путь для
-// учёта — нормализованный, у системы «».
-func (s *Service) foregroundOf(sm ipc.SensorSample) (core.Category, string) {
+// путь — «Прочее» (PL-7/8): незнакомая не успевает засчитаться игрой. Скрытая родителем — hidden:
+// секунда не засчитывается вовсе (D-63, RF15-1), решает sampleFor. Отпечаток файла — тот, что
+// видел наблюдатель (fpSeen), издатель тоже (pubSeen, RM3-13): подменённый файл не засчитывается
+// по старому решению. Путь для учёта — нормализованный, у системы и скрытой «».
+func (s *Service) foregroundOf(sm ipc.SensorSample) (cat core.Category, path string, hidden bool) {
 	if sm.Foreground == ipc.CatNameVideoSocial {
-		return core.CatVideoSocial, ""
+		return core.CatVideoSocial, "", false
 	}
 	norm := programs.Normalize(sm.ForegroundPath)
 	if norm == "" {
-		return core.CatOther, ""
+		return core.CatOther, "", false
 	}
 	res := s.classifier.Classify(norm, s.fpSeen[norm], s.pubSeen[norm])
 	switch res.Verdict {
 	case programs.VerdictSystem:
-		return core.CatOther, ""
+		return core.CatOther, "", false
 	case programs.VerdictAllow:
-		return coreCategory(res.Category), norm
+		return coreCategory(res.Category), norm, false
 	case programs.VerdictHidden:
-		return core.CatOther, "" // скрытая «никак не фигурирует» (D-57): общее время, без учёта по программе
+		return core.CatOther, "", true
 	}
-	return core.CatOther, norm
+	return core.CatOther, norm, false
 }
 
 // progUsageKey — порция учёта по программам: день, когда секунды засчитаны (PL-15), категория и путь.
