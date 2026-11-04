@@ -34,6 +34,13 @@ func startManual(w *fakeWatcher, explorer ProcInfo, paths ...string) map[string]
 	return out
 }
 
+// settle — проходит срок уточнения автозапуска (launchSettle): наблюдатель записывает отложенное.
+func (h *harness) settle() {
+	h.t.Helper()
+	h.real.Advance(launchSettle)
+	h.watch()
+}
+
 // autoHarness — служба с Мишей и наблюдателем; Проводник сеанса запущен при входе, chrome запрещена.
 func autoHarness(t *testing.T) (*harness, *fakeWatcher, ProcInfo) {
 	t.Helper()
@@ -99,6 +106,7 @@ func TestWatchForbiddenAutostartSilent(t *testing.T) {
 	if got := forbiddenPlates(h.poll(inputSample(30000, pathSteam))); len(got) != 0 {
 		t.Errorf("автозапуск из Steam на переднем плане без ввода: плашки %s, want нет", jsonOf(t, got))
 	}
+	h.settle()
 	if got := h.eventTexts(evProgramForbiddenTry); len(got) != 0 {
 		t.Errorf("нарушения «попытка открыть запрещённое» при автозапуске: %v, want нет", got)
 	}
@@ -117,6 +125,7 @@ func TestWatchForbiddenAutostartSilent(t *testing.T) {
 	h.poll(inputSample(30000, ""))
 	w.startFrom(childSession, pathChrome, updater)
 	h.watch()
+	h.settle()
 	if n := len(h.store.eventsOf(evProgramAutoClosed)); n != 2 {
 		t.Errorf("записей «запускалась сама» после смены дня: %d, want 2", n)
 	}
@@ -155,6 +164,7 @@ func TestWatchForbiddenManualStillWarns(t *testing.T) {
 			if got := h.eventTexts(evProgramForbiddenTry); jsonOf(t, got) != jsonOf(t, []string{"Миша: попытка открыть запрещённое: «chrome»"}) {
 				t.Errorf("нарушение ручного запуска: %v", got)
 			}
+			h.settle()
 			if n := len(h.store.eventsOf(evProgramAutoClosed)); n != 0 {
 				t.Errorf("ручной запуск записан как «запускалась сама»: %d записей", n)
 			}
@@ -183,5 +193,170 @@ func TestWatchAutostartOnlyForForbidden(t *testing.T) {
 	}
 	if n := len(h.store.eventsOf(evProgramAutoClosed)); n != 0 {
 		t.Errorf("«запускалась сама» у незапрещённых: %d записей, want 0", n)
+	}
+}
+
+// Ловит (R13, D-65, ревью FB-18): в тестовом режиме страж присылает простой в часах ядра (ScaleIdle,
+// ×60), а служба сравнивает его с настоящими часами: ввод 3 с назад выглядит как 3 мин назад, и
+// ручной запуск в приёмке считается автоматическим.
+func TestWatchManualWithClockSpeed(t *testing.T) {
+	w := newWatcher()
+	h := watchHarness(t, w, withTestMode(TestMode{WatchDir: `c:\program files\google\chrome`, ClockSpeed: 60}))
+	h.setCategory(pathChrome, "blocked")
+	explorer := w.start(childSession, pathExplorer)
+	h.real.Advance(manualLogonGrace)
+	h.poll(inputSample(3000*60, pathExplorer)) // 3 настоящие секунды простоя в часах ядра
+	p := w.startFrom(childSession, pathChrome, explorer)
+	h.watch()
+	if w.alive(p) {
+		t.Fatal("ручной запуск при ускорении часов: chrome не закрыта")
+	}
+	if got := forbiddenPlates(h.poll(inputSample(0, pathExplorer))); len(got) != 1 {
+		t.Errorf("ручной запуск при ускорении 60 (ввод 3 с назад): плашек «запрещена» %d, want 1", len(got))
+	}
+	// Простой 30 настоящих секунд и при ускорении остаётся простоем.
+	h.real.Advance(time.Minute)
+	h.poll(inputSample(30000*60, pathExplorer))
+	w.startFrom(childSession, pathChrome, explorer)
+	h.watch()
+	h.settle()
+	if n, m := len(h.store.eventsOf(evProgramForbiddenTry)), len(h.store.eventsOf(evProgramAutoClosed)); n != 1 || m != 1 {
+		t.Errorf("нарушений %d, «запускалась сама» %d; want 1 и 1 (второй запуск после 30 с простоя)", n, m)
+	}
+}
+
+// Ловит (R13, D-65, ревью FB-18): ребёнок вручную запускает многопроцессную запрещённую программу
+// (браузер, Discord): дочерние процессы того же exe считаются «перезапустила сама себя», а в
+// следующем проходе (главный уже закрыт) — «родителя нет», и в журнале рядом с нарушением
+// появляется «запускалась сама». Порядок процессов в списке не важен.
+func TestWatchForbiddenMultiProcessManual(t *testing.T) {
+	for _, reversed := range []bool{false, true} {
+		w := newWatcher()
+		h, explorer := watchHarness(t, w), ProcInfo{}
+		h.setCategory(pathChrome, "blocked")
+		explorer = h.manualReady(w)
+		main := w.startFrom(childSession, pathChrome, explorer)
+		renderer := w.startFrom(childSession, pathChrome, main)
+		if reversed {
+			w.mu.Lock()
+			for i, j := 0, len(w.procs)-1; i < j; i, j = i+1, j-1 {
+				w.procs[i], w.procs[j] = w.procs[j], w.procs[i]
+			}
+			w.mu.Unlock()
+		}
+		h.watch()
+		if w.alive(main) || w.alive(renderer) {
+			t.Fatalf("обратный порядок %v: главный жив %v, дочерний жив %v", reversed, w.alive(main), w.alive(renderer))
+		}
+		if got := forbiddenPlates(h.poll(activeSample)); len(got) != 1 {
+			t.Errorf("обратный порядок %v: плашек «запрещена» %d, want 1", reversed, len(got))
+		}
+		h.svc.watch.mu.Lock()
+		e := h.svc.watch.procs[procKey{pid: renderer.PID, stamp: renderer.Stamp}]
+		h.svc.watch.mu.Unlock()
+		if e == nil || !e.manual || !e.quiet {
+			t.Errorf("обратный порядок %v: дочерний процесс того же exe: %+v; want ручной от главного, записи у главного (quiet)", reversed, e)
+		}
+		// Следующий проход: ещё один процесс того же exe, его родитель уже закрыт.
+		h.real.Advance(time.Second)
+		h.poll(activeSample)
+		w.startFrom(childSession, pathChrome, renderer)
+		h.watch()
+		h.settle()
+		if n, m := len(h.store.eventsOf(evProgramForbiddenTry)), len(h.store.eventsOf(evProgramAutoClosed)); n != 1 || m != 0 {
+			t.Errorf("обратный порядок %v: нарушений %d, «запускалась сама» %d; want 1 и 0", reversed, n, m)
+		}
+	}
+}
+
+// Ловит (R13, D-65, ревью FB-18): решение по снимку стража, сделанному до запуска: ребёнок был
+// без ввода, нажал на ярлык, и программа запустилась раньше, чем страж прислал следующий снимок
+// (раз в секунду), — ручной запуск записан как «сама», без плашки. Следующий снимок без ввода
+// или с вводом только после того, как процесс увиден (он не мог вызвать запуск), оставляет «сама».
+func TestWatchForbiddenDecidedByNextSample(t *testing.T) {
+	for _, k := range []struct {
+		name    string
+		nextAgo int64
+		plates  int
+		tries   int
+		autos   int
+	}{
+		{"щелчок до запуска виден в следующем снимке: ручной", 700, 1, 1, 0},
+		{"следующий снимок без ввода: сама", 31000, 0, 0, 1},
+		{"ввод только после запуска: сама", 100, 0, 0, 1},
+	} {
+		t.Run(k.name, func(t *testing.T) {
+			h, w, explorer := autoHarness(t)
+			h.real.Advance(manualLogonGrace)
+			h.poll(inputSample(30000, pathExplorer)) // снимок до щелчка: ребёнок 30 с без ввода
+			h.real.Advance(500 * time.Millisecond)
+			p := w.startFrom(childSession, pathChrome, explorer)
+			h.watch()
+			if w.alive(p) {
+				t.Fatal("chrome не закрыта сразу (решение о плашке ждёт снимка, закрытие — нет)")
+			}
+			h.real.Advance(500 * time.Millisecond)
+			plates := len(forbiddenPlates(h.poll(inputSample(k.nextAgo, pathExplorer))))
+			h.watch()
+			plates += len(forbiddenPlates(h.poll(inputSample(k.nextAgo, pathExplorer))))
+			h.settle()
+			plates += len(forbiddenPlates(h.poll(inputSample(k.nextAgo, pathExplorer))))
+			if n, m := len(h.store.eventsOf(evProgramForbiddenTry)), len(h.store.eventsOf(evProgramAutoClosed)); plates != k.plates || n != k.tries || m != k.autos {
+				t.Errorf("плашек %d, нарушений %d, «сама» %d; want %d, %d, %d", plates, n, m, k.plates, k.tries, k.autos)
+			}
+		})
+	}
+}
+
+// Ловит (R13, ревью FB-18): процесс, запущенный, пока программа была разрешена, после запрета
+// родителем закрывается молча как «запускалась сама», а не с плашкой «запрещена родителем».
+func TestWatchForbiddenAfterStartWarns(t *testing.T) {
+	w := newWatcher()
+	h := watchHarness(t, w)
+	updater := w.start(childSession, pathBraveUpd)
+	h.real.Advance(2 * time.Minute)
+	h.poll(inputSample(30000, ""))
+	p := w.startFrom(childSession, pathChrome, updater) // запуск «сам», но chrome ещё разрешена
+	h.watch()
+	if !w.alive(p) {
+		t.Fatal("разрешённая chrome закрыта")
+	}
+	h.setCategory(pathChrome, "blocked")
+	h.real.Advance(time.Second)
+	h.poll(inputSample(30000, ""))
+	h.watch()
+	if w.alive(p) {
+		t.Fatal("после запрета chrome не закрыта")
+	}
+	if got := forbiddenPlates(h.poll(inputSample(30000, ""))); len(got) != 1 {
+		t.Errorf("плашек «запрещена» после запрета запущенной: %d, want 1", len(got))
+	}
+	h.settle()
+	if n, m := len(h.store.eventsOf(evProgramForbiddenTry)), len(h.store.eventsOf(evProgramAutoClosed)); n != 1 || m != 0 {
+		t.Errorf("нарушений %d, «сама» %d; want 1 и 0", n, m)
+	}
+}
+
+// Ловит (R13, D-65, ревью FB-18): приложение Магазина (Program Files\WindowsApps) Windows запускает
+// через svchost вне сеанса ребёнка: родителя в сеансе нет, и ручной запуск запрещённой игры
+// Магазина считается «сама».
+func TestWatchForbiddenStoreAppManual(t *testing.T) {
+	const roblox = `c:\program files\windowsapps\robloxcorporation.robloxapp_2.6_x64__55nm5eh3cm0pr\windows10universal.exe`
+	sc := typicalScan()
+	sc.list = append(sc.list, FoundProgram{Path: roblox, Name: "Roblox"})
+	w := newWatcher()
+	h := newHarness(t, configured(), withChild(childSID, "Миша", 120), withPrograms(sc), withWatcher(w))
+	h.start()
+	h.childLogsIn()
+	h.setCategory(roblox, "blocked")
+	h.manualReady(w)
+	p := w.start(childSession, roblox) // родителя в сеансе нет
+	h.watch()
+	if w.alive(p) {
+		t.Fatal("запрещённая игра Магазина не закрыта")
+	}
+	want := []ipc.BlockedPlate{{Kind: ipc.BlockedForbidden, Text: "Программа «Roblox» запрещена родителем", ShowS: 10, Path: roblox}}
+	if got := forbiddenPlates(h.poll(activeSample)); jsonOf(t, got) != jsonOf(t, want) {
+		t.Errorf("плашка игры Магазина: %s, want %s", jsonOf(t, got), jsonOf(t, want))
 	}
 }
