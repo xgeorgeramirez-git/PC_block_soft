@@ -16,7 +16,7 @@ import (
 )
 
 // processWatcher — service.ProcessWatcher над Toolhelp32 (M3: R12, R13, NFR-6, RM3-11, PL-9).
-// Адаптер решений не принимает: он сообщает факты (процесс, сеанс, путь, момент создания) и
+// Адаптер решений не принимает: он сообщает факты (процесс, родитель, сеанс, путь, момент создания) и
 // завершает процесс по просьбе службы, только если совпали номер, момент создания и путь.
 // Содержимое процессов не читается и не меняется.
 type processWatcher struct {
@@ -83,6 +83,7 @@ func (w *processWatcher) List(sessionID uint32) ([]service.ProcInfo, error) {
 		if !ok {
 			continue // процесс уже завершился
 		}
+		info.ParentPID = pe.ParentProcessID // родитель запуска (R13, D-65): номер, решает служба
 		if key.stamp != 0 {
 			seen[key] = true
 		}
