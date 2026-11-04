@@ -196,3 +196,26 @@ func TestStatsBlockedProgramHidden(t *testing.T) {
 		t.Errorf("в «Программах» chrome: %+v (есть: %v), want «blocked»", p, ok)
 	}
 }
+
+// Ловит (D-57, D-64): список программ не прочитался, а «Итоги» всё равно показывают строки по
+// путям учёта: скрытые и запрещённые попадают туда именами файлов. При ошибке всё время категорий
+// идёт строкой «Остальное время», итоги не меняются.
+func TestStatsProgramsListErrorHidesNames(t *testing.T) {
+	h := newHarness(t, configured(), withChild(childSID, "Миша", 240), withPrograms(typicalScan()))
+	h.start()
+	h.childLogsIn()
+	h.setCategory(pathGeoGebra, "study")
+	h.run(30, fgSample(pathMinecraft, ipc.CatNameOther))
+	h.run(20, fgSample(pathBrave, ipc.CatNameOther))
+	h.store.mu.Lock()
+	h.store.failPrograms = true
+	h.store.mu.Unlock()
+	r := h.periodReply(ipc.PeriodToday)
+	got := strings.Join(rowsOf(r.Programs, "games"), ", ") + " | " + strings.Join(rowsOf(r.Programs, "other"), ", ")
+	if want := "Остальное время=30 | Остальное время=20"; got != want {
+		t.Errorf("строки при ошибке списка программ: %q, want %q", got, want)
+	}
+	if r.GamesS != 30 || r.OtherS != 20 || sumOf(r.Programs, "") != r.AllS {
+		t.Errorf("итоги: игры %d, прочее %d, сумма строк %d, всего %d; want 30, 20, сумма = всего", r.GamesS, r.OtherS, sumOf(r.Programs, ""), r.AllS)
+	}
+}

@@ -29,7 +29,8 @@ var statsCatOrder = map[string]int{programs.CatGames: 0, usageCatVideo: 1, progr
 // RF16-1) строки не получают: их секунды, набранные до скрытия или запрета, идут в «Остальное время»
 // своей категории (RF15-2). «Остальное время» — итог категории минус названные строки:
 // сумма строк категории равна итогу категории. Внутри категории самые долгие сверху, «Остальное время»
-// последней. Ошибка чтения учёта — всё время категории в «Остальное время» (время не пропадает).
+// последней. Ошибка чтения учёта или списка программ — всё время категории в «Остальное время»
+// (время не пропадает, скрытые и запрещённые не видны именами файлов).
 func (s *Service) programTimes(cs *childState, day core.DayState, past []UsageRow) []ipc.ProgramTime {
 	type key struct{ cat, path string }
 	secs := map[key]int{}
@@ -55,7 +56,10 @@ func (s *Service) programTimes(cs *childState, day core.DayState, past []UsageRo
 			known[p.Path] = p
 		}
 	} else {
+		// Без списка не узнать скрытые и запрещённые: ни одной строки по программе, всё время
+		// категорий идёт в «Остальное время» (D-57, D-64; итоги не меняются).
 		s.logRate("programs", "не удалось прочитать список программ: %v", err)
+		secs = map[key]int{}
 	}
 	pending := map[string]string{}
 	if list, err := s.cfg.Store.ListPending(); err == nil {
