@@ -34,12 +34,15 @@ type launchFacts struct {
 	Parent     string    // путь родителя; «» — родителя нет в сеансе ребёнка (launchParentOf)
 	Shell      string    // путь Проводника сеанса: %SystemRoot%\explorer.exe
 	Foreground string    // путь программы на переднем плане по снимку стража
+	Store      bool      // процесс — приложение Магазина (Program Files\WindowsApps)
+	Broker     string    // путь svchost.exe: через него Windows запускает приложения Магазина
 }
 
 // launchKind решает, ручной ли запуск, и объясняет решение простыми словами (для подробного
 // журнала работы). Ручной: ввод ребёнка не раньше manualInputWindow до запуска и (родитель —
 // Проводник, и с входа прошло не меньше manualLogonGrace, или родитель — программа на переднем
-// плане). Для Проводника передний план не в счёт: в первые секунды после входа на переднем плане
+// плане, или это приложение Магазина без родителя в сеансе либо с родителем svchost, и с входа
+// прошло не меньше manualLogonGrace). Для Проводника передний план не в счёт: в первые секунды после входа на переднем плане
 // он сам, а запускает автозагрузку. «Не знаю» — автоматический: ребёнку не показывается плашка
 // о том, чего он не делал.
 func launchKind(f launchFacts) (bool, string) {
@@ -48,6 +51,18 @@ func launchKind(f launchFacts) (bool, string) {
 	}
 	if ago := f.At.Sub(f.InputAt); ago > manualInputWindow {
 		return false, fmt.Sprintf("ребёнок ничего не нажимал %s до запуска", ago.Round(time.Millisecond))
+	}
+	if f.Store && (f.Parent == "" || (f.Broker != "" && f.Parent == f.Broker)) {
+		// Приложение Магазина Windows запускает через svchost вне сеанса ребёнка: родителя в сеансе
+		// нет и при ручном запуске. Решают свежий ввод и то, что это не первые 60 с после входа
+		// (задачи автозагрузки Магазина, как у Проводника).
+		if f.LogonAt.IsZero() {
+			return false, "приложение Магазина, момент входа неизвестен"
+		}
+		if since := f.At.Sub(f.LogonAt); since < manualLogonGrace {
+			return false, fmt.Sprintf("приложение Магазина через %s после входа (автозагрузка)", since.Round(time.Millisecond))
+		}
+		return true, "приложение Магазина, запущенное системой при вводе ребёнка"
 	}
 	switch {
 	case f.Parent == "":
@@ -92,4 +107,23 @@ func launchShell(systemRoot string) string {
 		return ""
 	}
 	return programs.Normalize(strings.TrimSuffix(systemRoot, `\`) + `\explorer.exe`)
+}
+
+// launchStoreApp — путь path лежит в папке приложений Магазина Program Files\WindowsApps (строго
+// глубже). Папка Program Files не определена — «не знаю», не Магазин.
+func launchStoreApp(path, programFiles string) bool {
+	if programFiles == "" {
+		return false
+	}
+	root := programs.Normalize(strings.TrimSuffix(programFiles, `\`) + `\windowsapps`)
+	p := programs.Normalize(path)
+	return root != "" && strings.HasPrefix(p, root+`\`) && len(p) > len(root)+1
+}
+
+// launchBroker — нормализованный путь svchost.exe по папке Windows; «» — папка не определена.
+func launchBroker(systemRoot string) string {
+	if systemRoot == "" {
+		return ""
+	}
+	return programs.Normalize(strings.TrimSuffix(systemRoot, `\`) + `\system32\svchost.exe`)
 }

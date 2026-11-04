@@ -11,6 +11,8 @@ const (
 	pathSteam    = `c:\program files (x86)\steam\steam.exe`
 	pathTool     = `c:\users\миша\downloads\tool.exe`
 	pathUpdater  = `c:\program files\vendor\updater.exe`
+	pathSvchost  = `c:\windows\system32\svchost.exe`
+	pathRoblox   = `c:\program files\windowsapps\robloxcorporation.robloxapp_2.6_x64__55nm5eh3cm0pr\windows10universal.exe`
 )
 
 // launchT0 — момент, когда наблюдатель увидел запуск в таблице.
@@ -26,6 +28,7 @@ func manualFacts() launchFacts {
 		Parent:     pathExplorer,
 		Shell:      pathExplorer,
 		Foreground: pathExplorer,
+		Broker:     pathSvchost,
 	}
 }
 
@@ -66,6 +69,16 @@ func TestLaunchKind(t *testing.T) {
 		{"путь Проводника не определён: родитель-Проводник не узнаётся", func(f *launchFacts) {
 			f.Shell, f.Foreground = "", pathSteam
 		}, false},
+		{"Магазин: родителя нет в сеансе, ввод 3 с назад", func(f *launchFacts) { f.Self, f.Store, f.Parent = pathRoblox, true, "" }, true},
+		{"Магазин: родитель — svchost", func(f *launchFacts) { f.Self, f.Store, f.Parent = pathRoblox, true, pathSvchost }, true},
+		{"Магазин: родителя нет, ввод 30 с назад", func(f *launchFacts) {
+			f.Self, f.Store, f.Parent, f.InputAt = pathRoblox, true, "", launchT0.Add(-30*time.Second)
+		}, false},
+		{"Магазин: родителя нет, первые 60 с после входа (задача автозагрузки)", func(f *launchFacts) {
+			f.Self, f.Store, f.Parent, f.LogonAt = pathRoblox, true, "", launchT0.Add(-20*time.Second)
+		}, false},
+		{"Магазин: родитель в сеансе не на переднем плане", func(f *launchFacts) { f.Self, f.Store, f.Parent = pathRoblox, true, pathUpdater }, false},
+		{"не Магазин: родитель — svchost", func(f *launchFacts) { f.Parent = pathSvchost }, false},
 	}
 	for _, k := range cases {
 		t.Run(k.name, func(t *testing.T) {
@@ -129,5 +142,36 @@ func TestLaunchParentOf(t *testing.T) {
 	gone.ParentPID = 300
 	if got := launchParentOf(gone, map[uint32]ProcInfo{parent.PID: parent}, childSID); got != "" {
 		t.Errorf("launchParentOf, родителя нет в списке: %q, want «»", got)
+	}
+}
+
+// Ловит (R13, D-65): приложение Магазина не узнаётся по пути (регистр, длинное имя пакета, папка
+// с похожим именем) или узнаётся без папки Program Files; svchost ищется не в System32.
+func TestLaunchStoreAndBroker(t *testing.T) {
+	r := svcRoots
+	cases := []struct {
+		path string
+		want bool
+	}{
+		{`C:\Program Files\WindowsApps\Microsoft.MinecraftUWP_1.21.4_x64__8wekyb3d8bbwe\Minecraft.Windows.exe`, true},
+		{pathRoblox, true},
+		{`c:\program files\windowsapps.old\x.exe`, false},
+		{`c:\program files\windowsapps`, false},
+		{pathSteam, false},
+		{pathTool, false},
+	}
+	for _, k := range cases {
+		if got := launchStoreApp(k.path, r.ProgramFiles); got != k.want {
+			t.Errorf("launchStoreApp(%q): %v, want %v", k.path, got, k.want)
+		}
+	}
+	if launchStoreApp(pathRoblox, "") {
+		t.Error("launchStoreApp без папки Program Files: true, want false (не знаю — не Магазин)")
+	}
+	if got := launchBroker(`C:\Windows`); got != pathSvchost {
+		t.Errorf("launchBroker: %q, want %q", got, pathSvchost)
+	}
+	if got := launchBroker(""); got != "" {
+		t.Errorf("launchBroker без папки Windows: %q, want «»", got)
 	}
 }
