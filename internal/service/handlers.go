@@ -947,7 +947,7 @@ func (s *Service) myTodayOf(cs *childState, period string) ipc.MyTodayReply {
 	}
 	from, _ := periodFrom(period, now)
 	sum, past := s.periodTotals(cs, from, today, live)
-	out.UsedS, out.GamesS, out.StudyS = sum.TotalS, sum.GamesS, sum.StudyS
+	out.UsedS, out.GamesS, out.StudyS, out.VideoS = sum.TotalS, sum.GamesS, sum.StudyS, sum.VideoS
 	out.OtherS = max(0, sum.TotalS-sum.GamesS-sum.VideoS)
 	out.AllS = sum.TotalS + sum.StudyS
 	out.ExtraMin = sum.ExtraMin
@@ -973,9 +973,11 @@ func (s *Service) myTodayOf(cs *childState, period string) ipc.MyTodayReply {
 		}
 		out.Rules = append(out.Rules, ipc.MyRule{Weekday: i + 1, Day: weekdayShort[i], Text: text})
 	}
-	// Общие правила (R21): лимит игр и что будет, когда время вышло.
-	if text := gamesRuleText(cs.rules); text != "" {
-		out.Rules = append(out.Rules, ipc.MyRule{Text: text})
+	// Общие правила (R21): лимиты игр и видео и что будет, когда время вышло.
+	for _, text := range []string{gamesRuleText(cs.rules), videoRuleText(cs.rules)} {
+		if text != "" {
+			out.Rules = append(out.Rules, ipc.MyRule{Text: text})
+		}
 	}
 	out.Rules = append(out.Rules, ipc.MyRule{Text: endModeRuleText(cs.rules.EndMode)})
 	return out
@@ -985,6 +987,17 @@ func (s *Service) myTodayOf(cs *childState, period string) ipc.MyTodayReply {
 // 1 ч в день» («Игры: нельзя»), иначе по дням с лимитом — «Игры: пн до 1 ч, ср нельзя». Лимита
 // игр нет ни в один день — пусто.
 func gamesRuleText(r core.Rules) string {
+	return catRuleText(r, "Игры", func(l core.DayLimit) *int { return l.GamesMin })
+}
+
+// videoRuleText — то же для лимита «Видео и соцсети» (R6, R21): «Видео и соцсети: до 20 мин в день».
+func videoRuleText(r core.Rules) string {
+	return catRuleText(r, "Видео и соцсети", func(l core.DayLimit) *int { return l.VideoMin })
+}
+
+// catRuleText — строка «Моих правил» об отдельном лимите категории: title — начало строки, limit —
+// минуты категории дня (nil — без отдельного лимита).
+func catRuleText(r core.Rules, title string, limit func(core.DayLimit) *int) string {
 	word := func(min int) string {
 		if min == 0 {
 			return "нельзя"
@@ -992,13 +1005,14 @@ func gamesRuleText(r core.Rules) string {
 		return "до " + core.FormatLimit(min)
 	}
 	same, parts := true, []string{}
+	first := limit(r.Week[0])
 	for i := 0; i < 7; i++ {
-		g := r.Week[i].GamesMin
+		g := limit(r.Week[i])
 		if g == nil {
 			same = false
 			continue
 		}
-		if first := r.Week[0].GamesMin; first == nil || *first != *g {
+		if first == nil || *first != *g {
 			same = false
 		}
 		parts = append(parts, weekdayShort[i]+" "+word(*g))
@@ -1006,12 +1020,12 @@ func gamesRuleText(r core.Rules) string {
 	switch {
 	case len(parts) == 0:
 		return ""
-	case same && *r.Week[0].GamesMin == 0:
-		return "Игры: нельзя"
+	case same && *first == 0:
+		return title + ": нельзя"
 	case same:
-		return "Игры: " + word(*r.Week[0].GamesMin) + " в день"
+		return title + ": " + word(*first) + " в день"
 	}
-	return "Игры: " + strings.Join(parts, ", ")
+	return title + ": " + strings.Join(parts, ", ")
 }
 
 // endModeRuleText — строка «Моих правил» о режиме «Когда время вышло» (R8, R21).

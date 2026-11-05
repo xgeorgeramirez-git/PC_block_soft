@@ -622,16 +622,18 @@ func (s *Service) cardOf(cs *childState) ipc.TodayCard {
 		bonus = 0
 	}
 	noForbidden := state.NoForbidden && state.Day == st.Day
-	gamesS := state.GamesS
+	gamesS, videoS := state.GamesS, state.VideoS
 	if state.Day != st.Day && st.Day != "" {
-		gamesS = 0
+		gamesS, videoS = 0, 0
 	}
 	return ipc.TodayCard{
 		ChildID: cs.child.ID, SID: cs.child.SID, Name: cs.child.Name, Status: st,
 		ExtraMin: extra, BonusBalance: bonus, CanClearBlock: bypass != "",
 		NoForbiddenToday: noForbidden,
 		// «Игры 40 мин из 1 ч» (8.3.2 п.3): игры за день ядра и лимит игр из того же решения.
-		GamesText:       ipc.GamesCardText(gamesS, st.GamesLimitS, st.GamesUnlimited),
+		GamesText: ipc.GamesCardText(gamesS, st.GamesLimitS, st.GamesUnlimited),
+		// «Видео 10 мин из 20 мин» (R6): так же по лимиту видео решения ядра.
+		VideoText:       ipc.VideoCardText(videoS, st.VideoLimitS, st.VideoUnlimited),
 		PendingPrograms: s.pendingCount(),
 	}
 }
