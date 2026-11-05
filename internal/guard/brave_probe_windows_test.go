@@ -4,6 +4,8 @@ package guard
 
 import (
 	"fmt"
+	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -168,12 +170,16 @@ func braveProcs() []uint32 {
 	return out
 }
 
+// cpuTime — процессорное время процесса (ядро и пользователь). Filetime здесь — длительность в
+// 100-нс тиках, а не дата: Filetime.Nanoseconds() вычел бы эпоху 1601 года (замер «−4842203123774 мс»
+// прогона 42036478891).
 func cpuTime(h windows.Handle) time.Duration {
 	var c, e, k, u windows.Filetime
 	if windows.GetProcessTimes(h, &c, &e, &k, &u) != nil {
 		return 0
 	}
-	return time.Duration(k.Nanoseconds() + u.Nanoseconds())
+	ticks := func(f windows.Filetime) int64 { return int64(f.HighDateTime)<<32 | int64(f.LowDateTime) }
+	return time.Duration((ticks(k) + ticks(u)) * 100)
 }
 
 // braveCPU — процессорное время всех процессов brave.exe по PID (процесс, которого нет, — 0).
@@ -468,8 +474,9 @@ func treeFacts(log *probeLog, step string, r *braveReader, hwnd windows.HWND) {
 	}
 }
 
-func setBravePolicies() error {
-	k, _, err := registry.CreateKey(registry.CURRENT_USER, bravePolicy, registry.ALL_ACCESS)
+// setBravePolicies пишет правила Brave (RM4-10) в root\Software\Policies\BraveSoftware\Brave.
+func setBravePolicies(root registry.Key) error {
+	k, _, err := registry.CreateKey(root, bravePolicy, registry.ALL_ACCESS|registry.WOW64_64KEY)
 	if err != nil {
 		return err
 	}
@@ -483,7 +490,7 @@ func setBravePolicies() error {
 		return err
 	}
 	for sub, v := range map[string]string{"ExtensionInstallBlocklist": "*", "URLBlocklist": probeBlocked} {
-		sk, _, err := registry.CreateKey(k, sub, registry.ALL_ACCESS)
+		sk, _, err := registry.CreateKey(k, sub, registry.ALL_ACCESS|registry.WOW64_64KEY)
 		if err != nil {
 			return err
 		}
@@ -496,14 +503,108 @@ func setBravePolicies() error {
 	return nil
 }
 
+// removeBravePolicies удаляет ветку правил Brave и в HKCU, и в HKLM.
 func removeBravePolicies() {
-	for _, sub := range []string{"ExtensionInstallBlocklist", "URLBlocklist", ""} {
-		p := bravePolicy
-		if sub != "" {
-			p += `\` + sub
+	for _, root := range []registry.Key{registry.CURRENT_USER, registry.LOCAL_MACHINE} {
+		for _, sub := range []string{"ExtensionInstallBlocklist", "URLBlocklist", ""} {
+			p := bravePolicy
+			if sub != "" {
+				p += `\` + sub
+			}
+			_ = registry.DeleteKey(root, p)
 		}
-		_ = registry.DeleteKey(registry.CURRENT_USER, p)
 	}
+}
+
+// probePage — заголовок и текст страницы локального сервера пробы: разрешённый сайт показывает его,
+// заблокированный политикой — страницу ошибки chrome-error://.
+const probePage = "probe-ok"
+
+// startProbeServer поднимает на 127.0.0.1:80 сервер, который на любой адрес отдаёт страницу
+// probe-ok (адреса probe-*.test в hosts раннера ведут на 127.0.0.1). Только тест на раннере:
+// программа в сеть не ходит (NFR-1, tools/check_imports.sh тесты не проверяет).
+func startProbeServer(t *testing.T) error {
+	ln, err := net.Listen("tcp", "127.0.0.1:80")
+	if err != nil {
+		return err
+	}
+	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		fmt.Fprintf(w, "<!doctype html><title>%s</title><h1>%s</h1>", probePage, probePage)
+	}), ReadHeaderTimeout: 5 * time.Second}
+	go func() { _ = srv.Serve(ln) }()
+	t.Cleanup(func() { _ = srv.Close() })
+	return nil
+}
+
+// docInfo — Name и ValuePattern первого Document окна.
+func docInfo(r *braveReader, hwnd windows.HWND) (name, value string, err error) {
+	type result struct{ name, value string }
+	res := &result{}
+	err = r.th.do(func(u uia) error {
+		root, err := u.fromHandle(hwnd)
+		if err != nil {
+			return err
+		}
+		defer release(root)
+		cond, err := u.intCond(uiaControlTypePropertyID, uiaDocumentControlTypeID)
+		if err != nil {
+			return err
+		}
+		doc, err := findFirst(root, treeScopeDescendants, cond)
+		release(cond)
+		if err != nil {
+			return err
+		}
+		defer release(doc)
+		res.name, _ = elemName(doc)
+		res.value, _ = elemValue(doc)
+		return nil
+	})
+	return res.name, res.value, err
+}
+
+// waitDoc ждёт, пока Name или адрес Document окна содержит want, не дольше d. Итог — что видно.
+func waitDoc(r *braveReader, hwnd windows.HWND, want string, d time.Duration) (string, bool) {
+	end := time.Now().Add(d)
+	var name, value string
+	var err error
+	for {
+		name, value, err = docInfo(r, hwnd)
+		if err == nil && (strings.Contains(name, want) || strings.Contains(value, want)) {
+			return fmt.Sprintf("Name %q, адрес %q", cut(name, 40), cut(value, 60)), true
+		}
+		if time.Now().After(end) {
+			break
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	if err != nil {
+		return "Document: " + err.Error(), false
+	}
+	return fmt.Sprintf("Name %q, адрес %q", cut(name, 40), cut(value, 60)), false
+}
+
+// policyRows — строки таблицы brave://policy для правил RM4-10: имя и следующие ячейки (значение,
+// источник Platform, область Current user/Machine, уровень, статус OK/Error/Ignored).
+func policyRows(names []string) string {
+	want := []string{"TorDisabled", "BraveVPNDisabled", "DnsOverHttpsMode", "ExtensionInstallBlocklist", "URLBlocklist"}
+	var rows []string
+	for _, w := range want {
+		row := w + " — нет"
+		for i, n := range names {
+			if strings.TrimSpace(n) == w {
+				cells := make([]string, 0, 7)
+				for _, c := range names[i+1 : min(i+8, len(names))] {
+					cells = append(cells, cut(c, 30))
+				}
+				row = w + ": " + strings.Join(cells, " / ")
+				break
+			}
+		}
+		rows = append(rows, row)
+	}
+	return strings.Join(rows, "; ")
 }
 
 func shortList(xs []string, max int) string {
@@ -600,12 +701,21 @@ func TestBraveProbe(t *testing.T) {
 			time.Sleep(time.Second - time.Since(s))
 		}
 		selfAfter, braveAfter := cpuTime(windows.CurrentProcess()), braveCPU()
-		var braveDelta time.Duration
+		// Только процессы, живые в оба момента; появившиеся за минуту — отдельно (всё их время).
+		var both, fresh time.Duration
+		nBoth, nFresh := 0, 0
 		for pid, after := range braveAfter {
-			braveDelta += after - braveBefore[pid] // новый процесс: всё его время
+			if before, ok := braveBefore[pid]; ok {
+				both += after - before
+				nBoth++
+			} else {
+				fresh += after
+				nFresh++
+			}
 		}
-		log.fact("(в) процессор за 60 с", "тест %d мс, все процессы Brave (%d) %d мс; самое долгое чтение %d мс; ошибок %d, чужой домен %d%s",
-			(selfAfter - selfBefore).Milliseconds(), len(braveAfter), braveDelta.Milliseconds(), slowest.Milliseconds(), errs, wrong, label)
+		log.fact("(в) процессор за 60 с", "тест %d мс; процессы Brave, живые всю минуту (%d): %d мс; новые за минуту (%d): %d мс; ушли %d; самое долгое чтение %d мс; ошибок %d, чужой домен %d%s",
+			(selfAfter - selfBefore).Milliseconds(), nBoth, both.Milliseconds(), nFresh, fresh.Milliseconds(), len(braveBefore)-nBoth,
+			slowest.Milliseconds(), errs, wrong, label)
 	}
 
 	// (г) Вторая вкладка в том же окне, Ctrl+W, затем кнопка закрытия выбранной вкладки.
@@ -652,52 +762,81 @@ func TestBraveProbe(t *testing.T) {
 		log.fact("(д) окно приложения", "через %.1f с %s; элемент: %s (ошибка %v); Document: %s", took.Seconds(), o, desc, derr, docValues(r, app))
 	}
 
-	// (е) Политики Brave из HKCU: новый профиль, запрещённый домен, brave://policy, кнопка VPN.
-	killTestBrave()
-	if err := setBravePolicies(); err != nil {
-		log.fact("(е) политики", "ключ %s не записан: %v", bravePolicy, err)
-		return
+	// (е) Политики Brave (RM4-10), сравнительный опыт: локальный сервер отдаёт probe-ok на любой
+	// probe-*.test; три запуска с новыми профилями — без правил, правила в HKCU, правила в HKLM. Каждый
+	// раз: открываются ли probe-site.test и blocked-probe.test, кнопки окна (VPN), строки brave://policy
+	// (страница читается только с --force-renderer-accessibility: без него дерево документа пустое).
+	// Одна пометка на вариант: GitHub показывает не больше 10 пометок одного вида на шаг.
+	srvErr := startProbeServer(t)
+	srvNote := "сервер 127.0.0.1:80 отдаёт probe-ok"
+	if srvErr != nil {
+		srvNote = "сервер 127.0.0.1:80 не поднят: " + srvErr.Error()
 	}
-	pol := newProfile(t)
-	startBrave(t, exe, append(common(pol), "--new-window", "http://"+probeBlocked+"/")...)
-	bw := waitWindow(nil, 20*time.Second)
-	if bw == 0 {
-		log.fact("(е) политики", "окно Brave с политиками не появилось за 20 с")
-		return
+	variants := []struct {
+		step string
+		set  bool
+		root registry.Key
+	}{
+		{"(е1) без правил", false, 0},
+		{"(е2) правила в HKCU", true, registry.CURRENT_USER},
+		{"(е3) правила в HKLM", true, registry.LOCAL_MACHINE},
 	}
-	forceForeground(uintptr(bw))
-	names, blocked := waitNames(r, bw, "ERR_BLOCKED_BY_ADMINISTRATOR", 10*time.Second)
-	var errLines []string
-	for _, n := range names {
-		if strings.Contains(n, "ERR_") {
-			errLines = append(errLines, n)
+	for _, v := range variants {
+		killTestBrave()
+		removeBravePolicies()
+		if v.set {
+			if err := setBravePolicies(v.root); err != nil {
+				log.fact(v.step, "правила не записаны: %v", err)
+				continue
+			}
 		}
+		log.fact(v.step, "%s", policyVariant(t, r, exe, common, srvNote))
 	}
-	log.fact("(е1) запрещённый домен", "страница блокировки ERR_BLOCKED_BY_ADMINISTRATOR: %v; строки с ERR_: %s; элементов с Name %d; Document: %s",
-		blocked, shortList(errLines, 5), len(names), docValues(r, bw))
+	removeBravePolicies()
+}
 
-	buttons, berr := uiaNames(r, bw, uiaButtonControlTypeID, 200)
-	var vpn []string
+// policyVariant — один запуск опыта с правилами (как они сейчас записаны в реестре): строка фактов.
+func policyVariant(t *testing.T, r *braveReader, exe string, common func(string) []string, srvNote string) string {
+	var f []string
+	f = append(f, srvNote)
+	prof := newProfile(t)
+	startBrave(t, exe, append(common(prof), "--new-window", "http://"+probeSite+"/")...)
+	hwnd := waitWindow(nil, 20*time.Second)
+	if hwnd == 0 {
+		return strings.Join(append(f, "окно Brave не появилось за 20 с"), "; ")
+	}
+	forceForeground(uintptr(hwnd))
+	site, _ := waitDomain(r, hwnd, probeSite, 10*time.Second)
+	siteDoc, siteOK := waitDoc(r, hwnd, probePage, 10*time.Second)
+	f = append(f, fmt.Sprintf("%s: поле адреса %q, страница probe-ok %v (%s)", probeSite, site.domain, siteOK, siteDoc))
+
+	startBrave(t, exe, append(common(prof), "http://"+probeBlocked+"/")...)
+	blk, _ := waitDomain(r, hwnd, probeBlocked, 10*time.Second)
+	blkDoc, blkOK := waitDoc(r, hwnd, probePage, 6*time.Second)
+	f = append(f, fmt.Sprintf("%s: поле адреса %q, страница probe-ok %v (%s)", probeBlocked, blk.domain, blkOK, blkDoc))
+
+	buttons, berr := uiaNames(r, hwnd, uiaButtonControlTypeID, 200)
+	var vpn, short []string
 	for _, b := range buttons {
 		if strings.Contains(strings.ToUpper(b), "VPN") {
 			vpn = append(vpn, b)
 		}
+		short = append(short, cut(b, 25))
 	}
-	log.fact("(е2) кнопка VPN", "кнопок в окне %d (ошибка %v); с VPN в Name: %d [%s]; кнопки: %s",
-		len(buttons), berr, len(vpn), shortList(vpn, 5), shortList(buttons, 25))
+	f = append(f, fmt.Sprintf("кнопок %d (ошибка %v), с VPN %d [%s]; кнопки: %s", len(buttons), berr, len(vpn), shortList(vpn, 3), shortList(short, 20)))
 
-	startBrave(t, exe, append(common(pol), "brave://policy")...)
-	pnames, ok := waitNames(r, bw, "TorDisabled", 10*time.Second)
-	want := []string{"TorDisabled", "BraveVPNDisabled", "DnsOverHttpsMode", "ExtensionInstallBlocklist", "URLBlocklist"}
-	var seen []string
-	for i, n := range pnames {
-		for _, w := range want {
-			if strings.Contains(n, w) {
-				// Имя политики и несколько следующих строк (значение, источник, статус).
-				end := min(i+6, len(pnames))
-				seen = append(seen, strings.Join(pnames[i:end], " / "))
-			}
-		}
+	// Страница brave://policy и страница блокировки — с доступностью рендерера (только для чтения текста).
+	killTestBrave()
+	prof = newProfile(t)
+	startBrave(t, exe, append(common(prof), "--force-renderer-accessibility", "--new-window", "brave://policy")...)
+	pw := waitWindow(nil, 20*time.Second)
+	if pw == 0 {
+		return strings.Join(append(f, "окно brave://policy не появилось за 20 с"), "; ")
 	}
-	log.fact("(е3) brave://policy", "страница с TorDisabled: %v; строки: %s", ok, shortList(seen, 5))
+	names, ok := waitNames(r, pw, "TorDisabled", 15*time.Second)
+	f = append(f, fmt.Sprintf("brave://policy прочитана %v (элементов с Name %d): %s", ok, len(names), policyRows(names)))
+	startBrave(t, exe, append(common(prof), "http://"+probeBlocked+"/")...)
+	_, errPage := waitNames(r, pw, "ERR_BLOCKED_BY_ADMINISTRATOR", 10*time.Second)
+	f = append(f, fmt.Sprintf("текст ERR_BLOCKED_BY_ADMINISTRATOR на %s: %v", probeBlocked, errPage))
+	return strings.Join(f, "; ")
 }
