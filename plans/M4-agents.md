@@ -8,4 +8,5 @@
 | ревью плана M4 | a560e3524f58b6701 | plan-reviewer | done | Issues Found: 0 critical, 8 important (стартовый набор сайтов, B-20, S46 в тестовом режиме, политики HKCU, Ctrl+W, окна без адреса, нагрузка UIA, проверка S20), 10 minor — внесено в план (7359135) | — |
 | пакет T0 | a721afca03e6865e3 | reader | failed | ответ остановлен фильтром, пакет написал оркестратор (a2191ae) | — |
 | T0 проба Brave | afa9026170009b7f1 | writer | done | omnibox+UIA+Ctrl+W+проба+PROBE, 6 коммитов f64b12f…45ac4ef, Rulings RT0-1…8; факты — по прогону windows.yml 41863361154 | 0 |
-| пакеты T1/T2 | afce624bee7ca3e58 | reader | running | — | — |
+| пакеты T1/T2 | afce624bee7ca3e58 | reader | done | M4-T1-sites.md, M4-T2-core.md (решения V-1…V-8; FieldDomain → T3; тексты видео-предупреждений → T3) | — |
+| T1 сайты и список 18+ | acb14f10f2cb055d8 | writer | done | `internal/sites` + `tools/adultlist`, 635a1db…0d50ef7; полный UT1: 4 599 276 записей + 4 зоны (RM4-3а), 17,99 МБ, p99 1,3 мкс; покрытие 98% | 0 (1 доработка по эскалации) |
