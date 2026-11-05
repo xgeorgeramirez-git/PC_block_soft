@@ -103,6 +103,18 @@ func eventText(kind, name string, d map[string]any) string {
 		body = "закрыта «" + eventProgram(d) + "»: время на игры закончилось"
 	case evProgramClosedStudyOnly:
 		body = "закрыта «" + eventProgram(d) + "»: время вышло, доступна только учёба"
+	case evSiteForbiddenTry:
+		if detStr(d, "kind") == siteKindAdult {
+			body = "попытка открыть запрещённое: сайт для взрослых " + detStr(d, "domain")
+		} else {
+			body = "попытка открыть запрещённое: сайт " + detStr(d, "domain")
+		}
+	case evSiteClosedVideo:
+		body = "закрыт сайт " + detStr(d, "domain") + ": время на видео и соцсети закончилось"
+	case evSiteClosedStudyOnly:
+		body = "закрыт сайт " + detStr(d, "domain") + ": время вышло, доступна только учёба"
+	case evSiteUnread:
+		body = textSiteUnread
 	case core.EvRestBreak, core.EvRestEnded:
 		// «Миша: перерыв на отдых: 15 мин после 60 мин за компьютером», «Миша: вы закончили перерыв».
 		body = decapitalize(detStr(d, "text"))

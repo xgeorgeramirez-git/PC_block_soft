@@ -1,10 +1,12 @@
 package service
 
 import (
+	"fmt"
 	"strings"
 	"time"
 
 	"pcblock/internal/core"
+	"pcblock/internal/ipc"
 	"pcblock/internal/programs"
 	"pcblock/internal/sites"
 )
@@ -135,4 +137,135 @@ func (s *Service) retrySites(real time.Time) {
 	if !s.siteListsOK && real.Sub(s.sitesAt) >= rulesRetryEvery {
 		s.reloadSites(real)
 	}
+}
+
+// События журнала родителя о сайтах (S-9, S-10). Нарушение — только site_forbidden_try: вкладка
+// на переднем плане у ребёнка, «запустилась сама» (R13) к ней не относится.
+const (
+	evSiteForbiddenTry    = "site_forbidden_try"     // запрещённый или «18+»: подробности domain, kind
+	evSiteClosedVideo     = "site_closed_video"      // время на видео и соцсети закончилось (R6)
+	evSiteClosedStudyOnly = "site_closed_study_only" // «Оставить только учёбу» (R8)
+	evSiteUnread          = "site_unread"            // адрес вкладки не читается (RM4-1, RK5)
+)
+
+// Вид запрета в подробностях site_forbidden_try.
+const (
+	siteKindBlocked = "blocked"
+	siteKindAdult   = "adult"
+)
+
+const (
+	// unreadCloseAfter — сколько подряд адрес окна Brave не читается, прежде чем окно закрывается
+	// в «только учёбе» и при исчерпанном видео (S-3): свежее окно до 3,5 с без дерева доступности.
+	unreadCloseAfter = 5 * time.Second
+	// unreadLogEvery — строка «не удалось прочитать адрес» в журнал работы не чаще (RM4-1).
+	unreadLogEvery = 10 * time.Minute
+)
+
+// siteGuard решает по снимку стража sm, закрыть ли вкладку или окно Brave (S-1, S-3, S-13), и
+// ставит команду, плашку и запись журнала в очередь стража сеанса — их получит этот же ответ на
+// опрос. closeTab повторяется в каждом ответе, пока вкладка под запретом на переднем плане (страж
+// ведёт лестницу RM4-2 по числу подряд пришедших команд); плашка — не чаще plateEvery, запись —
+// не чаще watchRepeatEvery на домен вкладки (RM4-9). Ничего не закрывает у администратора, в
+// сеансе не на экране, на паузе, в безопасном режиме и под экраном блокировки; служебная страница
+// не закрывается никогда. У скрытого родителем Brave закрываются только запрещённые и «18+»
+// (запрет сильнее скрытия, PL-30). Под s.mu.
+func (s *Service) siteGuard(cs *childState, ss *sessState, session uint32, sm ipc.SensorSample, real time.Time) {
+	if !sm.DomainUnread {
+		cs.unreadSince = time.Time{}
+	}
+	if cs.admin || ss == nil || ss.childID != cs.child.ID || ss.offScreen() {
+		return
+	}
+	norm := programs.Normalize(sm.ForegroundPath)
+	if norm == "" {
+		return
+	}
+	res := s.classifier.Classify(norm, s.fpSeen[norm], s.pubSeen[norm])
+	if !isBrave(norm, res) {
+		return
+	}
+	if sm.DomainUnread {
+		s.noteUnread(cs, session, real)
+	}
+	d := cs.eng.Current()
+	if d.Status == core.StatusPaused || d.Status == core.StatusSafe || d.Lock != core.LockNone {
+		return
+	}
+	domain := sm.ForegroundDomain
+	cls, entry := s.classifySite(domain, cs.child.AdultFilter)
+	hidden := res.Verdict == programs.VerdictHidden
+	plate := ipc.BlockedPlate{ShowS: blockedPlateShowS}
+	var kind string
+	details := map[string]any{"domain": domain}
+	switch {
+	case cls == siteBlocked:
+		kind, details["kind"] = evSiteForbiddenTry, siteKindBlocked
+		plate.Kind, plate.Text = ipc.BlockedSite, fmt.Sprintf(textPlateSite, entry)
+	case cls == siteAdult:
+		kind, details["kind"] = evSiteForbiddenTry, siteKindAdult
+		plate.Kind, plate.Text = ipc.BlockedAdult, textPlateAdult
+	case hidden:
+		return
+	case d.StudyOnly && cls != siteStudy && cls != siteNone:
+		kind = evSiteClosedStudyOnly
+		plate.Kind, plate.Text = ipc.BlockedStudyOnly, d.CloseReason
+		if plate.Text == "" {
+			plate.Text = core.StudyOnlyPlateText
+		}
+	case d.CloseVideo && cls == siteVideo:
+		kind = evSiteClosedVideo
+		plate.Kind, plate.Text = ipc.BlockedVideoOver, d.VideoCloseReason
+		if plate.Text == "" {
+			plate.Text = core.VideoOverPlateText(d.RemainingS, d.Unlimited)
+		}
+	case cls == siteNone && sm.DomainUnread && (d.StudyOnly || d.CloseVideo):
+		// Окно без адреса (S-3): закрыть, только если адрес не читается подряд unreadCloseAfter.
+		if cs.unreadSince.IsZero() {
+			cs.unreadSince = real
+		}
+		if real.Sub(cs.unreadSince) >= unreadCloseAfter {
+			s.guardCmd[session] = append(s.guardCmd[session], ipc.GuardCommand{Kind: ipc.GuardCmdCloseBraveWindow})
+		}
+		return
+	default:
+		return
+	}
+	s.guardCmd[session] = append(s.guardCmd[session], ipc.GuardCommand{Kind: ipc.GuardCmdCloseTab, Domain: domain})
+	if s.watchOnce(fmt.Sprintf("ev|%d|%s|%s", cs.child.ID, kind, domain), watchRepeatEvery, real) {
+		s.journal.Write(cs.child.ID, kind, details)
+	}
+	s.sitePlate(session, cs.child.ID, "plate|"+itoa(int(session))+"|site|"+domain, plate, real)
+}
+
+// sitePlate ставит плашку о закрытой вкладке в очередь стража сеанса: только ребёнку, чей сеанс
+// на экране, и не чаще plateEvery по ключу key (домен вкладки, не путь: у всех плашек сайтов путь
+// пустой, и ключ по пути глушил бы одну другой). Под s.mu.
+func (s *Service) sitePlate(session uint32, childID int64, key string, plate ipc.BlockedPlate, real time.Time) {
+	ss := s.sessions[session]
+	if ss == nil || ss.childID != childID || ss.offScreen() {
+		return
+	}
+	if !s.watchOnce(key, plateEvery, real) {
+		return
+	}
+	s.guardCmd[session] = append(s.guardCmd[session], ipc.GuardCommand{Kind: ipc.GuardCmdBlocked, Plate: &plate})
+}
+
+// noteUnread записывает, что адрес вкладки Brave не читается (RM4-1, RK5): в журнал родителя раз в
+// день учёта на ребёнка (память только в службе), в журнал работы раз в unreadLogEvery на сеанс.
+func (s *Service) noteUnread(cs *childState, session uint32, real time.Time) {
+	if day := s.today(); s.unreadDay[cs.child.ID] != day {
+		if s.unreadDay == nil {
+			s.unreadDay = map[int64]string{}
+		}
+		s.unreadDay[cs.child.ID] = day
+		s.journal.Write(cs.child.ID, evSiteUnread, map[string]any{})
+	}
+	key := "brave-unread|" + itoa(int(session))
+	if last, ok := s.errAt[key]; ok && real.Sub(last) < unreadLogEvery && !real.Before(last) {
+		return
+	}
+	s.errAt[key] = real
+	s.cfg.Logf("сеанс %d: %s", session, textSiteUnread)
 }

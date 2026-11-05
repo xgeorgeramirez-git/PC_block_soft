@@ -351,7 +351,8 @@ func (s *Service) watchDecide(t *watchTarget, p ProcInfo, gen uint64) (*watchAct
 			return nil, skipNone
 		}
 		switch {
-		case t.d.StudyOnly && a.cat != core.CatStudy:
+		case t.d.StudyOnly && a.cat != core.CatStudy && !isBrave(e.norm, res):
+			// Brave в «только учёбе» не закрывается: вкладки не из «Учёбы» закрывает siteGuard (S-14).
 			a.plateKind = ipc.BlockedStudyOnly
 		case t.d.CloseGames && a.cat == core.CatGames:
 			a.plateKind = ipc.BlockedGamesOver

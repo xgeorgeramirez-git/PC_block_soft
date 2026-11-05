@@ -1001,6 +1001,8 @@ func (s *Service) hGuardPoll(c *callCtx) ipc.Reply {
 	}
 	cs.sample, cs.sampleAt, cs.sampleSess, cs.haveSample = req.Sample, c.real, session, true
 	ss.resetLockBySample(req.Sample)
+	// Вкладки Brave решаются в этом же ответе (S-1): команды встают в очередь перед её сливом.
+	s.siteGuard(cs, ss, session, req.Sample, c.real)
 	for _, ev := range req.Events {
 		if ev.Kind == ipc.GuardEvBypass && !cs.admin {
 			s.markBypass(cs, ev.Detail, "guard", c.real)
