@@ -58,9 +58,10 @@ const (
 
 func weekLimits() []WeekdayLimit {
 	return []WeekdayLimit{
-		{Weekday: 1, TotalMin: 120, GamesMin: 60}, {Weekday: 2, TotalMin: 120, GamesUnlimited: true}, {Weekday: 3, TotalMin: 90, GamesMin: 0},
-		{Weekday: 4, TotalMin: 120, GamesUnlimited: true}, {Weekday: 5, TotalMin: 120, GamesUnlimited: true}, {Weekday: 6, TotalMin: 240, GamesMin: 120},
-		{Weekday: 7, Unlimited: true, GamesUnlimited: true},
+		{Weekday: 1, TotalMin: 120, GamesMin: 60, VideoMin: 60}, {Weekday: 2, TotalMin: 120, GamesUnlimited: true, VideoUnlimited: true},
+		{Weekday: 3, TotalMin: 90, GamesMin: 0, VideoMin: 0}, {Weekday: 4, TotalMin: 120, GamesUnlimited: true, VideoUnlimited: true},
+		{Weekday: 5, TotalMin: 120, GamesUnlimited: true, VideoUnlimited: true}, {Weekday: 6, TotalMin: 240, GamesMin: 120, VideoUnlimited: true},
+		{Weekday: 7, Unlimited: true, GamesUnlimited: true, VideoUnlimited: true},
 	}
 }
 
@@ -126,6 +127,43 @@ func programsReply() ProgramsReply {
 				FileName: "Stalker2-Win64-Shipping", Publisher: "GSC Game World", Category: ProgramCatGames, Source: ProgramSourceCatalog, WeekS: 7200},
 		},
 		Children: []ChildName{{ChildID: 1, Name: "Миша"}, {ChildID: 2, Name: "Даша"}},
+	}
+}
+
+// adultSource — подпись источника списка «18+» на экране «Сайты» (8.3.5 п.3).
+const adultSource = "Список сайтов для взрослых: UT1, Университет Тулуза Капитоль, лицензия CC BY-SA 4.0"
+
+// sitesReply — «Сайты»: по домену в каждом списке, у Даши «18+» выключен.
+func sitesReply() ListSitesReply {
+	return ListSitesReply{
+		Sites: []SiteDTO{
+			{Domain: "example.com", Kind: SiteKindBlocked}, {Domain: "school.example", Kind: SiteKindStudy},
+			{Domain: "youtube.com", Kind: SiteKindVideo},
+		},
+		Children:    []AdultFilterDTO{{ChildID: 1, Name: "Миша", On: true}, {ChildID: 2, Name: "Даша", On: false}},
+		BlockedMax:  MaxBlockedSites,
+		AdultSource: adultSource,
+	}
+}
+
+// braveExe — путь Brave из каталога (RM4-8).
+const braveExe = `c:\program files\bravesoftware\brave-browser\application\brave.exe`
+
+// edgeStore — путь Edge из магазина Microsoft версии v (RM4-11, S46).
+func edgeStore(v string) string {
+	return `c:\program files\windowsapps\microsoft.microsoftedge.stable_` + v + `_neutral__8wekyb3d8bbwe\msedge_proxy.exe`
+}
+
+// myTodaySiteProgram — строки «Итогов» S39 с сайтом: 10 мин из 15 мин Brave — youtube.com (видео),
+// остальные 5 мин Brave — «Прочее» (PL-28: строки сходятся с итогами).
+func myTodaySitePrograms() []ProgramTime {
+	return []ProgramTime{
+		{Path: `c:\games\game.exe`, Name: "game", Category: ProgramCatGames, Seconds: 600, Kind: "program"},
+		{Path: `c:\games\game2.exe`, Name: "game2", Category: ProgramCatGames, Seconds: 300, Kind: "program"},
+		{Path: `c:\school\study.exe`, Name: "study", Category: ProgramCatStudy, Seconds: 180, Kind: "program"},
+		{Path: "youtube.com", Name: "youtube.com", Category: "video_social", Seconds: 600, Kind: "site"},
+		{Path: braveExe, Name: "Brave", Category: ProgramCatOther, Seconds: 300, Kind: "program"},
+		{Name: "Остальное время", Category: ProgramCatOther, Seconds: 300},
 	}
 }
 
@@ -316,12 +354,12 @@ func examples() map[string]example {
 
 		CmdMyToday: ok(MyTodayRequest{Period: PeriodToday}, MyTodayReply{
 			Status: okStatus(), Today: []string{"Сегодня осталось 1 ч 25 мин из 2 ч", "Использовано 35 мин"}, Rules: myRules(),
-			Period: PeriodToday, UsedS: 2100, GamesS: 900, StudyS: 180, OtherS: 1200, AllS: 2280, Programs: s39Programs(),
+			Period: PeriodToday, UsedS: 2100, GamesS: 900, StudyS: 180, VideoS: 600, OtherS: 600, AllS: 2280, Programs: myTodaySitePrograms(),
 		}),
 		"MyToday#week": ok(MyTodayRequest{Period: PeriodWeek}, MyTodayReply{
 			Status: okStatus(), Today: []string{"Сегодня осталось 1 ч 25 мин из 2 ч", "Использовано 35 мин"}, Rules: myRules(),
 			Period: PeriodWeek, UsedS: 2400, GamesS: 2400, StudyS: 0, OtherS: 0, AllS: 2400, ExtraMin: 30, BonusSpentMin: 15,
-			Programs: []ProgramTime{{Path: `c:\games\game.exe`, Name: "game", Category: ProgramCatGames, Seconds: 2400}},
+			Programs: []ProgramTime{{Path: `c:\games\game.exe`, Name: "game", Category: ProgramCatGames, Seconds: 2400, Kind: "program"}},
 		}),
 		"MyToday#empty": ok(MyTodayRequest{Period: PeriodToday}, MyTodayReply{Status: ChildStatusNotChild(), Period: PeriodToday}),
 		CmdParentStats: ok(ParentStatsRequest{ChildID: 1, Period: PeriodToday}, MyTodayReply{
@@ -332,8 +370,8 @@ func examples() map[string]example {
 			Status: okStatus(), Today: []string{"Сегодня осталось 1 ч 25 мин из 2 ч", "Использовано 35 мин"}, Rules: myRules(),
 			Period: PeriodYear, UsedS: 3600, GamesS: 3600, StudyS: 2400, OtherS: 0, AllS: 6000,
 			Programs: []ProgramTime{
-				{Path: `c:\games\game.exe`, Name: "game", Category: ProgramCatGames, Seconds: 3600},
-				{Path: `c:\school\study.exe`, Name: "study", Category: ProgramCatStudy, Seconds: 2400},
+				{Path: `c:\games\game.exe`, Name: "game", Category: ProgramCatGames, Seconds: 3600, Kind: "program"},
+				{Path: `c:\school\study.exe`, Name: "study", Category: ProgramCatStudy, Seconds: 2400, Kind: "program"},
 			},
 		}),
 		CmdFirstRunSeen: ok(nil, Empty{}),
@@ -416,6 +454,55 @@ func examples() map[string]example {
 			{Path: `c:\program files\bravesoftware\brave-browser\application\brave.exe`, Name: "Brave", Publisher: "Brave Software, Inc.", SuggestedCategory: ProgramCatOther},
 		}}),
 		"ScanPrograms#empty": ok(nil, ScanProgramsReply{Programs: []ScanProgramDTO{}}),
+
+		// M4: сайты и Brave.
+		CmdListSites: ok(nil, sitesReply()),
+		"ListSites#empty": ok(nil, ListSitesReply{Sites: []SiteDTO{}, Children: []AdultFilterDTO{}, BlockedMax: MaxBlockedSites,
+			AdultSource: adultSource}),
+		CmdAddSite: ok(AddSiteRequest{Domain: "https://www.Example.com/page?x=1", Kind: SiteKindBlocked},
+			AddSiteReply{Message: "Добавлено: example.com", Domain: "example.com", Sites: sitesReply()}),
+		"AddSite#moved": ok(AddSiteRequest{Domain: "youtube.com", Kind: SiteKindStudy},
+			AddSiteReply{Message: "Сайт перенесён в «Учёбу»", Domain: "youtube.com", Moved: true, Sites: sitesReply()}),
+		"AddSite#invalid": fail(AddSiteRequest{Domain: "просто текст", Kind: SiteKindBlocked}, "Это не похоже на адрес сайта", FieldDomain, nil),
+		"AddSite#dup":     fail(AddSiteRequest{Domain: "example.com", Kind: SiteKindBlocked}, "Этот сайт уже в списке", FieldDomain, nil),
+		"AddSite#full": fail(AddSiteRequest{Domain: "example.org", Kind: SiteKindBlocked},
+			"В списке запрещённых уже 1000 сайтов. Удалите ненужные", FieldDomain, nil),
+		CmdRemoveSite: ok(RemoveSiteRequest{Domain: "example.com"}, RemoveSiteReply{
+			Message: "Удалён example.com", Domain: "example.com", Kind: SiteKindBlocked, UndoUntilMs: t0 + 10_000, Sites: sitesReply(),
+		}),
+		CmdSetAdultFilter: ok(SetAdultFilterRequest{ChildID: 2, On: false},
+			SetAdultFilterReply{Message: "Даша: сайты 18+ не блокируются", Sites: sitesReply()}),
+		"Setup#sites": ok(SetupRequest{
+			Password: "секрет-123",
+			Children: []SetupChild{{SID: "S-1-5-21-111-222-333-1001", Name: "Миша", Limits: weekLimits()}},
+			Programs: []SetupProgram{{Path: `c:\program files\minecraft launcher\minecraftlauncher.exe`, Category: ProgramCatGames}},
+			Sites:    &SetupSites{AdultOff: []string{"S-1-5-21-111-222-333-1002"}, Video: []string{"youtube.com", "vk.com", "kids.example"}},
+		}, Empty{}),
+		"GuardPoll#closeTab": ok(GuardPollRequest{Sample: SensorSample{AtMs: t0, SessionActive: true, Foreground: CatNameVideoSocial,
+			ForegroundPath: braveExe, ForegroundDomain: "youtube.com"}}, GuardPollReply{
+			Status: okStatus(), Warnings: []GuardWarning{NewGuardWarningFor(5, core.WarnVideo, 300)},
+			Commands: []GuardCommand{
+				{Kind: GuardCmdCloseTab, Domain: "youtube.com"},
+				{Kind: GuardCmdBlocked, Plate: &BlockedPlate{Kind: BlockedVideoOver, Text: core.VideoOverPlateText(2400, false)}},
+			},
+		}),
+		"GuardState#closeTab": ok(nil, GuardStateReply{
+			ForegroundPath: braveExe, ForegroundDomain: "youtube.com", ClosedTab: "youtube.com", ClosedTabWay: CloseTabCtrlW,
+			Plate: "Время на видео и соцсети на сегодня закончилось. Общего времени осталось 40 мин", PlateKind: BlockedVideoOver,
+			Buttons: []string{"plateClose"},
+		}),
+		"TestGuard#domain": ok(TestGuardRequest{Action: TestGuardAction{Action: TestDomain, Text: "youtube.com"}}, Empty{}),
+		CmdTestSeedPrograms: ok(TestSeedProgramsRequest{
+			Programs: []TestSeedProgram{
+				{Path: edgeStore("130.0.2849.80"), Name: "msedge_proxy", Publisher: "Microsoft Corporation", Category: ProgramCatOther,
+					Source: ProgramSourceParent, Hidden: true, DecidedAt: t0 - 86_400_000},
+				{Path: edgeStore("131.0.2903.51"), Name: "msedge_proxy", Publisher: "Microsoft Corporation", Category: ProgramCatBlocked,
+					Source: ProgramSourceParent, CustomName: "Edge", DecidedAt: t0},
+			},
+			Usage: []TestSeedProgramUsage{{ChildID: 1, Day: "2026-11-03", Path: edgeStore("130.0.2849.80"), Category: ProgramCatOther, Seconds: 120}},
+			Pending: []TestSeedPending{{Path: edgeStore("132.0.2957.55"), Name: "msedge_proxy", Publisher: "Microsoft Corporation",
+				ChildID: 1, Attempts: 2, LastAttemptAt: t0}},
+		}, Empty{}),
 	}
 }
 
@@ -472,8 +559,8 @@ func TestContractHasEveryCommand(t *testing.T) {
 			t.Errorf("пример для %s есть, а в AllCommands её нет", c)
 		}
 	}
-	if len(AllCommands) != 66 {
-		t.Errorf("команд %d, ждали 66 (тестовая TestSeedDay и EndBreak из раунда 0.3.2; 46 из M1/M2/0.2.1 без команд Помощника, 9 из фидбек-раунда 0.2.2: OpenLogs, SetNoForbidden, ClearBonus, ReduceBonus, CreatePromo, ListPromos, RedeemPromo, GetBonusRate, SetBonusRate, GuardClosing из раунда 0.2.3, тестовая TestSession из 0.2.5 и 5 программ M3: ListPrograms, DecideProgram, SetProgramsCategory, UndoProgram, ScanPrograms; SetProgramsHidden и RenameProgram из раунда 0.3.1)", len(AllCommands))
+	if len(AllCommands) != 71 {
+		t.Errorf("команд %d, ждали 71 (5 команд M4: ListSites, AddSite, RemoveSite, SetAdultFilter, тестовая TestSeedPrograms; тестовая TestSeedDay и EndBreak из раунда 0.3.2; 46 из M1/M2/0.2.1 без команд Помощника, 9 из фидбек-раунда 0.2.2: OpenLogs, SetNoForbidden, ClearBonus, ReduceBonus, CreatePromo, ListPromos, RedeemPromo, GetBonusRate, SetBonusRate, GuardClosing из раунда 0.2.3, тестовая TestSession из 0.2.5 и 5 программ M3: ListPrograms, DecideProgram, SetProgramsCategory, UndoProgram, ScanPrograms; SetProgramsHidden и RenameProgram из раунда 0.3.1)", len(AllCommands))
 	}
 }
 
@@ -491,10 +578,10 @@ func myRules() []MyRule {
 // «Остальное время» — время без программы (рабочий стол, системные, скрытые).
 func s39Programs() []ProgramTime {
 	return []ProgramTime{
-		{Path: `c:\games\game.exe`, Name: "game", Category: ProgramCatGames, Seconds: 600},
-		{Path: `c:\games\game2.exe`, Name: "game2", Category: ProgramCatGames, Seconds: 300},
-		{Path: `c:\school\study.exe`, Name: "study", Category: ProgramCatStudy, Seconds: 180},
-		{Path: `c:\program files\brave software\brave-browser\application\brave.exe`, Name: "Brave", Category: ProgramCatOther, Seconds: 900},
+		{Path: `c:\games\game.exe`, Name: "game", Category: ProgramCatGames, Seconds: 600, Kind: "program"},
+		{Path: `c:\games\game2.exe`, Name: "game2", Category: ProgramCatGames, Seconds: 300, Kind: "program"},
+		{Path: `c:\school\study.exe`, Name: "study", Category: ProgramCatStudy, Seconds: 180, Kind: "program"},
+		{Path: `c:\program files\brave software\brave-browser\application\brave.exe`, Name: "Brave", Category: ProgramCatOther, Seconds: 900, Kind: "program"},
 		{Name: "Остальное время", Category: ProgramCatOther, Seconds: 300},
 	}
 }

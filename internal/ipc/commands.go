@@ -104,6 +104,8 @@ var AllCommands = []string{
 	CmdSetProgramsHidden, CmdRenameProgram, // фидбек-раунд 0.3.1 (D-57, D-59)
 	CmdTestSeedDay, // фидбек-раунд 0.3.2 (S42)
 	CmdEndBreak,    // фидбек-раунд 0.3.2 (FB-14, commands_0_3_2.go)
+
+	CmdListSites, CmdAddSite, CmdRemoveSite, CmdSetAdultFilter, CmdTestSeedPrograms, // M4 (commands_m4.go)
 }
 
 // Имена полей, к которым служба привязывает ошибку (Reply.Field, L-121).
@@ -127,6 +129,10 @@ func LimitField(weekday int) string { return "limits." + itoa(weekday) }
 
 // GamesField — имя поля лимита игр дня недели (1 = пн … 7 = вс) для ошибок SaveLimits и Setup (R5, FR-16).
 func GamesField(weekday int) string { return "games." + itoa(weekday) }
+
+// VideoField — имя поля лимита «Видео и соцсети» дня недели (1 = пн … 7 = вс) для ошибок SaveLimits
+// и Setup (R6, FR-16).
+func VideoField(weekday int) string { return "video." + itoa(weekday) }
 
 // Режимы «Когда время вышло» (R8, D-9) в ChildRules.EndMode, SaveLimitsRequest.EndMode и
 // ChildStatus.EndMode: те же ключи, что core.EndMode.String и children.end_mode.
@@ -271,12 +277,17 @@ type ListAccountsReply struct {
 // GamesMin — лимит игр (R5, FR-16): 0 — игры в этот день нельзя; GamesUnlimited — игры без
 // отдельного лимита (ограничены только общим, тогда GamesMin = 0 и не читается). Лимит игр может
 // быть больше общего: тогда раньше кончится общий.
+// VideoMin, VideoUnlimited — лимит «Видео и соцсети» (R6) по тому же правилу, но без ключа
+// videoUnlimited в JSON день читается «видео без отдельного лимита» (S-3, UnmarshalJSON): старое
+// окно и мастер полей видео не присылают.
 type WeekdayLimit struct {
 	Weekday        int  `json:"weekday"`
 	TotalMin       int  `json:"totalMin"`
 	Unlimited      bool `json:"unlimited"`
 	GamesMin       int  `json:"gamesMin"`
 	GamesUnlimited bool `json:"gamesUnlimited"`
+	VideoMin       int  `json:"videoMin"`
+	VideoUnlimited bool `json:"videoUnlimited"`
 }
 
 // SetupChild — ребёнок при первоначальной настройке.
@@ -294,6 +305,9 @@ type SetupRequest struct {
 	// Programs — категории программ компьютера, выбранные на шаге «Программы» (FR-2, ScanPrograms);
 	// пусто — снимок службы с категориями по умолчанию (RM3-10).
 	Programs []SetupProgram `json:"programs,omitempty"`
+	// Sites — шаг мастера «Сайты» (M4); nil — «18+» включён всем, «Видео и соцсети» — стартовый
+	// набор миграции 009.
+	Sites *SetupSites `json:"sites,omitempty"`
 }
 
 // ResetPasswordRequest — сброс пароля (только повышенный администратор, R20).
@@ -353,6 +367,7 @@ type TodayCard struct {
 	NoForbiddenToday bool        `json:"noForbiddenToday"` // запретные часы сняты на сегодня (R24, D-51): показать «Вернуть»
 	GamesText        string      `json:"gamesText"`        // «Игры 40 мин из 1 ч» (8.3.2 п.3); «» — отдельного лимита игр нет
 	PendingPrograms  int         `json:"pendingPrograms"`  // сколько программ ждут решения: ссылка «Ждут решения: N» (8.3.2 п.5)
+	VideoText        string      `json:"videoText"`        // «Видео 10 мин из 20 мин» (M4, R6); «» — отдельного лимита видео нет
 }
 
 // GetTodayReply — ответ GetToday. Notices — важные сообщения при входе, например
@@ -558,6 +573,8 @@ type MyTodayReply struct {
 	// GamesS, StudyS — игры и учёба за период, с (итоги «Моей статистики», S13).
 	GamesS int `json:"gamesS"`
 	StudyS int `json:"studyS"`
+	// VideoS — «Видео и соцсети» за период, с (M4, R6).
+	VideoS int `json:"videoS"`
 	// OtherS — «Прочее» за период, с: общее время без игр и «Видео и соцсетей» (рабочий стол,
 	// незнакомые программы, дотяжка последней минуты; время скрытых не засчитывается, D-63).
 	// AllS — «Всего»: общее время и учёба (D-7: учёба в лимит не входит, но за компьютером была).
@@ -572,14 +589,16 @@ type MyTodayReply struct {
 	Programs []ProgramTime `json:"programs"`
 }
 
-// ProgramTime — строка вкладки «Итогов» (D-58): программа, категория, в которой засчитаны её
-// секунды (games|study|other), и секунды за сегодня. Name — то же название, что в списке
-// программ и журнале (своё название родителя, иначе из файла, D-59).
+// ProgramTime — строка вкладки «Итогов» (D-58): программа или сайт, категория, в которой засчитаны
+// секунды (games|study|video_social|other), и секунды за период. Name — то же название, что в
+// списке программ и журнале (своё название родителя, иначе из файла, D-59).
 type ProgramTime struct {
 	Path     string `json:"path"`
 	Name     string `json:"name"`
 	Category string `json:"category"`
 	Seconds  int    `json:"seconds"`
+	// Kind — "program" или "site" (M4, RM4-7); у сайта Path — домен, без адреса страницы (R23).
+	Kind string `json:"kind"`
 }
 
 // --- Страж --------------------------------------------------------------------------
@@ -604,6 +623,10 @@ type SensorSample struct {
 	// ForegroundPath — путь exe программы на переднем плане (R3, M3); «» — не определён. Длиннее
 	// MaxForegroundPathLen символов служба отбрасывает.
 	ForegroundPath string `json:"foregroundPath"`
+	// ForegroundDomain — домен активной вкладки Brave на переднем плане (M4, RM4-1); «» — не Brave
+	// или домен не прочитан. Только домен, без адреса и заголовка (R23); длиннее MaxDomainLen
+	// служба отбрасывает.
+	ForegroundDomain string `json:"foregroundDomain"`
 }
 
 // Виды событий стража в GuardPollRequest.Events.
@@ -666,6 +689,7 @@ const (
 	GuardCmdNotice   = "notice"   // показать короткое сообщение (Text), например «Добавлено 30 минут»
 	GuardCmdTest     = "test"     // действие TestGuard, только в тестовом режиме (Ruling 5)
 	// GuardCmdBlocked = "blocked" (commands_m3.go): плашка о закрытой программе (Plate, FR-13).
+	// GuardCmdCloseTab = "closeTab" (commands_m4.go): закрыть вкладку Brave с доменом Domain (RM4-2).
 )
 
 // Действия TestGuard (Ruling 5): страж выполняет их через настоящие сообщения своих окон.
@@ -682,6 +706,7 @@ const (
 	// снимках, пока не придёт новое действие foreground (M3, приёмка S12…S15); пустой Text
 	// возвращает настоящее чтение переднего плана.
 	TestForeground = "foreground"
+	// TestDomain = "domain" (commands_m4.go): подмена домена вкладки Brave (RM4-12).
 )
 
 // TestGuardAction — одно действие стражу.
@@ -698,6 +723,8 @@ type GuardCommand struct {
 	Test *TestGuardAction `json:"test,omitempty"`
 	// Plate — плашка о закрытой программе для GuardCmdBlocked (FR-13, M3).
 	Plate *BlockedPlate `json:"plate,omitempty"`
+	// Domain — домен вкладки для GuardCmdCloseTab (M4, RM4-2).
+	Domain string `json:"domain,omitempty"`
 }
 
 // GuardPollReply — ответ GuardPoll: решение для экрана, новые предупреждения, команды стражу.
@@ -818,6 +845,10 @@ type GuardStateReply struct {
 	// ForegroundDomain — домен активной вкладки Brave, прочитанный стражем последним (M4, RM4-1);
 	// «» — на переднем плане не Brave или домен не прочитан. Только домен, без адреса (R23).
 	ForegroundDomain string `json:"foregroundDomain"`
+	// ClosedTab — домен последней исполненной команды closeTab, «» — не было; ClosedTabWay — как
+	// закрыта (CloseTab*). Для приёмки S16…S18 (RM4-12), заполняет страж.
+	ClosedTab    string `json:"closedTab"`
+	ClosedTabWay string `json:"closedTabWay"`
 }
 
 // Виды плашек стража для GuardStateReply.PlateKind, кроме плашек о закрытых программах (их вид —

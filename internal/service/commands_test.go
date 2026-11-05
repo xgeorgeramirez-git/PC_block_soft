@@ -103,7 +103,7 @@ func wantAllowed(cmd, kind, tok string, test, configured bool) bool {
 		return kind == "child" || kind == "guard"
 	case ipc.CmdGuardPoll, ipc.CmdGuardLogoff, ipc.CmdGuardShutdown, ipc.CmdGuardSwitchUser, ipc.CmdGuardClosing:
 		return kind == "guard"
-	case ipc.CmdTestGuard, ipc.CmdTestClock, ipc.CmdTestSession, ipc.CmdTestSeedDay:
+	case ipc.CmdTestGuard, ipc.CmdTestClock, ipc.CmdTestSession, ipc.CmdTestSeedDay, ipc.CmdTestSeedPrograms:
 		return test && (kind == "admin" || kind == "elev")
 	case ipc.CmdGuardState:
 		return test && (kind == "guard" || kind == "admin" || kind == "elev")
@@ -122,6 +122,9 @@ func wantAllowed(cmd, kind, tok string, test, configured bool) bool {
 		return kind == "child" || kind == "guard"
 	case ipc.CmdListPrograms, ipc.CmdDecideProgram, ipc.CmdSetProgramsCategory, ipc.CmdUndoProgram, ipc.CmdSetProgramsHidden, ipc.CmdRenameProgram:
 		// «Программы» (FR-20): только родитель своим токеном; ребёнок не читает и не меняет.
+		return user && own
+	case ipc.CmdListSites, ipc.CmdAddSite, ipc.CmdRemoveSite, ipc.CmdSetAdultFilter:
+		// «Сайты» (FR-21): только родитель своим токеном; ребёнок не читает и не меняет списки.
 		return user && own
 	case ipc.CmdScanPrograms:
 		// Шаг мастера «Программы» (FR-2): как ListAccounts до настройки, после настройки — никому.
