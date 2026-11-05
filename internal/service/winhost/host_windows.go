@@ -75,7 +75,7 @@ func openHost() (*host, error) {
 		OpenFolder: openFolder,
 		Admins:     admins,
 		Accounts:   accountDir{admins: admins},
-		Policy:     &policy{},
+		Policy:     &policy{logf: logf},
 		Clock:      clock,
 		Loc:        time.Local,
 		Version:    version.Version,
