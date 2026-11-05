@@ -20,3 +20,7 @@
 | пакеты T5/T6 | a6a4caf47849100d6 | reader | done | M4-T5-brave-policy.md, M4-T6-browsers-store.md; уточнение RM4-10; T6-5: в тестовом режиме издатель Brave из профиля не читался | — |
 | T4a сайты в цикле службы | a943f894447c07c94 | writer | done | ad0d194…2d8ec10; ci.yml 42092826513 зелёный; скрытый Brave — только запрещённые и 18+ (README) | 0 |
 | T4b команды «Сайтов» | ae6f0c1b9e6b9aae2 | writer | done | e02320f…e56bf0a; обработчики, мастер, видео в карточке/статистике/правилах | 0 |
+| T5 правила Brave | ac3d10c9559df1a6c | writer | done | ac69963…70efddd; windows.yml 42097088730 (перезапуск упавшего: TestWatcherDryRun 48,8 с > 45 с на медленном диске раннера — флейк окружения) зелёный, S7, S26 PASS | 0 |
+| T7 страж | ad4a98b9f04b82ffd | writer | done | f9eeb68…ffe9906; домен и DomainUnread в снимке, лестница closeTab, табло видео, строки значка | 0 |
+| пакеты T8/T9 | a1e245048c993d139 | reader | running | — | — |
+| T6 браузеры и магазин | ae572e5dca7e8202a | writer | running | — | — |
