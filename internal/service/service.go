@@ -638,12 +638,15 @@ func limitsView(r core.Rules) []ipc.WeekdayLimit {
 	out := make([]ipc.WeekdayLimit, 0, 7)
 	for i := 0; i < 7; i++ {
 		l := r.Week[i]
-		w := ipc.WeekdayLimit{Weekday: i + 1, Unlimited: l.Unlimited(), GamesUnlimited: l.GamesMin == nil}
+		w := ipc.WeekdayLimit{Weekday: i + 1, Unlimited: l.Unlimited(), GamesUnlimited: l.GamesMin == nil, VideoUnlimited: l.VideoMin == nil}
 		if !w.Unlimited {
 			w.TotalMin = *l.TotalMin
 		}
 		if !w.GamesUnlimited {
 			w.GamesMin = *l.GamesMin
+		}
+		if !w.VideoUnlimited {
+			w.VideoMin = *l.VideoMin
 		}
 		out = append(out, w)
 	}

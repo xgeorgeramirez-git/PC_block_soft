@@ -148,7 +148,7 @@ func (s *Service) hListAccounts(c *callCtx) ipc.Reply {
 	return ipc.OK(out)
 }
 
-// weekFromLimits проверяет семь дней лимитов (общий и игр) и собирает массив для ядра. При
+// weekFromLimits проверяет семь дней лимитов (общий, игр и видео) и собирает массив для ядра. При
 // ошибке возвращает поле формы и текст у поля (L-121).
 func weekFromLimits(ls []ipc.WeekdayLimit) (week [7]core.DayLimit, field, text string) {
 	seen := [7]bool{}
@@ -179,6 +179,18 @@ func weekFromLimits(ls []ipc.WeekdayLimit) (week [7]core.DayLimit, field, text s
 			}
 			games := l.GamesMin
 			week[l.Weekday-1].GamesMin = &games
+		}
+		if !l.VideoUnlimited {
+			// Лимит «Видео и соцсети» (R6, FR-16) — по образцу игр; день без ключа videoUnlimited
+			// канал читает «без лимита» (S-3, ipc.WeekdayLimit.UnmarshalJSON).
+			switch v := ipc.VideoField(l.Weekday); {
+			case l.VideoMin < 0:
+				return week, v, textLimitNegative
+			case l.VideoMin > 1440:
+				return week, v, textLimitTooBig
+			}
+			video := l.VideoMin
+			week[l.Weekday-1].VideoMin = &video
 		}
 	}
 	for _, ok := range seen {
