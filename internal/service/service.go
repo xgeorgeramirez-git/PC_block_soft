@@ -498,7 +498,7 @@ func (s *Service) saveState(cs *childState, st core.DayState) {
 	// полуночи не переносит вчерашние секунды в сегодня (PL-15). Ошибка — накопитель остаётся.
 	rows := make([]UsageRow, 0, len(cs.usage))
 	for k, sec := range cs.usage {
-		rows = append(rows, UsageRow{Day: k.day, Category: k.cat, Kind: usageKindProgram, Subject: k.path, Seconds: sec})
+		rows = append(rows, UsageRow{Day: k.day, Category: k.cat, Kind: k.kind, Subject: k.subject, Seconds: sec})
 	}
 	sort.Slice(rows, func(i, j int) bool {
 		a, b := rows[i], rows[j]
@@ -507,6 +507,9 @@ func (s *Service) saveState(cs *childState, st core.DayState) {
 		}
 		if a.Category != b.Category {
 			return a.Category < b.Category
+		}
+		if a.Kind != b.Kind {
+			return a.Kind < b.Kind
 		}
 		return a.Subject < b.Subject
 	})

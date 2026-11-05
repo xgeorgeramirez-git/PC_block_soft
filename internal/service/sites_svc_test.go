@@ -1,9 +1,12 @@
 package service
 
 import (
+	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 
+	"pcblock/internal/core"
 	"pcblock/internal/ipc"
 	"pcblock/internal/sites"
 )
@@ -137,5 +140,105 @@ func TestSitesReloadFailure(t *testing.T) {
 	}
 	if cls, _ := h.classify("m.example.com", true); cls != siteBlocked {
 		t.Errorf("m.example.com после сбоя повторного чтения: %v, want siteBlocked (прежние списки)", cls)
+	}
+}
+
+// foreground — foregroundOf ребёнка Миши под s.mu.
+func (h *harness) foreground(sm ipc.SensorSample) (core.Category, usageSubject, bool) {
+	h.svc.mu.Lock()
+	defer h.svc.mu.Unlock()
+	return h.svc.foregroundOf(h.svc.children[h.childID(childSID)], sm)
+}
+
+// Ловит (RM4-7, S-7, RM4-8): секунда Brave не по сайту, а по программе; поддомен учитывается своим
+// доменом, а не записью списка; запрещённый и «18+» сайт получает строку учёта; домен у не-Brave
+// меняет категорию игры; служба верит слову стража «видео».
+func TestForegroundSiteCategory(t *testing.T) {
+	h := siteHarness(t)
+	mc := fgSample(pathMinecraft, ipc.CatNameOther)
+	mc.ForegroundDomain = "youtube.com"
+	cases := []struct {
+		name   string
+		sample ipc.SensorSample
+		cat    core.Category
+		u      usageSubject
+	}{
+		{"служебная страница", braveSample(""), core.CatOther, usageSubject{usageKindProgram, pathBrave}},
+		{"видео", braveSample("youtube.com"), core.CatVideoSocial, usageSubject{usageKindSite, "youtube.com"}},
+		{"поддомен видео — запись", braveSample("m.youtube.com"), core.CatVideoSocial, usageSubject{usageKindSite, "youtube.com"}},
+		{"учёба", braveSample("school.example"), core.CatStudy, usageSubject{usageKindSite, "school.example"}},
+		{"запрещённый", braveSample("m.example.com"), core.CatOther, usageSubject{}},
+		{"18+", braveSample("adult-probe.test"), core.CatOther, usageSubject{}},
+		{"прочий сайт", braveSample("news.example"), core.CatOther, usageSubject{usageKindSite, "news.example"}},
+		{"домен у не-Brave", mc, core.CatGames, usageSubject{usageKindProgram, pathMinecraft}},
+		{"слово стража «видео»", ipc.SensorSample{SessionActive: true, Foreground: ipc.CatNameVideoSocial}, core.CatOther, usageSubject{usageKindProgram, ""}},
+	}
+	for _, c := range cases {
+		cat, u, hidden := h.foreground(c.sample)
+		if cat != c.cat || u != c.u || hidden {
+			t.Errorf("%s: (%v, %+v, %v), want (%v, %+v, false)", c.name, cat, u, hidden, c.cat, c.u)
+		}
+	}
+}
+
+// Ловит (RM4-7, PL-38): секунды видео не идут в учёт (usageCats без видео), сайт пишется видом
+// «программа», запрещённый сайт получает свою строку, секунды Brave на служебной странице теряются.
+func TestSiteUsageSaved(t *testing.T) {
+	h := siteHarness(t, withVideo(childSID, 60))
+	h.run(10, braveSample("youtube.com"))
+	h.run(5, braveSample(""))
+	h.run(3, braveSample("news.example"))
+	h.run(4, braveSample("m.example.com"))
+	h.svc.Shutdown(h.real.Now())
+	id := h.childID(childSID)
+	want := map[string]int{
+		fmt.Sprintf("%d|2026-10-19|video_social|site|youtube.com", id): 10,
+		fmt.Sprintf("%d|2026-10-19|other|program|%s", id, pathBrave):   5,
+		fmt.Sprintf("%d|2026-10-19|other|site|news.example", id):       3,
+	}
+	h.store.mu.Lock()
+	got := map[string]int{}
+	for k, v := range h.store.usage {
+		got[k] = v
+	}
+	st := h.store.days[dayKey(id, "2026-10-19")]
+	h.store.mu.Unlock()
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("учёт %v, want %v", got, want)
+	}
+	if st.VideoS != 10 || st.TotalS != 22 {
+		t.Errorf("день: видео %d, всего %d; want 10, 22", st.VideoS, st.TotalS)
+	}
+}
+
+// Ловит (R23, S-5): адрес страницы или мусор от стража принимаются за домен, попадают в журнал
+// работы или родителя, домен в другом регистре закрывает вкладку.
+func TestGuardDomainRejected(t *testing.T) {
+	h := siteHarness(t)
+	for _, d := range []string{"example.com/secret?token=1", strings.Repeat("a", 250) + ".com", "Example.COM"} {
+		rep := h.poll(braveSample(d))
+		for _, c := range rep.Commands {
+			if c.Kind == ipc.GuardCmdCloseTab {
+				t.Errorf("%q: команда closeTab %+v", d, c)
+			}
+		}
+		h.svc.mu.Lock()
+		got := h.svc.children[h.childID(childSID)].sample.ForegroundDomain
+		h.svc.mu.Unlock()
+		if got != "" {
+			t.Errorf("%q: в снимке домен %q, want «»", d, got)
+		}
+	}
+	logs := h.logText()
+	if strings.Contains(logs, "secret") || strings.Contains(logs, "token") {
+		t.Errorf("журнал работы содержит адрес страницы: %q", logs)
+	}
+	for _, e := range h.store.events {
+		if s := fmt.Sprint(e.Details); strings.Contains(s, "secret") || strings.Contains(s, "token") {
+			t.Errorf("журнал родителя содержит адрес страницы: %s %s", e.Kind, s)
+		}
+	}
+	if n := strings.Count(logs, "страж прислал домен, не похожий на домен"); n != 1 {
+		t.Errorf("строк о мусорном домене %d, want 1:\n%s", n, logs)
 	}
 }

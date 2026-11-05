@@ -42,9 +42,9 @@ func (s *Service) tickChild(cs *childState, now time.Time) {
 	if cs.eng.DueSave(now) {
 		s.saveDay(cs)
 	}
-	sample, path := s.sampleFor(cs)
+	sample, u := s.sampleFor(cs)
 	d := cs.eng.Tick(sample)
-	s.countUsage(cs, d, path)
+	s.countUsage(cs, d, u)
 	s.afterDecision(cs, d, nil)
 }
 
@@ -97,8 +97,8 @@ func (s *Service) runGuarded(where string, f func()) {
 	f()
 }
 
-// sampleFor возвращает снимок датчиков для тика и путь программы переднего плана для учёта по
-// программам («» — не учитывать): свежий снимок стража, иначе «неактивен».
+// sampleFor возвращает снимок датчиков для тика и предмет учёта переднего плана — программу или
+// сайт (пустой предмет — не учитывать): свежий снимок стража, иначе «неактивен».
 // Служба ничего не додумывает за стража: нет вестей дольше sampleMaxAge, секунда не идёт.
 // Но и стражу она не верит там, где знает больше него (FB-3, R2): страж в отключённом сеансе
 // не может открыть рабочий стол ввода и считает сеанс незаблокированным, а после выхода из
@@ -107,76 +107,86 @@ func (s *Service) runGuarded(where string, f func()) {
 // (D-63, RF15-1): секунда тоже не идёт, как простой — не тратит лимит, не идёт ни в одну
 // категорию и к перерыву на отдых (для «сам отошёл» это тишина); последняя минута (D-60) идёт
 // по часам в ядре и от снимка не зависит.
-func (s *Service) sampleFor(cs *childState) (core.SessionSample, string) {
+func (s *Service) sampleFor(cs *childState) (core.SessionSample, usageSubject) {
 	if !cs.haveSample || s.real.Sub(cs.sampleAt) > sampleMaxAge {
-		return core.SessionSample{}, ""
+		return core.SessionSample{}, usageSubject{}
 	}
 	ss := s.sessions[cs.sampleSess]
 	if ss == nil || ss.childID != cs.child.ID || ss.offScreen() {
 		s.noteSampleVerdict(cs, "не учитывается", ss)
-		return core.SessionSample{}, ""
+		return core.SessionSample{}, usageSubject{}
 	}
-	cat, path, hidden := s.foregroundOf(cs.sample)
+	cat, u, hidden := s.foregroundOf(cs, cs.sample)
 	if hidden {
 		s.noteSampleVerdict(cs, "не учитывается: на переднем плане скрытая программа", ss)
-		return core.SessionSample{}, ""
+		return core.SessionSample{}, usageSubject{}
 	}
 	s.noteSampleVerdict(cs, "учитывается", ss)
 	sm := cs.sample.ToCore()
 	sm.Foreground = cat
-	return sm, path
+	return sm, u
 }
 
 // foregroundOf — категория секунды по программе переднего плана (RM3-1, RM3-7): категорию даёт
-// путь exe через классификатор, слова стража не учитываются (кроме «Видео и соцсети» — сайты M4).
+// путь exe через классификатор, слова стража не учитываются. У Brave с доменом вкладки решают
+// сайты (RM4-7, RM4-8, S-7): «Видео и соцсети» и «Учёба» — по записи списка, прочий сайт — «Прочее»
+// с доменом, запрещённый и «18+» — «Прочее» без предмета (до закрытия; в «Итоги» не попадают,
+// PL-38); без домена (служебная страница, адрес не прочитан) — как программа Brave.
 // Разрешённая программа — её категория; система, незнакомая, запрещённая, пустой или нечитаемый
 // путь — «Прочее» (PL-7/8): незнакомая не успевает засчитаться игрой. Скрытая родителем — hidden:
 // секунда не засчитывается вовсе (D-63, RF15-1), решает sampleFor. Отпечаток файла — тот, что
 // видел наблюдатель (fpSeen), издатель тоже (pubSeen, RM3-13): подменённый файл не засчитывается
 // по старому решению. Путь для учёта — нормализованный, у системы, скрытой и запрещённой «».
-func (s *Service) foregroundOf(sm ipc.SensorSample) (cat core.Category, path string, hidden bool) {
-	if sm.Foreground == ipc.CatNameVideoSocial {
-		return core.CatVideoSocial, "", false
-	}
+func (s *Service) foregroundOf(cs *childState, sm ipc.SensorSample) (cat core.Category, u usageSubject, hidden bool) {
+	prog := usageSubject{kind: usageKindProgram}
 	norm := programs.Normalize(sm.ForegroundPath)
 	if norm == "" {
-		return core.CatOther, "", false
+		return core.CatOther, prog, false
 	}
 	res := s.classifier.Classify(norm, s.fpSeen[norm], s.pubSeen[norm])
 	switch res.Verdict {
 	case programs.VerdictSystem:
-		return core.CatOther, "", false
+		return core.CatOther, prog, false
 	case programs.VerdictAllow:
-		return coreCategory(res.Category), norm, false
+		if isBrave(norm, res) {
+			if cat, u, ok := s.siteCategory(cs, sm.ForegroundDomain); ok {
+				return cat, u, false
+			}
+		}
+		return coreCategory(res.Category), usageSubject{kind: usageKindProgram, subject: norm}, false
 	case programs.VerdictHidden:
-		return core.CatOther, "", true
+		return core.CatOther, prog, true
 	case programs.VerdictForbidden:
 		// Секунды до закрытия — «Прочее» без программы: запрещённая не получает строку «Итогов»,
 		// даже если запрет по наследству, а не точной записью (D-64, RF16-1).
-		return core.CatOther, "", false
+		return core.CatOther, prog, false
 	}
-	return core.CatOther, norm, false
+	return core.CatOther, usageSubject{kind: usageKindProgram, subject: norm}, false
 }
 
-// progUsageKey — порция учёта по программам: день, когда секунды засчитаны (PL-15), категория и путь.
+// progUsageKey — порция учёта: день, когда секунды засчитаны (PL-15), категория и предмет
+// (программа или сайт, RM4-7).
 type progUsageKey struct {
-	day, cat, path string
+	day, cat, kind, subject string
 }
 
-// usageCats — категории учёта по программам (RM3-6); «Видео и соцсети» — сайты, M4.
-var usageCats = map[core.Category]string{core.CatGames: programs.CatGames, core.CatStudy: programs.CatStudy, core.CatOther: programs.CatOther}
+// usageCats — категории учёта по программам и сайтам (RM3-6, RM4-7).
+var usageCats = map[core.Category]string{
+	core.CatGames: programs.CatGames, core.CatStudy: programs.CatStudy, core.CatOther: programs.CatOther,
+	core.CatVideoSocial: usageCatVideo,
+}
 
 // countUsage добавляет засчитанную секунду тика к накопителю ребёнка (RM3-6): в базу он уходит
-// вместе с состоянием дня (saveState).
-func (s *Service) countUsage(cs *childState, d core.Decision, path string) {
+// вместе с состоянием дня (saveState). Пустой предмет (система, запрещённое, «18+») не пишется.
+func (s *Service) countUsage(cs *childState, d core.Decision, u usageSubject) {
 	cat, ok := usageCats[d.CountedCat]
-	if !d.Counted || !ok || path == "" || d.Day == "" {
+	if !d.Counted || !ok || u.subject == "" || d.Day == "" {
 		return
 	}
 	if cs.usage == nil {
 		cs.usage = map[progUsageKey]int{}
 	}
-	cs.usage[progUsageKey{day: d.Day, cat: cat, path: path}]++
+	cs.usage[progUsageKey{day: d.Day, cat: cat, kind: u.kind, subject: u.subject}]++
 }
 
 // noteSampleVerdict пишет в подробный журнал, когда меняется решение «снимок стража учитывается»:

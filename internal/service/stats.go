@@ -47,7 +47,7 @@ func (s *Service) programTimes(cs *childState, day core.DayState, past []UsageRo
 	}
 	for k, n := range cs.usage {
 		if k.day == day.Day {
-			secs[key{k.cat, k.path}] += n
+			secs[key{k.cat, k.subject}] += n
 		}
 	}
 	known := map[string]Program{}

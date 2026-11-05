@@ -4,6 +4,7 @@ import (
 	"strings"
 	"time"
 
+	"pcblock/internal/core"
 	"pcblock/internal/programs"
 	"pcblock/internal/sites"
 )
@@ -61,6 +62,31 @@ func (s *Service) classifySite(domain string, adultOn bool) (siteClass, string) 
 		return siteAdult, ""
 	}
 	return siteOther, domain
+}
+
+// usageKindSite — вид предмета учёта usage_daily: сайт (домен или запись списка, RM4-7).
+const usageKindSite = "site"
+
+// usageSubject — предмет учёта секунды: программа (путь exe) или сайт; пустой subject — не писать.
+type usageSubject struct {
+	kind, subject string
+}
+
+// siteCategory — категория секунды и предмет учёта по домену вкладки Brave (S-7); ok = false —
+// домена нет (служебная страница, адрес не прочитан): секунда идёт как программа Brave.
+func (s *Service) siteCategory(cs *childState, domain string) (core.Category, usageSubject, bool) {
+	cls, entry := s.classifySite(domain, cs.child.AdultFilter)
+	switch cls {
+	case siteVideo:
+		return core.CatVideoSocial, usageSubject{kind: usageKindSite, subject: entry}, true
+	case siteStudy:
+		return core.CatStudy, usageSubject{kind: usageKindSite, subject: entry}, true
+	case siteOther:
+		return core.CatOther, usageSubject{kind: usageKindSite, subject: entry}, true
+	case siteBlocked, siteAdult:
+		return core.CatOther, usageSubject{}, true // до закрытия — «Остальное время» (PL-38)
+	}
+	return core.CatOther, usageSubject{}, false
 }
 
 // loadAdult открывает список «18+» (Config.Adult, иначе встроенный). Ошибка — пустой список и

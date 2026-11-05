@@ -8,6 +8,7 @@ import (
 	"pcblock/internal/auth"
 	"pcblock/internal/core"
 	"pcblock/internal/ipc"
+	"pcblock/internal/sites"
 )
 
 // Обработчики команд. Права уже проверены в Handle (commands.go): здесь разбор запроса и
@@ -992,6 +993,11 @@ func (s *Service) hGuardPoll(c *callCtx) ipc.Reply {
 	}
 	if len([]rune(req.Sample.ForegroundPath)) > ipc.MaxForegroundPathLen {
 		req.Sample.ForegroundPath = "" // мусор от стража: путь не определён
+	}
+	if d := req.Sample.ForegroundDomain; len(d) > ipc.MaxDomainLen || sites.FromOmnibox(d) != d {
+		// Не домен: мог быть адресом страницы, поэтому в журнал только длина (R23, S-5).
+		s.logRate("bad-domain|"+itoa(int(session)), "страж прислал домен, не похожий на домен (%d символов), он не учитывается", len(d))
+		req.Sample.ForegroundDomain = ""
 	}
 	cs.sample, cs.sampleAt, cs.sampleSess, cs.haveSample = req.Sample, c.real, session, true
 	ss.resetLockBySample(req.Sample)
