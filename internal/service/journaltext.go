@@ -115,6 +115,17 @@ func eventText(kind, name string, d map[string]any) string {
 		body = "закрыт сайт " + detStr(d, "domain") + ": время вышло, доступна только учёба"
 	case evSiteUnread:
 		body = textSiteUnread
+	case evSiteAdded:
+		body = "вы добавили сайт " + detStr(d, "domain") + " в " + siteListNames[detStr(d, "kind")].acc
+	case evSiteMoved:
+		body = "вы перенесли сайт " + detStr(d, "domain") + " в " + siteListNames[detStr(d, "kind")].acc
+	case evSiteRemoved:
+		body = "вы удалили сайт " + detStr(d, "domain") + " из " + siteListNames[detStr(d, "kind")].gen
+	case evSiteAdultFilter:
+		body = textAdultOff
+		if d["on"] == true {
+			body = textAdultOn
+		}
 	case core.EvRestBreak, core.EvRestEnded:
 		// «Миша: перерыв на отдых: 15 мин после 60 мин за компьютером», «Миша: вы закончили перерыв».
 		body = decapitalize(detStr(d, "text"))

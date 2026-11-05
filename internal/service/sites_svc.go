@@ -146,7 +146,22 @@ const (
 	evSiteClosedVideo     = "site_closed_video"      // время на видео и соцсети закончилось (R6)
 	evSiteClosedStudyOnly = "site_closed_study_only" // «Оставить только учёбу» (R8)
 	evSiteUnread          = "site_unread"            // адрес вкладки не читается (RM4-1, RK5)
+	evSiteAdded           = "site_added"             // родитель добавил домен: domain, kind
+	evSiteMoved           = "site_moved"             // родитель перенёс домен в другой список: domain, kind
+	evSiteRemoved         = "site_removed"           // родитель удалил домен: domain, kind (прежний)
+	evSiteAdultFilter     = "site_adult_filter"      // «Блокировать сайты 18+» ребёнку: on
 )
+
+// siteListName — название списка в сообщениях и журнале: винительный («в «Учёбу»») и родительный
+// («из «Запрещённых»») падежи (S-10).
+type siteListName struct{ acc, gen string }
+
+// siteListNames — названия списков по ключу site_rules.kind.
+var siteListNames = map[string]siteListName{
+	ipc.SiteKindBlocked: {"«Запрещённые»", "«Запрещённых»"},
+	ipc.SiteKindStudy:   {"«Учёбу»", "«Учёбы»"},
+	ipc.SiteKindVideo:   {"«Видео и соцсети»", "«Видео и соцсетей»"},
+}
 
 // Вид запрета в подробностях site_forbidden_try.
 const (
