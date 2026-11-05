@@ -51,3 +51,17 @@ func RemainingGamesS(limit DayLimit, extraMin, gamesS int) (remaining int, unlim
 	}
 	return remaining, false
 }
+
+// RemainingVideoS — остаток «Видео и соцсетей» (R6): лимит видео дня + доп. время − видео за
+// день. Лимита видео нет (VideoMin nil) — unlimited = true: видео ограничено только общим
+// временем. Остаток не бывает меньше нуля (лимит уменьшили или доп. время убавили).
+func RemainingVideoS(limit DayLimit, extraMin, videoS int) (remaining int, unlimited bool) {
+	if limit.VideoMin == nil {
+		return 0, true
+	}
+	remaining = (*limit.VideoMin+extraMin)*60 - videoS
+	if remaining < 0 {
+		remaining = 0
+	}
+	return remaining, false
+}
