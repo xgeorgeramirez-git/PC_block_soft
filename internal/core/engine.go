@@ -53,6 +53,12 @@ type Decision struct {
 	StudyOnly       bool   // режим «Оставить только учёбу» действует: экрана нет, открыта только учёба (R8)
 	CloseReason     string // текст плашки ребёнку о закрытии; «» — ничего не закрыто
 
+	VideoRemainingS  int    // остаток «Видео и соцсетей», с (R6); 0 без лимита видео
+	VideoLimitS      int    // лимит видео дня вместе с доп. временем, с; 0 без лимита видео
+	VideoUnlimited   bool   // отдельного лимита видео нет (или правила не прочитаны)
+	CloseVideo       bool   // закрыть видео и соцсети: лимит видео исчерпан (R6), экрана блокировки нет
+	VideoCloseReason string // текст плашки ребёнку о закрытии видео (8.2.5 п. 3); «» — видео не закрыто
+
 	RestWarn  bool   // на этом тике пора показать плашку «ПОРА ОТДОХНУТЬ» (R27, 8.2.2 п.7)
 	RestWarnS int    // секунды до начала перерыва для плиток плашки
 	RestText  string // строка под плитками плашки отдыха
@@ -66,9 +72,10 @@ type Decision struct {
 }
 
 // Allows сообщает, можно ли сейчас программе категории cat работать на переднем плане и
-// запускаться (R5, R8). Экран блокировки — нельзя ничего; «только учёба» — только CatStudy;
-// игры закрыты — всё, кроме игр. Нулевое решение (старый код, пауза, Broken) — можно всё.
-// Программы класса «Системное» служба передаёт как CatOther и не закрывает сама (C-8).
+// запускаться (R5, R6, R8). Экран блокировки — нельзя ничего; «только учёба» — только
+// CatStudy; игры закрыты — всё, кроме игр; видео закрыто — всё, кроме видео и соцсетей.
+// Нулевое решение (старый код, пауза, Broken) — можно всё. Программы класса «Системное» и
+// служебные страницы Brave служба передаёт как CatOther и не закрывает сама (C-8).
 func (d Decision) Allows(cat Category) bool {
 	switch {
 	case d.Lock != LockNone:
@@ -77,18 +84,23 @@ func (d Decision) Allows(cat Category) bool {
 		return cat == CatStudy
 	case d.CloseGames && cat == CatGames:
 		return false
+	case d.CloseVideo && cat == CatVideoSocial:
+		return false
 	}
 	return true
 }
 
 // DeniedText — запись журнала и плашки о закрытой попытке запуска программы категории cat
-// (R5, R8); «» — запуск разрешён или закрытие не связано с играми и режимом «только учёба».
+// (R5, R6, R8); «» — запуск разрешён или закрытие не связано с играми, видео и режимом
+// «только учёба».
 func (d Decision) DeniedText(cat Category) string {
 	switch {
 	case d.StudyOnly && cat != CatStudy:
 		return StudyOnlyDeniedText
 	case d.CloseGames && cat == CatGames:
 		return GamesDeniedText
+	case d.CloseVideo && cat == CatVideoSocial:
+		return VideoDeniedText
 	}
 	return ""
 }
@@ -527,7 +539,7 @@ func (e *Engine) decide(st DayState, fire bool) Decision {
 	st = e.effective(st, e.now()) // последняя минута идёт по часам и без тиков (R2, D-60)
 	d := Decision{Day: st.Day, UsedS: st.TotalS, Events: []Event{}}
 	if e.rules.Broken {
-		d.Status, d.Unlimited, d.GamesUnlimited = StatusSafe, true, true
+		d.Status, d.Unlimited, d.GamesUnlimited, d.VideoUnlimited = StatusSafe, true, true, true
 		d.Used = UsedText(st.TotalS, 0, true)
 		return d
 	}
@@ -545,6 +557,11 @@ func (e *Engine) decide(st DayState, fire bool) Decision {
 	d.GamesRemainingS, d.GamesUnlimited = grem, gunl
 	if !gunl {
 		d.GamesLimitS = max(0, (*lim.GamesMin+st.ExtraMin)*60)
+	}
+	vrem, vunl := RemainingVideoS(lim, st.ExtraMin, st.VideoS)
+	d.VideoRemainingS, d.VideoUnlimited = vrem, vunl
+	if !vunl {
+		d.VideoLimitS = max(0, (*lim.VideoMin+st.ExtraMin)*60)
 	}
 
 	paused := false
@@ -583,6 +600,12 @@ func (e *Engine) decide(st DayState, fire bool) Decision {
 		if !gunl && grem <= 0 {
 			// Лимит игр исчерпан (R5): закрываются только игры, экрана блокировки нет.
 			d.CloseGames, d.CloseReason = true, GamesOverPlateText
+		}
+		if !vunl && vrem <= 0 {
+			// Лимит видео исчерпан (R6): закрываются только видео и соцсети, экрана нет. Под
+			// экраном блокировки видео не закрывается (R8 закрывает только игры), в «только
+			// учёбе» его закрывает StudyOnly (V-4).
+			d.CloseVideo, d.VideoCloseReason = true, VideoOverPlateText(rem, unl)
 		}
 		if fire {
 			e.fireWarnings(&d, st, now, grem, gunl)

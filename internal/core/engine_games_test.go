@@ -174,6 +174,12 @@ func TestDecisionAllows(t *testing.T) {
 		{"игры закрыты", Decision{CloseGames: true}, [4]bool{true, false, true, true},
 			[4]string{"", "Закрыто: время на игры на сегодня закончилось", "", ""}},
 		{"свободно", Decision{}, [4]bool{true, true, true, true}, [4]string{"", "", "", ""}},
+		{"видео закрыто", Decision{CloseVideo: true}, [4]bool{true, true, false, true},
+			[4]string{"", "", "Закрыто: время на видео и соцсети на сегодня закончилось", ""}},
+		{"игры и видео закрыты", Decision{CloseGames: true, CloseVideo: true}, [4]bool{true, false, false, true},
+			[4]string{"", "Закрыто: время на игры на сегодня закончилось", "Закрыто: время на видео и соцсети на сегодня закончилось", ""}},
+		{"только учёба и видео закрыто", Decision{StudyOnly: true, CloseVideo: true}, [4]bool{false, false, false, true},
+			[4]string{"Закрыто: время вышло, доступна только учёба", "Закрыто: время вышло, доступна только учёба", "Закрыто: время вышло, доступна только учёба", ""}},
 	} {
 		for i, cat := range cats {
 			if got := tc.d.Allows(cat); got != tc.allow[i] {
