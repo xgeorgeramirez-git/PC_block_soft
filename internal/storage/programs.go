@@ -575,8 +575,8 @@ func (s *Store) AddUsage(childID int64, day, category, kind, subject string, sec
 	return nil
 }
 
-// SaveDayAndUsage записывает состояние дня и накопленные службой порции учёта по программам
-// одной транзакцией (RM3-6, G10): после сбоя не бывает дня без учёта или учёта без дня. Всё
+// SaveDayAndUsage записывает состояние дня и накопленные службой порции учёта по программам и
+// сайтам одной транзакцией (RM3-6, G10): после сбоя не бывает дня без учёта или учёта без дня. Всё
 // проверяется до записи (ErrInvalid); сбой базы откатывает и день, и учёт.
 func (s *Store) SaveDayAndUsage(childID int64, st core.DayState, usage []UsageRow) error {
 	if err := checkDay(st.Day); err != nil {
@@ -640,24 +640,26 @@ func (s *Store) ProgramSeconds(fromDay string) (map[string]int, error) {
 	return out, nil
 }
 
-// DayUsage возвращает учёт по программам ребёнка за день day (вкладки «Итогов», D-58): строки
-// по категории и пути, по порядку категории и пути. Скрытые здесь есть: их имя прячет служба, а
-// секунды остаются в сумме категории (класс A). Сайтов нет (M4). Нет учёта: [], не nil.
+// DayUsage возвращает учёт по программам и сайтам ребёнка за день day (вкладки «Итогов», D-58,
+// RM4-7): строки по категории, виду (Kind: program | site) и предмету (путь exe или домен), по
+// порядку категории, вида и предмета. Скрытые программы здесь есть: их имя прячет служба, а
+// секунды остаются в сумме категории (класс A); показ по текущему списку решает служба (PL-38).
+// Нет учёта: [], не nil.
 func (s *Store) DayUsage(childID int64, day string) ([]UsageRow, error) {
 	if err := checkDay(day); err != nil {
 		return nil, err
 	}
-	rows, err := s.db.Query(`SELECT category, subject, seconds FROM usage_daily
-		WHERE child_id = ? AND day = ? AND subject_kind = ? ORDER BY category, subject`,
-		childID, day, SubjectProgram)
+	rows, err := s.db.Query(`SELECT category, subject_kind, subject, seconds FROM usage_daily
+		WHERE child_id = ? AND day = ? ORDER BY category, subject_kind, subject`,
+		childID, day)
 	if err != nil {
 		return nil, fmt.Errorf("storage: учёт за день: %w", err)
 	}
 	defer rows.Close()
 	out := []UsageRow{}
 	for rows.Next() {
-		u := UsageRow{Day: day, Kind: SubjectProgram}
-		if err := rows.Scan(&u.Category, &u.Subject, &u.Seconds); err != nil {
+		u := UsageRow{Day: day}
+		if err := rows.Scan(&u.Category, &u.Kind, &u.Subject, &u.Seconds); err != nil {
 			return nil, fmt.Errorf("storage: учёт за день: %w", err)
 		}
 		out = append(out, u)
@@ -688,9 +690,9 @@ func (s *Store) PeriodDays(childID int64, fromDay, beforeDay string) (core.DaySt
 	return st, nil
 }
 
-// PeriodUsage возвращает учёт по программам ребёнка за дни с fromDay включительно до beforeDay не
-// включительно, сложенный по категории и пути (Day пусто), по порядку категории и пути. Скрытые здесь
-// есть: их имя прячет служба (как DayUsage). Сайтов нет (M4). Нет учёта: [], не nil.
+// PeriodUsage возвращает учёт по программам и сайтам ребёнка за дни с fromDay включительно до
+// beforeDay не включительно, сложенный по категории, виду и предмету (Day пусто), в том же порядке,
+// что DayUsage. Скрытые здесь есть: их имя прячет служба (как DayUsage). Нет учёта: [], не nil.
 func (s *Store) PeriodUsage(childID int64, fromDay, beforeDay string) ([]UsageRow, error) {
 	if err := checkDay(fromDay); err != nil {
 		return nil, err
@@ -698,18 +700,18 @@ func (s *Store) PeriodUsage(childID int64, fromDay, beforeDay string) ([]UsageRo
 	if err := checkDay(beforeDay); err != nil {
 		return nil, err
 	}
-	rows, err := s.db.Query(`SELECT category, subject, sum(seconds) FROM usage_daily
-		WHERE child_id = ? AND day >= ? AND day < ? AND subject_kind = ?
-		GROUP BY category, subject ORDER BY category, subject`,
-		childID, fromDay, beforeDay, SubjectProgram)
+	rows, err := s.db.Query(`SELECT category, subject_kind, subject, sum(seconds) FROM usage_daily
+		WHERE child_id = ? AND day >= ? AND day < ?
+		GROUP BY category, subject_kind, subject ORDER BY category, subject_kind, subject`,
+		childID, fromDay, beforeDay)
 	if err != nil {
 		return nil, fmt.Errorf("storage: учёт за период: %w", err)
 	}
 	defer rows.Close()
 	out := []UsageRow{}
 	for rows.Next() {
-		u := UsageRow{Kind: SubjectProgram}
-		if err := rows.Scan(&u.Category, &u.Subject, &u.Seconds); err != nil {
+		var u UsageRow
+		if err := rows.Scan(&u.Category, &u.Kind, &u.Subject, &u.Seconds); err != nil {
 			return nil, fmt.Errorf("storage: учёт за период: %w", err)
 		}
 		out = append(out, u)
