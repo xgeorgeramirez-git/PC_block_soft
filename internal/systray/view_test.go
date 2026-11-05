@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf16"
 
 	"pcblock/internal/core"
 	"pcblock/internal/ipc"
@@ -144,5 +145,65 @@ func TestPollIntervalWithinFirstIconDeadline(t *testing.T) {
 	// ТЗ 8.2.1 п.1: значок появляется не позже 10 с; цифры не должны ждать дольше двух опросов.
 	if 2*PollEvery > 10*time.Second || StaleAfter < 2*PollEvery {
 		t.Fatalf("PollEvery=%v StaleAfter=%v", PollEvery, StaleAfter)
+	}
+}
+
+// Ловит (ТЗ 8.2.1 п. 2, R6, T7-11): подсказка значка не показывает остаток игр и видео (служба
+// строки дописывает, а значок строит подсказку сам), показывает их без лимита или при блокировке.
+// Ожидания — литералы.
+func TestDisplayForLimitLines(t *testing.T) {
+	base := core.Decision{Status: core.StatusOK, RemainingS: 85 * 60, LimitS: 7200,
+		GamesRemainingS: 1200, GamesLimitS: 3600, VideoRemainingS: 600, VideoLimitS: 1200}
+	onlyVideo := base
+	onlyVideo.GamesUnlimited, onlyVideo.GamesRemainingS, onlyVideo.GamesLimitS = true, 0, 0
+	videoOver := onlyVideo
+	videoOver.VideoRemainingS, videoOver.CloseVideo = 0, true
+	videoZero := onlyVideo
+	videoZero.VideoRemainingS, videoZero.VideoLimitS, videoZero.CloseVideo = 0, 0, true
+	gamesOver := base
+	gamesOver.GamesRemainingS, gamesOver.GamesLimitS, gamesOver.CloseGames = 0, 0, true
+	gamesOver.VideoUnlimited, gamesOver.VideoRemainingS, gamesOver.VideoLimitS = true, 0, 0
+	noLimits := base
+	noLimits.GamesUnlimited, noLimits.VideoUnlimited = true, true
+	low := base
+	low.Status, low.RemainingS = core.StatusLow, 14*60+1
+	timeUp := base
+	timeUp.Status, timeUp.Lock, timeUp.Reason, timeUp.RemainingS = core.StatusTimeUp, core.LockTimeUp, core.ReasonTimeUp, 0
+	unlimited := base
+	unlimited.Status, unlimited.Unlimited = core.StatusUnlimited, true
+	cases := []struct {
+		name string
+		d    core.Decision
+		want string
+	}{
+		{"игры и видео", base, "Осталось 1 ч 25 мин из 2 ч\nИгры: 20 мин\nВидео: 10 мин"},
+		{"только видео", onlyVideo, "Осталось 1 ч 25 мин из 2 ч\nВидео: 10 мин"},
+		{"видео исчерпано", videoOver, "Осталось 1 ч 25 мин из 2 ч\nВидео: 0 мин"},
+		{"видео запрещено совсем", videoZero, "Осталось 1 ч 25 мин из 2 ч\nВидео: 0 мин"},
+		{"игры исчерпаны", gamesOver, "Осталось 1 ч 25 мин из 2 ч\nИгры: 0 мин"},
+		{"без лимитов игр и видео", noLimits, "Осталось 1 ч 25 мин из 2 ч"},
+		{"мало времени", low, "Осталось 15 мин из 2 ч\nИгры: 20 мин\nВидео: 10 мин"},
+		{"время вышло", timeUp, core.ReasonTimeUp},
+		{"без ограничений", unlimited, "Сегодня без ограничений по времени"},
+	}
+	for _, c := range cases {
+		got := DisplayFor(ipc.ChildStatusFrom("Миша", c.d)).Tooltip
+		if got != c.want {
+			t.Errorf("%s: подсказка %q, ждали %q", c.name, got, c.want)
+		}
+		if n := len(utf16.Encode([]rune(got))); n > 127 {
+			t.Errorf("%s: подсказка занимает %d знаков UTF-16, поле вмещает 127", c.name, n)
+		}
+	}
+	// Пауза (подсказку объясняет служба) и перерыв на отдых (экран при идущем времени): строк
+	// лимитов нет.
+	paused := base
+	paused.Status, paused.Unlimited = core.StatusSafe, true
+	rest := base
+	rest.Lock, rest.Reason = core.LockRest, "Перерыв на отдых"
+	for name, d := range map[string]core.Decision{"пауза": paused, "перерыв": rest} {
+		if got := DisplayFor(ipc.ChildStatusFrom("Миша", d)).Tooltip; strings.Contains(got, "Видео") || strings.Contains(got, "Игры") {
+			t.Errorf("%s: подсказка %q со строками лимитов", name, got)
+		}
 	}
 }

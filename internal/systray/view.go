@@ -45,7 +45,8 @@ func isLocked(st ipc.ChildStatus) bool {
 
 // DisplayFor собирает вид значка из состояния ребёнка. Надпись, статус и подсказка считаются
 // функциями format.go по числам службы; сами строки службы (Label, Tooltip) здесь не
-// берутся, чтобы «1ч» вместо «85» при остатке от 100 минут решал только значок.
+// берутся, чтобы «1ч» вместо «85» при остатке от 100 минут решал только значок. К подсказке
+// при идущем времени добавляются строки «Игры:» и «Видео:», если у ребёнка есть эти лимиты.
 func DisplayFor(st ipc.ChildStatus) Display {
 	switch st.Status {
 	case ipc.StatusNotChild:
@@ -67,12 +68,31 @@ func DisplayFor(st ipc.ChildStatus) Display {
 		Status:  TrayStatus(remMin, unlimited, locked, paused),
 		Tooltip: TrayTooltip(remMin*60, st.LimitS, unlimited, locked, false),
 	}
+	if (st.Status == ipc.StatusOK || st.Status == ipc.StatusLow) && !locked {
+		// Строки игр и видео (ТЗ 8.2.1 п. 2, R6) — тем же правилом минут, что у службы.
+		if hasGames(st) {
+			d.Tooltip += "\nИгры: " + core.FormatDuration(ceilMin(st.GamesRemainingS)*60)
+		}
+		if hasVideo(st) {
+			d.Tooltip += "\nВидео: " + core.FormatDuration(ceilMin(st.VideoRemainingS)*60)
+		}
+	}
 	// Обход и «ограничения не действуют» служба объясняет точнее, чем общий текст значка:
 	// «время закончилось» при блокировке за обход было бы неправдой.
 	if (st.Status == ipc.StatusBypass || paused) && st.Tooltip != "" {
 		d.Tooltip = st.Tooltip
 	}
 	return d
+}
+
+// hasGames: у ребёнка отдельный лимит игр (R5) — то же правило, что у службы (ipc.hasGamesLimit).
+func hasGames(st ipc.ChildStatus) bool {
+	return !st.GamesUnlimited && (st.GamesLimitS > 0 || st.CloseGames)
+}
+
+// hasVideo: у ребёнка отдельный лимит «Видео и соцсетей» (R6) — правило ipc.hasVideoLimit.
+func hasVideo(st ipc.ChildStatus) bool {
+	return !st.VideoUnlimited && (st.VideoLimitS > 0 || st.CloseVideo)
 }
 
 // waitingDisplay — значок, пока службе нечего сказать: графитовый квадрат без надписи.
