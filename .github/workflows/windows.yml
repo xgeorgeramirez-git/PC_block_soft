@@ -62,10 +62,40 @@ jobs:
           fi
           echo "C:/Program Files (x86)/NSIS" >> "$GITHUB_PATH"
 
+      # Полный список «18+» (RM4-3, D-67): зеркало UT1 на закреплённом коммите tools/adultlist/ut1.commit,
+      # только папка blacklists/adult, клон вне дерева репозитория. Инструмент перезаписывает встроенный
+      # internal/sites/adult/adult.bin перед wails build (в ветку файл не коммитится: шаг «Биндинги»
+      # добавляет только frontend/wailsjs/go). Три домена входа идут в TestAdultListFull.
+      - name: Полный список 18+ (UT1 на закреплённом коммите)
+        run: |
+          exec > >(tee -a "$RUNNER_TEMP/ci.log") 2>&1
+          commit=$(tr -d '[:space:]' < tools/adultlist/ut1.commit)
+          src="$RUNNER_TEMP/ut1"
+          git init -q "$src"
+          git -C "$src" remote add origin https://github.com/olbat/ut1-blacklists.git
+          git -C "$src" sparse-checkout set blacklists/adult
+          git -C "$src" fetch -q --depth 1 --filter=blob:none origin "$commit"
+          git -C "$src" checkout -q FETCH_HEAD
+          ls -la "$src/blacklists/adult"
+          go run ./tools/adultlist -src "$src/blacklists/adult" -out internal/sites/adult/adult.bin -sample "$RUNNER_TEMP/adult-sample.txt"
+          echo "PCB_ADULT_SAMPLE=$(paste -sd, "$RUNNER_TEMP/adult-sample.txt")" >> "$GITHUB_ENV"
+
       - name: Сборка программы и установщика
         run: |
           exec > >(tee -a "$RUNNER_TEMP/ci.log") 2>&1
           wails build -clean -nsis -trimpath -ldflags "-s -w"
+
+      # NFR-4: установщик не больше 40 МБ (с полным списком 18+ ожидание около 28 МБ).
+      - name: Размер установщика (NFR-4 ≤ 40 МБ)
+        run: |
+          exec > >(tee -a "$RUNNER_TEMP/ci.log") 2>&1
+          inst=$(ls build/bin/*installer*.exe | head -1)
+          size=$(stat -c %s "$inst")
+          echo "::notice title=Размер установщика::$size байт ($inst)"
+          if [ "$size" -gt 41943040 ]; then
+            echo "::error title=Размер установщика::$size байт, NFR-4 не больше 41943040 (40 МБ)"
+            exit 1
+          fi
 
       # Биндинги Wails в песочнице агента не генерируются. При ручном запуске на рабочей ветке
       # сгенерированные файлы коммитятся в ветку (как go.sum в ci.yml, Ruling 22), в остальных
@@ -126,6 +156,8 @@ jobs:
           echo "PCB_BRAVE_PROBE=1" >> "$GITHUB_ENV"
 
       - name: Тесты Go на Windows
+        env:
+          PCB_ADULT_FULL: "1"
         run: |
           exec > >(tee -a "$RUNNER_TEMP/ci.log") 2>&1
           go test -count=1 -tags desktop,production $(go list ./... | grep -v -E '^pcblock$')
@@ -140,6 +172,17 @@ jobs:
             cat "$f"
           else
             echo "::warning title=Сухой прогон наблюдателя::итог не записан: тест TestWatcherDryRun не дошёл до конца"
+          fi
+
+      # Список 18+ (RM4-3): TestAdultListFull пишет факты полного списка пометкой в файл, здесь она выводится.
+      - name: Список 18+ (пометки)
+        if: always()
+        run: |
+          f="$RUNNER_TEMP/pcb-adult.txt"
+          if [ -s "$f" ]; then
+            cat "$f"
+          else
+            echo "::warning title=Список 18+::итог не записан: тест TestAdultListFull не дошёл до конца"
           fi
 
       # Проба Brave (M4 T0): TestBraveProbe пишет факты пометками ::notice в файл, здесь они выводятся.
