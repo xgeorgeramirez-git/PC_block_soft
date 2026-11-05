@@ -861,6 +861,7 @@ func (s *Service) hSetChildren(c *callCtx) ipc.Reply {
 		}
 		delete(s.children, id)
 		s.applyPolicy(cs.child.SID, false)
+		s.removeBrave(cs)
 	}
 	for _, r := range req.Rename {
 		cs := s.children[r.ChildID]
@@ -878,8 +879,9 @@ func (s *Service) hSetChildren(c *callCtx) ipc.Reply {
 			s.logRate("setchildren", "ребёнок не добавлен: %v", err)
 			return ipc.Fail(textSaveFailed)
 		}
-		s.addChild(Child{ID: id, SID: a.sid, Name: a.name}, c.real)
+		cs := s.addChild(Child{ID: id, SID: a.sid, Name: a.name}, c.real)
 		s.applyPolicy(a.sid, true)
+		s.applyBrave(cs)
 	}
 	s.journal.Write(0, "children_changed", map[string]any{
 		"text": "изменён состав детских учёток", "added": len(adds), "removed": len(req.Remove), "renamed": len(req.Rename),

@@ -117,12 +117,22 @@ func (s *Service) reloadSites(real time.Time) {
 		return
 	}
 	rules := make([]sites.Rule, 0, len(list))
+	blocked := []string{}
 	for _, r := range list {
 		if k, ok := sites.KindFromString(r.Kind); ok {
 			rules = append(rules, sites.Rule{Domain: r.Domain, Kind: k})
 		}
+		if r.Kind == ipc.SiteKindBlocked {
+			blocked = append(blocked, r.Domain)
+		}
 	}
 	s.siteLists, s.siteListsOK = sites.NewLists(rules), true
+	// Правила Brave (T5-5): домены только из удачного чтения. Первое удачное чтение после старта
+	// службы (на старте списки не прочитались) — записать правила в обслуживании.
+	if !s.braveReady && s.started {
+		s.braveDue = true
+	}
+	s.braveBlocked, s.braveReady = blocked, true
 }
 
 // sitesChanged — списки сайтов изменились (обработчики «Сайтов», мастер): перечитать и отметить,

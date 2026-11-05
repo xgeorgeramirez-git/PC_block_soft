@@ -4,6 +4,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"pcblock/internal/ipc"
 )
@@ -121,4 +122,82 @@ func braveDropKey(key string, wantKeys map[string]bool) (string, bool) {
 		return top, true
 	}
 	return key, true
+}
+
+// evBraveRestored — сверка нашла ветку правил Brave изменённой и вернула её (T5-7).
+const evBraveRestored = "brave_restored"
+
+// braveRules — правила Brave по последнему удачному чтению списков. Под s.mu.
+func (s *Service) braveRules() BraveRules {
+	return BraveRules{Blocked: append([]string(nil), s.braveBlocked...)}
+}
+
+// applyBrave пишет правила Brave в ветку ребёнка (старт, вход, новый ребёнок, изменение списков).
+// Списки ни разу не прочитались — не пишет: пустой чёрный список стёр бы «Запрещённые» (T5-5).
+// Ошибка — в журнал работы не чаще errLogEvery на учётку. Под s.mu.
+func (s *Service) applyBrave(cs *childState) bool {
+	if !s.braveReady {
+		s.logRate("brave-wait", "правила Brave не пишутся: списки сайтов ещё не прочитаны")
+		return false
+	}
+	if err := s.cfg.Policy.SetBraveRules(cs.child.SID, s.braveRules()); err != nil {
+		s.logRate("brave"+cs.child.SID, "правила Brave для %s не записаны: %v", cs.child.Name, err)
+		return false
+	}
+	return true
+}
+
+// removeBrave снимает правила Brave с учётки, с которой сняли отметку «детская» (T5-6). Под s.mu.
+func (s *Service) removeBrave(cs *childState) {
+	if err := s.cfg.Policy.RemoveBraveRules(cs.child.SID); err != nil {
+		s.logRate("brave"+cs.child.SID, "правила Brave для %s не сняты: %v", cs.child.Name, err)
+	}
+}
+
+// housekeepBrave — шаг обслуживания (T5-8): списки изменились — записать всем детям; иначе раз в
+// braveCheckEvery сверить ветку каждого ребёнка и вернуть изменённую. Под s.mu.
+func (s *Service) housekeepBrave(real time.Time) {
+	if s.braveDue {
+		s.braveDue = false
+		s.braveAt = real
+		for _, id := range s.childOrder() {
+			s.applyBrave(s.children[id])
+		}
+		return
+	}
+	if real.Sub(s.braveAt) < braveCheckEvery {
+		return
+	}
+	s.braveAt = real
+	if !s.braveReady {
+		s.logRate("brave-wait", "правила Brave не пишутся: списки сайтов ещё не прочитаны")
+		return
+	}
+	for _, id := range s.childOrder() {
+		s.checkBrave(s.children[id], real)
+	}
+}
+
+// checkBrave сверяет ветку ребёнка и возвращает её, если она изменена: журнал работы — каждое
+// восстановление, журнал родителя — не чаще braveLogEvery на ребёнка (T5-7). Совпадает — ничего не
+// пишет. Под s.mu.
+func (s *Service) checkBrave(cs *childState, real time.Time) {
+	r := s.braveRules()
+	ok, err := s.cfg.Policy.BraveRulesOK(cs.child.SID, r)
+	if err != nil {
+		s.logRate("brave"+cs.child.SID, "правила Brave для %s не проверены: %v", cs.child.Name, err)
+		return
+	}
+	if ok || !s.applyBrave(cs) {
+		return
+	}
+	s.cfg.Logf("правила Brave у %s восстановлены", cs.child.Name)
+	if last, seen := s.braveLogAt[cs.child.ID]; seen && real.Sub(last) < braveLogEvery && !real.Before(last) {
+		return
+	}
+	if s.braveLogAt == nil {
+		s.braveLogAt = map[int64]time.Time{}
+	}
+	s.braveLogAt[cs.child.ID] = real
+	s.journal.Write(cs.child.ID, evBraveRestored, map[string]any{"text": "правила Brave восстановлены"})
 }

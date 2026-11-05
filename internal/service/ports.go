@@ -357,11 +357,19 @@ type AccountDirectory interface {
 	List() ([]AccountInfo, error)
 }
 
-// Policy ставит и снимает запрет Диспетчера задач в учётке ребёнка (FR-29, Ruling 20).
-// Если пользователь не вошёл, адаптер подгружает раздел его профиля; профиля ещё нет:
-// запись откладывается до первого входа и ошибкой не считается.
+// Policy ставит и снимает запрет Диспетчера задач (FR-29, Ruling 20) и правила Brave (R15, FR-31,
+// RM4-10) в учётке ребёнка. Если пользователь не вошёл, адаптер подгружает раздел его профиля;
+// профиля ещё нет: запись откладывается до первого входа и ошибкой не считается.
 type Policy interface {
 	SetTaskMgrDisabled(sid string, disabled bool) error
+	// SetBraveRules приводит ветку HKU\<sid>\Software\Policies\BraveSoftware\Brave к r, не стирая
+	// её (BravePlan): ветка не загружена — через профиль; профиля нет — nil.
+	SetBraveRules(sid string, r BraveRules) error
+	// BraveRulesOK — ветка совпадает с r. Ветка пользователя не загружена (не вошёл) — (true, nil):
+	// профиль ради сверки не подгружается (T5-4).
+	BraveRulesOK(sid string, r BraveRules) (bool, error)
+	// RemoveBraveRules снимает ветку правил Brave целиком; её нет — nil.
+	RemoveBraveRules(sid string) error
 }
 
 // Journal — запись событий журнала (R22). childID 0: событие не про ребёнка. Ошибки записи

@@ -126,6 +126,8 @@ func eventText(kind, name string, d map[string]any) string {
 		if d["on"] == true {
 			body = textAdultOn
 		}
+	case evBraveRestored:
+		body = "правила Brave восстановлены"
 	case core.EvRestBreak, core.EvRestEnded:
 		// «Миша: перерыв на отдых: 15 мин после 60 мин за компьютером», «Миша: вы закончили перерыв».
 		body = decapitalize(detStr(d, "text"))

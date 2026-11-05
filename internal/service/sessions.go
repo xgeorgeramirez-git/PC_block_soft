@@ -244,6 +244,7 @@ func (s *Service) syncSessions(real time.Time) {
 			if prev != ss.childID {
 				s.checkAdmin(cs, real)
 				s.applyPolicy(cs.child.SID, true)
+				s.applyBrave(cs)
 			}
 		}
 	}

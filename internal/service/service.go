@@ -19,6 +19,8 @@ import (
 const (
 	sampleMaxAge    = 5 * time.Second  // снимок стража старше этого срока не засчитывается
 	adminCheckEvery = 60 * time.Second // проверка R1 для каждого ребёнка
+	braveCheckEvery = 60 * time.Second // сверка правил Brave в ветке реестра ребёнка (RM4-10)
+	braveLogEvery   = 10 * time.Minute // «правила Brave восстановлены» в журнал родителя не чаще, на ребёнка
 	rulesRetryEvery = 60 * time.Second // повторное чтение правил, которые не удалось прочитать (R18)
 	errLogEvery     = 60 * time.Second // одна и та же ошибка пишется в журнал работы не чаще
 	parentIdle      = 10 * time.Minute // родительская сессия заканчивается без действий (R19)
@@ -204,6 +206,14 @@ type Service struct {
 	adult       sites.AdultList
 	braveDue    bool
 	unreadDay   map[int64]string
+
+	// Правила Brave (T5, brave.go): домены «Запрещённых» из последнего удачного чтения списков и
+	// было ли оно (до него правила не пишутся, T5-5); когда сверяли; когда последний раз писали
+	// родителю о восстановлении (по ребёнку, T5-7).
+	braveBlocked []string
+	braveReady   bool
+	braveAt      time.Time
+	braveLogAt   map[int64]time.Time
 }
 
 // New собирает службу. Ничего не запускает: Start читает базу и поднимает сеансные части.
@@ -269,7 +279,10 @@ func (noAccounts) List() ([]AccountInfo, error) { return []AccountInfo{}, nil }
 
 type noPolicy struct{}
 
-func (noPolicy) SetTaskMgrDisabled(string, bool) error { return nil }
+func (noPolicy) SetTaskMgrDisabled(string, bool) error         { return nil }
+func (noPolicy) SetBraveRules(string, BraveRules) error        { return nil }
+func (noPolicy) BraveRulesOK(string, BraveRules) (bool, error) { return true, nil }
+func (noPolicy) RemoveBraveRules(string) error                 { return nil }
 
 // randomToken возвращает 32 случайных байта в шестнадцатеричной записи.
 func randomToken() string {
@@ -310,7 +323,9 @@ func (s *Service) Start(real time.Time) error {
 		cs := s.children[id]
 		s.checkAdmin(cs, real)
 		s.applyPolicy(cs.child.SID, true)
+		s.applyBrave(cs)
 	}
+	s.braveAt = real
 	s.started = true
 	s.syncSessions(real)
 	return nil

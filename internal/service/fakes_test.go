@@ -1191,9 +1191,92 @@ type fakePolicy struct {
 	state map[string]bool
 	log   []string
 	err   error
+
+	// Правила Brave (T5): что лежит в ветке учётки, ошибка адаптера, учётки без загруженной ветки
+	// (BraveRulesOK их не читает, T5-4) и история вызовов: "set <sid> N", "ok <sid>", "bad <sid>", "rm <sid>".
+	brave    map[string][]BraveValue
+	braveErr error
+	unloaded map[string]bool
+	braveLog []string
 }
 
-func newPolicy() *fakePolicy { return &fakePolicy{state: map[string]bool{}} }
+func newPolicy() *fakePolicy {
+	return &fakePolicy{state: map[string]bool{}, brave: map[string][]BraveValue{}, unloaded: map[string]bool{}}
+}
+
+func (p *fakePolicy) SetBraveRules(sid string, r BraveRules) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.braveErr != nil {
+		return p.braveErr
+	}
+	p.brave[sid] = r.Values()
+	p.braveLog = append(p.braveLog, fmt.Sprintf("set %s %d", sid, len(p.brave[sid])))
+	return nil
+}
+
+func (p *fakePolicy) BraveRulesOK(sid string, r BraveRules) (bool, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.braveErr != nil {
+		return false, p.braveErr
+	}
+	if p.unloaded[sid] {
+		return true, nil
+	}
+	set, del, delKeys := BravePlan(p.brave[sid], r.Values())
+	if len(set)+len(del)+len(delKeys) == 0 {
+		p.braveLog = append(p.braveLog, "ok "+sid)
+		return true, nil
+	}
+	p.braveLog = append(p.braveLog, "bad "+sid)
+	return false, nil
+}
+
+func (p *fakePolicy) RemoveBraveRules(sid string) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.braveErr != nil {
+		return p.braveErr
+	}
+	delete(p.brave, sid)
+	p.braveLog = append(p.braveLog, "rm "+sid)
+	return nil
+}
+
+// tamper убирает из ветки учётки запрет окна Tor (правка ветки чужими руками).
+func (p *fakePolicy) tamper(sid string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	keep := []BraveValue{}
+	for _, v := range p.brave[sid] {
+		if v.Name != "TorDisabled" {
+			keep = append(keep, v)
+		}
+	}
+	p.brave[sid] = keep
+}
+
+// braveOf — значения ветки учётки и есть ли ветка.
+func (p *fakePolicy) braveOf(sid string) ([]BraveValue, bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	v, ok := p.brave[sid]
+	return append([]BraveValue(nil), v...), ok
+}
+
+// braveCalls — история вызовов правил Brave с номера from.
+func (p *fakePolicy) braveCalls(from int) []string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return append([]string{}, p.braveLog[from:]...)
+}
+
+func (p *fakePolicy) braveCallN() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return len(p.braveLog)
+}
 
 func (p *fakePolicy) SetTaskMgrDisabled(sid string, disabled bool) error {
 	p.mu.Lock()
