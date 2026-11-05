@@ -39,6 +39,7 @@ const CASES: [string, string, (req: any) => Promise<unknown>][] = [
   ["ListAccounts", "ListAccounts", () => api.listAccounts()],
   ["ListAccounts", "ListAccounts#empty", () => api.listAccounts()],
   ["Setup", "Setup", (r) => api.setup(r.password, r.children, r.programs)],
+  ["Setup", "Setup#sites", (r) => api.setup(r.password, r.children, r.programs, r.sites)],
   ["ResetPassword", "ResetPassword", (r) => api.resetPassword(r.newPassword)],
   ["UninstallCheck", "UninstallCheck", (r) => api.uninstallCheck(r.password, r.forgot)],
   ["Login", "Login", (r) => api.login(r.password)],
@@ -107,6 +108,12 @@ const CASES: [string, string, (req: any) => Promise<unknown>][] = [
   ["RedeemPromo", "RedeemPromo", (r) => api.redeemPromo(r.childId, r.code)],
   ["GetBonusRate", "GetBonusRate", () => api.getBonusRate()],
   ["SetBonusRate", "SetBonusRate", (r) => api.setBonusRate(r.minutes)],
+  ["ListSites", "ListSites", () => api.listSites()],
+  ["ListSites", "ListSites#empty", () => api.listSites()],
+  ["AddSite", "AddSite", (r) => api.addSite(r.domain, r.kind)],
+  ["AddSite", "AddSite#moved", (r) => api.addSite(r.domain, r.kind)],
+  ["RemoveSite", "RemoveSite", (r) => api.removeSite(r.domain)],
+  ["SetAdultFilter", "SetAdultFilter", (r) => api.setAdultFilter(r.childId, r.on)],
 ];
 
 describe("успешные ответы контракта", () => {
@@ -163,6 +170,9 @@ describe("отказы контракта", () => {
     ["SpendBonus", "SpendBonus#forbidden", (r) => api.spendBonus(r.childId, r.minutes)],
     ["CreatePromo", "CreatePromo#dup", (r) => api.createPromo(r.code, r.minutes)],
     ["RedeemPromo", "RedeemPromo#bad", (r) => api.redeemPromo(r.childId, r.code)],
+    ["AddSite", "AddSite#invalid", (r) => api.addSite(r.domain, r.kind)],
+    ["AddSite", "AddSite#dup", (r) => api.addSite(r.domain, r.kind)],
+    ["AddSite", "AddSite#full", (r) => api.addSite(r.domain, r.kind)],
   ];
 
   it.each([...denied, ...extra])("%s: пример %s - отказ с текстом и полем", async (_command, key, run) => {
@@ -229,6 +239,10 @@ describe("полнота", () => {
       "SetProgramsHidden",
       "RenameProgram",
       "ScanPrograms",
+      "ListSites",
+      "AddSite",
+      "RemoveSite",
+      "SetAdultFilter",
     ]) {
       expect(examples[command], `нет примера ${command}`).toBeDefined();
       expect(wrapped.has(command), `нет обёртки ${command}`).toBe(true);

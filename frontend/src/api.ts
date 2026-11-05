@@ -61,6 +61,12 @@ import type {
   SetupProgram,
   UndoProgramReply,
   WindowScreen,
+  AddSiteReply,
+  ListSitesReply,
+  RemoveSiteReply,
+  SetAdultFilterReply,
+  SetupSites,
+  SiteKind,
 } from "./types";
 
 function bridge(): PCBlockApp {
@@ -163,11 +169,12 @@ export function withGames(limits: WeekdayLimit[]): WeekdayLimit[] {
   return limits.map((l) => ({ gamesMin: 0, gamesUnlimited: true, ...l }));
 }
 
-export async function setup(password: string, children: SetupChild[], programs?: SetupProgram[]): Promise<void> {
+export async function setup(password: string, children: SetupChild[], programs?: SetupProgram[], sites?: SetupSites): Promise<void> {
   await call("Setup", {
     password,
     children: children.map((c) => ({ ...c, limits: withGames(c.limits) })),
     ...(programs?.length ? { programs } : {}),
+    ...(sites ? { sites } : {}),
   });
 }
 
@@ -304,6 +311,7 @@ function myTodayOf(r: Partial<MyTodayReply>): MyTodayReply {
     usedS: r.usedS ?? status?.usedS ?? 0,
     gamesS: r.gamesS ?? 0,
     studyS: r.studyS ?? 0,
+    videoS: r.videoS ?? 0,
     otherS: r.otherS ?? 0,
     allS: r.allS ?? 0,
     extraMin: r.extraMin ?? 0,
@@ -495,4 +503,39 @@ export async function undoProgram(undoId: string): Promise<UndoProgramReply> {
 export async function scanPrograms(): Promise<ScanProgramsReply> {
   const r = await call<object, Partial<ScanProgramsReply>>("ScanPrograms");
   return { programs: r.programs ?? [] };
+}
+
+// --- M4: сайты (FR-21) ------------------------------------------------------
+
+/** Пустые списки «Сайтов» приходят как null: приводим к []. */
+function sitesOf(r: Partial<ListSitesReply> | undefined | null): ListSitesReply {
+  return {
+    sites: r?.sites ?? [],
+    children: r?.children ?? [],
+    blockedMax: r?.blockedMax ?? 0,
+    adultSource: r?.adultSource ?? "",
+  };
+}
+
+/** «Сайты»: три списка и переключатели «18+» детей. */
+export async function listSites(): Promise<ListSitesReply> {
+  return sitesOf(await call<object, Partial<ListSitesReply>>("ListSites"));
+}
+
+/** Добавить домен (или вставленный адрес) в список; домен из другого списка переносится. */
+export async function addSite(domain: string, kind: SiteKind): Promise<AddSiteReply> {
+  const r = await call<object, AddSiteReply>("AddSite", { domain, kind });
+  return { ...r, sites: sitesOf(r.sites) };
+}
+
+/** Удалить домен; «Отменить» - addSite(domain, kind) из ответа. */
+export async function removeSite(domain: string): Promise<RemoveSiteReply> {
+  const r = await call<object, RemoveSiteReply>("RemoveSite", { domain });
+  return { ...r, sites: sitesOf(r.sites) };
+}
+
+/** «Блокировать сайты 18+» ребёнку. */
+export async function setAdultFilter(childId: number, on: boolean): Promise<SetAdultFilterReply> {
+  const r = await call<object, SetAdultFilterReply>("SetAdultFilter", { childId, on });
+  return { ...r, sites: sitesOf(r.sites) };
 }

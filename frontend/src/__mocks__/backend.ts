@@ -625,6 +625,10 @@ const PARENT_COMMANDS = new Set([
   "SetProgramsHidden",
   "RenameProgram",
   "UndoProgram",
+  "ListSites",
+  "AddSite",
+  "RemoveSite",
+  "SetAdultFilter",
 ]);
 
 /** Нормализация промокода как в ядре (R26): без пробелов по краям и без учёта регистра. */
