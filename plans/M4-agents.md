@@ -12,5 +12,8 @@
 | T1 сайты и список 18+ | acb14f10f2cb055d8 | writer | done | `internal/sites` + `tools/adultlist`, 635a1db…0d50ef7; полный UT1: 4 599 276 записей + 4 зоны (RM4-3а), 17,99 МБ, p99 1,3 мкс; покрытие 98% | 0 (1 доработка по эскалации) |
 | T0 возврат №1 | afa9026170009b7f1 | writer | done | поле адреса не нашлось на раннере (41863361154) → диагностика дерева, поиск Edit, WM_GETOBJECT, очистка Brave, 48672c7; повтор пробы 42036478891 | 1 |
 | T2 лимит видео | ad236ddc2e91629d3 | writer | done | ядро: VideoMin, RemainingVideoS, Decision.Video*, WarnVideo, quench/fireCategory; 4670b91…7720011; мутации все ловятся | 0 |
-| пакет T3 | a0707ccd9ac22344c | reader | running | — | — |
+| пакет T3 | a0707ccd9ac22344c | reader | done | M4-T3-storage-contract.md, разбит на T3a/T3b; S-1…S-7 | — |
 | T0 возврат №2 | afa9026170009b7f1 | writer | done | признак ClassName …OmniboxViewViews, замер процессора, опыт правил без/HKCU/HKLM (4e9d1f4…c1c5b04); прогон 42039755004: HKCU действует (VPN нет, домен блокируется); PROBE от SYSTEM 0,6 с (42037977336). T0 закрыт | 2 |
+| T3a хранилище | a53dc39968a55af05 | writer | done | миграция 009, video_min, сайты и 18+, учёт сайтов, порт Store; 4737e73…344cc17; ci.yml 42041891013 зелёный | 0 |
+| T3b контракт | a9f5aa827a95d3a0a | writer | done | commands_m4.go, 71 команда, S-3, тексты видео, фронт-типы; 79bf69a…dda5220; ci.yml 42044165604 зелёный (фронт тоже) | 0 |
+| пакет T4 | a07c8f62a1a52afa0 | reader | running | — | — |
