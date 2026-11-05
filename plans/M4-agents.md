@@ -16,4 +16,7 @@
 | T0 возврат №2 | afa9026170009b7f1 | writer | done | признак ClassName …OmniboxViewViews, замер процессора, опыт правил без/HKCU/HKLM (4e9d1f4…c1c5b04); прогон 42039755004: HKCU действует (VPN нет, домен блокируется); PROBE от SYSTEM 0,6 с (42037977336). T0 закрыт | 2 |
 | T3a хранилище | a53dc39968a55af05 | writer | done | миграция 009, video_min, сайты и 18+, учёт сайтов, порт Store; 4737e73…344cc17; ci.yml 42041891013 зелёный | 0 |
 | T3b контракт | a9f5aa827a95d3a0a | writer | done | commands_m4.go, 71 команда, S-3, тексты видео, фронт-типы; 79bf69a…dda5220; ci.yml 42044165604 зелёный (фронт тоже) | 0 |
-| пакет T4 | a07c8f62a1a52afa0 | reader | running | — | — |
+| пакет T4 | a07c8f62a1a52afa0 | reader | done | M4-T4-service.md, T4a/T4b, S-1…S-15 утверждены | — |
+| пакеты T5/T6 | a6a4caf47849100d6 | reader | done | M4-T5-brave-policy.md, M4-T6-browsers-store.md; уточнение RM4-10; T6-5: в тестовом режиме издатель Brave из профиля не читался | — |
+| T4a сайты в цикле службы | a943f894447c07c94 | writer | done | ad0d194…2d8ec10; ci.yml 42092826513 зелёный; скрытый Brave — только запрещённые и 18+ (README) | 0 |
+| T4b команды «Сайтов» | ae6f0c1b9e6b9aae2 | writer | done | e02320f…e56bf0a; обработчики, мастер, видео в карточке/статистике/правилах | 0 |
