@@ -627,6 +627,10 @@ type SensorSample struct {
 	// или домен не прочитан. Только домен, без адреса и заголовка (R23); длиннее MaxDomainLen
 	// служба отбрасывает.
 	ForegroundDomain string `json:"foregroundDomain"`
+	// DomainUnread — на переднем плане Brave, а адрес не прочитан (ошибка UIA, нет ни поля
+	// адреса, ни документа); служебная страница — false (RM4-1). Служба по нему пишет журнал
+	// (RK5) и закрывает окно без адреса командой GuardCmdCloseBraveWindow.
+	DomainUnread bool `json:"domainUnread"`
 }
 
 // Виды событий стража в GuardPollRequest.Events.

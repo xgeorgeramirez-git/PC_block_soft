@@ -486,6 +486,10 @@ func examples() map[string]example {
 				{Kind: GuardCmdBlocked, Plate: &BlockedPlate{Kind: BlockedVideoOver, Text: core.VideoOverPlateText(2400, false)}},
 			},
 		}),
+		"GuardPoll#closeWindow": ok(GuardPollRequest{Sample: SensorSample{AtMs: t0, SessionActive: true, Foreground: CatNameOther,
+			ForegroundPath: braveExe, DomainUnread: true}}, GuardPollReply{
+			Status: okStatus(), Warnings: []GuardWarning{}, Commands: []GuardCommand{{Kind: GuardCmdCloseBraveWindow}},
+		}),
 		"GuardState#closeTab": ok(nil, GuardStateReply{
 			ForegroundPath: braveExe, ForegroundDomain: "youtube.com", ClosedTab: "youtube.com", ClosedTabWay: CloseTabCtrlW,
 			Plate: "Время на видео и соцсети на сегодня закончилось. Общего времени осталось 40 мин", PlateKind: BlockedVideoOver,

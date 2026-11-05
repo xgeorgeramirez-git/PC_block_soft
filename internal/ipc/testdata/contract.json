@@ -1262,7 +1262,8 @@
         "fullscreen": true,
         "foreground": "games",
         "foregroundPath": "",
-        "foregroundDomain": ""
+        "foregroundDomain": "",
+        "domainUnread": false
       },
       "events": [
         {
@@ -1371,7 +1372,8 @@
         "fullscreen": false,
         "foreground": "games",
         "foregroundPath": "c:\\users\\миша\\downloads\\supergame.exe",
-        "foregroundDomain": ""
+        "foregroundDomain": "",
+        "domainUnread": false
       },
       "events": []
     },
@@ -1446,7 +1448,8 @@
         "fullscreen": false,
         "foreground": "videoSocial",
         "foregroundPath": "c:\\program files\\bravesoftware\\brave-browser\\application\\brave.exe",
-        "foregroundDomain": "youtube.com"
+        "foregroundDomain": "youtube.com",
+        "domainUnread": false
       },
       "events": []
     },
@@ -1515,6 +1518,67 @@
       }
     }
   },
+  "GuardPoll#closeWindow": {
+    "request": {
+      "sample": {
+        "atMs": 1760000000000,
+        "tzOffsetMin": 0,
+        "sessionActive": true,
+        "lastInputAgoMs": 0,
+        "fullscreen": false,
+        "foreground": "other",
+        "foregroundPath": "c:\\program files\\bravesoftware\\brave-browser\\application\\brave.exe",
+        "foregroundDomain": "",
+        "domainUnread": true
+      },
+      "events": []
+    },
+    "reply": {
+      "ok": true,
+      "payload": {
+        "status": {
+          "name": "Миша",
+          "status": "ok",
+          "statusText": "Можно",
+          "label": "85",
+          "tooltip": "Осталось 1 ч 25 мин\nИгры: 20 мин",
+          "summary": "Сегодня осталось 1 ч 25 мин из 2 ч",
+          "day": "2026-10-19",
+          "remainingS": 5100,
+          "limitS": 7200,
+          "usedS": 2100,
+          "unlimited": false,
+          "lock": "none",
+          "reason": "",
+          "detail": "",
+          "until": "",
+          "pauseUntil": "",
+          "used": "Сегодня: 35 мин из 2 ч",
+          "bonusBalance": 0,
+          "forbiddenNote": "",
+          "gamesRemainingS": 1200,
+          "gamesLimitS": 3600,
+          "gamesUnlimited": false,
+          "endMode": "lock",
+          "closeGames": false,
+          "studyOnly": false,
+          "videoRemainingS": 0,
+          "videoLimitS": 0,
+          "videoUnlimited": false,
+          "closeVideo": false,
+          "restUntilMs": 0,
+          "restLeftS": 0,
+          "restMessage": ""
+        },
+        "warnings": [],
+        "commands": [
+          {
+            "kind": "closeBraveWindow"
+          }
+        ]
+      }
+    }
+  },
   "GuardPoll#empty": {
     "request": {
       "sample": {
@@ -1525,7 +1589,8 @@
         "fullscreen": false,
         "foreground": "other",
         "foregroundPath": "",
-        "foregroundDomain": ""
+        "foregroundDomain": "",
+        "domainUnread": false
       },
       "events": []
     },

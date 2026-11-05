@@ -43,6 +43,12 @@ var DefaultVideoSites = []string{
 // (RM4-2): страж перед действием перечитывает передний план и домен.
 const GuardCmdCloseTab = "closeTab"
 
+// GuardCmdCloseBraveWindow — команда стражу закрыть окно Brave, у которого адрес не читается
+// (SensorSample.DomainUnread, RM4-1): страж перечитывает передний план и, только если это то же
+// окно Brave и адрес всё ещё не читается, шлёт ему WM_CLOSE; иначе команду отбрасывает. Это не
+// closeTab с пустым доменом: пустой домен — ещё и служебная страница, которую закрывать нельзя.
+const GuardCmdCloseBraveWindow = "closeBraveWindow"
+
 // Виды плашек о закрытых сайтах и браузерах (BlockedPlate.Kind, RM4-9).
 const (
 	BlockedSite      = "site"      // «Сайт X закрыт: он в списке запрещённых»
