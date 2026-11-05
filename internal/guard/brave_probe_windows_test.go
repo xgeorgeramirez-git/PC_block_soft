@@ -18,6 +18,7 @@ import (
 	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/registry"
 
+	"pcblock/internal/ipc"
 	"pcblock/internal/sites"
 )
 
@@ -753,6 +754,14 @@ func TestBraveProbe(t *testing.T) {
 		log.fact("(г) закрытие вкладки", "%s%s", strings.Join(g, "; "), label)
 	}
 
+	// (ж) closeTab через контроллер стража (T7): настоящие датчики (ReadSensors) и winTabs, подделка
+	// службы отвечает closeTab{probe-two.test}, только когда в снимке этот домен (как служба).
+	if hwnd == 0 {
+		log.fact("(ж) closeTab через контроллер", skipped)
+	} else {
+		log.fact("(ж) closeTab через контроллер", "%s%s", controllerCloseFacts(t, r, exe, common(profile), hwnd), label)
+	}
+
 	// (д) Окно сайта-приложения без поля адреса: Read даёт document?
 	before := braveWindows()
 	startBrave(t, exe, append(common(profile), "--app=http://"+probeApp+"/")...)
@@ -841,4 +850,121 @@ func policyVariant(t *testing.T, r *braveReader, exe string, common func(string)
 	_, errPage := waitNames(r, pw, "ERR_BLOCKED_BY_ADMINISTRATOR", 10*time.Second)
 	f = append(f, fmt.Sprintf("текст ERR_BLOCKED_BY_ADMINISTRATOR на %s: %v", probeBlocked, errPage))
 	return strings.Join(f, "; ")
+}
+
+// probeService — подделка службы для шага (ж): тестовый режим, время идёт, closeTab{probeTwo} в
+// ответ на снимок с доменом probeTwo; помнит домены снимков и ClosedTabWay из GuardState.
+type probeService struct {
+	mu      sync.Mutex
+	samples []ipc.SensorSample
+	sentAt  []time.Time
+	way     string
+}
+
+func (s *probeService) Do(m ipc.Msg) (ipc.Reply, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	switch m.Cmd {
+	case ipc.CmdHello:
+		return ipc.OK(ipc.HelloReply{Protocol: ipc.ProtocolVersion, TestMode: true}), nil
+	case ipc.CmdGuardPoll:
+		var req ipc.GuardPollRequest
+		if err := m.Into(&req); err != nil {
+			return ipc.Reply{}, err
+		}
+		s.samples = append(s.samples, req.Sample)
+		s.sentAt = append(s.sentAt, time.Now())
+		rep := ipc.GuardPollReply{Status: ctRunningStatus(3600), Warnings: []ipc.GuardWarning{}, Commands: []ipc.GuardCommand{}}
+		if req.Sample.ForegroundDomain == probeTwo {
+			rep.Commands = append(rep.Commands, ipc.GuardCommand{Kind: ipc.GuardCmdCloseTab, Domain: probeTwo})
+		}
+		return ipc.OK(rep), nil
+	case ipc.CmdGuardState:
+		var st ipc.GuardStateReply
+		if err := m.Into(&st); err == nil && st.ClosedTabWay != "" {
+			s.way = st.ClosedTabWay
+		}
+	}
+	return ipc.OK(ipc.Empty{}), nil
+}
+
+// controllerCloseFacts — шаг (ж): вторая вкладка probeTwo в окне hwnd, контроллер с настоящими
+// датчиками и winTabs опрашивает раз в 1 с до 6 раз; затем новое окно — признак DomainUnread
+// первого снимка (холодное дерево доступности, RM4-1-итог 3,5 с).
+func controllerCloseFacts(t *testing.T, r *braveReader, exe string, args []string, hwnd windows.HWND) string {
+	var g []string
+	startBrave(t, exe, append(args, "http://"+probeTwo+"/")...)
+	two, took := waitDomain(r, hwnd, probeTwo, 10*time.Second)
+	g = append(g, fmt.Sprintf("вторая вкладка: %s за %.1f с", two, took.Seconds()))
+	if two.domain != probeTwo {
+		return strings.Join(g, "; ")
+	}
+	forceForeground(uintptr(hwnd))
+	time.Sleep(300 * time.Millisecond)
+	if n, err := countTabs(r, hwnd); err == nil {
+		g = append(g, fmt.Sprintf("вкладок до %d", n))
+	} else {
+		g = append(g, "вкладки до: "+err.Error())
+	}
+	lookStart := time.Now()
+	look := winTabs{}.Look()
+	g = append(g, fmt.Sprintf("Look за %d мс: окно своё %v, Brave %v, домен %q, не прочитан %v, вкладок %d",
+		time.Since(lookStart).Milliseconds(), look.Window == uintptr(hwnd), look.Brave, look.Domain, look.Unread, look.Tabs))
+	svc := &probeService{}
+	ctl := NewController(NewModel(), svc, time.Now, func(now time.Time) ipc.SensorSample { return ReadSensors(now, 1) }, nil)
+	ctl.SetTabActor(winTabs{})
+	start := time.Now()
+	var closedIn time.Duration
+	for i := 0; i < 6; i++ {
+		s := time.Now()
+		ctl.PollOnce()
+		ctl.PushState()
+		svc.mu.Lock()
+		last := svc.samples[len(svc.samples)-1]
+		if closedIn == 0 && last.ForegroundDomain == probeSite && i > 0 {
+			closedIn = svc.sentAt[len(svc.sentAt)-1].Sub(start)
+		}
+		svc.mu.Unlock()
+		if closedIn > 0 {
+			break
+		}
+		time.Sleep(time.Second - time.Since(s))
+	}
+	svc.mu.Lock()
+	var doms []string
+	for _, smp := range svc.samples {
+		doms = append(doms, fmt.Sprintf("%q/%v", smp.ForegroundDomain, smp.DomainUnread))
+	}
+	way := svc.way
+	svc.mu.Unlock()
+	g = append(g, "домены снимков "+strings.Join(doms, " "), "ClosedTabWay "+way)
+	if closedIn > 0 {
+		g = append(g, fmt.Sprintf("снимок с %s через %.1f с после первого опроса (NFR-6 ≤ 2 с)", probeSite, closedIn.Seconds()))
+	} else {
+		g = append(g, "снимка с "+probeSite+" за 6 опросов нет")
+	}
+	if n, err := countTabs(r, hwnd); err == nil {
+		g = append(g, fmt.Sprintf("вкладок после %d", n))
+	}
+
+	before := braveWindows()
+	startBrave(t, exe, append(args, "--new-window", "http://"+probeSite+"/")...)
+	if fresh := waitWindow(before, 15*time.Second); fresh == 0 {
+		g = append(g, "новое окно не появилось за 15 с")
+	} else {
+		forceForeground(uintptr(fresh))
+		time.Sleep(200 * time.Millisecond)
+		openAt := time.Now()
+		first := readRaw()
+		var readIn time.Duration
+		for time.Since(openAt) < 10*time.Second {
+			if raw := readRaw(); raw.ForegroundDomain == probeSite {
+				readIn = time.Since(openAt)
+				break
+			}
+			time.Sleep(500 * time.Millisecond)
+		}
+		g = append(g, fmt.Sprintf("новое окно: первый снимок домен %q, не прочитан %v; домен прочитан через %.1f с", first.ForegroundDomain, first.DomainUnread, readIn.Seconds()))
+	}
+	return strings.Join(g, "; ")
 }
