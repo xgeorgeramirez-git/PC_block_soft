@@ -1069,9 +1069,19 @@ func (m *Model) shownPlate(now time.Time) *plate {
 		w = m.warn
 	}
 	if b := m.blocked; b != nil && !b.expired(now) && (w == nil || b.id > w.id) {
+		if w != nil && isSitePlate(b.blockedKind) && w.kind == plateThreshold && w.threshold == 1 {
+			// Плашка сайта не ложится поверх плашки 1 мин (RM4-9, PL-34): служба повторяет её раз
+			// в 5 с и спрятала бы «Попросить ещё»; срок плашки сайта идёт, она видна потом.
+			return w
+		}
 		return b
 	}
 	return w
+}
+
+// sitePlateShown: видна плашка сайта (RM4-9) — плашка отдыха ждёт её (PL-34).
+func (m *Model) sitePlateShown(now time.Time) bool {
+	return m.blocked != nil && isSitePlate(m.blocked.blockedKind) && !m.blocked.expired(now)
 }
 
 // plateVisible: плашка есть, не вышел её срок, не устарела и сейчас нет ни экрана

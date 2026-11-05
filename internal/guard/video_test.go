@@ -1,6 +1,7 @@
 package guard
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -132,5 +133,87 @@ func TestMostUrgentRank(t *testing.T) {
 		if got, ok := mostUrgent(c.in); !ok || got.Event != c.want {
 			t.Errorf("%s: %q, %v; ждали %q", c.name, got.Event, ok, c.want)
 		}
+	}
+}
+
+// --- старшинство плашек сайтов (RM4-9, PL-34, T7-8) -------------------------------------------
+
+func sitePlate(showS int) ipc.BlockedPlate {
+	return ipc.BlockedPlate{Kind: ipc.BlockedSite, Text: "Сайт example.com закрыт: он в списке запрещённых", ShowS: showS}
+}
+
+// Ловит (Review Focus 4): плашка сайта, которую служба повторяет раз в 5 с, ложится поверх плашки
+// 1 мин и прячет «Попросить ещё» почти всю последнюю минуту. Плашка сайта ждёт (срок идёт) и
+// видна потом; плашки о программах — как в M3, поверх.
+func TestSitePlateWaitsBehindOneMinute(t *testing.T) {
+	m := NewModel()
+	m.OnDecision(t0, runningDecision(60), false, []int{1})
+	one := m.View(t0).Warning
+	m.OnBlocked(at(time.Second), sitePlate(10))
+	w := m.View(at(time.Second)).Warning
+	if w == nil || w.ID != one.ID || w.Kind != ipc.PlateOneMinute || !strings.Contains(buttonNames(w), TargetName(ButtonPlateAskMore)) {
+		t.Fatalf("плашка сайта поверх плашки 1 мин: %+v (кнопки %s)", w, buttonNames(w))
+	}
+	m.OnExtraAdded(at(3*time.Second), 30)
+	m.OnDecision(at(3*time.Second), runningDecision(1860), false, nil)
+	if w := m.View(at(3 * time.Second)).Warning; w == nil || w.Kind != ipc.PlateAdded {
+		t.Fatalf("после доп. времени: %+v, ждали «Добавлено»", w)
+	}
+	m.OnDecision(at(9*time.Second), runningDecision(1854), false, nil)
+	w = m.View(at(9 * time.Second)).Warning
+	if w == nil || w.Kind != ipc.BlockedSite || w.Text != "Сайт example.com закрыт: он в списке запрещённых" {
+		t.Fatalf("после «Добавлено» плашка сайта не видна: %+v", w)
+	}
+	m.OnDecision(at(12*time.Second), runningDecision(1851), false, nil)
+	if w := m.View(at(12 * time.Second)).Warning; w != nil {
+		t.Fatalf("срок плашки сайта вышел, а видна %+v", w)
+	}
+
+	// Контроль M3: плашка о программе ложится поверх плашки 1 мин.
+	p := NewModel()
+	p.OnDecision(t0, runningDecision(60), false, []int{1})
+	p.OnBlocked(at(time.Second), ipc.BlockedPlate{Kind: ipc.BlockedForbidden, Text: "Программа «X» запрещена родителем", ShowS: 3, Path: `c:\x.exe`})
+	if w := p.View(at(time.Second)).Warning; w == nil || w.Kind != ipc.BlockedForbidden {
+		t.Fatalf("плашка о программе не поверх плашки 1 мин: %+v", w)
+	}
+	// Табло за 5 мин (не плашка 1 мин) плашке сайта не мешает: новее — сверху.
+	b := NewModel()
+	b.OnDecision(t0, runningDecision(300), false, []int{5})
+	b.OnBlocked(at(time.Second), sitePlate(10))
+	if w := b.View(at(time.Second)).Warning; w == nil || w.Kind != ipc.BlockedSite {
+		t.Fatalf("плашка сайта не поверх табло: %+v", w)
+	}
+}
+
+// Ловит (PL-34): плашка отдыха вытесняет видимую плашку сайта или теряется за ней; в обратном
+// порядке плашка сайта (новее) сверху, отдых возвращается, пока не вышел его срок.
+func TestRestPlateWaitsBehindSitePlate(t *testing.T) {
+	m := NewModel()
+	m.OnDecision(t0, runningDecision(3600), false, nil)
+	m.OnBlocked(t0, sitePlate(10))
+	m.OnWarnings(at(time.Second), runningDecision(3600), false, []Incoming{restWarn()})
+	if w := m.View(at(time.Second)).Warning; w == nil || w.Kind != ipc.BlockedSite {
+		t.Fatalf("плашка отдыха вытеснила плашку сайта: %+v", w)
+	}
+	for s := 2; s <= 9; s++ {
+		m.OnWarnings(at(time.Duration(s)*time.Second), runningDecision(3600), false, nil)
+	}
+	if w := m.View(at(9 * time.Second)).Warning; w == nil || w.Kind != ipc.BlockedSite {
+		t.Fatalf("отдых показан раньше, чем вышел срок плашки сайта: %+v", w)
+	}
+	m.OnWarnings(at(11*time.Second), runningDecision(3600), false, nil)
+	if w := m.View(at(11 * time.Second)).Warning; w == nil || w.Kind != ipc.PlateRest || !w.Sound {
+		t.Fatalf("после плашки сайта отдых не показан: %+v", w)
+	}
+
+	r := NewModel()
+	r.OnWarnings(t0, runningDecision(3600), false, []Incoming{restWarn()})
+	r.OnBlocked(at(time.Second), sitePlate(2))
+	if w := r.View(at(time.Second)).Warning; w == nil || w.Kind != ipc.BlockedSite {
+		t.Fatalf("плашка сайта после отдыха не сверху: %+v", w)
+	}
+	r.OnWarnings(at(3500*time.Millisecond), runningDecision(3600), false, nil)
+	if w := r.View(at(3500 * time.Millisecond)).Warning; w == nil || w.Kind != ipc.PlateRest {
+		t.Fatalf("отдых не вернулся после плашки сайта: %+v", w)
 	}
 }

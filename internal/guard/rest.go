@@ -62,13 +62,14 @@ func splitRest(ws []Incoming) (rest *Incoming, others []Incoming) {
 // момента начала перерыва — та же плашка, без второго звука). Старшинство (Ruling FB14-9):
 // предупреждение о конце времени, запретных часах или паузе и «Добавлено N минут» важнее —
 // плашка отдыха их не заменяет, а ждёт (restWait), пока они не закроются; плашка 1 мин срока
-// не имеет и уходит, только когда порог снят (добавили время) или её сменил экран.
+// не имеет и уходит, только когда порог снят (добавили время) или её сменил экран. Видимая
+// плашка сайта (RM4-9) тоже важнее: отдых ждёт, пока не выйдет её срок.
 func (m *Model) restPlate(now time.Time, w Incoming) {
 	deadline := now.Add(time.Duration(w.EventS) * time.Second / time.Duration(m.speed))
 	if d := deadline.Sub(m.lastRest); !m.lastRest.IsZero() && d > -3*time.Second && d < 3*time.Second {
 		return
 	}
-	if m.warn != nil && m.warn.kind != plateRest {
+	if m.warn != nil && m.warn.kind != plateRest || m.sitePlateShown(now) {
 		m.restWait = &restWait{text: w.Text, threshold: w.Threshold, deadline: deadline}
 		return
 	}
@@ -89,7 +90,8 @@ func (m *Model) showRest(now time.Time, text string, threshold int, deadline tim
 	m.warn.text, m.warn.event, m.warn.deadline = text, ipc.WarnEventRest, deadline
 }
 
-// flushRest показывает ждущую плашку отдыха, когда более важной плашки уже нет. Перерыв уже
+// flushRest показывает ждущую плашку отдыха, когда более важной плашки (предупреждения или
+// видимой плашки сайта) уже нет. Перерыв уже
 // начался или пауза — ждущая плашка отбрасывается (её сменит экран, пауза снимает и её).
 func (m *Model) flushRest(now time.Time) {
 	r := m.restWait
@@ -98,7 +100,7 @@ func (m *Model) flushRest(now time.Time) {
 		return
 	case !now.Before(r.deadline) || m.dec.Status == core.StatusPaused:
 		m.restWait = nil
-	case m.warn == nil:
+	case m.warn == nil && !m.sitePlateShown(now):
 		m.showRest(now, r.text, r.threshold, r.deadline)
 	}
 }
