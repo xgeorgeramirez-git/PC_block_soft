@@ -45,7 +45,8 @@ func (a storeAdapter) ListChildren() ([]service.Child, error) {
 	}
 	out := make([]service.Child, 0, len(list))
 	for _, c := range list {
-		out = append(out, service.Child{ID: c.ID, SID: c.SID, Name: c.Name, BypassDetail: c.BypassDetail, EndMode: c.EndMode})
+		out = append(out, service.Child{ID: c.ID, SID: c.SID, Name: c.Name, BypassDetail: c.BypassDetail, EndMode: c.EndMode,
+			AdultFilter: c.AdultFilter})
 	}
 	return out, nil
 }
@@ -201,6 +202,38 @@ func (a storeAdapter) ResolvePending(path string) (service.PendingProgram, bool,
 
 func (a storeAdapter) RestorePending(p service.PendingProgram) error {
 	return a.s.RestorePending(pendingToStorage(p))
+}
+
+// --- сайты (M4) ------------------------------------------------------------------------
+
+func (a storeAdapter) ListSiteRules() ([]service.SiteRule, error) {
+	list, err := a.s.ListSiteRules()
+	if err != nil {
+		return nil, err
+	}
+	out := make([]service.SiteRule, 0, len(list))
+	for _, r := range list {
+		out = append(out, service.SiteRule{Domain: r.Domain, Kind: r.Kind})
+	}
+	return out, nil
+}
+
+func (a storeAdapter) AddSiteRule(domain, kind string) (bool, string, error) {
+	return a.s.AddSiteRule(domain, kind)
+}
+
+func (a storeAdapter) RemoveSiteRule(domain string) (string, bool, error) {
+	return a.s.RemoveSiteRule(domain)
+}
+
+func (a storeAdapter) CountSiteRules(kind string) (int, error) { return a.s.CountSiteRules(kind) }
+
+func (a storeAdapter) ReplaceSiteRules(kind string, domains []string) error {
+	return a.s.ReplaceSiteRules(kind, domains)
+}
+
+func (a storeAdapter) SetAdultFilter(childID int64, on bool) error {
+	return a.s.SetAdultFilter(childID, on)
 }
 
 func (a storeAdapter) AddUsage(childID int64, day, category, kind, subject string, seconds int) error {

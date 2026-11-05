@@ -53,7 +53,13 @@ type fakeStore struct {
 	breakRules  map[int64]core.BreakRules // «Отдых» по ребёнку (FB-14); нет записи — по умолчанию
 	breakStates map[int64]core.BreakState // счёт к перерыву по ребёнку
 	failBreak   bool                      // GetBreakRules возвращает ошибку
+
+	sites    map[string]string // списки сайтов (M4): домен → blocked|study|video_social
+	adultOff map[int64]bool    // ребёнок с выключенным списком 18+ (M4); нет записи — включён
 }
+
+// fakeStarterVideo — стартовый набор «Видео и соцсети», как в миграции 009 (R14).
+var fakeStarterVideo = []string{"youtube.com", "vk.com", "tiktok.com", "rutube.ru", "ok.ru", "telegram.org", "web.telegram.org", "discord.com", "twitch.tv"}
 
 type savedUsage struct {
 	childID int64
@@ -73,7 +79,122 @@ func newFakeStore() *fakeStore {
 		schedule: map[int64][]core.Interval{}, bonus: map[int64][]BonusRecord{},
 		endModes: map[int64]string{}, programs: map[string]Program{}, nextProg: 1,
 		pending: map[string]*PendingProgram{}, usage: map[string]int{},
+		sites: fakeSites(), adultOff: map[int64]bool{},
 	}
+}
+
+func fakeSites() map[string]string {
+	out := map[string]string{}
+	for _, d := range fakeStarterVideo {
+		out[d] = "video_social"
+	}
+	return out
+}
+
+var fakeSiteKinds = map[string]bool{"blocked": true, "study": true, "video_social": true}
+
+// ListSiteRules — как storage.ListSiteRules: по списку, затем по домену.
+func (f *fakeStore) ListSiteRules() ([]SiteRule, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := []SiteRule{}
+	for d, k := range f.sites {
+		out = append(out, SiteRule{Domain: d, Kind: k})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Kind != out[j].Kind {
+			return out[i].Kind < out[j].Kind
+		}
+		return out[i].Domain < out[j].Domain
+	})
+	return out, nil
+}
+
+// AddSiteRule — как storage.AddSiteRule: вставка, повтор или перенос той же записи.
+func (f *fakeStore) AddSiteRule(domain, kind string) (bool, string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if domain == "" || !fakeSiteKinds[kind] {
+		return false, "", errors.New("неверный домен или список")
+	}
+	prev, ok := f.sites[domain]
+	switch {
+	case !ok:
+		f.sites[domain] = kind
+		return false, "", nil
+	case prev == kind:
+		return false, kind, nil
+	default:
+		f.sites[domain] = kind
+		return true, prev, nil
+	}
+}
+
+// RemoveSiteRule — как storage.RemoveSiteRule: прежний список для «Отменить».
+func (f *fakeStore) RemoveSiteRule(domain string) (string, bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if domain == "" {
+		return "", false, errors.New("пустой домен")
+	}
+	prev, ok := f.sites[domain]
+	if !ok {
+		return "", false, nil
+	}
+	delete(f.sites, domain)
+	return prev, true, nil
+}
+
+func (f *fakeStore) CountSiteRules(kind string) (int, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if !fakeSiteKinds[kind] {
+		return 0, errors.New("неверный список")
+	}
+	n := 0
+	for _, k := range f.sites {
+		if k == kind {
+			n++
+		}
+	}
+	return n, nil
+}
+
+// ReplaceSiteRules — как storage.ReplaceSiteRules: список целиком, ошибка — ничего не изменилось.
+func (f *fakeStore) ReplaceSiteRules(kind string, domains []string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if !fakeSiteKinds[kind] {
+		return errors.New("неверный список")
+	}
+	for _, d := range domains {
+		if d == "" {
+			return errors.New("пустой домен")
+		}
+	}
+	for d, k := range f.sites {
+		if k == kind {
+			delete(f.sites, d)
+		}
+	}
+	for _, d := range domains {
+		f.sites[d] = kind
+	}
+	return nil
+}
+
+func (f *fakeStore) SetAdultFilter(id int64, on bool) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if _, ok := f.children[id]; !ok {
+		return errors.New("нет такого ребёнка")
+	}
+	if on {
+		delete(f.adultOff, id)
+	} else {
+		f.adultOff[id] = true
+	}
+	return nil
 }
 
 func (f *fakeStore) SetEndMode(id int64, mode string) error {
@@ -390,16 +511,11 @@ func (f *fakeStore) DayUsage(id int64, day string) ([]UsageRow, error) {
 	out := []UsageRow{}
 	for k, sec := range f.usage {
 		parts := strings.SplitN(k, "|", 5)
-		if parts[0] == fmt.Sprint(id) && parts[1] == day && parts[3] == "program" {
-			out = append(out, UsageRow{Day: day, Category: parts[2], Kind: "program", Subject: parts[4], Seconds: sec})
+		if parts[0] == fmt.Sprint(id) && parts[1] == day {
+			out = append(out, UsageRow{Day: day, Category: parts[2], Kind: parts[3], Subject: parts[4], Seconds: sec})
 		}
 	}
-	sort.Slice(out, func(i, j int) bool {
-		if out[i].Category != out[j].Category {
-			return out[i].Category < out[j].Category
-		}
-		return out[i].Subject < out[j].Subject
-	})
+	sortUsage(out)
 	return out, nil
 }
 
@@ -432,25 +548,33 @@ func (f *fakeStore) PeriodUsage(id int64, from, before string) ([]UsageRow, erro
 	if f.failUsage {
 		return nil, errFake
 	}
-	type key struct{ cat, subject string }
+	type key struct{ cat, kind, subject string }
 	sum := map[key]int{}
 	for k, sec := range f.usage {
 		parts := strings.SplitN(k, "|", 5)
-		if parts[0] == fmt.Sprint(id) && parts[1] >= from && parts[1] < before && parts[3] == "program" {
-			sum[key{parts[2], parts[4]}] += sec
+		if parts[0] == fmt.Sprint(id) && parts[1] >= from && parts[1] < before {
+			sum[key{parts[2], parts[3], parts[4]}] += sec
 		}
 	}
 	out := []UsageRow{}
 	for k, sec := range sum {
-		out = append(out, UsageRow{Category: k.cat, Kind: "program", Subject: k.subject, Seconds: sec})
+		out = append(out, UsageRow{Category: k.cat, Kind: k.kind, Subject: k.subject, Seconds: sec})
 	}
+	sortUsage(out)
+	return out, nil
+}
+
+// sortUsage — порядок storage.DayUsage и PeriodUsage: категория, вид (program, site), предмет.
+func sortUsage(out []UsageRow) {
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].Category != out[j].Category {
 			return out[i].Category < out[j].Category
 		}
+		if out[i].Kind != out[j].Kind {
+			return out[i].Kind < out[j].Kind
+		}
 		return out[i].Subject < out[j].Subject
 	})
-	return out, nil
 }
 
 func (f *fakeStore) ProgramSeconds(fromDay string) (map[string]int, error) {
@@ -498,6 +622,7 @@ func (f *fakeStore) ListChildren() ([]Child, error) {
 			if m, ok := f.endModes[id]; ok {
 				cp.EndMode = m
 			}
+			cp.AdultFilter = !f.adultOff[id]
 			out = append(out, cp)
 		}
 	}

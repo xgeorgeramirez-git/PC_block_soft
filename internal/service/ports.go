@@ -23,6 +23,14 @@ type Child struct {
 	Name         string
 	BypassDetail string // блокировка за обход (R17); пусто: блокировки нет
 	EndMode      string // «Когда время вышло» (R8): "lock" или "study_only" (core.EndMode.String)
+	AdultFilter  bool   // список сайтов 18+ включён (R14); новому ребёнку — включён
+}
+
+// SiteRule — запись списков сайтов (storage.SiteRule без id, R14, FR-21, RM4-5): у домена одна
+// запись. Kind: blocked | study | video_social (те же ключи, что sites.Kind.String).
+type SiteRule struct {
+	Domain string
+	Kind   string
 }
 
 // Program — программа из списка (storage.Program): одна категория для всех детей (R12, FR-20).
@@ -137,16 +145,16 @@ type Store interface {
 	ListPromos() ([]PromoRecord, error)
 	LoadDayState(childID int64, day string) (core.DayState, error)
 	SaveDayState(childID int64, st core.DayState) error
-	// SaveDayAndUsage — состояние дня и порции учёта по программам одной транзакцией (RM3-6, G10).
+	// SaveDayAndUsage — состояние дня и порции учёта по программам и сайтам одной транзакцией (RM3-6, G10).
 	SaveDayAndUsage(childID int64, st core.DayState, usage []UsageRow) error
 	AddUsage(childID int64, day, category, kind, subject string, seconds int) error
 	ProgramSeconds(fromDay string) (map[string]int, error)  // секунды по пути exe с fromDay, все дети
-	DayUsage(childID int64, day string) ([]UsageRow, error) // учёт по программам ребёнка за день (D-58); нет — []
+	DayUsage(childID int64, day string) ([]UsageRow, error) // учёт по программам и сайтам ребёнка за день (D-58, RM4-7); нет — []
 	// PeriodDays — суммы итогов дней ребёнка (общее, игры, видео, учёба, доп. время) с fromDay
 	// включительно до beforeDay не включительно (периоды «Итогов», D-61); Day у ответа пусто, нет дней — нули.
 	PeriodDays(childID int64, fromDay, beforeDay string) (core.DayState, error)
-	// PeriodUsage — учёт по программам ребёнка за те же дни, сложенный по категории и пути (Day пусто);
-	// скрытые тоже (их прячет служба); нет — [].
+	// PeriodUsage — учёт по программам и сайтам ребёнка за те же дни, сложенный по категории, виду и
+	// предмету (Day пусто); скрытые тоже (их прячет служба); нет — [].
 	PeriodUsage(childID int64, fromDay, beforeDay string) ([]UsageRow, error)
 
 	// Программы и «Ждут решения» (M3: R12, FR-20, RM3-10).
@@ -166,6 +174,19 @@ type Store interface {
 	ListPending() ([]PendingProgram, error)
 	ResolvePending(path string) (PendingProgram, bool, error)
 	RestorePending(p PendingProgram) error
+
+	// Сайты (M4: R14, FR-21, RM4-5). Домен нормализует служба (sites.NormalizeInput); хранилище
+	// отклоняет пустой, длиннее 253 и чужой список. Предел 1000 запрещённых проверяет служба.
+	ListSiteRules() ([]SiteRule, error) // по списку и домену; нет — []
+	// AddSiteRule — новая запись: (false, "", nil); уже в этом списке: (false, kind, nil); перенос из
+	// другого списка: (true, прежний, nil).
+	AddSiteRule(domain, kind string) (moved bool, prevKind string, err error)
+	RemoveSiteRule(domain string) (prevKind string, ok bool, err error) // нет домена — ok = false
+	CountSiteRules(kind string) (int, error)
+	// ReplaceSiteRules — список kind целиком (мастер, S-4) одной транзакцией; домены из других
+	// списков переносятся; ошибка — ничего не изменилось.
+	ReplaceSiteRules(kind string, domains []string) error
+	SetAdultFilter(childID int64, on bool) error // «Блокировать сайты 18+» (R14); нет ребёнка — ошибка
 	AppendEvent(e StoredEvent) error
 	ListEvents(q EventQuery) ([]StoredEvent, error)
 	GetAuth() (Auth, bool, error)
