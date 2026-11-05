@@ -237,6 +237,8 @@ func DecisionFromStatus(s ipc.ChildStatus) core.Decision {
 		BonusBalance: s.BonusBalance, Unlimited: s.Unlimited, Events: []core.Event{},
 		GamesRemainingS: s.GamesRemainingS, GamesLimitS: s.GamesLimitS, GamesUnlimited: s.GamesUnlimited,
 		CloseGames: s.CloseGames, StudyOnly: s.StudyOnly,
+		VideoRemainingS: s.VideoRemainingS, VideoLimitS: s.VideoLimitS, VideoUnlimited: s.VideoUnlimited,
+		CloseVideo:  s.CloseVideo,
 		RestUntilMs: s.RestUntilMs, RestLeftS: s.RestLeftS, RestMessage: s.RestMessage,
 	}
 	switch s.Lock {
