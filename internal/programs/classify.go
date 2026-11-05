@@ -176,7 +176,8 @@ func (c *Classifier) Reload(entries []Entry) {
 
 // NeedsPublisher сообщает, что для пути нужно прочитать издателя exe и передать его в Classify:
 // путь в корне приложения профиля, его нет в списке (или есть с отпечатком: обновление на
-// месте), а в этом корне есть решение с тем же именем файла и издателем (RM3-13). Остальным путям издатель не нужен: опрос не замедляется.
+// месте), а в этом корне есть решение с тем же именем файла и издателем (RM3-13), или путь в
+// папке Brave профиля (RM4-8). Остальным путям издатель не нужен: опрос не замедляется.
 func (c *Classifier) NeedsPublisher(path string) bool {
 	p := Normalize(path)
 	key, ok := c.profileKey(p)
@@ -188,7 +189,7 @@ func (c *Classifier) NeedsPublisher(path string) bool {
 	if e, known := c.exact[p]; known && e.Fingerprint == "" {
 		return false // точный путь без отпечатка: решение действует и без издателя
 	}
-	return len(c.profile[key]) > 0
+	return len(c.profile[key]) > 0 || c.roots.braveProfileRel(p) != "" // Brave в профиле — по издателю (RM4-8)
 }
 
 // NeedsFingerprint сообщает, что для пути в списке сохранён отпечаток файла: наблюдателю нужно
@@ -200,20 +201,26 @@ func (c *Classifier) NeedsFingerprint(path string) bool {
 	return c.exact[p].Fingerprint != ""
 }
 
-// Classify определяет вердикт для пути exe строго в порядке RM3-1:
+// Classify определяет вердикт для пути exe строго в порядке RM3-1 и RM4-8:
 //  1. пустой или непригодный путь — «система» (PL-9: «не знаю» = «не трогать»);
-//  2. класс «система» (папка Windows, PC Block, WebView2, пакеты компонентов Windows);
+//  2. класс «система» (папка Windows, PC Block, WebView2, пакеты компонентов Windows, обновлятор
+//     Brave в Program Files);
 //  3. точный путь в списке: категория программы (скрытая родителем — «скрыта», D-57); для записи с отпечатком при другом или
 //     непрочитанном отпечатке (fingerprint "") — «незнакомая» с прежней категорией, кроме корня
 //     профиля, где файл обновился на месте с тем же издателем (RM3-13) (RM3-12, Д-1:
 //     иначе ребёнок закроет системе доступ к свойствам своего файла и подменит exe; подмена
 //     важнее скрытия: скрытая тоже снова «ждёт решения»). Это закрытие
-//     одной программы, а не блокировка компьютера (R18 не нарушается);
-//  4. корень приложения в профиле пользователя (RM3-13): категория решения с тем же именем файла
+//     одной программы, а не блокировка компьютера (R18 не нарушается). Решение родителя
+//     сильнее каталога браузеров (RM4-8);
+//  4. папка Brave в профиле (RM4-8, PL-20) с издателем «Brave Software»: сам Brave
+//     («brave-browser\application\brave.exe») — «Прочее», остальные exe папки (обновлятор,
+//     обработчик сбоев, уведомления) — «система»; издатель пустой или чужой — дальше по порядку;
+//  5. браузер из каталога, кроме Brave, в любом каталоге — «запрещена» (R15, D-68);
+//  6. корень приложения в профиле пользователя (RM3-13): категория решения с тем же именем файла
 //     и тем же издателем (publisher; пустой — не наследуется), иначе «незнакомая»;
-//     корень приложения в Program Files: наследуемая категория корня;
-//  5. каталог по имени файла (в WindowsApps и по имени пакета) — только в доверенных каталогах;
-//  6. иначе «незнакомая».
+//  7. корень приложения в Program Files: наследуемая категория корня;
+//  8. каталог по имени файла (в WindowsApps и по имени пакета) — только в доверенных каталогах;
+//  9. иначе «незнакомая».
 func (c *Classifier) Classify(path, fingerprint, publisher string) Result {
 	p := Normalize(path)
 	if p == "" {
@@ -244,6 +251,15 @@ func (c *Classifier) Classify(path, fingerprint, publisher string) Result {
 		}
 		return verdictOf(e.Category, true, name)
 	}
+	if rel := c.roots.braveProfileRel(p); rel != "" && isBravePublisher(publisher) {
+		if rel == braveProfileMain {
+			return Result{Verdict: VerdictAllow, Category: CatOther, Name: name}
+		}
+		return Result{Verdict: VerdictSystem, Name: name}
+	}
+	if _, ok := c.cat.ForbiddenBrowser(p); ok {
+		return Result{Verdict: VerdictForbidden, Category: CatBlocked, Name: name}
+	}
 	if inProfile {
 		if best := bestProfileRule(rules, publisher); best != "" {
 			return verdictOf(best, false, name)
@@ -257,6 +273,14 @@ func (c *Classifier) Classify(path, fingerprint, publisher string) Result {
 		return Result{Verdict: VerdictAllow, Category: cat, Name: name}
 	}
 	return Result{Verdict: VerdictUnknown, Name: name}
+}
+
+// braveProfileMain — сам Brave внутри папки Brave профиля.
+const braveProfileMain = `brave-browser\application\brave.exe`
+
+// isBravePublisher — издатель exe — Brave Software (CompanyName «Brave Software, Inc.», PL-20).
+func isBravePublisher(publisher string) bool {
+	return strings.HasPrefix(publisherKey(publisher), "brave software")
 }
 
 // CatalogCategory — категория по встроенному каталогу (RM3-1 п.4): только для путей в доверенных

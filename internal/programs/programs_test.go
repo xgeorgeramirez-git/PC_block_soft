@@ -177,30 +177,26 @@ func TestCatalog(t *testing.T) {
 		}
 	}
 	cases := []struct {
-		name   string
-		cat    string
-		ok     bool
-		browse bool
+		name string
+		cat  string
+		ok   bool
 	}{
-		{"minecraftlauncher.exe", "games", true, false},
-		{"RobloxPlayerBeta.exe", "games", true, false},
-		{`c:\program files (x86)\steam\steam.exe`, "games", true, false},
-		{"cs2.exe", "games", true, false},
-		{"brave.exe", "other", true, true},
-		{"chrome.exe", "other", true, true},
-		{"MSEDGE.EXE", "other", true, true},
-		{"firefox.exe", "other", true, true},
-		{"javaw.exe", "", false, false},
-		{"notepad.exe", "", false, false},
-		{"", "", false, false},
+		{"minecraftlauncher.exe", "games", true},
+		{"RobloxPlayerBeta.exe", "games", true},
+		{`c:\program files (x86)\steam\steam.exe`, "games", true},
+		{"cs2.exe", "games", true},
+		{"brave.exe", "other", true},
+		{"chrome.exe", "blocked", true}, // RM4-8: браузеры, кроме Brave, запрещены
+		{"MSEDGE.EXE", "blocked", true},
+		{"firefox.exe", "blocked", true},
+		{"javaw.exe", "", false},
+		{"notepad.exe", "", false},
+		{"", "", false},
 	}
 	for _, k := range cases {
 		cat, ok := c.Lookup(k.name)
 		if cat != k.cat || ok != k.ok {
 			t.Errorf("Lookup(%q) = %q, %v; want %q, %v", k.name, cat, ok, k.cat, k.ok)
-		}
-		if got := c.IsBrowser(k.name); got != k.browse {
-			t.Errorf("IsBrowser(%q) = %v, want %v", k.name, got, k.browse)
 		}
 	}
 }
@@ -236,10 +232,12 @@ func TestClassify(t *testing.T) {
 		name, path, fp string
 		want           Result
 	}{
-		{"переименованный chrome в Загрузках", `C:\Users\kid\Downloads\chrome.exe`, "",
-			Result{Verdict: VerdictUnknown, Name: "chrome"}},
-		{"chrome в Program Files по каталогу", `C:\Program Files\Google\Chrome\Application\chrome.exe`, "",
-			Result{Verdict: VerdictAllow, Category: "other", Name: "chrome"}},
+		{"chrome в Загрузках запрещён по имени (RM4-8)", `C:\Users\kid\Downloads\chrome.exe`, "",
+			Result{Verdict: VerdictForbidden, Category: "blocked", Name: "chrome"}},
+		{"chrome в Program Files запрещён каталогом (RM4-8)", `C:\Program Files\Google\Chrome\Application\chrome.exe`, "",
+			Result{Verdict: VerdictForbidden, Category: "blocked", Name: "chrome"}},
+		{"переименованная игра из каталога в Загрузках", `C:\Users\kid\Downloads\steam.exe`, "",
+			Result{Verdict: VerdictUnknown, Name: "steam"}},
 		{"игра из каталога в Program Files", `c:\program files\minecraft launcher\MinecraftLauncher.exe`, "",
 			Result{Verdict: VerdictAllow, Category: "games", Name: "MinecraftLauncher"}},
 		{"игра из каталога вне доверенных", `c:\users\kid\games\minecraftlauncher.exe`, "",
@@ -280,8 +278,8 @@ func TestClassify(t *testing.T) {
 			Result{Verdict: VerdictUnknown, Name: "SuperGame", WasCategory: "games"}},
 		{"решение без отпечатка", `c:\users\миша\downloads\homework.exe`, "5:6",
 			Result{Verdict: VerdictAllow, Category: "study", Known: true, Name: "Homework"}},
-		{"путь с .. ведёт в Загрузки", `c:\program files\brave software\..\..\users\kid\downloads\chrome.exe`, "",
-			Result{Verdict: VerdictUnknown, Name: "chrome"}},
+		{"путь с .. ведёт в Загрузки", `c:\program files\brave software\..\..\users\kid\downloads\steam.exe`, "",
+			Result{Verdict: VerdictUnknown, Name: "steam"}},
 		{"путь с .. ведёт в Windows", `c:\users\kid\..\..\windows\system32\cmd.exe`, "",
 			Result{Verdict: VerdictSystem, Name: "cmd"}},
 		{"верхний регистр", `C:\PROGRAM FILES\BRAVE SOFTWARE\BRAVE-BROWSER\APPLICATION\BRAVE.EXE`, "",

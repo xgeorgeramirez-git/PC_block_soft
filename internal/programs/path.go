@@ -103,7 +103,8 @@ func (r Roots) IsTrusted(path string) bool {
 }
 
 // IsSystem сообщает, что программа из класса «система» (RM3-1 п.1): папка Windows (в том числе
-// SystemApps оболочки), каталог установки PC Block, WebView2 внутри Program Files и пакеты
+// SystemApps оболочки), каталог установки PC Block, WebView2 и обновлятор Brave
+// («bravesoftware\update») внутри Program Files и пакеты
 // компонентов Windows в WindowsApps (издатель windowsPackagePublisher). Остальные приложения
 // Microsoft Store — не система (Д-3): ребёнок ставит их сам. Такие процессы наблюдатель не
 // трогает никогда, их секунды идут как «Прочее».
@@ -116,7 +117,9 @@ func (r Roots) IsSystem(path string) bool {
 		if pf == "" {
 			continue
 		}
-		if under(p, pf+`\microsoft\edgewebview`) {
+		// Служебные части Brave в Program Files (T6-4): обновлятор и обработчик сбоев системного
+		// Brave; ребёнок туда писать не может.
+		if under(p, pf+`\microsoft\edgewebview`) || under(p, pf+`\`+braveDir+`\update`) {
 			return true
 		}
 	}
@@ -256,6 +259,23 @@ func (r Roots) profileRel(p string) string {
 		return ""
 	}
 	return strings.Join(parts[:n], `\`)
+}
+
+// braveDir — папка Brave Software в Program Files и в AppData\Local профиля.
+const braveDir = "bravesoftware"
+
+// braveProfileRel — путь внутри папки Brave в профиле «<UserProfiles>\<имя>\appdata\local\
+// bravesoftware\…» без неё («brave-browser\application\brave.exe»); «» — путь не там. p нормализован.
+func (r Roots) braveProfileRel(p string) string {
+	if !under(p, r.UserProfiles) {
+		return ""
+	}
+	base := strings.TrimSuffix(r.UserProfiles, `\`)
+	parts := strings.SplitN(p[len(base)+1:], `\`, 5) // имя, appdata, local, bravesoftware, остальное
+	if len(parts) < 5 || parts[1] != "appdata" || parts[2] != "local" || parts[3] != braveDir {
+		return ""
+	}
+	return parts[4]
 }
 
 // NameFromPath — имя программы для плашки и журнала из пути: имя файла без «.exe», обрезанное до
