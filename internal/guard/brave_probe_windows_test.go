@@ -190,14 +190,85 @@ func braveCPU() map[uint32]time.Duration {
 	return out
 }
 
-func killBrave() {
-	for _, pid := range braveProcs() {
-		if h, err := windows.OpenProcess(windows.PROCESS_TERMINATE, false, pid); err == nil {
-			_ = windows.TerminateProcess(h, 1)
-			windows.CloseHandle(h)
+// Процессы Brave, запущенные тестом (PID процесса, который запустил exec), и их потомки — по дереву
+// процессов (ParentProcessID). Чужие brave.exe тест не трогает.
+var (
+	startedMu   sync.Mutex
+	startedPIDs = map[uint32]bool{}
+)
+
+// testBraveProcs — живые brave.exe, запущенные тестом, и их потомки (по снимку процессов).
+func testBraveProcs() []uint32 {
+	snap, err := windows.CreateToolhelp32Snapshot(windows.TH32CS_SNAPPROCESS, 0)
+	if err != nil {
+		return nil
+	}
+	defer windows.CloseHandle(snap)
+	type proc struct {
+		parent uint32
+		brave  bool
+	}
+	all := map[uint32]proc{}
+	var e windows.ProcessEntry32
+	e.Size = uint32(unsafe.Sizeof(e))
+	for err := windows.Process32First(snap, &e); err == nil; err = windows.Process32Next(snap, &e) {
+		all[e.ProcessID] = proc{parent: e.ParentProcessID, brave: strings.EqualFold(windows.UTF16ToString(e.ExeFile[:]), "brave.exe")}
+	}
+	startedMu.Lock()
+	ours := map[uint32]bool{}
+	for pid := range startedPIDs {
+		ours[pid] = true
+	}
+	startedMu.Unlock()
+	for grew := true; grew; {
+		grew = false
+		for pid, p := range all {
+			if !ours[pid] && p.brave && ours[p.parent] {
+				ours[pid], grew = true, true
+			}
 		}
 	}
-	time.Sleep(time.Second)
+	var out []uint32
+	for pid := range ours {
+		if p, ok := all[pid]; ok && p.brave {
+			out = append(out, pid)
+		}
+	}
+	return out
+}
+
+// killTestBrave завершает brave.exe, запущенные тестом, с потомками и ждёт их выхода не дольше
+// 10 с (профиль во временной папке иначе занят и не удаляется). Возвращает, сколько осталось.
+func killTestBrave() int {
+	end := time.Now().Add(10 * time.Second)
+	for {
+		left := testBraveProcs()
+		if len(left) == 0 {
+			return 0
+		}
+		if time.Now().After(end) {
+			return len(left)
+		}
+		for _, pid := range left {
+			if h, err := windows.OpenProcess(windows.PROCESS_TERMINATE, false, pid); err == nil {
+				_ = windows.TerminateProcess(h, 1)
+				windows.CloseHandle(h)
+			}
+		}
+		time.Sleep(300 * time.Millisecond)
+	}
+}
+
+// newProfile — временная папка профиля Brave. Очистка теста завершает Brave до удаления папки:
+// t.Cleanup идёт в обратном порядке, эта регистрируется после t.TempDir.
+func newProfile(t *testing.T) string {
+	dir := t.TempDir()
+	t.Cleanup(func() {
+		if n := killTestBrave(); n > 0 {
+			t.Logf("за 10 с не завершились %d процессов Brave, папка профиля может остаться", n)
+		}
+	})
+	return dir
 }
 
 func startBrave(t *testing.T, exe string, args ...string) {
@@ -206,6 +277,9 @@ func startBrave(t *testing.T, exe string, args ...string) {
 		t.Logf("запуск Brave %v: %v", args, err)
 		return
 	}
+	startedMu.Lock()
+	startedPIDs[uint32(cmd.Process.Pid)] = true
+	startedMu.Unlock()
 	go func() { _ = cmd.Wait() }()
 }
 
@@ -248,7 +322,7 @@ func waitDomain(r *braveReader, hwnd windows.HWND, want string, d time.Duration)
 		if last.err == nil && last.domain == want {
 			return last, time.Since(start)
 		}
-		time.Sleep(200 * time.Millisecond)
+		time.Sleep(500 * time.Millisecond) // Chromium строит дерево доступности лениво: повтор раз в 500 мс
 	}
 	return last, time.Since(start)
 }
@@ -310,6 +384,90 @@ func waitNames(r *braveReader, hwnd windows.HWND, want string, d time.Duration) 
 	return names, false
 }
 
+// cut — не больше n знаков строки.
+func cut(s string, n int) string {
+	if r := []rune(s); len(r) > n {
+		return string(r[:n]) + "…"
+	}
+	return s
+}
+
+// uiaTree — дерево UIA окна до глубины 6, не больше 60 узлов, не заходя внутрь Document: глубина,
+// ControlType, ClassName, Name, AutomationId, FrameworkId, есть ли ValuePattern.
+func uiaTree(r *braveReader, hwnd windows.HWND) ([]string, error) {
+	var lines []string
+	err := r.th.do(func(u uia) error {
+		root, err := u.fromHandle(hwnd)
+		if err != nil {
+			return err
+		}
+		defer release(root)
+		return walkTree(u, root, 6, 60, func(el comObj, depth int) (bool, bool) {
+			ct, _ := elemControlType(el)
+			cls, _ := elemClassName(el)
+			name, _ := elemName(el)
+			id, _ := elemString(el, uiaAutomationIDPropertyID)
+			fw, _ := elemString(el, uiaFrameworkIDPropertyID)
+			vp, _ := elemBool(el, uiaIsValuePatternAvailablePropID)
+			lines = append(lines, fmt.Sprintf("%d:%d cls=%q name=%q id=%q fw=%q vp=%v", depth, ct, cut(cls, 30), cut(name, 30), cut(id, 20), fw, vp))
+			return false, false
+		})
+	})
+	return lines, err
+}
+
+// docValues — что дают для первого Document окна ValuePattern, свойство Value (30045) и
+// LegacyIAccessible Value (30093); на раннере адреса — только probe-*.test.
+func docValues(r *braveReader, hwnd windows.HWND) string {
+	var out string
+	err := r.th.do(func(u uia) error {
+		root, err := u.fromHandle(hwnd)
+		if err != nil {
+			return err
+		}
+		defer release(root)
+		cond, err := u.intCond(uiaControlTypePropertyID, uiaDocumentControlTypeID)
+		if err != nil {
+			return err
+		}
+		doc, err := findFirst(root, treeScopeDescendants, cond)
+		release(cond)
+		if err != nil {
+			return err
+		}
+		defer release(doc)
+		vp, vpErr := elemValue(doc)
+		pv, pvErr := elemString(doc, uiaValueValuePropertyID)
+		lv, lvErr := elemString(doc, uiaLegacyValuePropertyID)
+		out = fmt.Sprintf("ValuePattern %q (ошибка %v); Value 30045 %q (ошибка %v); LegacyIAccessible Value %q (ошибка %v)",
+			cut(vp, 80), vpErr, cut(pv, 80), pvErr, cut(lv, 80), lvErr)
+		return nil
+	})
+	if err != nil {
+		return "Document: " + err.Error()
+	}
+	return out
+}
+
+// treeFacts пишет дерево UIA окна тремя пометками.
+func treeFacts(log *probeLog, step string, r *braveReader, hwnd windows.HWND) {
+	lines, err := uiaTree(r, hwnd)
+	if err != nil {
+		log.fact(step, "дерево UIA не прочитано: %v (узлов %d)", err, len(lines))
+		return
+	}
+	if len(lines) == 0 {
+		log.fact(step, "в дереве UIA окна нет ни одного узла")
+		return
+	}
+	const parts = 3
+	per := (len(lines) + parts - 1) / parts
+	for i := 0; i*per < len(lines); i++ {
+		end := min((i+1)*per, len(lines))
+		log.fact(fmt.Sprintf("%s %d/%d", step, i+1, (len(lines)+per-1)/per), "узлов %d: %s", len(lines), strings.Join(lines[i*per:end], " · "))
+	}
+}
+
 func setBravePolicies() error {
 	k, _, err := registry.CreateKey(registry.CURRENT_USER, bravePolicy, registry.ALL_ACCESS)
 	if err != nil {
@@ -360,10 +518,7 @@ func TestBraveProbe(t *testing.T) {
 		t.Skip("проба Brave только при PCB_BRAVE_PROBE=1 (windows.yml, Brave установлен)")
 	}
 	log := newProbeLog(t)
-	t.Cleanup(func() {
-		killBrave()
-		removeBravePolicies()
-	})
+	t.Cleanup(removeBravePolicies)
 
 	// (а) Где Brave и какой версии.
 	exe := findBrave()
@@ -372,84 +527,119 @@ func TestBraveProbe(t *testing.T) {
 		t.Fatal("brave.exe не найден")
 	}
 	log.fact("(а) установка", "%s, версия файла %s", exe, fileVersion(exe))
-	killBrave()
 
 	common := func(profile string) []string {
 		return []string{"--no-first-run", "--no-default-browser-check", "--user-data-dir=" + profile}
 	}
-	profile := t.TempDir()
 	r := newBraveReader()
 
-	// (б) Окно Brave на probe-site.test: Read ≤ 10 с даёт домен из поля адреса.
-	startBrave(t, exe, append(common(profile), "--new-window", "http://"+probeSite+"/a?b=c")...)
-	hwnd := waitWindow(nil, 20*time.Second)
-	if hwnd == 0 {
-		log.fact("(б) чтение домена", "окно Brave не появилось за 20 с")
-		t.Fatal("окно Brave не появилось")
+	// (б) Окно Brave на probe-site.test: поле адреса за 10 с, повтор раз в 500 мс. Без поля адреса
+	// проба идёт дальше (факты (в)…(е)), а тест падает в конце.
+	var readOK bool // поле адреса нашлось при обычном запуске (без флагов доступности)
+	defer func() {
+		if !readOK {
+			t.Errorf("домен %q не прочитан из поля адреса Brave при обычном запуске (факт (б))", probeSite)
+		}
+	}()
+	open := func(step, profile string, extra ...string) (windows.HWND, bool) {
+		args := append(common(profile), extra...)
+		startBrave(t, exe, append(args, "--new-window", "http://"+probeSite+"/a?b=c")...)
+		hwnd := waitWindow(nil, 20*time.Second)
+		if hwnd == 0 {
+			log.fact(step, "окно Brave не появилось за 20 с")
+			return 0, false
+		}
+		forceForeground(uintptr(hwnd))
+		got, took := waitDomain(r, hwnd, probeSite, 10*time.Second)
+		desc, derr := r.Describe(hwnd)
+		fg, _, _ := procGetForegroundWin.Call()
+		ok := got.err == nil && got.domain == probeSite && got.source == braveSourceOmnibox
+		log.fact(step, "через %.1f с: %s; элемент: %s (ошибка %v); окно Brave на переднем плане: %v; поле адреса найдено: %v",
+			took.Seconds(), got, desc, derr, fg == uintptr(hwnd), ok)
+		if !ok {
+			treeFacts(log, step+" дерево UIA", r, hwnd)
+			log.fact(step+" Document", "%s", docValues(r, hwnd))
+		}
+		return hwnd, ok
 	}
-	forceForeground(uintptr(hwnd))
-	got, took := waitDomain(r, hwnd, probeSite, 10*time.Second)
-	class, ct, derr := r.Describe(hwnd)
-	fg, _, _ := procGetForegroundWin.Call()
-	log.fact("(б) чтение домена", "через %.1f с: %s; элемент ClassName %q, ControlType %d (ошибка %v); окно Brave на переднем плане: %v",
-		took.Seconds(), got, class, ct, derr, fg == uintptr(hwnd))
-	if got.err != nil || got.domain != probeSite || got.source != braveSourceOmnibox {
-		t.Fatalf("домен не прочитан: %s, ждали %q из omnibox", got, probeSite)
+	profile := newProfile(t)
+	hwnd, readOK := open("(б) чтение домена", profile)
+	label := ""
+	if !readOK && hwnd != 0 {
+		// Для сравнения: тот же запуск с --force-renderer-accessibility (в бою флагов запуска нет).
+		killTestBrave()
+		profile = newProfile(t)
+		var ok bool
+		hwnd, ok = open("(б2) с --force-renderer-accessibility", profile, "--force-renderer-accessibility")
+		if ok {
+			label = " (окно с --force-renderer-accessibility)"
+		} else {
+			hwnd = 0
+		}
 	}
+	const skipped = "пропущено: нет поля адреса"
 
 	// (в) 60 чтений раз в секунду: процессор теста и всех процессов Brave.
-	selfBefore, braveBefore := cpuTime(windows.CurrentProcess()), braveCPU()
-	errs, wrong := 0, 0
-	var slowest time.Duration
-	for i := 0; i < 60; i++ {
-		s := time.Now()
-		o := readOnce(r, hwnd)
-		if d := time.Since(s); d > slowest {
-			slowest = d
+	if hwnd == 0 {
+		log.fact("(в) процессор за 60 с", skipped)
+	} else {
+		selfBefore, braveBefore := cpuTime(windows.CurrentProcess()), braveCPU()
+		errs, wrong := 0, 0
+		var slowest time.Duration
+		for i := 0; i < 60; i++ {
+			s := time.Now()
+			o := readOnce(r, hwnd)
+			if d := time.Since(s); d > slowest {
+				slowest = d
+			}
+			if o.err != nil {
+				errs++
+			} else if o.domain != probeSite {
+				wrong++
+			}
+			time.Sleep(time.Second - time.Since(s))
 		}
-		if o.err != nil {
-			errs++
-		} else if o.domain != probeSite {
-			wrong++
+		selfAfter, braveAfter := cpuTime(windows.CurrentProcess()), braveCPU()
+		var braveDelta time.Duration
+		for pid, after := range braveAfter {
+			braveDelta += after - braveBefore[pid] // новый процесс: всё его время
 		}
-		time.Sleep(time.Second - time.Since(s))
+		log.fact("(в) процессор за 60 с", "тест %d мс, все процессы Brave (%d) %d мс; самое долгое чтение %d мс; ошибок %d, чужой домен %d%s",
+			(selfAfter - selfBefore).Milliseconds(), len(braveAfter), braveDelta.Milliseconds(), slowest.Milliseconds(), errs, wrong, label)
 	}
-	selfAfter, braveAfter := cpuTime(windows.CurrentProcess()), braveCPU()
-	var braveDelta time.Duration
-	for pid, after := range braveAfter {
-		braveDelta += after - braveBefore[pid] // новый процесс: всё его время
-	}
-	log.fact("(в) процессор за 60 с", "тест %d мс, все процессы Brave (%d) %d мс; самое долгое чтение %d мс; ошибок %d, чужой домен %d",
-		(selfAfter - selfBefore).Milliseconds(), len(braveAfter), braveDelta.Milliseconds(), slowest.Milliseconds(), errs, wrong)
 
 	// (г) Вторая вкладка в том же окне, Ctrl+W, затем кнопка закрытия выбранной вкладки.
-	var g []string
-	startBrave(t, exe, append(common(profile), "http://"+probeTwo+"/")...)
-	two, took := waitDomain(r, hwnd, probeTwo, 10*time.Second)
-	g = append(g, fmt.Sprintf("вторая вкладка: %s за %.1f с; окон Brave %d", two, took.Seconds(), len(braveWindows())))
-	if two.domain == probeTwo {
-		forceForeground(uintptr(hwnd))
-		time.Sleep(300 * time.Millisecond)
-		fg, _, _ := procGetForegroundWin.Call()
-		cerr := closeActiveTab()
-		back, took := waitDomain(r, hwnd, probeSite, 2*time.Second)
-		g = append(g, fmt.Sprintf("Ctrl+W (окно на переднем плане %v, ошибка %v): через %.1f с %s", fg == uintptr(hwnd), cerr, took.Seconds(), back))
-	}
-	startBrave(t, exe, append(common(profile), "http://"+probeTwo+"/")...)
-	if two, _ := waitDomain(r, hwnd, probeTwo, 10*time.Second); two.domain == probeTwo {
-		berr := closeTabButton(r, hwnd)
-		back, took := waitDomain(r, hwnd, probeSite, 2*time.Second)
-		g = append(g, fmt.Sprintf("кнопка закрытия вкладки UIA (ошибка %v): через %.1f с %s", berr, took.Seconds(), back))
+	if hwnd == 0 {
+		log.fact("(г) закрытие вкладки", skipped)
 	} else {
-		g = append(g, "кнопка закрытия: вторая вкладка не открылась повторно")
+		var g []string
+		startBrave(t, exe, append(common(profile), "http://"+probeTwo+"/")...)
+		two, took := waitDomain(r, hwnd, probeTwo, 10*time.Second)
+		g = append(g, fmt.Sprintf("вторая вкладка: %s за %.1f с; окон Brave %d", two, took.Seconds(), len(braveWindows())))
+		if two.domain == probeTwo {
+			forceForeground(uintptr(hwnd))
+			time.Sleep(300 * time.Millisecond)
+			fg, _, _ := procGetForegroundWin.Call()
+			cerr := closeActiveTab()
+			back, took := waitDomain(r, hwnd, probeSite, 2*time.Second)
+			g = append(g, fmt.Sprintf("Ctrl+W (окно на переднем плане %v, ошибка %v): через %.1f с %s", fg == uintptr(hwnd), cerr, took.Seconds(), back))
+		}
+		startBrave(t, exe, append(common(profile), "http://"+probeTwo+"/")...)
+		if two, _ := waitDomain(r, hwnd, probeTwo, 10*time.Second); two.domain == probeTwo {
+			berr := closeTabButton(r, hwnd)
+			back, took := waitDomain(r, hwnd, probeSite, 2*time.Second)
+			g = append(g, fmt.Sprintf("кнопка закрытия вкладки UIA (ошибка %v): через %.1f с %s", berr, took.Seconds(), back))
+		} else {
+			g = append(g, "кнопка закрытия: вторая вкладка не открылась повторно")
+		}
+		if tabs, err := uiaNames(r, hwnd, uiaTabItemControlTypeID, 20); err == nil {
+			g = append(g, fmt.Sprintf("вкладок TabItem %d", len(tabs)))
+		} else {
+			g = append(g, "TabItem: "+err.Error())
+		}
+		g = append(g, "закреплённая вкладка не проверена: закрепить можно только меню вкладки")
+		log.fact("(г) закрытие вкладки", "%s%s", strings.Join(g, "; "), label)
 	}
-	if tabs, err := uiaNames(r, hwnd, uiaTabItemControlTypeID, 20); err == nil {
-		g = append(g, fmt.Sprintf("вкладок TabItem %d", len(tabs)))
-	} else {
-		g = append(g, "TabItem: "+err.Error())
-	}
-	g = append(g, "закреплённая вкладка не проверена: закрепить можно только меню вкладки")
-	log.fact("(г) закрытие вкладки", "%s", strings.Join(g, "; "))
 
 	// (д) Окно сайта-приложения без поля адреса: Read даёт document?
 	before := braveWindows()
@@ -458,17 +648,17 @@ func TestBraveProbe(t *testing.T) {
 		log.fact("(д) окно приложения", "окно --app не появилось за 15 с")
 	} else {
 		o, took := waitDomain(r, app, probeApp, 10*time.Second)
-		class, ct, derr := r.Describe(app)
-		log.fact("(д) окно приложения", "через %.1f с %s; элемент ClassName %q, ControlType %d (ошибка %v)", took.Seconds(), o, class, ct, derr)
+		desc, derr := r.Describe(app)
+		log.fact("(д) окно приложения", "через %.1f с %s; элемент: %s (ошибка %v); Document: %s", took.Seconds(), o, desc, derr, docValues(r, app))
 	}
 
 	// (е) Политики Brave из HKCU: новый профиль, запрещённый домен, brave://policy, кнопка VPN.
-	killBrave()
+	killTestBrave()
 	if err := setBravePolicies(); err != nil {
 		log.fact("(е) политики", "ключ %s не записан: %v", bravePolicy, err)
 		return
 	}
-	pol := t.TempDir()
+	pol := newProfile(t)
 	startBrave(t, exe, append(common(pol), "--new-window", "http://"+probeBlocked+"/")...)
 	bw := waitWindow(nil, 20*time.Second)
 	if bw == 0 {
@@ -483,8 +673,8 @@ func TestBraveProbe(t *testing.T) {
 			errLines = append(errLines, n)
 		}
 	}
-	log.fact("(е1) запрещённый домен", "страница блокировки ERR_BLOCKED_BY_ADMINISTRATOR: %v; строки с ERR_: %s; элементов с Name %d",
-		blocked, shortList(errLines, 5), len(names))
+	log.fact("(е1) запрещённый домен", "страница блокировки ERR_BLOCKED_BY_ADMINISTRATOR: %v; строки с ERR_: %s; элементов с Name %d; Document: %s",
+		blocked, shortList(errLines, 5), len(names), docValues(r, bw))
 
 	buttons, berr := uiaNames(r, bw, uiaButtonControlTypeID, 200)
 	var vpn []string

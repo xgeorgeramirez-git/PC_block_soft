@@ -52,11 +52,17 @@ const (
 	uiaControlTypePropertyID         = 30003
 	uiaNamePropertyID                = 30005
 	uiaHasKeyboardFocusPropertyID    = 30008
+	uiaAutomationIDPropertyID        = 30011
 	uiaClassNamePropertyID           = 30012
+	uiaFrameworkIDPropertyID         = 30024
+	uiaIsValuePatternAvailablePropID = 30043
+	uiaValueValuePropertyID          = 30045
+	uiaLegacyValuePropertyID         = 30093
 	uiaSelectionItemIsSelectedPropID = 30079
 	uiaInvokePatternID               = 10000
 	uiaValuePatternID                = 10002
 	uiaButtonControlTypeID           = 50000
+	uiaEditControlTypeID             = 50004
 	uiaTabItemControlTypeID          = 50019
 	uiaDocumentControlTypeID         = 50030
 	treeScopeChildren                = 0x2
@@ -290,6 +296,76 @@ func elemBool(el comObj, prop int32) (bool, error) {
 	return v.vt == vtBool && uint16(v.val) != 0, nil
 }
 
+// variantBSTR — тот же VARIANT, но значение — указатель на строку (VT_BSTR): так go vet видит
+// указатель, а не uintptr.
+type variantBSTR struct {
+	vt   uint16
+	_    [3]uint16
+	val  *uint16
+	val2 uintptr
+}
+
+// elemString — GetCurrentPropertyValue строкового свойства (VT_BSTR); другой тип — «».
+func elemString(el comObj, prop int32) (string, error) {
+	var v variant
+	if hr := call(el, vtElemGetCurrentPropertyValue, uintptr(prop), uintptr(unsafe.Pointer(&v))); hr != 0 {
+		return "", hresultErr("GetCurrentPropertyValue", hr)
+	}
+	defer variantClear(&v)
+	if v.vt != vtBSTR {
+		return "", nil
+	}
+	b := (*variantBSTR)(unsafe.Pointer(&v)).val
+	if b == nil {
+		return "", nil
+	}
+	n, _, _ := procSysStringLen.Call(uintptr(unsafe.Pointer(b)))
+	return windows.UTF16ToString(unsafe.Slice(b, n)), nil
+}
+
+// walkTree обходит дерево UIA под root по детям (FindAll TreeScope_Children), не глубже maxDepth и
+// не больше maxNodes узлов, не заходя внутрь Document (дерево страницы не обходится, NFR-5). visit
+// получает элемент и глубину (1 — дети root): keep — элемент остаётся у вызывающего (он его и
+// освободит), stop — обход окончен.
+func walkTree(u uia, root comObj, maxDepth, maxNodes int, visit func(el comObj, depth int) (keep, stop bool)) error {
+	cond, err := u.trueCond()
+	if err != nil {
+		return err
+	}
+	defer release(cond)
+	count, stopped := 0, false
+	var walk func(node comObj, depth int) error
+	walk = func(node comObj, depth int) error {
+		if count >= maxNodes {
+			return nil
+		}
+		kids, err := findAll(node, treeScopeChildren, cond, maxNodes-count)
+		if err != nil {
+			return err
+		}
+		for _, el := range kids {
+			if stopped || count >= maxNodes {
+				release(el)
+				continue
+			}
+			count++
+			keep, stop := visit(el, depth)
+			if stop {
+				stopped = true
+			} else if depth < maxDepth {
+				if ct, err := elemControlType(el); err == nil && ct != uiaDocumentControlTypeID {
+					_ = walk(el, depth+1) // недоступная ветка не мешает обходу соседних
+				}
+			}
+			if !keep {
+				release(el)
+			}
+		}
+		return nil
+	}
+	return walk(root, 1)
+}
+
 // elemPattern — GetCurrentPattern, затем QueryInterface нужного интерфейса шаблона.
 func elemPattern(el comObj, pattern int32, iid *windows.GUID) (comObj, error) {
 	var unk comObj
@@ -423,9 +499,47 @@ type braveReader struct {
 	th *uiaThread
 
 	// Поля ниже — только в потоке COM.
-	hwnd   windows.HWND
-	el     comObj
-	source string
+	hwnd    windows.HWND
+	el      comObj
+	source  string
+	match   string       // по какому признаку найден элемент: braveMatch*
+	foundAt time.Time    // когда найден (источник document перепроверяется, см. Read)
+	woken   windows.HWND // окну уже послан WM_GETOBJECT (wakeAccessibility)
+}
+
+// Признаки, по которым найден элемент (Describe, проба).
+const (
+	braveMatchClass    = "ClassName OmniboxViewViews"
+	braveMatchEdit     = "первый Edit с ValuePattern вне Document"
+	braveMatchDocument = "Document"
+)
+
+// braveDocumentRecheck — как часто окно, где нашёлся только Document, снова ищет поле адреса:
+// Chromium строит дерево доступности лениво, поле адреса может появиться позже документа.
+const braveDocumentRecheck = 5 * time.Second
+
+var (
+	procSendMessageTimeout = user32.NewProc("SendMessageTimeoutW")
+)
+
+const (
+	wmGetObject       = 0x003D
+	objidClient       = ^uintptr(3)  // OBJID_CLIENT = -4
+	uiaRootObjectID   = ^uintptr(24) // UiaRootObjectId = -25
+	smtoAbortIfHung   = 0x0002
+	wakeTimeoutMs     = 200
+	editSearchDepth   = 12
+	editSearchMaxNode = 400
+)
+
+// wakeAccessibility просит окно Chromium включить дерево доступности: WM_GETOBJECT с OBJID_CLIENT
+// (MSAA) и UiaRootObjectId (UIA). Chromium включает доступность лениво, по первому такому запросу.
+// Ответ не нужен; зависшее окно не держит дольше wakeTimeoutMs.
+func wakeAccessibility(hwnd windows.HWND) {
+	var res uintptr
+	for _, id := range []uintptr{objidClient, uiaRootObjectID} {
+		procSendMessageTimeout.Call(uintptr(hwnd), wmGetObject, 0, id, smtoAbortIfHung, wakeTimeoutMs, uintptr(unsafe.Pointer(&res)))
+	}
 }
 
 // Источники текста для Read.
@@ -439,17 +553,26 @@ func newBraveReader() *braveReader { return &braveReader{th: newUIAThread()} }
 // forget освобождает кэш (поток COM).
 func (r *braveReader) forget() {
 	release(r.el)
-	r.el, r.hwnd, r.source = nil, 0, ""
+	r.el, r.hwnd, r.source, r.match = nil, 0, "", ""
 }
 
-// locate находит в окне hwnd поле адреса (Edit с ClassName = OmniboxViewViews), а если его нет —
-// корневой Document окна (сайт-приложение, всплывающее окно). Поток COM.
+// locate находит в окне hwnd поле адреса: сначала по ClassName = OmniboxViewViews, иначе первый
+// Edit с ValuePattern вне Document (обход по детям, не глубже editSearchDepth); нет поля адреса —
+// корневой Document окна (сайт-приложение, всплывающее окно). Окну один раз посылается
+// WM_GETOBJECT (wakeAccessibility). Поток COM.
 func (r *braveReader) locate(u uia, hwnd windows.HWND) error {
+	if r.woken != hwnd {
+		wakeAccessibility(hwnd)
+		r.woken = hwnd
+	}
 	root, err := u.fromHandle(hwnd)
 	if err != nil {
 		return err
 	}
 	defer release(root)
+	set := func(el comObj, source, match string) {
+		r.hwnd, r.el, r.source, r.match, r.foundAt = hwnd, el, source, match, time.Now()
+	}
 	cond, err := u.strCond(uiaClassNamePropertyID, omniboxClassName)
 	if err != nil {
 		return err
@@ -457,11 +580,27 @@ func (r *braveReader) locate(u uia, hwnd windows.HWND) error {
 	el, err := findFirst(root, treeScopeDescendants, cond)
 	release(cond)
 	if err == nil {
-		r.hwnd, r.el, r.source = hwnd, el, braveSourceOmnibox
+		set(el, braveSourceOmnibox, braveMatchClass)
 		return nil
 	}
 	if !errors.Is(err, errUIANotFound) {
 		return err
+	}
+	var edit comObj
+	_ = walkTree(u, root, editSearchDepth, editSearchMaxNode, func(el comObj, _ int) (bool, bool) {
+		ct, err := elemControlType(el)
+		if err != nil || ct != uiaEditControlTypeID {
+			return false, false
+		}
+		if ok, err := elemBool(el, uiaIsValuePatternAvailablePropID); err != nil || !ok {
+			return false, false
+		}
+		edit = el
+		return true, true
+	})
+	if edit != nil {
+		set(edit, braveSourceOmnibox, braveMatchEdit)
+		return nil
 	}
 	dcond, err := u.intCond(uiaControlTypePropertyID, uiaDocumentControlTypeID)
 	if err != nil {
@@ -472,8 +611,18 @@ func (r *braveReader) locate(u uia, hwnd windows.HWND) error {
 	if err != nil {
 		return err
 	}
-	r.hwnd, r.el, r.source = hwnd, el, braveSourceDocument
+	set(el, braveSourceDocument, braveMatchDocument)
 	return nil
+}
+
+// ensure — элемент окна hwnd в кэше: смена окна или пустой кэш — поиск; найден только Document —
+// поиск поля адреса повторяется раз в braveDocumentRecheck. Поток COM.
+func (r *braveReader) ensure(u uia, hwnd windows.HWND) error {
+	if r.hwnd == hwnd && r.el != nil && !(r.source == braveSourceDocument && time.Since(r.foundAt) >= braveDocumentRecheck) {
+		return nil
+	}
+	r.forget()
+	return r.locate(u, hwnd)
 }
 
 // Read читает текст поля адреса окна hwnd. focused — поле адреса в фокусе клавиатуры (ребёнок
@@ -487,11 +636,8 @@ func (r *braveReader) Read(hwnd windows.HWND) (text string, focused bool, source
 	}
 	res := &result{}
 	err = r.th.do(func(u uia) error {
-		if r.hwnd != hwnd || r.el == nil {
-			r.forget()
-			if err := r.locate(u, hwnd); err != nil {
-				return err
-			}
+		if err := r.ensure(u, hwnd); err != nil {
+			return err
 		}
 		v, err := elemValue(r.el)
 		if err != nil {
@@ -515,31 +661,29 @@ func (r *braveReader) Read(hwnd windows.HWND) (text string, focused bool, source
 	return res.text, res.focused, res.source, nil
 }
 
-// Describe — ClassName и ControlType найденного для hwnd элемента (для пробы и журнала работы).
-func (r *braveReader) Describe(hwnd windows.HWND) (class string, controlType int32, err error) {
-	type result struct {
-		class string
-		ct    int32
-	}
-	res := &result{}
-	err = r.th.do(func(u uia) error {
-		if r.hwnd != hwnd || r.el == nil {
-			r.forget()
-			if err := r.locate(u, hwnd); err != nil {
-				return err
-			}
-		}
-		var err error
-		if res.class, err = elemClassName(r.el); err != nil {
+// Describe — ClassName, ControlType найденного для hwnd элемента и признак, по которому он найден
+// (для пробы и журнала работы).
+func (r *braveReader) Describe(hwnd windows.HWND) (string, error) {
+	res := new(string)
+	err := r.th.do(func(u uia) error {
+		if err := r.ensure(u, hwnd); err != nil {
 			return err
 		}
-		res.ct, err = elemControlType(r.el)
-		return err
+		class, err := elemClassName(r.el)
+		if err != nil {
+			return err
+		}
+		ct, err := elemControlType(r.el)
+		if err != nil {
+			return err
+		}
+		*res = fmt.Sprintf("ClassName %q, ControlType %d, найден по признаку «%s»", class, ct, r.match)
+		return nil
 	})
 	if err != nil {
-		return "", 0, err
+		return "", err
 	}
-	return res.class, res.ct, nil
+	return *res, nil
 }
 
 // errNoCloseButton — у выбранной вкладки не нашлось кнопки закрытия.
