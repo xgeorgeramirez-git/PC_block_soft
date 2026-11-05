@@ -119,3 +119,25 @@ func TestDomainMemo(t *testing.T) {
 		}
 	}
 }
+
+// Поле адреса Chromium по ClassName (проба T0: у Brave «BraveOmniboxViewViews», у Chrome
+// «OmniboxViewViews»): класс оканчивается на OmniboxViewViews.
+func TestIsOmniboxClass(t *testing.T) {
+	cases := []struct {
+		in   string
+		want bool
+	}{
+		{"BraveOmniboxViewViews", true},
+		{"OmniboxViewViews", true},
+		{"OmniboxViewViewsX", false},
+		{"OmniboxView", false},
+		{"omniboxviewviews", false},
+		{"LocationBarView", false},
+		{"", false},
+	}
+	for _, c := range cases {
+		if got := isOmniboxClass(c.in); got != c.want {
+			t.Errorf("isOmniboxClass(%q) = %v, want %v", c.in, got, c.want)
+		}
+	}
+}

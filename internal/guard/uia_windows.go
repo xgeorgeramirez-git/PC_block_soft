@@ -71,9 +71,12 @@ const (
 	vtI4   = 3
 	vtBSTR = 8
 	vtBool = 11
-
-	omniboxClassName = "OmniboxViewViews"
 )
+
+// omniboxClassNames — известные ClassName поля адреса (быстрый поиск FindFirst по условию; UIA не
+// умеет условие «оканчивается на»): Brave и Chrome. Прочие окончания на OmniboxViewViews находит
+// обход дерева (isOmniboxClass).
+var omniboxClassNames = []string{"BraveOmniboxViewViews", "OmniboxViewViews"}
 
 // Номера методов в vtable (UIAutomationClient.h, Windows SDK; IUnknown — 0 QueryInterface,
 // 1 AddRef, 2 Release). Ошибку номера проба T0 покажет сразу (неверный вызов — сбой или мусор).
@@ -509,9 +512,10 @@ type braveReader struct {
 
 // Признаки, по которым найден элемент (Describe, проба).
 const (
-	braveMatchClass    = "ClassName OmniboxViewViews"
-	braveMatchEdit     = "первый Edit с ValuePattern вне Document"
-	braveMatchDocument = "Document"
+	braveMatchClass     = "ClassName (известное имя поля адреса)"
+	braveMatchClassWalk = "ClassName …OmniboxViewViews (обход дерева)"
+	braveMatchEdit      = "первый Edit с ValuePattern вне Document"
+	braveMatchDocument  = "Document"
 )
 
 // braveDocumentRecheck — как часто окно, где нашёлся только Document, снова ищет поле адреса:
@@ -556,7 +560,8 @@ func (r *braveReader) forget() {
 	r.el, r.hwnd, r.source, r.match = nil, 0, "", ""
 }
 
-// locate находит в окне hwnd поле адреса: сначала по ClassName = OmniboxViewViews, иначе первый
+// locate находит в окне hwnd поле адреса: сначала по известным ClassName (omniboxClassNames), затем
+// обходом — ClassName, оканчивающийся на OmniboxViewViews, иначе первый
 // Edit с ValuePattern вне Document (обход по детям, не глубже editSearchDepth); нет поля адреса —
 // корневой Document окна (сайт-приложение, всплывающее окно). Окну один раз посылается
 // WM_GETOBJECT (wakeAccessibility). Поток COM.
@@ -573,21 +578,31 @@ func (r *braveReader) locate(u uia, hwnd windows.HWND) error {
 	set := func(el comObj, source, match string) {
 		r.hwnd, r.el, r.source, r.match, r.foundAt = hwnd, el, source, match, time.Now()
 	}
-	cond, err := u.strCond(uiaClassNamePropertyID, omniboxClassName)
-	if err != nil {
-		return err
+	for _, name := range omniboxClassNames {
+		cond, err := u.strCond(uiaClassNamePropertyID, name)
+		if err != nil {
+			return err
+		}
+		el, err := findFirst(root, treeScopeDescendants, cond)
+		release(cond)
+		if err == nil {
+			set(el, braveSourceOmnibox, braveMatchClass+" "+name)
+			return nil
+		}
+		if !errors.Is(err, errUIANotFound) {
+			return err
+		}
 	}
-	el, err := findFirst(root, treeScopeDescendants, cond)
-	release(cond)
-	if err == nil {
-		set(el, braveSourceOmnibox, braveMatchClass)
-		return nil
-	}
-	if !errors.Is(err, errUIANotFound) {
-		return err
-	}
-	var edit comObj
+	// Обход вне Document: элемент с классом …OmniboxViewViews; нет — первый Edit с ValuePattern.
+	var byClass, edit comObj
 	_ = walkTree(u, root, editSearchDepth, editSearchMaxNode, func(el comObj, _ int) (bool, bool) {
+		if cls, err := elemClassName(el); err == nil && isOmniboxClass(cls) {
+			byClass = el
+			return true, true
+		}
+		if edit != nil {
+			return false, false
+		}
 		ct, err := elemControlType(el)
 		if err != nil || ct != uiaEditControlTypeID {
 			return false, false
@@ -596,8 +611,13 @@ func (r *braveReader) locate(u uia, hwnd windows.HWND) error {
 			return false, false
 		}
 		edit = el
-		return true, true
+		return true, false
 	})
+	if byClass != nil {
+		release(edit)
+		set(byClass, braveSourceOmnibox, braveMatchClassWalk)
+		return nil
+	}
 	if edit != nil {
 		set(edit, braveSourceOmnibox, braveMatchEdit)
 		return nil
@@ -606,7 +626,7 @@ func (r *braveReader) locate(u uia, hwnd windows.HWND) error {
 	if err != nil {
 		return err
 	}
-	el, err = findFirst(root, treeScopeDescendants, dcond)
+	el, err := findFirst(root, treeScopeDescendants, dcond)
 	release(dcond)
 	if err != nil {
 		return err

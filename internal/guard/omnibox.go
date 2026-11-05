@@ -116,3 +116,11 @@ func (m *domainMemo) Next(hwnd uintptr, text string, focused bool, err error) st
 	m.last[hwnd] = d
 	return d
 }
+
+// omniboxClassSuffix — окончание ClassName поля адреса Chromium: у Chrome класс «OmniboxViewViews»,
+// у Brave «BraveOmniboxViewViews» (проба T0, Brave 1.98).
+const omniboxClassSuffix = "OmniboxViewViews"
+
+// isOmniboxClass — ClassName элемента UIA — поле адреса Chromium (оканчивается на
+// OmniboxViewViews, регистр важен: так пишет Chromium).
+func isOmniboxClass(class string) bool { return strings.HasSuffix(class, omniboxClassSuffix) }
