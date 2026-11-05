@@ -13,3 +13,4 @@
 | T0 возврат №1 | afa9026170009b7f1 | writer | done | поле адреса не нашлось на раннере (41863361154) → диагностика дерева, поиск Edit, WM_GETOBJECT, очистка Brave, 48672c7; повтор пробы 42036478891 | 1 |
 | T2 лимит видео | ad236ddc2e91629d3 | writer | done | ядро: VideoMin, RemainingVideoS, Decision.Video*, WarnVideo, quench/fireCategory; 4670b91…7720011; мутации все ловятся | 0 |
 | пакет T3 | a0707ccd9ac22344c | reader | running | — | — |
+| T0 возврат №2 | afa9026170009b7f1 | writer | done | признак ClassName …OmniboxViewViews, замер процессора, опыт правил без/HKCU/HKLM (4e9d1f4…c1c5b04); прогон 42039755004: HKCU действует (VPN нет, домен блокируется); PROBE от SYSTEM 0,6 с (42037977336). T0 закрыт | 2 |
