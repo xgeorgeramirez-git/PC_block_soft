@@ -212,6 +212,7 @@ func (s *Service) Housekeep(real time.Time) {
 		s.guard("housekeep", cs, func() { s.housekeepChild(cs, real) })
 	}
 	s.guard("programs", nil, func() { s.ensurePrograms(real) })
+	s.guard("sites", nil, func() { s.retrySites(real) })
 	s.guard("parents", nil, func() { s.expireParents(real) })
 	s.guard("binds", nil, func() { s.expireBinds(real) })
 	s.guard("sessions", nil, func() { s.syncSessions(real) })

@@ -54,8 +54,9 @@ type fakeStore struct {
 	breakStates map[int64]core.BreakState // счёт к перерыву по ребёнку
 	failBreak   bool                      // GetBreakRules возвращает ошибку
 
-	sites    map[string]string // списки сайтов (M4): домен → blocked|study|video_social
-	adultOff map[int64]bool    // ребёнок с выключенным списком 18+ (M4); нет записи — включён
+	sites     map[string]string // списки сайтов (M4): домен → blocked|study|video_social
+	adultOff  map[int64]bool    // ребёнок с выключенным списком 18+ (M4); нет записи — включён
+	failSites bool              // ListSiteRules возвращает ошибку (M4)
 }
 
 // fakeStarterVideo — стартовый набор «Видео и соцсети», как в миграции 009 (R14).
@@ -97,6 +98,9 @@ var fakeSiteKinds = map[string]bool{"blocked": true, "study": true, "video_socia
 func (f *fakeStore) ListSiteRules() ([]SiteRule, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.failSites {
+		return nil, errors.New("диск недоступен")
+	}
 	out := []SiteRule{}
 	for d, k := range f.sites {
 		out = append(out, SiteRule{Domain: d, Kind: k})

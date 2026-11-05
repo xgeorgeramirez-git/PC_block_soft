@@ -12,6 +12,7 @@ import (
 	"pcblock/internal/core"
 	"pcblock/internal/ipc"
 	"pcblock/internal/programs"
+	"pcblock/internal/sites"
 )
 
 // Сроки службы. Всё, что про людей и процессы, считается по настоящим часам; учёт по часам ядра.
@@ -100,6 +101,9 @@ type Config struct {
 	// Watcher — процессы сеансов для наблюдателя (R12, R13, R5, R8, NFR-6): закрывает незнакомое,
 	// запрещённое и то, что сейчас нельзя. nil: наблюдение выключено, ничего не закрывается.
 	Watcher ProcessWatcher
+	// Adult открывает список сайтов «18+» (M4, R14, D-67). nil: встроенный в программу
+	// (sites.Embedded).
+	Adult func() (sites.AdultList, error)
 }
 
 // pendingWarning — предупреждение, ещё не доставленное стражу.
@@ -137,6 +141,7 @@ type childState struct {
 	lastBypass    string               // последняя записанная попытка обхода (дедуп журнала, D-41)
 	lastBypassAt  time.Time            // когда записана; страж повторяет сообщение каждую секунду
 	usage         map[progUsageKey]int // учёт по программам с прошлого сохранения (RM3-6); пишется в saveState
+	unreadSince   time.Time            // с какого момента подряд адрес Brave не читается (RM4-1, S-3); нулевой — читается
 }
 
 // Service — служба PCBlock без привязки к Windows: логика на портах (doc.go).
@@ -189,6 +194,16 @@ type Service struct {
 
 	bypassWait []pendingBypass // гибель стража, значка или окна, о которой ещё не решено, обход ли это (FB-1)
 	logoffs    []logoffMark    // недавние выходы из учёток: гибель рядом с ними в отключённом сеансе ребёнка не обход (FB-5)
+
+	// Сайты (M4, sites_svc.go): свои списки родителя в памяти, прочитаны ли они в последний раз,
+	// когда пробовали; список «18+»; правила Brave надо переписать (braveDue, T5); в какой день
+	// ребёнку уже записано «не удалось прочитать адрес» (unreadDay, раз в день, RM4-1).
+	siteLists   sites.Lists
+	siteListsOK bool
+	sitesAt     time.Time
+	adult       sites.AdultList
+	braveDue    bool
+	unreadDay   map[int64]string
 }
 
 // New собирает службу. Ничего не запускает: Start читает базу и поднимает сеансные части.
@@ -285,6 +300,8 @@ func (s *Service) Start(real time.Time) error {
 	}
 	s.loadChildren(real)
 	s.ensurePrograms(real)
+	s.loadAdult()
+	s.reloadSites(real)
 	if v, ok, err := s.cfg.Store.GetSetting(settingVerboseLogs); err == nil && ok && v == "1" {
 		s.verbose = true
 		s.cfg.Logf("Подробные логи для диагностики включены (FR-25, D-42)")
