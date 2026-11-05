@@ -71,7 +71,7 @@ func TestSeedProgramsOnFirstStart(t *testing.T) {
 			AppRoot: `c:\program files\brave software`},
 		pathMinecraft: {Path: pathMinecraft, Name: "Minecraft Launcher", Publisher: "Mojang", Category: "games", Source: "catalog",
 			AppRoot: `c:\program files (x86)\minecraft launcher`},
-		pathChrome: {Path: pathChrome, Name: "chrome", Publisher: "Google LLC", Category: "other", Source: "catalog",
+		pathChrome: {Path: pathChrome, Name: "chrome", Publisher: "Google LLC", Category: "blocked", Source: "catalog", // RM4-8
 			AppRoot: `c:\program files\google`},
 		pathGeoGebra: {Path: pathGeoGebra, Name: "GeoGebra Classic", Category: "other", Source: "snapshot",
 			AppRoot: `c:\program files\geogebra`},

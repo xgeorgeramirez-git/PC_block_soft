@@ -51,11 +51,12 @@ func autoHarness(t *testing.T) (*harness, *fakeWatcher, ProcInfo) {
 	return h, w, explorer
 }
 
-// forbiddenPlates — плашки «запрещена родителем» в ответе стража.
+// forbiddenPlates — плашки «запрещена родителем» и «Этот браузер запрещён» (chrome, RM4-8) в
+// ответе стража.
 func forbiddenPlates(rep ipc.GuardPollReply) []ipc.BlockedPlate {
 	out := []ipc.BlockedPlate{}
 	for _, p := range platesOf(rep) {
-		if p.Kind == ipc.BlockedForbidden {
+		if p.Kind == ipc.BlockedForbidden || p.Kind == ipc.BlockedBrowser {
 			out = append(out, p)
 		}
 	}
@@ -157,7 +158,7 @@ func TestWatchForbiddenManualStillWarns(t *testing.T) {
 			if w.alive(p) {
 				t.Fatal("ручной запуск: chrome не закрыта")
 			}
-			want := []ipc.BlockedPlate{{Kind: ipc.BlockedForbidden, Text: "Программа «chrome» запрещена родителем", ShowS: 10, Path: pathChrome}}
+			want := []ipc.BlockedPlate{{Kind: ipc.BlockedBrowser, Text: "Этот браузер запрещён. Пользуйся Brave", ShowS: 10, Path: pathChrome}}
 			if got := forbiddenPlates(h.poll(inputSample(300, k.fg))); jsonOf(t, got) != jsonOf(t, want) {
 				t.Errorf("плашка ручного запуска: %s, want %s", jsonOf(t, got), jsonOf(t, want))
 			}
@@ -313,6 +314,7 @@ func TestWatchForbiddenDecidedByNextSample(t *testing.T) {
 func TestWatchForbiddenAfterStartWarns(t *testing.T) {
 	w := newWatcher()
 	h := watchHarness(t, w)
+	h.setCategory(pathChrome, "other") // родитель разрешил chrome (сильнее каталога, RM4-8)
 	updater := w.start(childSession, pathBraveUpd)
 	h.real.Advance(2 * time.Minute)
 	h.poll(inputSample(30000, ""))

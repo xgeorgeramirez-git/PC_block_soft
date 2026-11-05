@@ -319,18 +319,20 @@ func (s *Service) watchDecide(t *watchTarget, p ProcInfo, gen uint64) (*watchAct
 		s.watch.procs[key] = e
 	}
 	e.seen = gen
-	if dir := s.cfg.Test.WatchDir; s.cfg.Test.Enabled && !strings.HasPrefix(e.norm, strings.TrimSuffix(dir, `\`)+`\`) {
-		return nil, skipNone // тестовый режим: только папка тестовых программ (RM3-8)
-	}
 	c := s.classifier
 	needFP := !e.fpRead && !c.Roots().IsTrusted(e.norm) && c.NeedsFingerprint(e.norm)
 	needPub := !e.pubRead && c.NeedsPublisher(e.norm)
 	if needFP || needPub {
-		// Одно чтение свойств на процесс: отпечаток (RM3-12) и издатель (RM3-13) вместе.
+		// Одно чтение свойств на процесс: отпечаток (RM3-12) и издатель (RM3-13) вместе. Читается
+		// и в тестовом режиме вне WatchDir (T6-5): чтение ничего не закрывает, а без издателя Brave
+		// из профиля раннера был бы «незнакомой», и сайты в нём не различались бы.
 		var pub string
 		pub, _, e.fp = s.cfg.FileMeta(e.norm)
 		e.pub = programs.ClipName(pub)
 		e.fpRead, e.pubRead = true, true
+	}
+	if dir := s.cfg.Test.WatchDir; s.cfg.Test.Enabled && !strings.HasPrefix(e.norm, strings.TrimSuffix(dir, `\`)+`\`) {
+		return nil, skipNone // тестовый режим: закрывается только папка тестовых программ (RM3-8)
 	}
 	res := c.Classify(e.path, e.fp, e.pub)
 	if !e.classified {
@@ -528,6 +530,10 @@ func (s *Service) recordClosed(cs *childState, a *watchAct, real time.Time) {
 		}
 		kind = evProgramForbiddenTry
 		plate.Text = fmt.Sprintf(textPlateForbidden, name)
+		if _, ok := s.classifier.Catalog().ForbiddenBrowser(a.e.norm); ok {
+			// Браузер, кроме Brave (RM4-8, 8.2.5 п. 4): при любом источнике запрета.
+			plate.Kind, plate.Text = ipc.BlockedBrowser, textPlateBrowser
+		}
 	case ipc.BlockedStudyOnly:
 		kind, text = evProgramClosedStudyOnly, a.t.d.DeniedText(a.cat)
 		plate.Text = a.t.d.CloseReason

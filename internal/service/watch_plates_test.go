@@ -42,7 +42,7 @@ func TestWatchPlatesAndJournal(t *testing.T) {
 	startManual(w, explorer, pathSuperGame, pathChrome, pathMinecraft)
 	h.watch()
 	want := []ipc.BlockedPlate{
-		{Kind: ipc.BlockedForbidden, Text: "Программа «chrome» запрещена родителем", ShowS: 10, Path: pathChrome},
+		{Kind: ipc.BlockedBrowser, Text: "Этот браузер запрещён. Пользуйся Brave", ShowS: 10, Path: pathChrome}, // RM4-8: при любом источнике запрета
 		{Kind: ipc.BlockedGamesOver, Text: "Время на игры на сегодня закончилось", ShowS: 10, Path: pathMinecraft},
 		{Kind: ipc.BlockedUnknown, Text: "Программа «supergame» ждёт разрешения родителя", ShowS: 15, Path: pathSuperGame, CanAsk: true},
 	}

@@ -145,18 +145,18 @@ func TestStatsBlockedProgramHidden(t *testing.T) {
 	h.start()
 	h.childLogsIn()
 	id := h.childID(childSID)
-	// Понедельник этой недели: chrome 10 мин «Прочего».
+	// Понедельник этой недели: GeoGebra 10 мин «Прочего» (chrome запрещён каталогом с RM4-8).
 	if err := h.store.SaveDayAndUsage(id, core.DayState{Day: "2026-10-19", TotalS: 600},
-		[]UsageRow{{Category: "other", Kind: usageKindProgram, Subject: pathChrome, Seconds: 600}}); err != nil {
+		[]UsageRow{{Category: "other", Kind: usageKindProgram, Subject: pathGeoGebra, Seconds: 600}}); err != nil {
 		t.Fatal(err)
 	}
-	h.run(300, fgSample(pathChrome, ipc.CatNameOther))
+	h.run(300, fgSample(pathGeoGebra, ipc.CatNameOther))
 	h.run(60, fgSample(pathBrave, ipc.CatNameOther))
-	if got := strings.Join(rowsOf(h.periodReply(ipc.PeriodToday).Programs, "other"), ", "); got != "chrome=300, Brave=60" {
-		t.Fatalf("до запрета сегодня «Прочее»: %q, want «chrome=300, Brave=60»", got)
+	if got := strings.Join(rowsOf(h.periodReply(ipc.PeriodToday).Programs, "other"), ", "); got != "GeoGebra Classic=300, Brave=60" {
+		t.Fatalf("до запрета сегодня «Прочее»: %q, want «GeoGebra Classic=300, Brave=60»", got)
 	}
 	tok := h.login(adminPeer())
-	h.ok(adminPeer(), tok, ipc.CmdSetProgramsCategory, ipc.SetProgramsCategoryRequest{Paths: []string{pathChrome}, Category: "blocked"}, nil)
+	h.ok(adminPeer(), tok, ipc.CmdSetProgramsCategory, ipc.SetProgramsCategoryRequest{Paths: []string{pathGeoGebra}, Category: "blocked"}, nil)
 
 	cases := []struct {
 		period, rows string
@@ -174,7 +174,7 @@ func TestStatsBlockedProgramHidden(t *testing.T) {
 				t.Errorf("%s, %s: «Прочее» %q, want %q", who, c.period, got, c.rows)
 			}
 			for _, row := range r.Programs {
-				if row.Path == pathChrome || row.Name == "chrome" {
+				if row.Path == pathGeoGebra || row.Name == "GeoGebra Classic" {
 					t.Errorf("%s, %s: запрещённая в «Итогах»: %+v", who, c.period, row)
 				}
 			}
@@ -192,8 +192,8 @@ func TestStatsBlockedProgramHidden(t *testing.T) {
 	// В «Программах» запрещённая видна как раньше (RF16-1).
 	var list ipc.ProgramsReply
 	h.ok(adminPeer(), tok, ipc.CmdListPrograms, nil, &list)
-	if p, ok := programDTO(list, pathChrome); !ok || p.Category != "blocked" {
-		t.Errorf("в «Программах» chrome: %+v (есть: %v), want «blocked»", p, ok)
+	if p, ok := programDTO(list, pathGeoGebra); !ok || p.Category != "blocked" {
+		t.Errorf("в «Программах» GeoGebra: %+v (есть: %v), want «blocked»", p, ok)
 	}
 }
 

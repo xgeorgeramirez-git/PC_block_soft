@@ -113,7 +113,7 @@ func TestListPrograms(t *testing.T) {
 		},
 		Programs: []ipc.ProgramDTO{
 			{Path: pathBrave, Name: "Brave", Publisher: "Brave Software, Inc.", Category: "other", Source: "catalog", WeekS: 660},
-			{Path: pathChrome, Name: "chrome", Publisher: "Google LLC", Category: "other", Source: "catalog"},
+			{Path: pathChrome, Name: "chrome", Publisher: "Google LLC", Category: "blocked", Source: "catalog"}, // RM4-8
 			{Path: pathGeoGebra, Name: "GeoGebra Classic", Publisher: "Без подписи издателя", Category: "other", Source: "snapshot"},
 			{Path: pathMinecraft, Name: "Minecraft Launcher", Publisher: "Mojang", Category: "games", Source: "catalog", WeekS: 1800},
 		},
@@ -414,7 +414,7 @@ func TestScanPrograms(t *testing.T) {
 	want := []ipc.ScanProgramDTO{
 		{Path: pathMinecraft, Name: "Minecraft Launcher", Publisher: "Mojang", SuggestedCategory: "games"},
 		{Path: pathBrave, Name: "Brave", Publisher: "Brave Software, Inc.", SuggestedCategory: "other"},
-		{Path: pathChrome, Name: "chrome", Publisher: "Google LLC", SuggestedCategory: "other"},
+		{Path: pathChrome, Name: "chrome", Publisher: "Google LLC", SuggestedCategory: "blocked"}, // RM4-8
 		{Path: pathGeoGebra, Name: "GeoGebra Classic", Publisher: "International GeoGebra Institute", SuggestedCategory: "other"},
 	}
 	if !reflect.DeepEqual(rep.Programs, want) {
