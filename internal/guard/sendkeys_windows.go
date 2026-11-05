@@ -3,7 +3,6 @@
 package guard
 
 import (
-	"errors"
 	"fmt"
 	"unsafe"
 )
@@ -15,10 +14,6 @@ var (
 	procSendInput        = user32.NewProc("SendInput")
 	procGetAsyncKeyState = user32.NewProc("GetAsyncKeyState")
 )
-
-// errModifierHeld — зажат Shift, Alt или Win: Ctrl+W стал бы другим сочетанием (Ctrl+Shift+W
-// закрывает всё окно), действие откладывается до следующего опроса.
-var errModifierHeld = errors.New("зажата клавиша-модификатор")
 
 const (
 	vkShift        = 0x10
@@ -49,7 +44,7 @@ func keyHeld(vk uintptr) bool {
 }
 
 // closeActiveTab нажимает Ctrl+W в окне переднего плана. Зажат Shift, Alt или Win — errModifierHeld
-// без нажатий.
+// (tabs.go) без нажатий.
 func closeActiveTab() error {
 	for _, vk := range []uintptr{vkShift, vkMenu, vkLWin, vkRWin} {
 		if keyHeld(vk) {
