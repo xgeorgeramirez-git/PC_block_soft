@@ -246,6 +246,10 @@ func (s *Service) hSetup(c *callCtx) ipc.Reply {
 		}
 		plans = append(plans, plan{ch.SID, name, week})
 	}
+	video, siteDenial := setupVideoSites(req.Sites)
+	if siteDenial != nil {
+		return *siteDenial
+	}
 	progs, denial := s.setupPrograms(req.Programs, c.real.UnixMilli())
 	switch denial {
 	case "":
@@ -268,6 +272,7 @@ func (s *Service) hSetup(c *callCtx) ipc.Reply {
 	}
 	// Дети записываются раньше пароля: оборвавшаяся настройка остаётся «не настроено», и
 	// мастер можно пройти заново.
+	ids := make(map[string]int64, len(plans))
 	for _, p := range plans {
 		id, err := s.cfg.Store.UpsertChild(p.sid, p.name)
 		if err == nil {
@@ -277,10 +282,16 @@ func (s *Service) hSetup(c *callCtx) ipc.Reply {
 			s.logRate("setup", "настройка не записана: %v", err)
 			return ipc.Fail(textSaveFailed)
 		}
+		ids[p.sid] = id
 	}
 	// Программы мастера (FR-2) — тоже до пароля: оборвавшаяся настройка проходится заново.
 	if err := s.writeSetupPrograms(progs); err != nil {
 		s.logRate("setup", "программы мастера не записаны: %v", err)
+		return ipc.Fail(textSaveFailed)
+	}
+	// Сайты мастера (S-4 пакета T3) — тоже до пароля.
+	if err := s.writeSetupSites(req.Sites, video, ids); err != nil {
+		s.logRate("setup", "сайты мастера не записаны: %v", err)
 		return ipc.Fail(textSaveFailed)
 	}
 	if err := s.cfg.Store.SetAuth(Auth{Hash: hash, ChangedAtMs: c.real.UnixMilli()}); err != nil {
@@ -288,6 +299,7 @@ func (s *Service) hSetup(c *callCtx) ipc.Reply {
 		return ipc.Fail(textSaveFailed)
 	}
 	s.loadChildren(c.real)
+	s.sitesChanged(c.real)
 	s.afterSetupPrograms(c)
 	for _, p := range plans {
 		s.applyPolicy(p.sid, true)
@@ -295,6 +307,56 @@ func (s *Service) hSetup(c *callCtx) ipc.Reply {
 	s.journal.Write(0, "setup_done", map[string]any{"text": "Программа настроена: пароль родителя задан"})
 	s.syncSessions(c.real)
 	return ipc.OK(ipc.Empty{})
+}
+
+// setupVideoSites проверяет «Видео и соцсети» шага мастера «Сайты» до записи (RM4-4): каждый
+// ввод сводится к домену, повторы схлопываются. Не домен — отказ у поля домена, больше
+// ipc.MaxBlockedSites доменов — неверный запрос. Шага нет (nil) — nil, nil.
+func setupVideoSites(st *ipc.SetupSites) ([]string, *ipc.Reply) {
+	if st == nil {
+		return nil, nil
+	}
+	out := make([]string, 0, len(st.Video))
+	seen := map[string]bool{}
+	for _, raw := range st.Video {
+		d, err := sites.NormalizeInput(raw)
+		if err != nil {
+			r := ipc.FailField(textNotDomain, ipc.FieldDomain)
+			return nil, &r
+		}
+		if seen[d] {
+			continue
+		}
+		seen[d] = true
+		out = append(out, d)
+	}
+	if len(out) > ipc.MaxBlockedSites {
+		r := bad()
+		return nil, &r
+	}
+	return out, nil
+}
+
+// writeSetupSites записывает шаг мастера «Сайты»: «Видео и соцсети» целиком и «18+» каждому
+// ребёнку мастера (выключен у SID из AdultOff, у остальных включён: повтор оборванной настройки
+// не оставляет прежнего выбора). Чужие SID в AdultOff пропускаются. Шага нет — ничего.
+func (s *Service) writeSetupSites(st *ipc.SetupSites, video []string, ids map[string]int64) error {
+	if st == nil {
+		return nil
+	}
+	if err := s.cfg.Store.ReplaceSiteRules(ipc.SiteKindVideo, video); err != nil {
+		return err
+	}
+	off := map[string]bool{}
+	for _, sid := range st.AdultOff {
+		off[sid] = true
+	}
+	for sid, id := range ids {
+		if err := s.cfg.Store.SetAdultFilter(id, !off[sid]); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func findAccount(list []AccountInfo, sid string) (AccountInfo, bool) {

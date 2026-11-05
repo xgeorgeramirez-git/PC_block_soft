@@ -36,6 +36,7 @@ type fakeStore struct {
 	failSave     bool // SaveDayState возвращает ошибку
 	failEvents   bool // AppendEvent возвращает ошибку
 	failAuth     bool // GetAuth возвращает ошибку
+	failSetAuth  bool // SetAuth возвращает ошибку (оборванная настройка, M4)
 	failSchedule bool // GetSchedule возвращает ошибку
 	failEndMode  bool // GetEndMode возвращает ошибку
 	failPrograms bool // ListPrograms возвращает ошибку
@@ -854,8 +855,8 @@ func (f *fakeStore) GetAuth() (Auth, bool, error) {
 func (f *fakeStore) SetAuth(a Auth) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if a.Hash == "" {
-		return errors.New("пустой хеш")
+	if a.Hash == "" || f.failSetAuth {
+		return errors.New("пустой хеш или диск недоступен")
 	}
 	f.auth = &a
 	return nil
