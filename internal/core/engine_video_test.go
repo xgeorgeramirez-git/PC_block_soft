@@ -1,6 +1,7 @@
 package core
 
 import (
+	"slices"
 	"testing"
 )
 
@@ -250,4 +251,169 @@ func TestEngineSetRulesVideo(t *testing.T) {
 	if d.CloseVideo || d.VideoRemainingS != 1800 {
 		t.Fatalf("лимит видео 60: закрыто %v, остаток %d; want false, 1800", d.CloseVideo, d.VideoRemainingS)
 	}
+}
+
+// Ловит (R9, PL-13, PL-14, PL-34): пороги видео без видео на переднем плане, взвод нестрого
+// («+30» при нуле, повтор после SetRules), два уведомления в один тик или не то, порог видео
+// показан, когда общий лимит кончится раньше, пауза, копилка и сутки не перевзводят пороги
+// видео, порог 1 мин видео ставит последнюю минуту общего лимита.
+func TestEngineVideoWarnings(t *testing.T) {
+	t.Run("пороги при видео на переднем плане", func(t *testing.T) {
+		c := &fakeClock{t: at(15, 0, 0)}
+		e := NewEngine(c, msk, videoMon(intp(300), nil, intp(60), EndBlock), DayState{Day: monday}, "")
+		got := warnEvLog(e, c, at(15, 0, 0), at(16, 0, 5), videoSample())
+		want := []string{"15:30:00 30 video", "15:45:00 15 video", "15:55:00 5 video", "15:59:00 1 video"}
+		if !slices.Equal(got, want) {
+			t.Fatalf("%v, want %v", got, want)
+		}
+		// Порог 1 мин видео — не последняя минута общего лимита (D-60).
+		if st, _ := e.State(); st.LastMinuteEndMs != nil {
+			t.Fatalf("последняя минута поставлена порогом видео: %d", *st.LastMinuteEndMs)
+		}
+	})
+	t.Run("только при видео на переднем плане", func(t *testing.T) {
+		c := &fakeClock{t: at(15, 0, 0)}
+		e := NewEngine(c, msk, videoMon(intp(120), nil, intp(60), EndBlock), DayState{Day: monday, TotalS: 1790, VideoS: 1790}, "")
+		if got := warnEvLog(e, c, at(15, 0, 0), at(15, 0, 10), videoSample()); len(got) != 0 {
+			t.Fatalf("до 30:00: %v", got)
+		}
+		if got := warnEvLog(e, c, at(15, 0, 10), at(15, 5, 0), gameSample()); len(got) != 0 {
+			t.Fatalf("без видео на переднем плане: %v", got)
+		}
+		e.Current() // Current порогов не гасит
+		got := warnEvLog(e, c, at(15, 5, 0), at(15, 5, 2), videoSample())
+		if want := []string{"15:05:00 30 video"}; !slices.Equal(got, want) {
+			t.Fatalf("вернулся к видео: %v, want %v", got, want)
+		}
+	})
+	t.Run("игры и видео с равным остатком", func(t *testing.T) {
+		c := &fakeClock{t: at(15, 0, 0)}
+		e := NewEngine(c, msk, videoMon(intp(300), intp(60), intp(60), EndBlock), DayState{Day: monday, GamesS: 1799, VideoS: 1799, TotalS: 3598}, "")
+		if got, want := warnEvLog(e, c, at(15, 0, 0), at(15, 0, 5), videoSample()), []string{"15:00:01 30 video"}; !slices.Equal(got, want) {
+			t.Fatalf("видео: %v, want %v", got, want)
+		}
+		if got, want := warnEvLog(e, c, at(15, 0, 5), at(15, 0, 8), gameSample()), []string{"15:00:06 30 games"}; !slices.Equal(got, want) {
+			t.Fatalf("игра: %v, want %v", got, want)
+		}
+	})
+	t.Run("+30 при исчерпанном видео", func(t *testing.T) {
+		c := &fakeClock{t: at(15, 0, 0)}
+		e := NewEngine(c, msk, videoMon(intp(300), nil, intp(0), EndBlock), DayState{Day: monday}, "")
+		if _, err := e.AddExtra(30); err != nil {
+			t.Fatal(err)
+		}
+		got := warnEvLog(e, c, at(15, 0, 0), at(15, 30, 5), videoSample())
+		want := []string{"15:15:00 15 video", "15:25:00 5 video", "15:29:00 1 video"}
+		if !slices.Equal(got, want) {
+			t.Fatalf("%v, want %v", got, want)
+		}
+	})
+	t.Run("SetRules на границе той же секунды", func(t *testing.T) {
+		r := videoMon(intp(120), nil, intp(60), EndBlock)
+		c := &fakeClock{t: at(15, 29, 59)}
+		e := NewEngine(c, msk, r, DayState{Day: monday, TotalS: 1799, VideoS: 1799}, "")
+		// 15:29:59 засчитана: остаток видео ровно 30:00; дальше видео на переднем плане, сеанс спит.
+		stalled := SessionSample{Foreground: CatVideoSocial}
+		if got := warnEvLog(e, c, at(15, 29, 59), at(15, 30, 0), videoSample()); len(got) != 0 {
+			t.Fatalf("при остатке 30:01: %v", got)
+		}
+		got := warnEvLog(e, c, at(15, 30, 0), at(15, 30, 1), stalled)
+		if want := []string{"15:30:00 30 video"}; !slices.Equal(got, want) {
+			t.Fatalf("до сохранения правил: %v, want %v", got, want)
+		}
+		e.SetRules(r)
+		if got := warnEvLog(e, c, at(15, 30, 1), at(15, 31, 0), stalled); len(got) != 0 {
+			t.Fatalf("после сохранения тех же правил повтор: %v", got)
+		}
+	})
+	t.Run("равные события в один тик", func(t *testing.T) {
+		c := &fakeClock{t: at(15, 0, 0)}
+		e := NewEngine(c, msk, videoMon(intp(60), nil, intp(60), EndBlock), DayState{Day: monday}, "")
+		got := warnEvLog(e, c, at(15, 0, 0), at(16, 0, 5), videoSample())
+		want := []string{"15:30:00 30 limit", "15:45:00 15 limit", "15:55:00 5 limit", "15:59:00 1 limit"}
+		if !slices.Equal(got, want) {
+			t.Fatalf("%v, want %v", got, want)
+		}
+	})
+	t.Run("два порога в один тик, меньший остаток", func(t *testing.T) {
+		c := &fakeClock{t: at(15, 0, 0)}
+		e := NewEngine(c, msk, videoMon(intp(70), nil, intp(60), EndBlock), DayState{Day: monday}, "")
+		got := warnEvLog(e, c, at(15, 0, 0), at(16, 0, 5), videoSample())
+		// 15:55: общий «15» (остаток 15:00) и видео «5» (5:00) в один тик → только видео.
+		want := []string{"15:30:00 30 video", "15:40:00 30 limit", "15:45:00 15 video", "15:55:00 5 video", "15:59:00 1 video"}
+		if !slices.Equal(got, want) {
+			t.Fatalf("%v, want %v", got, want)
+		}
+	})
+	t.Run("общий лимит кончится раньше", func(t *testing.T) {
+		c := &fakeClock{t: at(15, 0, 0)}
+		// Общий остаток 10:00, видео 16:00.
+		e := NewEngine(c, msk, videoMon(intp(120), nil, intp(60), EndBlock), DayState{Day: monday, TotalS: 6600, VideoS: 2640}, "")
+		got := warnEvLog(e, c, at(15, 0, 0), at(15, 10, 5), videoSample())
+		want := []string{"15:05:00 5 limit", "15:09:00 1 limit"}
+		if !slices.Equal(got, want) {
+			t.Fatalf("%v, want %v", got, want)
+		}
+	})
+	t.Run("пауза гасит, конец паузы взводит", func(t *testing.T) {
+		c := &fakeClock{t: at(15, 0, 0)}
+		e := NewEngine(c, msk, videoMon(intp(300), nil, intp(60), EndBlock), DayState{Day: monday}, "")
+		if _, err := e.Pause(at(15, 40, 0)); err != nil {
+			t.Fatal(err)
+		}
+		got := warnEvLog(e, c, at(15, 0, 0), at(16, 0, 5), videoSample())
+		want := []string{
+			"15:10:00 30 pause_end", "15:25:00 15 pause_end", "15:35:00 5 pause_end", "15:39:00 1 pause_end",
+			"15:45:00 15 video", "15:55:00 5 video", "15:59:00 1 video",
+		}
+		if !slices.Equal(got, want) {
+			t.Fatalf("%v, want %v", got, want)
+		}
+	})
+	t.Run("копилка взводит 30 заново", func(t *testing.T) {
+		c := &fakeClock{t: at(15, 0, 0)}
+		// Остаток видео 28 мин: «30» не взведён; копилка +5 → 33 мин, «30» взводится.
+		e := NewEngine(c, msk, videoMon(intp(300), nil, intp(60), EndBlock), DayState{Day: monday, VideoS: 1920, TotalS: 1920}, "")
+		if _, err := e.SpendBonus(5); err != nil {
+			t.Fatal(err)
+		}
+		got := warnEvLog(e, c, at(15, 0, 0), at(15, 3, 2), videoSample())
+		if want := []string{"15:03:00 30 video"}; !slices.Equal(got, want) {
+			t.Fatalf("%v, want %v", got, want)
+		}
+	})
+	t.Run("запретные часы гасят дошедший порог", func(t *testing.T) {
+		r := videoMon(intp(300), nil, intp(60), EndBlock)
+		r.Schedule = []Interval{iv(Monday, 16*60, 17*60)}
+		c := &fakeClock{t: at(16, 30, 0)}
+		// Остаток видео 40 мин: «30» взведён; −10 мин доп. времени → ровно 30:00, «30» остаётся
+		// взведённым (граница не потеряна), но под экраном запретных часов гасится без показа.
+		e := NewEngine(c, msk, r, DayState{Day: monday, VideoS: 1200, TotalS: 1200}, "")
+		if _, removed, err := e.ReduceExtra(10); err != nil || removed != 10 {
+			t.Fatalf("−10: убрано %d, err %v", removed, err)
+		}
+		if got := warnEvLog(e, c, at(16, 30, 0), at(17, 0, 0), videoSample()); len(got) != 0 {
+			t.Fatalf("под экраном: %v", got)
+		}
+		if got := warnEvLog(e, c, at(17, 0, 0), at(17, 0, 2), videoSample()); len(got) != 0 {
+			t.Fatalf("после запретных часов порог всплыл задним числом: %v", got)
+		}
+	})
+	t.Run("смена суток обнуляет видео", func(t *testing.T) {
+		r := videoMon(intp(120), nil, intp(60), EndBlock)
+		r.Week[1] = DayLimit{TotalMin: intp(120), VideoMin: intp(60)}
+		c := &fakeClock{t: at(23, 59, 59)}
+		e := NewEngine(c, msk, r, DayState{Day: monday, VideoS: 3600, TotalS: 3600}, "")
+		if d := e.Tick(videoSample()); !d.CloseVideo {
+			t.Fatal("пн 23:59:59: видео не закрыто")
+		}
+		c.Set(tue(0, 0, 0))
+		if cur := e.Current(); cur.Day != tuesday || cur.CloseVideo || cur.VideoRemainingS != 3600 || cur.VideoCloseReason != "" {
+			t.Fatalf("Current во вторник без тика: %+v", cur)
+		}
+		got := warnEvLog(e, c, tue(0, 0, 0), tue(0, 30, 1), videoSample())
+		if want := []string{"00:30:00 30 video"}; !slices.Equal(got, want) {
+			t.Fatalf("вторник: %v, want %v", got, want)
+		}
+	})
 }
