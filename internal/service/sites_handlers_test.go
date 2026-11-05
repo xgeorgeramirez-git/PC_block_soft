@@ -66,9 +66,9 @@ func TestListSites(t *testing.T) {
 	rep := h.listSites(h.login(adminPeer()))
 	want := ipc.ListSitesReply{
 		Sites: []ipc.SiteDTO{
-			{"discord.com", "video_social"}, {"ok.ru", "video_social"}, {"rutube.ru", "video_social"},
-			{"telegram.org", "video_social"}, {"tiktok.com", "video_social"}, {"twitch.tv", "video_social"},
-			{"vk.com", "video_social"}, {"web.telegram.org", "video_social"}, {"youtube.com", "video_social"},
+			{Domain: "discord.com", Kind: "video_social"}, {Domain: "ok.ru", Kind: "video_social"}, {Domain: "rutube.ru", Kind: "video_social"},
+			{Domain: "telegram.org", Kind: "video_social"}, {Domain: "tiktok.com", Kind: "video_social"}, {Domain: "twitch.tv", Kind: "video_social"},
+			{Domain: "vk.com", Kind: "video_social"}, {Domain: "web.telegram.org", Kind: "video_social"}, {Domain: "youtube.com", Kind: "video_social"},
 		},
 		Children:    []ipc.AdultFilterDTO{{ChildID: h.childID(childSID), Name: "Миша", On: true}},
 		BlockedMax:  1000,
