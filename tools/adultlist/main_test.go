@@ -107,6 +107,32 @@ func TestRunSplitParts(t *testing.T) {
 	}
 }
 
+// Ruling RM4-3а: голые зоны верхнего уровня не теряются, а идут в список зон.
+func TestRunZones(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "domains"), "porn.test\nxxx\nPORN\nsex.\nadult\nxxx\n123\n")
+	out := filepath.Join(t.TempDir(), "adult.bin")
+	var stdout bytes.Buffer
+	if err := run([]string{"-src", dir, "-out", out}, &stdout); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout.String(), "строк 7, пропущено 1, записей 1, зон 4, размер") {
+		t.Errorf("итог: %q", stdout.String())
+	}
+	a := openOut(t, out)
+	if a.ZoneCount() != 4 {
+		t.Errorf("ZoneCount = %d, want 4", a.ZoneCount())
+	}
+	for _, c := range []struct {
+		d    string
+		want bool
+	}{{"a.xxx", true}, {"b.porn", true}, {"c.sex", true}, {"d.adult", true}, {"xxx.com", false}, {"porn.test", true}} {
+		if got := a.Contains(c.d); got != c.want {
+			t.Errorf("Contains(%q) = %v, want %v", c.d, got, c.want)
+		}
+	}
+}
+
 func TestRunNoDomains(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "urls"), "a.test\n")
@@ -133,7 +159,7 @@ func TestRunEmpty(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(data) != 16 || string(data) != string(sites.EncodeAdult(nil)) {
+	if len(data) != 20 || string(data) != string(sites.EncodeAdult(nil)) {
 		t.Errorf("пустой файл %q", data)
 	}
 }

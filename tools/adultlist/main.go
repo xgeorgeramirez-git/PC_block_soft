@@ -9,7 +9,6 @@ package main
 import (
 	"bufio"
 	"compress/gzip"
-	"encoding/binary"
 	"errors"
 	"flag"
 	"fmt"
@@ -60,7 +59,7 @@ func run(args []string, stdout io.Writer) error {
 	if len(st.domains) == 0 {
 		return fmt.Errorf("в %s нет ни одного домена (строк %d, пропущено %d)", *src, st.lines, st.skipped)
 	}
-	data := sites.EncodeAdult(st.domains)
+	data := sites.EncodeAdultZones(st.domains, st.zones)
 	if err := os.WriteFile(*out, data, 0o644); err != nil {
 		return err
 	}
@@ -71,8 +70,12 @@ func run(args []string, stdout io.Writer) error {
 			return err
 		}
 	}
-	_, err = fmt.Fprintf(stdout, "::notice title=Список 18+::строк %d, пропущено %d, записей %d, размер %d байт\n",
-		st.lines, st.skipped, binary.LittleEndian.Uint32(data[12:]), len(data))
+	a, err := sites.OpenAdult(string(data))
+	if err != nil {
+		return err
+	}
+	_, err = fmt.Fprintf(stdout, "::notice title=Список 18+::строк %d, пропущено %d, записей %d, зон %d, размер %d байт\n",
+		st.lines, st.skipped, a.Count(), a.ZoneCount(), len(data))
 	return err
 }
 
@@ -122,10 +125,12 @@ func domainFiles(dir string) ([]string, error) {
 type stats struct {
 	lines, skipped int
 	domains        []string
+	zones          []string // голые зоны верхнего уровня (Ruling RM4-3а)
 }
 
 // readDomains читает части подряд как один поток: непустые строки без «#» — кандидаты, домен —
-// sites.NormalizeInput; не домен — строка пропущена и посчитана.
+// sites.NormalizeInput, голая зона верхнего уровня («xxx») — sites.NormalizeZone (Ruling RM4-3а);
+// ни то ни другое — строка пропущена и посчитана.
 func readDomains(files []string) (stats, error) {
 	var st stats
 	readers := make([]io.Reader, 0, len(files))
@@ -156,6 +161,10 @@ func readDomains(files []string) (stats, error) {
 		st.lines++
 		d, err := sites.NormalizeInput(line)
 		if err != nil {
+			if z, ok := sites.NormalizeZone(line); ok {
+				st.zones = append(st.zones, z)
+				continue
+			}
 			st.skipped++
 			continue
 		}

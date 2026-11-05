@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 )
 
@@ -30,7 +31,7 @@ func TestHashDomain(t *testing.T) {
 }
 
 func TestEncodeAdultEmpty(t *testing.T) {
-	want := "PCBADULT\x01\x00\x00\x00\x00\x00\x00\x00"
+	want := "PCBADULT\x02\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
 	got := EncodeAdult(nil)
 	if string(got) != want {
 		t.Fatalf("EncodeAdult(nil) = %q, want %q", got, want)
@@ -39,20 +40,20 @@ func TestEncodeAdultEmpty(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if a.Count() != 0 || a.Contains("example.com") {
+	if a.Count() != 0 || a.ZoneCount() != 0 || a.Contains("example.com") {
 		t.Errorf("пустой список: Count = %d, Contains(example.com) = %v", a.Count(), a.Contains("example.com"))
 	}
 }
 
 func TestEncodeAdultLayout(t *testing.T) {
 	data := EncodeAdult([]string{"example.com", "example.com", "xn--e1afmkfd.xn--p1ai"})
-	if len(data) != 16+4194308+6 {
-		t.Fatalf("длина %d, want %d", len(data), 16+4194308+6)
+	if len(data) != 20+4194308+6 {
+		t.Fatalf("длина %d, want %d", len(data), 20+4194308+6)
 	}
 	if c := binary.LittleEndian.Uint32(data[12:]); c != 2 {
 		t.Errorf("count = %d, want 2", c)
 	}
-	off := func(b int) uint32 { return binary.LittleEndian.Uint32(data[16+4*b:]) }
+	off := func(b int) uint32 { return binary.LittleEndian.Uint32(data[20+4*b:]) }
 	for _, c := range []struct {
 		b    int
 		want uint32
@@ -61,7 +62,7 @@ func TestEncodeAdultLayout(t *testing.T) {
 			t.Errorf("offsets[%#x] = %d, want %d", c.b, got, c.want)
 		}
 	}
-	entries := data[16+4194308:]
+	entries := data[20+4194308:]
 	if want := []byte{0xe2, 0x34, 0x66, 0xf7, 0x22, 0x8a}; string(entries) != string(want) {
 		t.Errorf("записи % x, want % x", entries, want)
 	}
@@ -106,33 +107,93 @@ func TestOpenAdultRejects(t *testing.T) {
 		return string(f(b))
 	}
 	setOff := func(b []byte, i int, v uint32) []byte {
-		binary.LittleEndian.PutUint32(b[16+4*i:], v)
+		binary.LittleEndian.PutUint32(b[20+4*i:], v)
 		return b
 	}
 	cases := []struct {
 		name string
 		data string
 	}{
-		{"короче 16", "PCBADULT\x01\x00\x00"},
+		{"короче 20", "PCBADULT\x02\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"},
 		{"пусто", ""},
-		{"чужая магия", "PCBADULX\x01\x00\x00\x00\x00\x00\x00\x00"},
-		{"версия 2", "PCBADULT\x02\x00\x00\x00\x00\x00\x00\x00"},
-		{"count 0 с хвостом", "PCBADULT\x01\x00\x00\x00\x00\x00\x00\x00\x00"},
+		{"чужая магия", "PCBADULX\x02\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"},
+		{"версия 1", "PCBADULT\x01\x00\x00\x00\x00\x00\x00\x00"},
+		{"версия 3", "PCBADULT\x03\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"},
+		{"count 0 с хвостом", "PCBADULT\x02\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"},
+		{"зоны длиннее файла", "PCBADULT\x02\x00\x00\x00\x00\x00\x00\x00\x04\x00\x00\x00xxx"},
+		{"зона с точкой", "PCBADULT\x02\x00\x00\x00\x00\x00\x00\x00\x05\x00\x00\x00xx.xx"},
+		{"пустая зона", "PCBADULT\x02\x00\x00\x00\x00\x00\x00\x00\x04\x00\x00\x00xxx\n"},
+		{"зона заглавными", "PCBADULT\x02\x00\x00\x00\x00\x00\x00\x00\x03\x00\x00\x00XXX"},
+		{"зона из цифр", "PCBADULT\x02\x00\x00\x00\x00\x00\x00\x00\x02\x00\x00\x0012"},
 		{"count 1, длина меньше", string(good[:len(good)-1])},
 		{"count 1, длина больше", string(good) + "\x00"},
-		{"count 1 без таблицы", "PCBADULT\x01\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00"},
+		{"count 1 без таблицы", "PCBADULT\x02\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"},
 		{"первое смещение не 0", mod(func(b []byte) []byte { return setOff(b, 0, 1) })},
 		{"убывающие смещения", mod(func(b []byte) []byte { return setOff(b, 1<<20-1, 0) })},
 		{"смещение больше count", mod(func(b []byte) []byte { return setOff(b, 5, 2) })},
 		{"последнее смещение не count", mod(func(b []byte) []byte { return setOff(b, 1<<20, 0) })},
 	}
 	// Проверка: «убывающие смещения» действительно убывают (запись корзины 0x57684 стоит до конца).
-	if binary.LittleEndian.Uint32(good[16+4*(1<<20-1):]) != 1 {
+	if binary.LittleEndian.Uint32(good[20+4*(1<<20-1):]) != 1 {
 		t.Fatal("тестовый файл: последняя корзина должна начинаться с 1")
 	}
 	for _, c := range cases {
 		if _, err := OpenAdult(c.data); !errors.Is(err, ErrAdultFormat) {
 			t.Errorf("%s: err = %v, want ErrAdultFormat", c.name, err)
+		}
+	}
+}
+
+// Ruling RM4-3а: зоны верхнего уровня из UT1 («xxx», «porn»…) закрывают последнюю метку домена.
+func TestAdultZones(t *testing.T) {
+	data := EncodeAdultZones([]string{"porn.example"}, []string{"xxx", "porn", "xxx"})
+	want := "PCBADULT\x02\x00\x00\x00\x01\x00\x00\x00\x08\x00\x00\x00porn\nxxx"
+	if string(data[:28]) != want {
+		t.Fatalf("заголовок %q, want %q", data[:28], want)
+	}
+	a, err := OpenAdult(string(data))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.ZoneCount() != 2 || a.Count() != 1 {
+		t.Errorf("ZoneCount = %d, Count = %d; want 2, 1", a.ZoneCount(), a.Count())
+	}
+	cases := []struct {
+		in   string
+		want bool
+	}{
+		{"a.xxx", true}, {"xxx", true}, {"www.b.porn", true}, {"porn", true},
+		{"xxx.com", false}, {"porn.com", false}, {"xx", false}, {"xxxx", false}, {"a.xxxx", false},
+		{"porn.example", true}, {"x.porn.example", true}, {"example", false},
+	}
+	for _, c := range cases {
+		if got := a.Contains(c.in); got != c.want {
+			t.Errorf("Contains(%q) = %v, want %v", c.in, got, c.want)
+		}
+	}
+	// Только зоны, без доменов: таблицы корзин нет.
+	z, err := OpenAdult(string(EncodeAdultZones(nil, []string{"sex"})))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !z.Contains("a.sex") || z.Contains("sex.ru") || z.Count() != 0 {
+		t.Errorf("только зоны: a.sex %v, sex.ru %v, Count %d", z.Contains("a.sex"), z.Contains("sex.ru"), z.Count())
+	}
+	if n := testing.AllocsPerRun(100, func() { a.containsNoCache("q.w.xxx") }); n != 0 {
+		t.Errorf("проверка зоны: %v выделений", n)
+	}
+}
+
+func TestNormalizeZone(t *testing.T) {
+	ok := []struct{ in, want string }{{"xxx", "xxx"}, {"XXX.", "xxx"}, {" porn ", "porn"}, {"рф", "xn--p1ai"}}
+	for _, c := range ok {
+		if got, good := NormalizeZone(c.in); !good || got != c.want {
+			t.Errorf("NormalizeZone(%q) = %q, %v; want %q", c.in, got, good, c.want)
+		}
+	}
+	for _, in := range []string{"", ".", "a.b", "123", "a b", "a/b", strings.Repeat("a", 64), "#x"} {
+		if got, good := NormalizeZone(in); good || got != "" {
+			t.Errorf("NormalizeZone(%q) = %q, %v; want «», false", in, got, good)
 		}
 	}
 }

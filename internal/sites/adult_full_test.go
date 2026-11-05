@@ -104,7 +104,7 @@ func TestAdultListFull(t *testing.T) {
 		facts = append(facts, "ошибка "+err.Error())
 		t.Fatal(err)
 	}
-	facts = append(facts, fmt.Sprintf("записей %d", a.Count()))
+	facts = append(facts, fmt.Sprintf("записей %d", a.Count()), fmt.Sprintf("зон %d", a.ZoneCount()))
 	if a.Count() < 4_000_000 {
 		t.Errorf("записей %d, нужно ≥ 4 000 000", a.Count())
 	}
