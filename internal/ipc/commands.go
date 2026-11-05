@@ -237,6 +237,12 @@ type ChildStatus struct {
 	CloseGames      bool   `json:"closeGames"`      // игры закрыты: лимит игр исчерпан или экран блокировки
 	StudyOnly       bool   `json:"studyOnly"`       // действует «только учёба»: экрана нет, открыта только учёба
 
+	// Видео и соцсети (M4: R6) — из того же core.Decision, по образцу игр.
+	VideoRemainingS int  `json:"videoRemainingS"` // остаток «Видео и соцсетей», с; 0 без лимита видео
+	VideoLimitS     int  `json:"videoLimitS"`     // лимит видео дня с доп. временем, с; 0 без лимита видео
+	VideoUnlimited  bool `json:"videoUnlimited"`  // отдельного лимита видео нет (или правила не прочитаны)
+	CloseVideo      bool `json:"closeVideo"`      // видео и соцсети закрыты: лимит видео исчерпан (R6)
+
 	// Экран перерыва на отдых (Lock == LockRest, R27): конец по часам и сообщение родителя.
 	RestUntilMs int64  `json:"restUntilMs"` // UTC мс; 0 — перерыва нет
 	RestLeftS   int    `json:"restLeftS"`   // секунды до конца перерыва по часам службы (таймер стража)
@@ -651,6 +657,7 @@ const (
 	WarnEventForbidden = "forbidden"
 	WarnEventPause     = "pause"
 	WarnEventGames     = "games" // исчерпание лимита игр (R5): остаток игр службы, как у лимита
+	// WarnEventVideo = "video" (commands_m4.go): исчерпание лимита видео (R6).
 )
 
 // Виды команд стражу в GuardPollReply.Commands.
