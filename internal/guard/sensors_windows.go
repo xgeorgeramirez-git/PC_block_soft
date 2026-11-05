@@ -63,7 +63,7 @@ func readRaw() RawSensors {
 	fg, _, _ := procGetForegroundWin.Call()
 	raw := RawSensors{IdleMs: idleMs(), Fullscreen: windowIsFullscreen(fg), Locked: sessionLocked(), ForegroundPath: foregroundPath(fg)}
 	if isBravePath(raw.ForegroundPath) {
-		raw.ForegroundDomain = braveDomain(windows.HWND(fg))
+		raw.ForegroundDomain, raw.DomainUnread = braveDomain(windows.HWND(fg))
 	}
 	return raw
 }
@@ -75,16 +75,17 @@ var (
 	braveDomains domainMemo
 )
 
-// braveDomain — домен активной вкладки окна Brave fg. Текст поля адреса живёт только здесь и сразу
-// превращается в домен (R23). Поле в фокусе — прежний домен окна; ошибка UIA — «» (PL-9).
-func braveDomain(fg windows.HWND) string {
+// braveDomain — домен активной вкладки окна Brave fg и признак «адрес не прочитан». Текст поля
+// адреса живёт только здесь и сразу превращается в домен (R23). Поле в фокусе — прежний домен
+// окна; ошибка UIA и окно без адреса — («», true) (PL-9, domainMemo.Read).
+func braveDomain(fg windows.HWND) (domain string, unread bool) {
 	braveMu.Lock()
 	defer braveMu.Unlock()
 	if braveRd == nil {
 		braveRd = newBraveReader()
 	}
-	text, focused, _, err := braveRd.Read(fg)
-	return braveDomains.Next(uintptr(fg), text, focused, err)
+	text, focused, source, err := braveRd.Read(fg)
+	return braveDomains.Read(uintptr(fg), text, focused, source, err)
 }
 
 // fgPathBuf — сколько символов пути читается: больше ipc.MaxForegroundPathLen, чтобы длинный путь

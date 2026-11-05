@@ -70,9 +70,7 @@ type Controller struct {
 	fgSet  bool
 	fgPath string
 	lastFg string
-	// domainOf — источник домена активной вкладки Brave (SetDomainReader); lastDomain — домен из
-	// последнего опроса (GuardState в тестовом режиме). В службу домен пока не уходит (M4 T3).
-	domainOf   func() string
+	// lastDomain — домен вкладки Brave из последнего отправленного снимка (GuardState).
 	lastDomain string
 
 	closingMu   sync.Mutex
@@ -120,14 +118,6 @@ func (c *Controller) NoteUITick(now time.Time) {
 func (c *Controller) SetSoundPlayer(play func() bool) {
 	c.mu.Lock()
 	c.play = play
-	c.mu.Unlock()
-}
-
-// SetDomainReader задаёт источник домена активной вкладки Brave (M4, RM4-1): f зовётся в PollOnce
-// сразу после чтения датчиков и отдаёт домен из того же прохода.
-func (c *Controller) SetDomainReader(f func() string) {
-	c.mu.Lock()
-	c.domainOf = f
 	c.mu.Unlock()
 }
 
@@ -317,18 +307,11 @@ func (c *Controller) PollOnce() PollResult {
 	now := c.now()
 	req := ipc.GuardPollRequest{Sample: c.read(now), Events: c.takeEvents()}
 	c.mu.Lock()
-	domainOf := c.domainOf
-	c.mu.Unlock()
-	domain := ""
-	if domainOf != nil {
-		domain = domainOf()
-	}
-	c.mu.Lock()
-	c.lastDomain = domain
 	if c.fgSet && c.testMode {
 		req.Sample.ForegroundPath = c.fgPath
 	}
 	c.lastFg = req.Sample.ForegroundPath
+	c.lastDomain = req.Sample.ForegroundDomain
 	c.mu.Unlock()
 	var rep ipc.GuardPollReply
 	if err := ipc.Call(c.call, ipc.CmdGuardPoll, "", req, &rep); err != nil {

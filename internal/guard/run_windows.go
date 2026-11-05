@@ -9,7 +9,6 @@ import (
 	"runtime"
 	"strconv"
 	"sync"
-	"sync/atomic"
 	"time"
 	"unsafe"
 
@@ -49,8 +48,6 @@ type app struct {
 	host  uintptr
 	hInst uintptr
 	speed int // ускорение часов в тестовом режиме, иначе 1
-	// domain — домен вкладки Brave из последнего readSensors (string); его берёт контроллер.
-	domain atomic.Value
 
 	lock      *LockWindow
 	ui        *lockUI
@@ -169,7 +166,6 @@ func Run(opts launch.Options) error {
 		procPostMessage.Call(a.host, wmAppRefresh, 0, 0)
 	})
 	a.ctl.SetSoundPlayer(sound.PlayWarning)
-	a.ctl.SetDomainReader(func() string { d, _ := a.domain.Load().(string); return d })
 	a.ctl.SetClockSpeed(a.speed)
 
 	stop := make(chan struct{})
@@ -190,16 +186,14 @@ func Run(opts launch.Options) error {
 	return nil
 }
 
-// readSensors читает датчики одним проходом (readRaw) и запоминает домен вкладки Brave из того же
-// прохода: контроллер берёт его через SetDomainReader сразу после чтения (PL-15).
+// readSensors читает датчики одним проходом (readRaw): путь, домен вкладки Brave и признак «адрес
+// не прочитан» попадают в снимок из одного окна (PL-15).
 func (a *app) readSensors(now time.Time) ipc.SensorSample {
 	speed := 1
 	if a.ctl != nil && a.ctl.TestMode() {
 		speed = a.speed
 	}
-	raw := readRaw()
-	a.domain.Store(raw.ForegroundDomain)
-	return BuildSample(now, raw, speed)
+	return BuildSample(now, readRaw(), speed)
 }
 
 // pollLoop опрашивает службу раз в секунду и сразу после команды, меняющей решение; после

@@ -2,73 +2,8 @@ package guard
 
 import (
 	"errors"
-	"strings"
 	"testing"
-	"unicode"
 )
-
-// Домен из текста поля адреса Brave (RM4-1, R23): только хост, без пути, порта, логина и www.
-// Ожидания — литералы: так поле адреса показывает адрес ребёнку.
-func TestOmniboxDomain(t *testing.T) {
-	longPath := "a.ru/" + strings.Repeat("x", 1995)
-	longHost := strings.Repeat("a", 1996) + ".com"
-	cases := []struct{ in, want string }{
-		{"youtube.com/watch?v=1", "youtube.com"},
-		{"https://WWW.Example.COM./a", "example.com"},
-		{"http://probe-site.test/a?b=c", "probe-site.test"},
-		{"  https://m.vk.com#x  ", "m.vk.com"},
-		{"brave://newtab", ""},
-		{"brave://settings/", ""},
-		{"chrome://version", ""},
-		{"about:blank", ""},
-		{"file:///C:/Users/miша/a.html", ""},
-		{"view-source:https://www.example.com/", "example.com"},
-		{"view-source:brave://newtab", ""},
-		{"котики видео", ""},
-		{"котики", ""},
-		{"localhost:3000", ""},
-		{"192.168.0.1:8080/x", "192.168.0.1"},
-		{"user:pw@host.ru/", "host.ru"},
-		{"https://user@Host.RU:443/p", "host.ru"},
-		{"", ""},
-		{"   ", ""},
-		{"www.ru", "www.ru"},
-		{"https://[::1]:8080/", ""},
-		{"https://пример.рф/путь", "пример.рф"},
-		{"xn--e1afmkfd.xn--p1ai", "xn--e1afmkfd.xn--p1ai"},
-		{"https://a..b/", ""},
-		{"https://.a.b/", ""},
-		{"https://a.b\\c/", ""},
-		{"mailto:me@a.ru", ""},
-		{longPath, "a.ru"},
-		{longHost, ""},
-	}
-	for _, c := range cases {
-		if got := omniboxDomain(c.in); got != c.want {
-			in := c.in
-			if len(in) > 60 {
-				in = in[:60] + "…"
-			}
-			t.Errorf("omniboxDomain(%q) = %q, want %q", in, got, c.want)
-		}
-	}
-}
-
-func FuzzOmniboxDomain(f *testing.F) {
-	for _, s := range []string{"youtube.com/watch?v=1", "https://WWW.Example.COM./a", "brave://newtab",
-		"котики видео", "localhost:3000", "192.168.0.1:8080/x", "user:pw@host.ru/", "", "view-source:x.ru"} {
-		f.Add(s)
-	}
-	f.Fuzz(func(t *testing.T, s string) {
-		got := omniboxDomain(s)
-		if strings.ContainsAny(got, "/:@\\") || strings.IndexFunc(got, unicode.IsSpace) >= 0 {
-			t.Fatalf("omniboxDomain(%q) = %q: в домене недопустимые знаки", s, got)
-		}
-		if got != "" && (!strings.Contains(got, ".") || strings.ToLower(got) != got || len(got) > maxDomainLen) {
-			t.Fatalf("omniboxDomain(%q) = %q: не домен", s, got)
-		}
-	})
-}
 
 // Путь переднего плана — Brave (RM4-1): только brave.exe, регистр не важен.
 func TestIsBravePath(t *testing.T) {
@@ -116,6 +51,45 @@ func TestDomainMemo(t *testing.T) {
 	for i, s := range steps {
 		if got := m.Next(s.hwnd, s.text, s.focused, s.err); got != s.want {
 			t.Errorf("шаг %d: Next(%d, %q, %v, %v) = %q, want %q", i, s.hwnd, s.text, s.focused, s.err, got, s.want)
+		}
+	}
+}
+
+// Ловит (RM4-1, PL-9, RK5): ошибка UIA и окно, где у Document нет адреса, неотличимы от служебной
+// страницы — служба не узнала бы, что адрес не прочитан. Домен — по sites.FromOmnibox (punycode,
+// повторное «www.»). Ожидания — литералы.
+func TestDomainMemoRead(t *testing.T) {
+	var m domainMemo
+	uiaErr := errors.New("UIA: элемент не найден")
+	steps := []struct {
+		hwnd       uintptr
+		text       string
+		focused    bool
+		source     string
+		err        error
+		want       string
+		wantUnread bool
+	}{
+		{1, "https://www.youtube.com/watch?v=1", false, "omnibox", nil, "youtube.com", false},
+		{1, "пример.рф/путь", false, "omnibox", nil, "xn--e1afmkfd.xn--p1ai", false},
+		{1, "www.www.a.ru", false, "omnibox", nil, "a.ru", false},
+		{1, "kotiki.ru", true, "omnibox", nil, "a.ru", false},
+		{1, "brave://newtab", false, "omnibox", nil, "", false},
+		{1, "котики видео", false, "omnibox", nil, "", false},
+		{2, "", false, "", uiaErr, "", true},
+		{3, "", false, "document", nil, "", true},
+		{3, "   ", false, "document", nil, "", true},
+		{3, "https://app.example/x", false, "document", nil, "app.example", false},
+		{3, "", false, "omnibox", nil, "", false},
+		{4, "vk.com", false, "omnibox", nil, "vk.com", false},
+		{4, "", false, "", uiaErr, "", true},
+		{4, "x.ru", true, "omnibox", nil, "", false},
+	}
+	for i, s := range steps {
+		got, unread := m.Read(s.hwnd, s.text, s.focused, s.source, s.err)
+		if got != s.want || unread != s.wantUnread {
+			t.Errorf("шаг %d: Read(%d, %q, %v, %q, %v) = (%q, %v), want (%q, %v)",
+				i, s.hwnd, s.text, s.focused, s.source, s.err, got, unread, s.want, s.wantUnread)
 		}
 	}
 }

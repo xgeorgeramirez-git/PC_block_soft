@@ -17,6 +17,8 @@ import (
 
 	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/registry"
+
+	"pcblock/internal/sites"
 )
 
 // Проба T0 вехи M4 (RM4-1, RM4-2, RM4-10): на раннере windows-latest от имени пользователя раннера
@@ -316,7 +318,7 @@ type readOut struct {
 
 func readOnce(r *braveReader, hwnd windows.HWND) readOut {
 	text, focused, source, err := r.Read(hwnd)
-	return readOut{domain: omniboxDomain(text), source: source, focused: focused, err: err}
+	return readOut{domain: sites.FromOmnibox(text), source: source, focused: focused, err: err}
 }
 
 // waitDomain читает домен окна, пока он не станет want, не дольше d.

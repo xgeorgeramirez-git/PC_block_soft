@@ -44,6 +44,16 @@ func TestBuildSampleFillsFieldsAndKeepsNothingElse(t *testing.T) {
 	if s != want {
 		t.Fatalf("снимок:\n%+v\nждали\n%+v", s, want)
 	}
+	// Домен вкладки Brave и признак «адрес не прочитан» — из того же прохода, что и путь (PL-15).
+	brave := `C:\Program Files\BraveSoftware\Brave-Browser\Application\brave.exe`
+	s = BuildSample(now, RawSensors{IdleMs: 4200, ForegroundPath: brave, ForegroundDomain: "youtube.com", DomainUnread: true}, 1)
+	want = ipc.SensorSample{
+		AtMs: now.UnixMilli(), TzOffsetMin: 180, SessionActive: true, LastInputAgoMs: 4200,
+		Foreground: ipc.CatNameOther, ForegroundPath: brave, ForegroundDomain: "youtube.com", DomainUnread: true,
+	}
+	if s != want {
+		t.Fatalf("снимок с Brave:\n%+v\nждали\n%+v", s, want)
+	}
 	if got := BuildSample(now, RawSensors{Locked: true}, 1); got.SessionActive {
 		t.Fatal("заблокированный сеанс назван активным")
 	}

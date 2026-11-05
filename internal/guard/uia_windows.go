@@ -20,7 +20,8 @@ import (
 // Brave не останавливает опрос стража — Read ждёт ответа не дольше uiaCallTimeout.
 //
 // Текст поля адреса — только в локальных переменных: наружу Read отдаёт его вызывающему, тот
-// сразу берёт домен (omniboxDomain) и текст забывает. Ни адрес, ни заголовок окна не хранятся.
+// сразу берёт домен (domainMemo.Read, sites.FromOmnibox) и текст забывает. Ни адрес, ни заголовок
+// окна не хранятся.
 
 var (
 	ole32    = windows.NewLazySystemDLL("ole32.dll")
@@ -545,12 +546,6 @@ func wakeAccessibility(hwnd windows.HWND) {
 		procSendMessageTimeout.Call(uintptr(hwnd), wmGetObject, 0, id, smtoAbortIfHung, wakeTimeoutMs, uintptr(unsafe.Pointer(&res)))
 	}
 }
-
-// Источники текста для Read.
-const (
-	braveSourceOmnibox  = "omnibox"
-	braveSourceDocument = "document"
-)
 
 func newBraveReader() *braveReader { return &braveReader{th: newUIAThread()} }
 
