@@ -229,7 +229,7 @@ func TestOpenTwiceKeepsDataAndMigrationOnce(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []Child{{ID: id, SID: "S-1-5-21-1", Name: "Миша", EndMode: "lock", CreatedAtMs: 1_000}}
+	want := []Child{{ID: id, SID: "S-1-5-21-1", Name: "Миша", EndMode: "lock", AdultFilter: true, CreatedAtMs: 1_000}}
 	if !reflect.DeepEqual(kids, want) {
 		t.Fatalf("ListChildren после перезапуска = %+v, want %+v", kids, want)
 	}
@@ -403,6 +403,13 @@ func TestMethodsReturnErrorsWhenStoreClosed(t *testing.T) {
 		"SetSetting":   func() error { return s.SetSetting("k", "v") },
 		"SetEndMode":   func() error { return s.SetEndMode(id, "lock") },
 		"GetEndMode":   func() error { _, err := s.GetEndMode(id); return err },
+
+		"SetAdultFilter":   func() error { return s.SetAdultFilter(id, false) },
+		"ListSiteRules":    func() error { _, err := s.ListSiteRules(); return err },
+		"AddSiteRule":      func() error { _, _, err := s.AddSiteRule("example.com", SiteBlocked); return err },
+		"RemoveSiteRule":   func() error { _, _, err := s.RemoveSiteRule("youtube.com"); return err },
+		"CountSiteRules":   func() error { _, err := s.CountSiteRules(SiteBlocked); return err },
+		"ReplaceSiteRules": func() error { return s.ReplaceSiteRules(SiteVideoSocial, []string{"youtube.com"}) },
 	}
 	for name, call := range calls {
 		if err := call(); err == nil {

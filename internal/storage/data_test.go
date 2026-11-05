@@ -65,8 +65,8 @@ func TestListChildrenEmptyAndOrdered(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []Child{
-		{ID: a, SID: "S-1-5-21-1", Name: "Миша", EndMode: "lock", CreatedAtMs: 5_000},
-		{ID: b, SID: "S-1-5-21-2", Name: "Аня", BypassDetail: "Попытка закрыть защиту", EndMode: "lock", CreatedAtMs: 5_000},
+		{ID: a, SID: "S-1-5-21-1", Name: "Миша", EndMode: "lock", AdultFilter: true, CreatedAtMs: 5_000},
+		{ID: b, SID: "S-1-5-21-2", Name: "Аня", BypassDetail: "Попытка закрыть защиту", EndMode: "lock", AdultFilter: true, CreatedAtMs: 5_000},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("ListChildren = %+v, want %+v", got, want)
@@ -91,7 +91,7 @@ func TestUpsertChildSameSIDKeepsID(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []Child{{ID: id, SID: "S-1-5-21-1", Name: "Михаил", EndMode: "lock", CreatedAtMs: 1_000}}
+	want := []Child{{ID: id, SID: "S-1-5-21-1", Name: "Михаил", EndMode: "lock", AdultFilter: true, CreatedAtMs: 1_000}}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("ListChildren = %+v, want %+v (имя новое, created_at прежний)", got, want)
 	}
@@ -178,12 +178,60 @@ func TestUpsertChildAfterRemoveRestoresSameChild(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []Child{{ID: id, SID: "S-1-5-21-1", Name: "Михаил", EndMode: "lock", CreatedAtMs: 1_000}}
+	want := []Child{{ID: id, SID: "S-1-5-21-1", Name: "Михаил", EndMode: "lock", AdultFilter: true, CreatedAtMs: 1_000}}
 	if !reflect.DeepEqual(kids, want) {
 		t.Fatalf("ListChildren = %+v, want %+v", kids, want)
 	}
 	if got, err := s.LoadDayState(id, day1); err != nil || got != st {
 		t.Errorf("статистика после возврата = %+v, %v; want %+v", got, err, st)
+	}
+}
+
+// Ловит: новый ребёнок без включённого списка 18+ (R14, безопасный ноль); переключатель не
+// пишется, задевает другого ребёнка или не читается в ListChildren; нет ребёнка — успех;
+// снятие отметки «детская» и возврат той же учётки сбрасывают выбор родителя.
+func TestSetAdultFilter(t *testing.T) {
+	s := openTemp(t)
+	a := mustChild(t, s, "S-1-5-21-1", "Миша")
+	b := mustChild(t, s, "S-1-5-21-2", "Аня")
+	adult := func() map[int64]bool {
+		t.Helper()
+		kids, err := s.ListChildren()
+		if err != nil {
+			t.Fatal(err)
+		}
+		out := map[int64]bool{}
+		for _, c := range kids {
+			out[c.ID] = c.AdultFilter
+		}
+		return out
+	}
+	if got := adult(); !reflect.DeepEqual(got, map[int64]bool{a: true, b: true}) {
+		t.Fatalf("новые дети: 18+ = %v, want включён у обоих", got)
+	}
+	if err := s.SetAdultFilter(a, false); err != nil {
+		t.Fatal(err)
+	}
+	if got := adult(); !reflect.DeepEqual(got, map[int64]bool{a: false, b: true}) {
+		t.Errorf("после выключения у Миши: 18+ = %v, want Миша выключен, Аня включена", got)
+	}
+	if err := s.SetAdultFilter(999, true); !errors.Is(err, ErrNotFound) {
+		t.Errorf("SetAdultFilter(999) = %v, want ErrNotFound", err)
+	}
+	if err := s.RemoveChild(a); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.UpsertChild(Child{SID: "S-1-5-21-1", Name: "Михаил"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := adult(); !reflect.DeepEqual(got, map[int64]bool{a: false, b: true}) {
+		t.Errorf("после снятия и возврата отметки: 18+ = %v, want выбор родителя сохранён", got)
+	}
+	if err := s.SetAdultFilter(a, true); err != nil {
+		t.Fatal(err)
+	}
+	if got := adult(); !reflect.DeepEqual(got, map[int64]bool{a: true, b: true}) {
+		t.Errorf("после включения: 18+ = %v, want включён у обоих", got)
 	}
 }
 

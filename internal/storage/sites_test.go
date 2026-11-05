@@ -1,7 +1,9 @@
 package storage
 
 import (
+	"errors"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -130,5 +132,177 @@ func TestFreshBaseHasVideoStarterSet(t *testing.T) {
 	}
 	if got := rowStrings(t, s.db, `SELECT count(*) FROM site_rules WHERE kind <> 'video_social'`); !reflect.DeepEqual(got, [][]string{{"0"}}) {
 		t.Errorf("записей других списков = %v, want 0", got)
+	}
+}
+
+// siteDomains — домены списка kind по алфавиту (прямым запросом, мимо методов хранилища).
+func siteDomains(t *testing.T, s *Store, kind string) []string {
+	t.Helper()
+	out := []string{}
+	for _, r := range rowStrings(t, s.db, `SELECT domain FROM site_rules WHERE kind = '`+kind+`' ORDER BY domain`) {
+		out = append(out, r[0])
+	}
+	return out
+}
+
+// Ловит (R14, FR-21, RM4-5, S-1, S-6): добавление в другой список даёт вторую запись вместо
+// переноса или не сообщает прежний список; повтор в том же списке что-то меняет; перенос меняет id;
+// счётчик и список читают не то; удаление не отдаёт прежний список для «Отменить» или удаляет
+// несуществующее с успехом; пустой, длиннее 253 символов домен или чужой список доходят до базы.
+func TestSiteRules(t *testing.T) {
+	s := openTemp(t)
+	if moved, prev, err := s.AddSiteRule("example.com", SiteBlocked); err != nil || moved || prev != "" {
+		t.Errorf("новый домен = %v, %q, %v; want false, \"\", nil", moved, prev, err)
+	}
+	id := rawNull(t, s, `SELECT id FROM site_rules WHERE domain = 'example.com'`).Int64
+	if moved, prev, err := s.AddSiteRule("example.com", SiteBlocked); err != nil || moved || prev != SiteBlocked {
+		t.Errorf("повтор в том же списке = %v, %q, %v; want false, \"blocked\", nil", moved, prev, err)
+	}
+	if moved, prev, err := s.AddSiteRule("example.com", SiteStudy); err != nil || !moved || prev != SiteBlocked {
+		t.Errorf("перенос в «Учёбу» = %v, %q, %v; want true, \"blocked\", nil", moved, prev, err)
+	}
+	if got := rawNull(t, s, `SELECT id FROM site_rules WHERE domain = 'example.com'`).Int64; got != id {
+		t.Errorf("id после переноса = %d, want %d (запись та же)", got, id)
+	}
+	if moved, prev, err := s.AddSiteRule("youtube.com", SiteStudy); err != nil || !moved || prev != SiteVideoSocial {
+		t.Errorf("youtube.com в «Учёбу» = %v, %q, %v; want true, \"video_social\", nil", moved, prev, err)
+	}
+	for kind, want := range map[string]int{SiteVideoSocial: 8, SiteBlocked: 0, SiteStudy: 2} {
+		if n, err := s.CountSiteRules(kind); err != nil || n != want {
+			t.Errorf("CountSiteRules(%s) = %d, %v; want %d", kind, n, err, want)
+		}
+	}
+	list, err := s.ListSiteRules()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := make([]string, 0, len(list))
+	for _, r := range list {
+		got = append(got, r.Domain+" "+r.Kind)
+	}
+	want := []string{"example.com study", "youtube.com study", "discord.com video_social", "ok.ru video_social",
+		"rutube.ru video_social", "telegram.org video_social", "tiktok.com video_social", "twitch.tv video_social",
+		"vk.com video_social", "web.telegram.org video_social"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("ListSiteRules = %v, want %v (по списку, затем по домену)", got, want)
+	}
+	if list[0].ID != id {
+		t.Errorf("ListSiteRules[0].ID = %d, want %d", list[0].ID, id)
+	}
+	if prev, ok, err := s.RemoveSiteRule("example.com"); err != nil || !ok || prev != SiteStudy {
+		t.Errorf("удаление = %q, %v, %v; want \"study\", true, nil", prev, ok, err)
+	}
+	if prev, ok, err := s.RemoveSiteRule("example.com"); err != nil || ok || prev != "" {
+		t.Errorf("повторное удаление = %q, %v, %v; want \"\", false, nil", prev, ok, err)
+	}
+	before := rowStrings(t, s.db, `SELECT * FROM site_rules ORDER BY id`)
+	for name, call := range map[string]func() error{
+		"пустой домен":     func() error { _, _, err := s.AddSiteRule("", SiteStudy); return err },
+		"254 символа":      func() error { _, _, err := s.AddSiteRule(strings.Repeat("a", 250)+".com", SiteStudy); return err },
+		"чужой список":     func() error { _, _, err := s.AddSiteRule("a.com", "video"); return err },
+		"счётчик чужого":   func() error { _, err := s.CountSiteRules("x"); return err },
+		"замена чужого":    func() error { return s.ReplaceSiteRules("x", []string{"a.com"}) },
+		"удаление пустого": func() error { _, _, err := s.RemoveSiteRule(""); return err },
+	} {
+		if err := call(); !errors.Is(err, ErrInvalid) {
+			t.Errorf("%s: %v, want ErrInvalid", name, err)
+		}
+	}
+	if _, _, err := s.AddSiteRule(strings.Repeat("a", 249)+".com", SiteStudy); err != nil {
+		t.Errorf("домен в 253 символа: %v, want записан", err)
+	} else if _, _, err := s.RemoveSiteRule(strings.Repeat("a", 249) + ".com"); err != nil {
+		t.Fatal(err)
+	}
+	if got := rowStrings(t, s.db, `SELECT * FROM site_rules ORDER BY id`); !reflect.DeepEqual(got, before) {
+		t.Errorf("после отказов site_rules = %v, want %v", got, before)
+	}
+}
+
+// Ловит (мастер FR-2, S-4, PL-21): замена списка трогает чужие списки сверх переноса доменов из них,
+// оставляет старые домены своего списка или пишет дубль входа второй строкой; ошибка одного домена
+// оставляет список наполовину заменённым (нет одной транзакции).
+func TestReplaceSiteRules(t *testing.T) {
+	s := openTemp(t)
+	if _, _, err := s.AddSiteRule("example.com", SiteBlocked); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ReplaceSiteRules(SiteVideoSocial, []string{"youtube.com", "kids.example", "kids.example"}); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := siteDomains(t, s, SiteVideoSocial), []string{"kids.example", "youtube.com"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("видео после замены = %v, want %v", got, want)
+	}
+	if got, want := siteDomains(t, s, SiteBlocked), []string{"example.com"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("запрещённые после замены видео = %v, want %v (чужой список не трогается)", got, want)
+	}
+	if _, _, err := s.AddSiteRule("school.example", SiteStudy); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ReplaceSiteRules(SiteVideoSocial, []string{"school.example"}); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := siteDomains(t, s, SiteVideoSocial), []string{"school.example"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("видео = %v, want %v", got, want)
+	}
+	if got, want := siteDomains(t, s, SiteStudy), []string{}; !reflect.DeepEqual(got, want) {
+		t.Errorf("учёба = %v, want %v (домен перенесён в видео)", got, want)
+	}
+	if err := s.ReplaceSiteRules(SiteVideoSocial, []string{"ok.ru", ""}); !errors.Is(err, ErrInvalid) {
+		t.Errorf("замена с пустым доменом: %v, want ErrInvalid", err)
+	}
+	if got, want := siteDomains(t, s, SiteVideoSocial), []string{"school.example"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("видео после отказа = %v, want %v (ничего не изменилось)", got, want)
+	}
+	if err := s.ReplaceSiteRules(SiteVideoSocial, nil); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := siteDomains(t, s, SiteVideoSocial), []string{}; !reflect.DeepEqual(got, want) {
+		t.Errorf("видео после пустой замены = %v, want %v", got, want)
+	}
+	if list, err := s.ListSiteRules(); err != nil || list == nil || len(list) != 1 {
+		t.Errorf("ListSiteRules = %#v, %v; want одна запись example.com", list, err)
+	}
+}
+
+// Ловит (S-7, RM4-7): «Итоги» за день и период теряют строки сайтов или их вид; учёт сайта
+// попадает во «время за неделю» программ; повторная порция сайта не складывается.
+func TestDayUsageWithSites(t *testing.T) {
+	s := openTemp(t)
+	id := mustChild(t, s, "S-1", "Миша")
+	for _, u := range []struct {
+		category, kind, subject string
+		seconds                 int
+	}{
+		{UsageVideoSocial, SubjectSite, "youtube.com", 600},
+		{UsageGames, SubjectProgram, `c:\games\game.exe`, 300},
+		{UsageVideoSocial, SubjectSite, "youtube.com", 60},
+	} {
+		if err := s.AddUsage(id, "2026-11-05", u.category, u.kind, u.subject, u.seconds); err != nil {
+			t.Fatal(err)
+		}
+	}
+	day, err := s.DayUsage(id, "2026-11-05")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []UsageRow{
+		{Day: "2026-11-05", Category: UsageGames, Kind: SubjectProgram, Subject: `c:\games\game.exe`, Seconds: 300},
+		{Day: "2026-11-05", Category: UsageVideoSocial, Kind: SubjectSite, Subject: "youtube.com", Seconds: 660},
+	}
+	if !reflect.DeepEqual(day, want) {
+		t.Errorf("DayUsage = %+v, want %+v", day, want)
+	}
+	period, err := s.PeriodUsage(id, "2026-11-01", "2026-11-06")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := range want {
+		want[i].Day = ""
+	}
+	if !reflect.DeepEqual(period, want) {
+		t.Errorf("PeriodUsage = %+v, want %+v", period, want)
+	}
+	if got, err := s.ProgramSeconds("2026-11-01"); err != nil || !reflect.DeepEqual(got, map[string]int{`c:\games\game.exe`: 300}) {
+		t.Errorf("ProgramSeconds = %v, %v; want только программа (сайта нет)", got, err)
 	}
 }

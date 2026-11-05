@@ -385,6 +385,7 @@ func TestSaveDayAndUsageIsOneTransaction(t *testing.T) {
 	beforeDay, _ := s.LoadDayState(id, day1)
 	err := s.SaveDayAndUsage(id, core.DayState{Day: day1, TotalS: 9999, GamesS: 9999}, []UsageRow{
 		{Category: UsageGames, Kind: SubjectProgram, Subject: pathGame, Seconds: 500},
+		{Category: UsageVideoSocial, Kind: SubjectSite, Subject: "youtube.com", Seconds: 300},
 		{Category: UsageGames, Kind: SubjectProgram, Subject: "boom", Seconds: 1},
 	})
 	if err == nil {
@@ -395,6 +396,9 @@ func TestSaveDayAndUsageIsOneTransaction(t *testing.T) {
 	}
 	if v := rawNull(t, s, `SELECT seconds FROM usage_daily WHERE day = ? AND subject = ?`, day1, pathGame); v.Int64 != 601 {
 		t.Errorf("учёт после отката = %d, want 601", v.Int64)
+	}
+	if v := rawNull(t, s, `SELECT count(*) FROM usage_daily WHERE subject_kind = 'site'`); v.Int64 != 0 {
+		t.Errorf("строк учёта сайтов после отката = %d, want 0 (сайт откатывается вместе с днём)", v.Int64)
 	}
 
 	// Проверка до записи: мусор не пишет ни дня, ни учёта.
@@ -450,9 +454,9 @@ func TestProgramMethodsReturnErrorsWhenStoreClosed(t *testing.T) {
 	}
 }
 
-// Ловит: учёт за день для «Итогов» (D-58) берёт чужого ребёнка, другой день или сайты; не
-// складывает повторные записи; без учёта отдаёт nil вместо пустого списка; порядок не
-// детерминирован (категория, затем путь).
+// Ловит: учёт за день для «Итогов» (D-58) берёт чужого ребёнка или другой день; теряет сайты
+// (M4, S-7: строки сайтов с Kind = site) или их вид; не складывает повторные записи; без учёта
+// отдаёт nil вместо пустого списка; порядок не детерминирован (категория, вид, предмет).
 func TestDayUsage(t *testing.T) {
 	s := openTemp(t)
 	misha := mustChild(t, s, "S-1", "Миша")
@@ -482,6 +486,7 @@ func TestDayUsage(t *testing.T) {
 		{Day: "2026-10-26", Category: UsageGames, Kind: SubjectProgram, Subject: pathGame, Seconds: 660},
 		{Day: "2026-10-26", Category: UsageOther, Kind: SubjectProgram, Subject: pathBrave, Seconds: 30},
 		{Day: "2026-10-26", Category: UsageStudy, Kind: SubjectProgram, Subject: pathWord, Seconds: 45},
+		{Day: "2026-10-26", Category: UsageVideoSocial, Kind: SubjectSite, Subject: "youtube.com", Seconds: 500},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("DayUsage = %+v, want %+v", got, want)
@@ -495,8 +500,8 @@ func TestDayUsage(t *testing.T) {
 }
 
 // Ловит (FB-13, D-61): период тянет день beforeDay (сегодняшний — его ведёт ядро, двойной счёт) или
-// теряет fromDay; суммы чужого ребёнка; учёт сайтов в строках программ; одна программа двумя строками
-// за два дня; пустой период — nil или ошибка; мусорный день принят.
+// теряет fromDay; суммы чужого ребёнка; теряет учёт сайтов (M4, S-7) или путает его с программами; одна
+// программа двумя строками за два дня; пустой период — nil или ошибка; мусорный день принят.
 func TestPeriodDaysAndUsage(t *testing.T) {
 	s := openTemp(t)
 	misha := mustChild(t, s, "S-1", "Миша")
@@ -553,6 +558,7 @@ func TestPeriodDaysAndUsage(t *testing.T) {
 	want := []UsageRow{
 		{Category: UsageGames, Kind: SubjectProgram, Subject: pathGame, Seconds: 2100},
 		{Category: UsageStudy, Kind: SubjectProgram, Subject: pathWord, Seconds: 120},
+		{Category: UsageVideoSocial, Kind: SubjectSite, Subject: "youtube.com", Seconds: 100},
 	}
 	if !reflect.DeepEqual(rows, want) {
 		t.Errorf("PeriodUsage = %+v, want %+v", rows, want)

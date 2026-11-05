@@ -17,6 +17,7 @@ type Child struct {
 	Name         string // имя, которое видит родитель (display_name)
 	BypassDetail string // блокировка за обход (R17): что произошло; пусто — блокировки нет
 	EndMode      string // «Когда время вышло» (R8, end_mode): EndModeLock или EndModeStudyOnly
+	AdultFilter  bool   // список 18+ включён (R14, adult_filter); новому ребёнку — включён
 	CreatedAtMs  int64  // UTC, миллисекунды
 }
 
@@ -45,7 +46,7 @@ func (s *Store) UpsertChild(c Child) (int64, error) {
 
 // ListChildren возвращает детей, отмеченных сейчас (removed_at пуст), по возрастанию id.
 func (s *Store) ListChildren() ([]Child, error) {
-	rows, err := s.db.Query(`SELECT id, windows_sid, display_name, COALESCE(bypass_detail, ''), end_mode, created_at
+	rows, err := s.db.Query(`SELECT id, windows_sid, display_name, COALESCE(bypass_detail, ''), end_mode, adult_filter <> 0, created_at
 		FROM children WHERE removed_at IS NULL ORDER BY id`)
 	if err != nil {
 		return nil, fmt.Errorf("storage: список детей: %w", err)
@@ -54,7 +55,7 @@ func (s *Store) ListChildren() ([]Child, error) {
 	out := []Child{}
 	for rows.Next() {
 		var c Child
-		if err := rows.Scan(&c.ID, &c.SID, &c.Name, &c.BypassDetail, &c.EndMode, &c.CreatedAtMs); err != nil {
+		if err := rows.Scan(&c.ID, &c.SID, &c.Name, &c.BypassDetail, &c.EndMode, &c.AdultFilter, &c.CreatedAtMs); err != nil {
 			return nil, fmt.Errorf("storage: список детей: %w", err)
 		}
 		out = append(out, c)
@@ -92,6 +93,13 @@ func (s *Store) SetEndMode(childID int64, mode string) error {
 	}
 	res, err := s.db.Exec(`UPDATE children SET end_mode = ? WHERE id = ?`, mode, childID)
 	return affectedOne(res, err, "записать режим «Когда время вышло»")
+}
+
+// SetAdultFilter включает или выключает ребёнку список сайтов 18+ («Блокировать сайты 18+», R14,
+// FR-21). Снятие и возврат отметки «детская» выбор не сбрасывают. Нет такого ребёнка — ErrNotFound.
+func (s *Store) SetAdultFilter(childID int64, on bool) error {
+	res, err := s.db.Exec(`UPDATE children SET adult_filter = ? WHERE id = ?`, boolToInt(on), childID)
+	return affectedOne(res, err, "записать переключатель 18+")
 }
 
 // GetEndMode читает режим «Когда время вышло» ребёнка (R8). Нет такого ребёнка: EndModeLock и nil
