@@ -166,6 +166,7 @@ func Run(opts launch.Options) error {
 		procPostMessage.Call(a.host, wmAppRefresh, 0, 0)
 	})
 	a.ctl.SetSoundPlayer(sound.PlayWarning)
+	a.ctl.SetTabActor(winTabs{})
 	a.ctl.SetClockSpeed(a.speed)
 
 	stop := make(chan struct{})

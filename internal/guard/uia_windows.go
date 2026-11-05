@@ -736,6 +736,33 @@ func closeTabButton(r *braveReader, hwnd windows.HWND) error {
 	})
 }
 
+// countTabs — число вкладок (TabItem) окна Brave hwnd обходом вне Document (вкладки-роли страницы не
+// в счёт), не глубже editSearchDepth и не больше editSearchMaxNode узлов. Нет ни одной — ошибка:
+// «не посчитано» (nextClose).
+func countTabs(r *braveReader, hwnd windows.HWND) (int, error) {
+	n := new(int)
+	err := r.th.do(func(u uia) error {
+		root, err := u.fromHandle(hwnd)
+		if err != nil {
+			return err
+		}
+		defer release(root)
+		return walkTree(u, root, editSearchDepth, editSearchMaxNode, func(el comObj, _ int) (bool, bool) {
+			if ct, err := elemControlType(el); err == nil && ct == uiaTabItemControlTypeID {
+				*n++
+			}
+			return false, false
+		})
+	})
+	if err != nil {
+		return 0, err
+	}
+	if *n == 0 {
+		return 0, errUIANotFound
+	}
+	return *n, nil
+}
+
 // selectedTab — выбранная вкладка (TabItem и SelectionItem.IsSelected) в окне root.
 func selectedTab(u uia, root comObj) (comObj, error) {
 	tcond, err := u.intCond(uiaControlTypePropertyID, uiaTabItemControlTypeID)

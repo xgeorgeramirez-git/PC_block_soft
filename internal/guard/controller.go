@@ -72,6 +72,18 @@ type Controller struct {
 	lastFg string
 	// lastDomain — домен вкладки Brave из последнего отправленного снимка (GuardState).
 	lastDomain string
+	// domSet/domText — подмена домена вкладки Brave действием TestDomain (только тестовый режим,
+	// RM4-12): в снимке — если путь переднего плана (после подмены foreground) brave.exe, при
+	// исполнении closeTab — если настоящий передний план Brave.
+	domSet  bool
+	domText string
+	// tabActor — исполнитель закрытия вкладки и окна Brave (SetTabActor; nil — не исполнять);
+	// tabs — лестница закрытия (nextClose); closedTab/closedWay — последняя исполненная команда
+	// (GuardState.ClosedTab, ClosedTabWay).
+	tabActor  TabActor
+	tabs      tabLadder
+	closedTab string
+	closedWay string
 
 	closingMu   sync.Mutex
 	closingDone bool // GuardClosing в этом конце сеанса уже отправлен (или попытка не удалась)
@@ -121,6 +133,15 @@ func (c *Controller) SetSoundPlayer(play func() bool) {
 	c.mu.Unlock()
 }
 
+// SetTabActor задаёт исполнителя закрытия вкладки и окна Brave (RM4-2): страж на Windows —
+// winTabs. Без него команды closeTab и closeBraveWindow не исполняются. Вызывать до первого
+// PollOnce.
+func (c *Controller) SetTabActor(a TabActor) {
+	c.mu.Lock()
+	c.tabActor = a
+	c.mu.Unlock()
+}
+
 // SetClockSpeed запоминает ускорение часов ядра из реестра тестового режима: в тестовом режиме
 // секунды до запретных часов и конца паузы на табло идут в том же темпе, что учёт.
 func (c *Controller) SetClockSpeed(n int) {
@@ -154,6 +175,8 @@ type Commands struct {
 	NoticeMinutes []int                 // «Добавлено N минут»: плашка на 5 с
 	Blocked       []ipc.BlockedPlate    // плашки о закрытых программах (FR-13), по порядку
 	Tests         []ipc.TestGuardAction // действия TestGuard (только тестовый режим)
+	CloseTab      string                // домен последней команды closeTab (RM4-2); «» — нет
+	CloseWindow   bool                  // команда closeBraveWindow: окно Brave без адреса (RM4-1)
 }
 
 // ClassifyCommands раскладывает команды службы; незнакомые виды пропускаются.
@@ -175,6 +198,12 @@ func ClassifyCommands(cmds []ipc.GuardCommand) Commands {
 			if c.Plate != nil {
 				out.Blocked = append(out.Blocked, *c.Plate)
 			}
+		case ipc.GuardCmdCloseTab:
+			if c.Domain != "" {
+				out.CloseTab = c.Domain
+			}
+		case ipc.GuardCmdCloseBraveWindow:
+			out.CloseWindow = true
 		}
 	}
 	return out
@@ -311,6 +340,9 @@ func (c *Controller) PollOnce() PollResult {
 		req.Sample.ForegroundPath = c.fgPath
 	}
 	c.lastFg = req.Sample.ForegroundPath
+	if c.domSet && c.testMode && isBravePath(req.Sample.ForegroundPath) {
+		req.Sample.ForegroundDomain, req.Sample.DomainUnread = c.domText, false
+	}
 	c.lastDomain = req.Sample.ForegroundDomain
 	c.mu.Unlock()
 	var rep ipc.GuardPollReply
@@ -366,13 +398,57 @@ func (c *Controller) PollOnce() PollResult {
 		case t.Action == ipc.TestForeground:
 			// Подмена переднего плана — дело контроллера, не окна: действует со следующего снимка.
 			c.fgSet, c.fgPath = t.Text != "", t.Text
+		case t.Action == ipc.TestDomain:
+			// Подмена домена — как подмена переднего плана: со следующего снимка; текст как есть.
+			c.domSet, c.domText = t.Text != "", t.Text
 		default:
 			c.tests = append(c.tests, t)
 		}
 	}
 	c.mu.Unlock()
 	c.wake()
+	c.runCloses(cmds, now)
 	return PollResult{Commands: cmds}
+}
+
+// runCloses исполняет closeTab и closeBraveWindow из ответа службы (RM4-2, RM4-1) в горутине
+// опроса, после модели и wake (плашка уже видна): перечитывает настоящий передний план (Look),
+// решает по nextClose и закрывает. Подмена TestForeground к исполнению не применяется — Ctrl+W
+// и WM_CLOSE уходят только настоящему окну Brave; подмена TestDomain — только если оно Brave.
+// Ответ без обеих команд сбрасывает лестницу. Look и Close — без c.mu (UIA ждёт до 2 с).
+func (c *Controller) runCloses(cmds Commands, now time.Time) {
+	c.mu.Lock()
+	actor := c.tabActor
+	if cmds.CloseTab == "" && !cmds.CloseWindow {
+		c.tabs = tabLadder{}
+	}
+	ladder := c.tabs
+	domSet, domText, test := c.domSet, c.domText, c.testMode
+	c.mu.Unlock()
+	if actor == nil || (cmds.CloseTab == "" && !cmds.CloseWindow) {
+		return
+	}
+	var look TabLook
+	safely(func() { look = actor.Look() })
+	if domSet && test && look.Brave {
+		look.Domain, look.Unread = domText, false
+	}
+	way, next := nextClose(ladder, cmds.CloseTab, cmds.CloseWindow, look, now)
+	if way == "" {
+		return
+	}
+	err := errors.New("исполнитель упал")
+	safely(func() { err = actor.Close(way, look.Window) })
+	if errors.Is(err, errModifierHeld) {
+		return // шаг не засчитан: следующая команда службы попробует снова
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.tabs = next
+	if err != nil {
+		return
+	}
+	c.closedTab, c.closedWay = next.domain, way
 }
 
 // ensureHello один раз за соединение узнаёт у службы, включён ли тестовый режим. Ошибка не
@@ -816,6 +892,7 @@ func (c *Controller) PushState() {
 	st.UI = c.ui
 	st.ForegroundPath = c.lastFg
 	st.ForegroundDomain = c.lastDomain
+	st.ClosedTab, st.ClosedTabWay = c.closedTab, c.closedWay
 	c.mu.Unlock()
 	if p, ok := lastPanic.Load().(string); ok {
 		st.UI.Panic = p
