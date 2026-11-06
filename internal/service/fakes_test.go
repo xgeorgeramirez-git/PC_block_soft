@@ -1423,11 +1423,12 @@ func (sc *fakeScanner) callCount() int {
 
 // fakeMeta — свойства файлов по пути (издатель, описание, отпечаток) и журнал запросов.
 type fakeMeta struct {
-	mu    sync.Mutex
-	files map[string][3]string
-	asked []string
-	gate  chan struct{} // не nil: чтение ждёт, пока его закроют (медленный сетевой путь)
-	in    chan struct{} // сигнал о входе в чтение
+	mu      sync.Mutex
+	files   map[string][3]string
+	asked   []string
+	gate    chan struct{} // не nil: чтение ждёт, пока его закроют (медленный сетевой путь)
+	in      chan struct{} // сигнал о входе в чтение
+	entered int           // начатые чтения (и ждущие у gate)
 }
 
 // hold — следующие чтения свойств ждут release (проверка, что их ждёт не блокировка службы).
@@ -1457,6 +1458,7 @@ func (m *fakeMeta) set(path, publisher, description, fingerprint string) {
 func (m *fakeMeta) meta(path string) (string, string, string) {
 	m.mu.Lock()
 	gate, in := m.gate, m.in
+	m.entered++
 	m.mu.Unlock()
 	if in != nil {
 		select {
@@ -1472,6 +1474,13 @@ func (m *fakeMeta) meta(path string) (string, string, string) {
 	m.asked = append(m.asked, path)
 	f := m.files[path]
 	return f[0], f[1], f[2]
+}
+
+// enteredCount — сколько чтений свойств начато, включая ждущие у ворот hold.
+func (m *fakeMeta) enteredCount() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.entered
 }
 
 func (m *fakeMeta) askedPaths() []string {
@@ -1666,6 +1675,13 @@ func (w *fakeWatcher) listCount() int {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	return len(w.listAt)
+}
+
+// killTries — сколько вызовов Kill начато, включая ждущие у ворот holdKill.
+func (w *fakeWatcher) killTries() int {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.tries
 }
 
 // holdKill включает задержку Kill до releaseKill.

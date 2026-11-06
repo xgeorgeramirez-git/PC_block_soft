@@ -28,6 +28,9 @@ const (
 	// уточнения (R13, D-65): следующего снимка стража с вводом (раз в секунду) и ручного запуска
 	// того же exe; потом пишет «запускалась сама».
 	launchSettle = 2 * time.Second
+	// killWorkers — сколько Kill одного прохода идут одновременно (B-37, NFR-6): Windows-адаптер
+	// ждёт исчезновения процесса до 300 мс, и по очереди пять закрываемых держали бы проход 1,5 с.
+	killWorkers = 8
 )
 
 // procKey — процесс: PID повторяется, пара (PID, момент создания) — нет (RM3-11).
@@ -192,9 +195,9 @@ func (s *Service) Watch(real time.Time) {
 			pubs[e.norm] = e.pub
 		}
 	}
+	s.killAll(acts)
 	for i := range acts {
 		a := &acts[i]
-		a.killed = s.cfg.Watcher.Kill(a.p)
 		if a.killed && !a.again && a.res.Verdict == programs.VerdictUnknown {
 			pub, descr, _ := s.cfg.FileMeta(a.e.norm)
 			a.publisher, a.descr = programs.ClipName(pub), programs.ClipName(descr)
@@ -209,6 +212,49 @@ func (s *Service) Watch(real time.Time) {
 	s.fpSeen = fps   // категория секунды переднего плана сверяет тот же отпечаток (RM3-12)
 	s.pubSeen = pubs // и того же издателя (RM3-13)
 	s.applyWatch(acts, notes, unreadable, others, real)
+}
+
+// killAll закрывает процессы прохода пулом из killWorkers горутин (B-37) и ждёт все. Каждая
+// горутина пишет только killed своей записи; порядок записей (applyWatch) остаётся порядком acts.
+// Паника Kill доходит до Watch после ожидания (runGuarded пишет её, как раньше).
+func (s *Service) killAll(acts []watchAct) {
+	if len(acts) == 0 {
+		return
+	}
+	var (
+		wg       sync.WaitGroup
+		pmu      sync.Mutex
+		panicked any
+	)
+	next := make(chan int)
+	for range min(killWorkers, len(acts)) {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := range next {
+				func() {
+					defer func() {
+						if p := recover(); p != nil {
+							pmu.Lock()
+							if panicked == nil {
+								panicked = p
+							}
+							pmu.Unlock()
+						}
+					}()
+					acts[i].killed = s.cfg.Watcher.Kill(acts[i].p)
+				}()
+			}
+		}()
+	}
+	for i := range acts {
+		next <- i
+	}
+	close(next)
+	wg.Wait()
+	if panicked != nil {
+		panic(panicked)
+	}
 }
 
 // keepSession помечает виденными процессы сеанса, список которого не прочитался: память о них
