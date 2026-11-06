@@ -1,6 +1,8 @@
 import { test, expect, type Page } from "@playwright/test";
 import { mockScript } from "./mockBundle";
 import type { MockChild, MockOptions } from "../src/__mocks__/backend";
+import { DEFAULT_VIDEO_SITES } from "../src/lib/sites";
+import type { SiteDTO } from "../src/types";
 
 // Окно родителя в браузере с подменной программой (src/__mocks__/backend.ts).
 // Снимки лежат в frontend/screens/ и уходят в ветку screenshots.
@@ -1853,4 +1855,138 @@ test("s12 сегодня с играми", async ({ page }) => {
   expect(g.top).toBeGreaterThanOrEqual(used.bottom - 0.5);
   await noHorizontalScroll(page);
   await page.screenshot({ path: `${SCREENS}/s12-today-games.png`, fullPage: true });
+});
+
+// --- M4: экран «Сайты» (FR-21, 8.3.5, T8) ------------------------------------------------
+
+/** Домен в 120 знаков: переносится в строке, а не съедает «Удалить» (PL-26). */
+const LONG_SITE = "ochen-dlinnyy-poddomen-dlya-proverki-perenosa.eshche-odin-dlinnyy-uroven-domena-v-spiske.zapreshchennyh-saytov-mama.test";
+
+const siteSet = (): SiteDTO[] => [
+  ...["example.com", "casino.example", LONG_SITE, "ads.example"].map((domain) => ({ domain, kind: "blocked" as const })),
+  ...["uchi.ru", "resh.edu.ru"].map((domain) => ({ domain, kind: "study" as const })),
+  ...DEFAULT_VIDEO_SITES.map((domain) => ({ domain, kind: "video_social" as const })),
+];
+
+/** Дети снимков: у Даши «18+» выключено. */
+const sitesFamily = () => family().map((c) => (c.childId === 2 ? { ...c, adultFilter: false } : c));
+
+async function openSites(page: Page, options: MockOptions = {}) {
+  await mockProgram(page, { mode: "parent", sessionActive: true, children: sitesFamily(), sites: siteSet(), ...options });
+  await page.goto("/");
+  await page.getByRole("navigation", { name: "Разделы" }).getByRole("button", { name: "Сайты", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Сайты", level: 2 })).toBeVisible();
+  await expect(page.getByRole("tablist", { name: "Списки сайтов" })).toBeVisible();
+}
+
+const sitesTab = (page: Page, title: string) =>
+  page.getByRole("tablist", { name: "Списки сайтов" }).getByRole("tab", { name: new RegExp(`^${title} \\d+$`) });
+
+/** Домены целиком внутри строк, кнопки «Удалить» в одну колонку справа. */
+async function siteRowsFit(page: Page) {
+  const bad = await page.evaluate(() => {
+    const out: string[] = [];
+    const list = document.querySelector<HTMLElement>(".sites-list")?.getBoundingClientRect();
+    const rights: number[] = [];
+    for (const row of Array.from(document.querySelectorAll<HTMLElement>(".sites-row"))) {
+      const d = row.querySelector<HTMLElement>(".sites-domain")!.getBoundingClientRect();
+      const b = row.querySelector<HTMLElement>("button")!.getBoundingClientRect();
+      if (!list || d.right > list.right + 0.5 || d.right > b.left + 0.5) out.push(`домен вылезает: ${row.dataset.domain}`);
+      if (d.width < 100) out.push(`домен сжат до ${d.width} px: ${row.dataset.domain}`);
+      if (b.height > 48) out.push(`«Удалить» в две строки: ${row.dataset.domain}`);
+      rights.push(b.right);
+    }
+    if (rights.some((r) => Math.abs(r - rights[0]) > 0.5)) out.push(`«Удалить» не в одну колонку: ${rights.join(", ")}`);
+    return out;
+  });
+  expect(bad).toEqual([]);
+}
+
+// m4-sites — «Сайты» (8.3.5): переключатели «18+» по детям, под ними мелко источник списка;
+// вкладки со счётчиками, «4 из 1000», длинный домен переносится.
+test("m4 сайты: списки и 18+", async ({ page }) => {
+  await page.setViewportSize({ width: 1200, height: 820 });
+  await openSites(page);
+  const group = page.getByRole("group", { name: "Блокировать сайты 18+" });
+  await expect(group.getByRole("checkbox", { name: "Миша", exact: true })).toBeChecked();
+  await expect(group.getByRole("checkbox", { name: "Даша", exact: true })).not.toBeChecked();
+  const source = page.getByText("Список сайтов для взрослых: UT1, Университет Тулуза Капитоль, лицензия CC BY-SA 4.0");
+  await expect(source).toBeVisible();
+  expect((await boxOf(source)).top, "подпись источника не под переключателями").toBeGreaterThanOrEqual((await boxOf(group)).bottom - 0.5);
+  await expect(page.getByRole("tablist", { name: "Списки сайтов" }).getByRole("tab")).toHaveText([
+    "Запрещённые 4",
+    "Учёба 2",
+    "Видео и соцсети 9",
+  ]);
+  await expect(page.getByText("4 из 1000", { exact: true })).toBeVisible();
+  await expect(page.getByRole("list", { name: "Запрещённые: сайты" }).getByText(LONG_SITE, { exact: true })).toBeVisible();
+  await siteRowsFit(page);
+  await noHorizontalScroll(page);
+  await wholePage(page);
+  await page.screenshot({ path: `${SCREENS}/m4-sites.png`, fullPage: true });
+});
+
+// m4-sites-dark — тот же экран в тёмной теме Windows.
+test("m4 сайты: тёмная тема", async ({ page }) => {
+  await page.emulateMedia({ colorScheme: "dark" });
+  await page.setViewportSize({ width: 1200, height: 820 });
+  await openSites(page);
+  await siteRowsFit(page);
+  await wholePage(page);
+  await page.screenshot({ path: `${SCREENS}/m4-sites-dark.png`, fullPage: true });
+});
+
+// m4-sites-960 — наименьшее окно 960 x 620: без прокрутки вбок, поле и «Добавить» в одну строку.
+test("m4 сайты: узкое окно", async ({ page }) => {
+  await page.setViewportSize({ width: 960, height: 620 });
+  await openSites(page);
+  const input = await boxOf(page.getByRole("textbox", { name: "Добавить сайт" }));
+  const button = await boxOf(page.getByRole("button", { name: "Добавить", exact: true }));
+  expect(Math.abs(input.top - button.top), "поле и «Добавить» не в одну строку").toBeLessThanOrEqual(0.5);
+  expect(button.left).toBeGreaterThanOrEqual(input.right - 0.5);
+  await siteRowsFit(page);
+  await noHorizontalScroll(page);
+  await page.screenshot({ path: `${SCREENS}/m4-sites-960.png`, fullPage: true });
+});
+
+// m4-sites-error, m4-sites-undo — ошибка у поля простыми словами; удаление с «Отменить» на 10 с;
+// после прокрутки к полю шапка на месте (PL-25).
+test("m4 сайты: ошибка у поля и отмена удаления", async ({ page }) => {
+  await openSites(page);
+  const field = page.getByRole("textbox", { name: "Добавить сайт" });
+  await field.fill("просто текст");
+  await field.press("Enter");
+  await expect(page.getByText("Это не похоже на адрес сайта", { exact: true })).toBeVisible();
+  await expect(field).toHaveAttribute("aria-invalid", "true");
+  await expect(field).toBeFocused();
+  await page.screenshot({ path: `${SCREENS}/m4-sites-error.png`, fullPage: true });
+
+  await page.getByRole("button", { name: "Удалить example.com", exact: true }).click();
+  await expect(page.getByText("Удалён example.com", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Отменить", exact: true })).toBeVisible();
+  await expect(sitesTab(page, "Запрещённые")).toHaveText("Запрещённые 3");
+  await page.screenshot({ path: `${SCREENS}/m4-sites-undo.png`, fullPage: true });
+
+  await field.evaluate((el) => el.scrollIntoView({ block: "start" }));
+  const state = await page.evaluate(() => ({
+    docTop: document.scrollingElement!.scrollTop,
+    barTop: document.querySelector("header.topbar")!.getBoundingClientRect().top,
+  }));
+  expect(state).toEqual({ docTop: 0, barTop: 0 });
+  await noHorizontalScroll(page);
+});
+
+// m4-sites-video — вкладка «Видео и соцсети» со стартовым набором из 9 доменов (R14).
+test("m4 сайты: вкладка «Видео и соцсети»", async ({ page }) => {
+  await page.setViewportSize({ width: 1200, height: 820 });
+  await openSites(page);
+  await sitesTab(page, "Видео и соцсети").click();
+  await expect(sitesTab(page, "Видео и соцсети")).toHaveAttribute("aria-selected", "true");
+  const list = page.getByRole("list", { name: "Видео и соцсети: сайты" });
+  await expect(list.getByRole("listitem")).toHaveCount(9);
+  await expect(page.getByText(/из 1000/)).toHaveCount(0);
+  await siteRowsFit(page);
+  await noHorizontalScroll(page);
+  await wholePage(page);
+  await page.screenshot({ path: `${SCREENS}/m4-sites-video.png`, fullPage: true });
 });
