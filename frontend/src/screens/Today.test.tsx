@@ -66,6 +66,33 @@ describe("Today: карточка ребёнка", () => {
     expect(used.compareDocumentPosition(games) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
+  // ТЗ 8.3.2 п.3, R6: строка видео от службы (card.videoText) под строкой игр.
+  it("«Видео 10 мин из 20 мин» под строкой игр", async () => {
+    const limits = [1, 2, 3, 4, 5, 6, 7].map((weekday) => ({
+      weekday,
+      totalMin: 120,
+      unlimited: false,
+      gamesMin: 60,
+      gamesUnlimited: false,
+      videoMin: 20,
+      videoUnlimited: false,
+    }));
+    setup({ children: [mockChild({ limits, gamesUsedS: 2400, videoUsedS: 600 })] });
+    const misha = await screen.findByRole("article", { name: "Миша" });
+    const games = within(misha).getByText("Игры 40 мин из 1 ч");
+    const video = within(misha).getByText("Видео 10 мин из 20 мин");
+    expect(games.compareDocumentPosition(video) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  // Ловит: у ребёнка без лимита видео карточка пишет «Видео 0 мин из 0 мин».
+  it("без лимита видео строки видео нет", async () => {
+    const limits = [1, 2, 3, 4, 5, 6, 7].map((weekday) => ({ weekday, totalMin: 120, unlimited: false, gamesMin: 60, gamesUnlimited: false }));
+    setup({ children: [mockChild({ limits, videoUsedS: 600 })] });
+    const misha = await screen.findByRole("article", { name: "Миша" });
+    expect(within(misha).getByText("Игры 0 мин из 1 ч")).toBeTruthy();
+    expect(within(misha).queryByText(/^Видео /)).toBeNull();
+  });
+
   // Ловит: у ребёнка без лимита игр карточка пишет «Игры 0 мин из 0 мин».
   it("без лимита игр строки игр нет", async () => {
     const limits = [1, 2, 3, 4, 5, 6, 7].map((weekday) => ({ weekday, totalMin: 120, unlimited: false }));

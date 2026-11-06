@@ -190,7 +190,7 @@ describe("todayRows: остаток, лимиты, запретные часы, 
     expect(rows({ bonusBalance: 45, forbiddenNote: "Сегодня нельзя с 21:00 до 07:00" })).toEqual({
       "Осталось всего": "1 ч 25 мин",
       "Игры": "Без отдельного лимита",
-      "Видео и соцсети": "Пока не считается",
+      "Видео и соцсети": "Без отдельного лимита",
       "Лимит дня": "2 ч",
       "Запретные часы": "Сегодня нельзя с 21:00 до 07:00",
       "Копилка": "45 мин",
@@ -247,6 +247,25 @@ describe("todayRows: остаток, лимиты, запретные часы, 
     const r = rows({ lock: "rest", gamesUnlimited: false, gamesLimitS: 3600, gamesRemainingS: 1200 });
     expect(r["Осталось всего"]).toBe("1 ч 25 мин");
     expect(r["Игры"]).toBe("Осталось 20 мин из 1 ч");
+  });
+
+  // R6, Review Focus плана п. 9: остаток видео тот же, что в подсказке значка «Видео: 10 мин».
+  it("видео с лимитом: остаток из ответа службы и лимит видео дня", () => {
+    const v = { videoUnlimited: false, videoLimitS: 1200, videoRemainingS: 590 };
+    expect(rows(v)["Видео и соцсети"]).toBe("Осталось 10 мин из 20 мин");
+    expect(rows({ ...v, lock: "rest" })["Видео и соцсети"]).toBe("Осталось 10 мин из 20 мин");
+    expect(rows({ ...v, status: "timeUp", lock: "timeUp" })["Видео и соцсети"]).toBe("Осталось 0 мин из 20 мин");
+    expect(rows({ ...v, studyOnly: true })["Видео и соцсети"]).toBe("Осталось 0 мин из 20 мин");
+    expect(rows({ ...v, status: "admin" })["Видео и соцсети"]).toBe("Не действует");
+    expect(rows({ ...v, status: "safe" })["Видео и соцсети"]).toBe("Не действует");
+  });
+
+  // Ловит: «лимит 0» без закрытия видео показан «Сегодня нельзя» (у службы это «лимита нет», пример GetToday).
+  it("видео: лимит 0 - «нельзя» только при закрытом видео; нет полей - без отдельного лимита", () => {
+    expect(rows({ videoUnlimited: false, videoLimitS: 0, closeVideo: true })["Видео и соцсети"]).toBe("Сегодня нельзя");
+    expect(rows({ videoUnlimited: false, videoLimitS: 0, closeVideo: false })["Видео и соцсети"]).toBe("Без отдельного лимита");
+    expect(rows({ videoUnlimited: true, videoLimitS: 1200, videoRemainingS: 600 })["Видео и соцсети"]).toBe("Без отдельного лимита");
+    expect(rows({})["Видео и соцсети"]).toBe("Без отдельного лимита");
   });
 
   it("запретные часы сейчас: остаток не показывается как «0 мин»", () => {

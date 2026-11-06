@@ -199,6 +199,34 @@ export function gamesLeftText(s: ChildStatus): string {
   return `Осталось ${formatDuration(left)} из ${formatLimit(Math.round(s.gamesLimitS / 60))}`;
 }
 
+/**
+ * Есть ли сегодня лимит «Видео и соцсетей» (R6) - то же правило, что у службы (hasVideoLimit,
+ * internal/ipc/status.go): нет поля videoUnlimited или лимит 0 без закрытия видео - лимита нет.
+ */
+export function hasVideoLimit(s: ChildStatus): boolean {
+  return s.videoUnlimited === false && ((s.videoLimitS ?? 0) > 0 || s.closeVideo === true);
+}
+
+/**
+ * Строка «Видео и соцсети» в «Сколько осталось» (R6): как «Игры» - остаток из ответа службы, как в
+ * подсказке значка («Видео: 20 мин»), и лимит видео дня с доп. временем. Время вышло или открыта только
+ * учёба - 0.
+ */
+export function videoLeftText(s: ChildStatus): string {
+  if (s.status === "admin" || s.status === "safe") {
+    return "Не действует";
+  }
+  if (!hasVideoLimit(s)) {
+    return "Без отдельного лимита";
+  }
+  const limitS = s.videoLimitS ?? 0;
+  if (limitS <= 0) {
+    return "Сегодня нельзя";
+  }
+  const left = timeOpen(s) && !s.studyOnly ? upToMinute(s.videoRemainingS ?? 0) : 0;
+  return `Осталось ${formatDuration(left)} из ${formatLimit(Math.round(limitS / 60))}`;
+}
+
 /** «Мои правила» (R21): дни недели для таблицы и общие правила (лимит игр, «Когда время вышло») строками. */
 export function splitRules(rules: MyRule[]): { days: MyRule[]; general: string[] } {
   return {
@@ -235,7 +263,7 @@ export function todayRows(s: ChildStatus): TodayRow[] {
   return [
     { label: "Осталось всего", value: left },
     { label: "Игры", value: gamesLeftText(s) },
-    { label: "Видео и соцсети", value: NOT_COUNTED },
+    { label: "Видео и соцсети", value: videoLeftText(s) },
     { label: "Лимит дня", value: limit },
     { label: "Запретные часы", value: s.forbiddenNote || "Сегодня запретных часов нет" },
     { label: "Копилка", value: formatLimit(s.bonusBalance) },

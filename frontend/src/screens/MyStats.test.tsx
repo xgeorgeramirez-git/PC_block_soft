@@ -431,6 +431,18 @@ describe("MyStats: Мои правила", () => {
     const general = within(box).getByRole("list", { name: "Общие правила" });
     expect(within(general).getAllByRole("listitem").map((li) => li.textContent)).toEqual([
       "Игры: пн до 1 ч, ср нельзя, сб до 2 ч",
+      "Видео и соцсети: пн до 1 ч, ср нельзя",
+      "Когда время вышло: экран блокировки",
+    ]);
+  });
+
+  it("одинаковый лимит видео все 7 дней - «до 30 мин в день»", async () => {
+    const limits = [1, 2, 3, 4, 5, 6, 7].map((weekday) => ({ weekday, totalMin: 120, unlimited: false, videoMin: 30, videoUnlimited: false }));
+    setup({ children: [mockChild({ limits })] });
+    const box = await screen.findByRole("region", { name: "Мои правила" });
+    const general = within(box).getByRole("list", { name: "Общие правила" });
+    expect(within(general).getAllByRole("listitem").map((li) => li.textContent)).toEqual([
+      "Видео и соцсети: до 30 мин в день",
       "Когда время вышло: экран блокировки",
     ]);
   });
@@ -603,6 +615,22 @@ describe("MyStats: «Сегодня» (D-53)", () => {
     expect(tooltip.split("\n")[1]).toBe("Игры: 20 мин");
   });
 
+  // Review Focus плана п. 9: остаток видео в окне = подсказка значка «Видео: 1 ч 00 мин».
+  it("остаток видео тот же, что в подсказке значка", async () => {
+    setup({ children: [mockChild({ videoUsedS: 1200 })] });
+    const box = await screen.findByRole("region", { name: "Сколько осталось" });
+    const video = within(box).getByText("Видео и соцсети").closest("div")?.querySelector("dd")?.textContent;
+    expect(video).toBe("Осталось 40 мин из 1 ч");
+    const tooltip = (await myTodayStatus()).tooltip;
+    expect(tooltip.split("\n")[2]).toBe("Видео: 40 мин");
+  });
+
+  it("подсказка значка по умолчанию: видео 1 ч 00 мин третьей строкой", async () => {
+    setup();
+    await screen.findByRole("region", { name: "Сколько осталось" });
+    expect((await myTodayStatus()).tooltip.split("\n")[2]).toBe("Видео: 1 ч 00 мин");
+  });
+
   // Ловит: на «Сегодня» нет остатка общего времени, игр, «Видео и соцсетей», лимита, запретных часов или копилки.
   it("остатки, лимит дня, запретные часы и копилка", async () => {
     setup({ children: [mockChild({ bonusBalance: 45, schedule: MONDAY_NIGHT })] });
@@ -613,7 +641,7 @@ describe("MyStats: «Сегодня» (D-53)", () => {
     expect(rows).toEqual({
       "Осталось всего": "1 ч 25 мин",
       "Игры": "Осталось 1 ч 00 мин из 1 ч",
-      "Видео и соцсети": "Пока не считается",
+      "Видео и соцсети": "Осталось 1 ч 00 мин из 1 ч",
       "Лимит дня": "2 ч",
       "Запретные часы": "Сегодня нельзя с 21:00 до 07:00",
       "Копилка": "45 мин",

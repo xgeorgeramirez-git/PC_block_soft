@@ -77,6 +77,8 @@ export interface MockChild {
   gamesUsedS?: number;
   /** Учёба за сегодня, секунды (R3); в usedS не входит. */
   studyUsedS?: number;
+  /** «Видео и соцсети» за сегодня, секунды (R6); входят и в usedS. */
+  videoUsedS?: number;
   /**
    * Время программ за сегодня для вкладок «Итогов» (D-58), как отдаёт служба: скрытых и запрещённых нет, время
    * без программы - строка «Остальное время» без пути. Нет - пустой список.
@@ -100,6 +102,8 @@ export interface MockDay {
   totalS?: number;
   gamesS?: number;
   studyS?: number;
+  /** «Видео и соцсети», с (R6); входят и в totalS. */
+  videoS?: number;
   extraMin?: number;
   bonusSpentMin?: number;
   programs?: ProgramTime[];
@@ -347,11 +351,33 @@ function gamesOf(child: MockChild, nowMs: number) {
   return { gamesRemainingS: Math.max(0, gamesLimitS - (child.gamesUsedS ?? 0)), gamesLimitS, gamesUnlimited: false };
 }
 
+/**
+ * Остаток и лимит «Видео и соцсетей», как их считает ядро (R6): нет лимита видео - всё по нулям,
+ * лимит с доп. временем; закрыто, когда лимит есть и остатка нет.
+ */
+function videoOf(child: MockChild, nowMs: number) {
+  const limit = todayLimit(child, nowMs);
+  const raw = limitsWithGames(child.limits)[limit.weekday - 1];
+  if (raw.videoUnlimited ?? true) {
+    return { videoRemainingS: 0, videoLimitS: 0, videoUnlimited: true, closeVideo: false };
+  }
+  const videoLimitS = Math.max(0, ((raw.videoMin ?? 0) + child.extraMin) * 60);
+  const videoRemainingS = Math.max(0, videoLimitS - (child.videoUsedS ?? 0));
+  return { videoRemainingS, videoLimitS, videoUnlimited: false, closeVideo: videoRemainingS === 0 };
+}
+
+/** Лимит видео есть (как hasVideoLimit службы): у админа и без лимита - нет. */
+function videoLimited(v: ReturnType<typeof videoOf>): boolean {
+  return !v.videoUnlimited && (v.videoLimitS > 0 || v.closeVideo);
+}
+
 function statusCore(child: MockChild, nowMs: number): ChildStatus {
   const games = gamesOf(child, nowMs);
+  const video = videoOf(child, nowMs);
   const endMode: EndMode = child.endMode ?? "lock";
   const base = {
     ...games,
+    ...video,
     endMode,
     closeGames: !games.gamesUnlimited && games.gamesRemainingS === 0,
     studyOnly: false,
@@ -383,6 +409,10 @@ function statusCore(child: MockChild, nowMs: number): ChildStatus {
       gamesLimitS: 0,
       gamesUnlimited: true,
       closeGames: false,
+      videoRemainingS: 0,
+      videoLimitS: 0,
+      videoUnlimited: true,
+      closeVideo: false,
     };
   }
   const limit = todayLimit(child, nowMs);
@@ -456,9 +486,12 @@ function statusCore(child: MockChild, nowMs: number): ChildStatus {
     status: low ? "low" : "ok",
     statusText: low ? `Осталось ${left}` : "Можно",
     label: String(Math.floor(remainingS / 60)),
-    tooltip: games.gamesUnlimited
-      ? `Осталось ${left}`
-      : `Осталось ${left}\nИгры: ${formatDuration(Math.ceil(games.gamesRemainingS / 60) * 60)}`,
+    // Подсказка значка как у службы (status.go): остаток, затем игры и видео, если у них есть лимит.
+    tooltip: [
+      `Осталось ${left}`,
+      ...(games.gamesUnlimited ? [] : [`Игры: ${formatDuration(Math.ceil(games.gamesRemainingS / 60) * 60)}`]),
+      ...(videoLimited(video) ? [`Видео: ${formatDuration(Math.ceil(video.videoRemainingS / 60) * 60)}`] : []),
+    ].join("\n"),
     summary: `Сегодня осталось ${left} из ${formatLimit(limitMin)}`,
     lock: "none",
   };
@@ -476,7 +509,15 @@ function cardOf(child: MockChild, nowMs: number, pendingPrograms = 0): TodayCard
     noForbiddenToday: Boolean(child.noForbiddenToday),
     gamesText: gamesTextOf(child, nowMs),
     pendingPrograms,
+    videoText: videoTextOf(child, nowMs),
   };
+}
+
+/** «Видео 10 мин из 20 мин» (8.3.2 п.3), как ipc.VideoCardText; без лимита видео дня - пусто. */
+function videoTextOf(child: MockChild, nowMs: number): string {
+  const v = videoOf(child, nowMs);
+  if (v.videoUnlimited) return "";
+  return `Видео ${formatDuration(child.videoUsedS ?? 0)} из ${formatLimit(v.videoLimitS / 60)}`;
 }
 
 /** «Игры 40 мин из 1 ч» (8.3.2 п.3), как ipc.GamesCardText; без лимита игр - пусто. */
@@ -493,9 +534,12 @@ function myRules(child: MockChild): MyRule[] {
     day: weekdayShort(l.weekday),
     text: l.unlimited ? "Без лимита" : l.totalMin === 0 ? "Нельзя" : formatLimit(l.totalMin),
   }));
-  // Общие правила после дней (R21), как у службы: лимит игр и «Когда время вышло».
-  const games = gamesRuleText(limitsWithGames(child.limits));
+  // Общие правила после дней (R21), как у службы: лимит игр, лимит видео и «Когда время вышло».
+  const limits = limitsWithGames(child.limits);
+  const games = catRuleText(limits, "Игры", (l) => (l.gamesUnlimited ? null : (l.gamesMin ?? 0)));
   if (games) days.push({ weekday: 0, day: "", text: games });
+  const video = catRuleText(limits, "Видео и соцсети", (l) => (l.videoUnlimited ? null : (l.videoMin ?? 0)));
+  if (video) days.push({ weekday: 0, day: "", text: video });
   days.push({
     weekday: 0,
     day: "",
@@ -504,16 +548,22 @@ function myRules(child: MockChild): MyRule[] {
   return days;
 }
 
-/** «Игры: до 1 ч в день» / «Игры: пн до 1 ч, ср нельзя» (как gamesRuleText службы). */
-function gamesRuleText(limits: WeekdayLimit[]): string {
+/**
+ * «Игры: до 1 ч в день» / «Видео и соцсети: пн до 1 ч, ср нельзя» (как catRuleText службы). pick - минуты
+ * лимита категории дня, null - без отдельного лимита.
+ */
+function catRuleText(limits: WeekdayLimit[], title: string, pick: (l: WeekdayLimit) => number | null): string {
   const word = (min: number) => (min === 0 ? "нельзя" : `до ${formatLimit(min)}`);
-  const limited = limits.filter((l) => !l.gamesUnlimited);
+  const limited = limits.flatMap((l) => {
+    const min = pick(l);
+    return min === null ? [] : [{ weekday: l.weekday, min }];
+  });
   if (!limited.length) return "";
-  const first = limited[0].gamesMin ?? 0;
-  if (limited.length === 7 && limited.every((l) => (l.gamesMin ?? 0) === first)) {
-    return first === 0 ? "Игры: нельзя" : `Игры: ${word(first)} в день`;
+  const first = limited[0].min;
+  if (limited.length === 7 && limited.every((l) => l.min === first)) {
+    return first === 0 ? `${title}: нельзя` : `${title}: ${word(first)} в день`;
   }
-  return `Игры: ${limited.map((l) => `${weekdayShort(l.weekday)} ${word(l.gamesMin ?? 0)}`).join(", ")}`;
+  return `${title}: ${limited.map((l) => `${weekdayShort(l.weekday)} ${word(l.min)}`).join(", ")}`;
 }
 
 /** Первый день периода по местному времени момента nowMs, как служба (periodFrom); неизвестный - "". */

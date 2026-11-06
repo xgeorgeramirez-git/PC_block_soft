@@ -307,9 +307,28 @@ describe("ребёнок о себе: MyToday, FirstRunSeen, Finish", () => {
       ["сб", "4 ч"],
       ["вс", "Без лимита"],
       ["", "Игры: пн до 1 ч, ср нельзя, сб до 2 ч"],
+      ["", "Видео и соцсети: пн до 1 ч, ср нельзя"],
       ["", "Когда время вышло: экран блокировки"],
     ]);
-    expect(mine.rules.map((r) => r.weekday)).toEqual([1, 2, 3, 4, 5, 6, 7, 0, 0]);
+    expect(mine.rules.map((r) => r.weekday)).toEqual([1, 2, 3, 4, 5, 6, 7, 0, 0, 0]);
+  });
+
+  // Ловит: подмена считает видео не как служба (остаток, закрытие, подсказка значка, строка карточки).
+  it("видео: остаток с доп. временем, закрытие при нуле, подсказка и строка карточки", () => {
+    const st = statusOf(mockChild({ videoUsedS: 600, extraMin: 10, gamesUsedS: 0 }), Date.now());
+    expect(st).toMatchObject({ videoUnlimited: false, videoLimitS: 4200, videoRemainingS: 3600, closeVideo: false });
+    expect(st.tooltip).toBe("Осталось 1 ч 35 мин\nИгры: 1 ч 10 мин\nВидео: 1 ч 00 мин");
+    const used = statusOf(mockChild({ videoUsedS: 3600 }), Date.now());
+    expect(used).toMatchObject({ videoRemainingS: 0, closeVideo: true });
+    const free = statusOf(mockChild({ limits: [{ weekday: 1, totalMin: 120, unlimited: false }] }), Date.now());
+    expect(free).toMatchObject({ videoUnlimited: true, videoLimitS: 0, closeVideo: false });
+    expect(free.tooltip).toBe("Осталось 1 ч 25 мин");
+    expect(statusOf(mockChild({ admin: true }), Date.now())).toMatchObject({ videoUnlimited: true, closeVideo: false });
+  });
+
+  it("GetToday: строка видео как ipc.VideoCardText", async () => {
+    installBackend({ sessionActive: true, children: [mockChild({ videoUsedS: 600 })] });
+    expect((await api.getToday()).children[0].videoText).toBe("Видео 10 мин из 1 ч");
   });
 
   it("MyToday: другой ребёнок видит только себя", async () => {
