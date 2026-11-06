@@ -672,3 +672,39 @@ func TestCategoryNoChangeNoUndo(t *testing.T) {
 		t.Errorf("записей о решении %d (%q), want 3", len(got), got)
 	}
 }
+
+// Ловит (B-36, P2-R4): предел снимка программ (scanMaxEntries = 1000) не влезает в кадр канала —
+// «Программы» на большом компьютере открывались бы ошибкой кадра. 1000 программ с длинными
+// путями, своими названиями, названиями из файла и издателями: ответ ListPrograms целиком, как его
+// пишет канал, не больше 3/4 ipc.MaxFrame.
+func TestListProgramsFitsFrame(t *testing.T) {
+	h := newProgHarness(t)
+	long := func(r rune, n int) string { return strings.Repeat(string(r), n) }
+	for i := range 1000 {
+		path := fmt.Sprintf(`c:\program files\%s%03d\%s.exe`, long('f', 57), i, long('n', 30))
+		if err := h.store.UpsertProgram(Program{Path: path, Name: long('Я', 60), CustomName: long('Ж', 60),
+			Publisher: long('Щ', 60), Category: "other", Source: "snapshot"}); err != nil {
+			t.Fatal(err)
+		}
+		h.store.AddUsage(h.misha, "2026-10-19", "other", "program", path, 3600+i)
+	}
+	rep := h.do(adminPeer(), h.tok, ipc.CmdListPrograms, nil)
+	var got ipc.ProgramsReply
+	if err := rep.Into(&got); err != nil || !rep.OK {
+		t.Fatalf("ListPrograms: ok %v, ошибка %q, нагрузка %v", rep.OK, rep.Error, err)
+	}
+	timed := 0
+	for _, p := range got.Programs {
+		if p.WeekS > 0 && p.FileName != "" {
+			timed++
+		}
+	}
+	if timed != 1000 {
+		t.Fatalf("программ в ответе %d, из них с временем и своим названием %d; ждали 1000", len(got.Programs), timed)
+	}
+	size, limit := len(ipc.EncodeReply(rep)), ipc.MaxFrame*3/4
+	if size >= limit {
+		t.Errorf("ответ ListPrograms на 1000 программ — %d байт; ждали < %d (3/4 кадра %d)", size, limit, ipc.MaxFrame)
+	}
+	t.Logf("ответ ListPrograms на 1000 программ — %d байт из %d (кадр %d)", size, limit, ipc.MaxFrame)
+}

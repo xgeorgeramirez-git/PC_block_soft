@@ -72,6 +72,8 @@ func openHost() (*host, error) {
 		roots.Store = tm.StoreRoot // тестовый режим: поддельные пакеты магазина внутри WatchDir (RM4-11)
 	}
 	meta := winMeta(roots.StoreDir()) // снимок и служба видят одну папку пакетов (RM4-11)
+	sc := newWinScanner(folders, roots.StoreDir(), meta)
+	sc.logf = logf // обрезка снимка по пределу — в журнал работы (B-36)
 	s, err := service.New(service.Config{
 		Store:      res.Store,
 		Hasher:     hasher{},
@@ -88,7 +90,7 @@ func openHost() (*host, error) {
 		Recovered:  res.Recovered,
 		BrokenCopy: res.BrokenCopy,
 		Logf:       logf,
-		Scanner:    newWinScanner(folders, roots.StoreDir(), meta),
+		Scanner:    sc,
 		FileMeta:   meta,
 		Roots:      roots,
 		Watcher:    newProcessWatcher(),
