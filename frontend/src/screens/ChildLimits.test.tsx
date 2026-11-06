@@ -40,6 +40,9 @@ const unlimited = (day: string) => screen.getByLabelText(`Без лимита, $
 const gHours = (day: string) => screen.getByLabelText(`Часы игр, ${day}`) as HTMLInputElement;
 const gMinutes = (day: string) => screen.getByLabelText(`Минуты игр, ${day}`) as HTMLInputElement;
 const gUnlimited = (day: string) => screen.getByLabelText(`Игры без лимита, ${day}`) as HTMLInputElement;
+const vHours = (day: string) => screen.getByLabelText(`Часы видео, ${day}`) as HTMLInputElement;
+const vMinutes = (day: string) => screen.getByLabelText(`Минуты видео, ${day}`) as HTMLInputElement;
+const vUnlimited = (day: string) => screen.getByLabelText(`Видео без лимита, ${day}`) as HTMLInputElement;
 const sentLimits = () => mock.calls.filter((c) => c.command === "SaveLimits").at(-1)?.payload;
 
 async function ready() {
@@ -61,7 +64,7 @@ describe("ChildLimits: таблица", () => {
     expect(screen.getAllByRole("row")).toHaveLength(8); // шапка и 7 дней
     expect(screen.getByRole("columnheader", { name: "Общее" })).toBeTruthy();
     expect(screen.getByRole("columnheader", { name: "Игры" })).toBeTruthy();
-    expect(screen.queryByRole("columnheader", { name: /Видео/ })).toBeNull();
+    expect(screen.getAllByRole("columnheader").map((h) => h.textContent)).toEqual(["День", "Общее", "Игры", "Видео и соцсети"]);
     expect(hours("понедельник").value).toBe("2");
     expect(minutes("понедельник").value).toBe("0");
     expect(hours("среда").value).toBe("1");
@@ -385,16 +388,27 @@ describe("ChildLimits: столбец «Игры» (FR-16)", () => {
   it("под таблицей пояснение про игры и учёбу", async () => {
     setup();
     await ready();
-    expect(screen.getByText("Время игр входит в общее. Учёба в общее время не входит")).toBeTruthy();
+    expect(screen.getByText("Время игр и видео входит в общее. Учёба в общее время не входит")).toBeTruthy();
+    expect(screen.queryByText("Время игр входит в общее. Учёба в общее время не входит")).toBeNull();
     expect(screen.queryByText(/Школа и учёба тоже считаются/)).toBeNull();
   });
 
   // Review Focus 1: по строке табуляция идёт час → минуты → «Без лимита», общее, затем игры.
-  it("табуляция по строке: общее время, затем игры, затем следующий день", async () => {
+  it("табуляция по строке: общее время, затем игры, видео, затем следующий день", async () => {
     const user = setup();
     await ready();
     hours("понедельник").focus();
-    const order = [minutes("понедельник"), unlimited("понедельник"), gHours("понедельник"), gMinutes("понедельник"), gUnlimited("понедельник"), hours("вторник")];
+    const order = [
+      minutes("понедельник"),
+      unlimited("понедельник"),
+      gHours("понедельник"),
+      gMinutes("понедельник"),
+      gUnlimited("понедельник"),
+      vHours("понедельник"),
+      vMinutes("понедельник"),
+      vUnlimited("понедельник"),
+      hours("вторник"),
+    ];
     for (const el of order) {
       await user.tab();
       expect(document.activeElement).toBe(el);
@@ -476,6 +490,69 @@ describe("ChildLimits: столбец «Игры» (FR-16)", () => {
     expect(alert.closest("td")?.contains(gHours("вторник"))).toBe(true);
     expect(gHours("вторник").getAttribute("aria-invalid")).toBe("true");
     expect(hours("вторник").getAttribute("aria-invalid")).toBeNull();
+  });
+});
+
+describe("ChildLimits: столбец «Видео и соцсети» (FR-16, R6)", () => {
+  it("показывает лимит видео из правил: 1 ч, без лимита, 0", async () => {
+    setup();
+    await ready();
+    expect(vHours("понедельник").value).toBe("1");
+    expect(vMinutes("понедельник").value).toBe("0");
+    expect(vUnlimited("понедельник").checked).toBe(false);
+    expect(vUnlimited("вторник").checked).toBe(true);
+    expect(vHours("вторник").disabled).toBe(true);
+    expect(vMinutes("вторник").disabled).toBe(true);
+    expect(within(row(/Среда/)).getByText("0 мин: в этот день видео и соцсети закрыты")).toBeTruthy();
+    expect(within(row(/Понедельник/)).queryByText("0 мин: в этот день видео и соцсети закрыты")).toBeNull();
+  });
+
+  // Ловит: правка видео не доходит до программы или пишется в игры (T9-1).
+  it("правка видео: панель несохранённых изменений, в программу уходит videoMin", async () => {
+    const user = setup();
+    await ready();
+    await user.clear(vMinutes("понедельник"));
+    await user.type(vMinutes("понедельник"), "20");
+    expect(screen.getByText("Есть несохранённые изменения")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Сохранить" }));
+    expect(await screen.findByText("Сохранено. Новые правила уже действуют")).toBeTruthy();
+    const sent = sentLimits();
+    expect(sent.limits[0]).toEqual({ weekday: 1, totalMin: 120, unlimited: false, gamesMin: 60, gamesUnlimited: false, videoMin: 80, videoUnlimited: false });
+    expect(mock.state.children[0].limits[0]).toMatchObject({ videoMin: 80, videoUnlimited: false });
+  });
+
+  it("снять «Без лимита» у видео: 1 ч, а не «нельзя»", async () => {
+    const user = setup();
+    await ready();
+    await user.click(vUnlimited("вторник"));
+    expect(vHours("вторник").value).toBe("1");
+    expect(vHours("вторник").disabled).toBe(false);
+    expect(gUnlimited("вторник").checked).toBe(true);
+  });
+
+  it("ошибка службы video.N показана у видео этого дня", async () => {
+    const user = setup();
+    await ready();
+    mock.override("SaveLimits", { ok: false, error: "Не больше 24 ч", field: "video.1" }, 1);
+    await user.click(unlimited("понедельник"));
+    await user.click(screen.getByRole("button", { name: "Сохранить" }));
+    const alert = await within(row(/Понедельник/)).findByRole("alert");
+    expect(alert.textContent).toBe("Не больше 24 ч");
+    expect(alert.closest("td")?.contains(vHours("понедельник"))).toBe(true);
+    expect(vHours("понедельник").getAttribute("aria-invalid")).toBe("true");
+    expect(gHours("понедельник").getAttribute("aria-invalid")).toBeNull();
+  });
+
+  // Ловит: «Как в понедельник» переносит общее и игры, а видео нет.
+  it("«Как в понедельник: на все будни» переносит видео", async () => {
+    const user = setup();
+    await ready();
+    await user.click(screen.getByRole("button", { name: "Как в понедельник: на все будни" }));
+    for (const day of ["вторник", "среда", "четверг", "пятница"]) {
+      expect(vUnlimited(day).checked).toBe(false);
+      expect(vHours(day).value).toBe("1");
+    }
+    expect(vUnlimited("суббота").checked).toBe(true);
   });
 });
 
@@ -671,5 +748,46 @@ describe("ChildLimits: «Скопировать правила с…» (FR-33)",
     const sent = sentLimits();
     expect(sent.endMode).toBe("study_only");
     expect(sent.limits[6]).toEqual({ weekday: 7, totalMin: 90, unlimited: false, gamesMin: 30, gamesUnlimited: false, videoMin: 0, videoUnlimited: true });
+  });
+
+  // Ловит: «Скопировать правила» не переносит лимит видео (FR-33, Review Focus плана п. 9).
+  it("переносит лимит видео", async () => {
+    mock = installBackend({
+      sessionActive: true,
+      children: [
+        mockChild(),
+        mockChild({
+          childId: 2,
+          sid: "S-1-5-21-111-222-333-1002",
+          name: "Даша",
+          limits: [1, 2, 3, 4, 5, 6, 7].map((weekday) => ({
+            weekday,
+            totalMin: 90,
+            unlimited: false,
+            gamesMin: 30,
+            gamesUnlimited: false,
+            ...(weekday === 1 ? { videoMin: 20, videoUnlimited: false } : {}),
+          })),
+        }),
+      ],
+    });
+    const others = [{ childId: 2, name: "Даша" } as TodayCard];
+    const user = userEvent.setup();
+    render(
+      <UnsavedGuardProvider>
+        <ChildLimits childId={1} others={others} />
+      </UnsavedGuardProvider>,
+    );
+    await ready();
+    await user.click(screen.getByRole("button", { name: "Скопировать правила с…" }));
+    await user.click(screen.getByRole("button", { name: "Даша" }));
+    await vi.waitFor(() => expect(vMinutes("понедельник").value).toBe("20"));
+    expect(vHours("понедельник").value).toBe("0");
+    expect(vUnlimited("среда").checked).toBe(true);
+    expect(screen.getByText("Есть несохранённые изменения")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Сохранить" }));
+    await screen.findByText("Сохранено. Новые правила уже действуют");
+    expect(sentLimits().limits[0]).toMatchObject({ videoMin: 20, videoUnlimited: false });
+    expect(sentLimits().limits[2]).toMatchObject({ videoMin: 0, videoUnlimited: true });
   });
 });

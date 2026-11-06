@@ -178,6 +178,9 @@ describe("Wizard: шаг 3, время", () => {
     expect(hours("воскресенье").value).toBe("4");
     expect((screen.getByLabelText("Игры без лимита, понедельник") as HTMLInputElement).checked).toBe(true);
     expect(screen.getByRole("columnheader", { name: "Игры" })).toBeTruthy();
+    // Видео в мастере не задаётся (T9-2): окно 720 px, лимит видео - позже во вкладке «Лимиты».
+    expect(screen.getAllByRole("columnheader").map((h) => h.textContent)).toEqual(["День", "Общее", "Игры"]);
+    expect(screen.queryByRole("columnheader", { name: /Видео/ })).toBeNull();
     expect(screen.getByText("Время игр входит в общее. Учёба в общее время не входит")).toBeTruthy();
     expect(next()).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Готово" })).toBeNull();

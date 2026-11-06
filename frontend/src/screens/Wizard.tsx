@@ -4,7 +4,7 @@ import LimitsTable from "../components/LimitsTable";
 import Notice from "../components/Notice";
 import TextField from "../components/TextField";
 import { CallError, errorText } from "../lib/errors";
-import { limitErrorKey, templateLimits, validateLimits, wireLimits } from "../lib/limits";
+import { limitErrorKey, templateLimits, validateLimits, wireLimits, type LimitColumn } from "../lib/limits";
 import { validatePasswordPair, type PasswordPairErrors } from "../lib/password";
 import type { Account, ProgramCategory, ScanProgramDTO, SetupProgram, WeekdayLimit } from "../types";
 
@@ -43,6 +43,8 @@ const SCAN_EMPTY = "Программы не найдены. Их можно на
 const ADMIN_NOTE =
   "Администратор: на такой учётке ограничения не работают. Сделайте её обычной в Параметрах Windows и добавьте позже в «Настройки → Детские учётки»";
 const TEMPLATE_LABEL = "Шаблон: будни 2 ч, выходные 4 ч";
+/** Мастер: общее время и игры; лимит видео задаётся позже во вкладке «Лимиты» (T9-2: окно 720 px). */
+const WIZARD_COLUMNS: LimitColumn[] = ["total", "games"];
 
 /** Мастер первоначальной настройки (FR-1, FR-2, сценарий 8.3.1): пароль, дети, время, программы. */
 export default function Wizard({ onOpenSettings }: Props) {
@@ -345,6 +347,7 @@ export default function Wizard({ onOpenSettings }: Props) {
                   setLimitErrors({});
                 }}
                 errors={limitErrors}
+                columns={WIZARD_COLUMNS}
               />
             </section>
           ))}

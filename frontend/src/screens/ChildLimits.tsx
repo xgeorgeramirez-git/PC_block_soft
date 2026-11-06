@@ -290,7 +290,7 @@ export default function ChildLimits({ childId, others = [], onSaved, onOpenProgr
 
       {tab === "limits" ? (
         <div role="tabpanel" aria-label="Лимиты">
-          <p className="panel-text">Сколько времени в день можно пользоваться компьютером и сколько из него можно играть.</p>
+          <p className="panel-text">Сколько времени в день можно пользоваться компьютером и сколько из него можно играть и смотреть видео и соцсети.</p>
           <div className="quick-actions">
             <button type="button" className="btn btn-small" onClick={() => changeLimits(copyDay(draftLimits, 1, WORKDAYS.filter((d) => d !== 1)))}>
               Как в понедельник: на все будни

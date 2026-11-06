@@ -19,8 +19,10 @@ interface Props {
   /** Семь дней по порядку. */
   limits: WeekdayLimit[];
   onChange: (next: WeekdayLimit[]) => void;
-  /** Ошибки у полей (L-121), ключ «limits.3» или «games.3»: рамка поля и текст под ним. */
+  /** Ошибки у полей (L-121), ключ «limits.3», «games.3» или «video.3»: рамка поля и текст под ним. */
   errors?: Record<string, string>;
+  /** Столбцы таблицы; по умолчанию все три. Мастер показывает только общее и игры (узкое окно, T9-2). */
+  columns?: LimitColumn[];
 }
 
 /** Пределы полей (D-45): часы 0–23, минуты 0–59; целые сутки — переключатель «Без лимита». */
@@ -30,21 +32,33 @@ const MAX_MINUTES = 59;
 const ZERO_HINT: Record<LimitColumn, string> = {
   total: "0 мин: в этот день компьютером пользоваться нельзя",
   games: "0 мин: в этот день играть нельзя",
+  video: "0 мин: в этот день видео и соцсети закрыты",
 };
 
 /** Подписи полей для экранного диктора: день, столбец и что в поле. */
 const LABELS: Record<LimitColumn, { hours: string; minutes: string; unlimited: string }> = {
   total: { hours: "Часы", minutes: "Минуты", unlimited: "Без лимита" },
   games: { hours: "Часы игр", minutes: "Минуты игр", unlimited: "Игры без лимита" },
+  video: { hours: "Часы видео", minutes: "Минуты видео", unlimited: "Видео без лимита" },
 };
 
+/** Заголовки столбцов. */
+const HEADERS: Record<LimitColumn, string> = {
+  total: "Общее",
+  games: "Игры",
+  video: "Видео и соцсети",
+};
+
+const ALL_COLUMNS: LimitColumn[] = ["total", "games", "video"];
+
 export const GAMES_NOTE = "Время игр входит в общее. Учёба в общее время не входит";
+export const GAMES_VIDEO_NOTE = "Время игр и видео входит в общее. Учёба в общее время не входит";
 
 /**
- * Таблица 7 дней × «Общее» и «Игры» (FR-16): в каждой ячейке часы, минуты и «Без лимита».
- * Табуляция идёт по строке: общее время, затем игры, затем следующий день.
+ * Таблица 7 дней × «Общее», «Игры» и «Видео и соцсети» (FR-16): в каждой ячейке часы, минуты и
+ * «Без лимита». Табуляция идёт по строке: столбцы слева направо, затем следующий день.
  */
-export default function LimitsTable({ childName, limits, onChange, errors = {} }: Props) {
+export default function LimitsTable({ childName, limits, onChange, errors = {}, columns = ALL_COLUMNS }: Props) {
   return (
     <div className="limits-wrap">
       <table className="limits-table">
@@ -52,21 +66,25 @@ export default function LimitsTable({ childName, limits, onChange, errors = {} }
         <thead>
           <tr>
             <th scope="col">День</th>
-            <th scope="col">Общее</th>
-            <th scope="col">Игры</th>
+            {columns.map((c) => (
+              <th key={c} scope="col">
+                {HEADERS[c]}
+              </th>
+            ))}
           </tr>
         </thead>
         <tbody>
           {limits.map((l) => (
             <tr key={l.weekday} className="limits-row">
               <th scope="row">{weekdayName(l.weekday)}</th>
-              <LimitCell limits={limits} day={l} column="total" error={errors[limitField("total", l.weekday)]} onChange={onChange} />
-              <LimitCell limits={limits} day={l} column="games" error={errors[limitField("games", l.weekday)]} onChange={onChange} />
+              {columns.map((c) => (
+                <LimitCell key={c} limits={limits} day={l} column={c} error={errors[limitField(c, l.weekday)]} onChange={onChange} />
+              ))}
             </tr>
           ))}
         </tbody>
       </table>
-      <p className="field-hint limits-note">{GAMES_NOTE}</p>
+      <p className="field-hint limits-note">{columns.includes("video") ? GAMES_VIDEO_NOTE : GAMES_NOTE}</p>
     </div>
   );
 }

@@ -999,7 +999,8 @@ html:has(.shell-child) body {
 }
 
 .limits-wrap {
-  max-width: 640px;
+  /* Три столбца (общее, игры, видео): таблица около 635 px помещается в «Дети» окна 960 (T9-2, PL-26). */
+  max-width: 760px;
   margin-bottom: var(--space-4);
 }
 
@@ -1013,7 +1014,7 @@ html:has(.shell-child) body {
 
 .limits-table th,
 .limits-table td {
-  padding: var(--space-1) var(--space-3);
+  padding: var(--space-1) var(--space-2);
   border-bottom: 1px solid var(--line);
   text-align: left;
   vertical-align: top;
@@ -1050,7 +1051,7 @@ html:has(.shell-child) body {
 }
 
 .limits-num {
-  width: 60px;
+  width: 52px;
   padding: var(--space-1) var(--space-2);
 }
 
@@ -2107,7 +2108,7 @@ html:has(.shell-child) body {
   }
 
   .limits-num {
-    width: 56px;
+    width: 52px;
   }
 
   .topbar {
