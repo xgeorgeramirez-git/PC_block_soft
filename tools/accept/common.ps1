@@ -163,6 +163,9 @@ public static class PcbNative {
     return h == IntPtr.Zero ? "" : Describe(h);
   }
 
+  // Окно переднего плана как есть (UIA окна Brave, S20).
+  public static IntPtr ForegroundHandle() { return GetForegroundWindow(); }
+
   // Видимые окна верхнего уровня заданных процессов.
   public static string[] VisibleWindows(uint[] pids) {
     List<string> list = new List<string>();
@@ -1426,8 +1429,9 @@ function Get-SiteDiag($State = $null) {
 }
 
 # Выводит окно Brave на передний план: ForceForeground главного окна, не вышло — AppActivate до 10 раз
-# (как PROBE). Ждёт, пока страж пришлёт путь переднего плана, оканчивающийся на \brave.exe (5 с).
-function Set-BraveForeground {
+# (как PROBE). Ждёт, пока страж пришлёт путь переднего плана, оканчивающийся на \brave.exe (5 с). NoGuard —
+# стража ещё нет (S20 до настройки): ждать нечего, ошибка, если Brave не впереди.
+function Set-BraveForeground([switch]$NoGuard) {
   $h = Get-BraveHandle
   $forced = $false
   if ($h -ne [IntPtr]::Zero) { $forced = [PcbNative]::ForceForeground($h) }
@@ -1440,6 +1444,10 @@ function Set-BraveForeground {
     }
   }
   Write-Log "Передний план: $([PcbNative]::Foreground()); ForceForeground=$forced, Brave впереди: $(Test-BraveForeground)"
+  if ($NoGuard) {
+    if (-not (Test-BraveForeground)) { throw "Окно Brave не вышло на передний план: $([PcbNative]::Foreground())" }
+    return
+  }
   $sw = [Diagnostics.Stopwatch]::StartNew()
   while ($true) {
     $s = Get-GuardState
@@ -1573,4 +1581,84 @@ function Get-PcbSites {
 # начало строки — имя ребёнка «Тест: »). Сама открывает родительскую сессию: не звать внутри Use-Parent.
 function Get-SiteEvents([string]$Kind, [string]$Tail) {
   return @(Use-Parent { @(Get-Events | Where-Object { [string]$_.kind -eq $Kind -and ([string]$_.text).EndsWith($Tail) }) })
+}
+
+# --- UI Automation окна Brave (S20, T10-10, RM4-10-итог) --------------------------------------------
+# Кнопки окна Brave читаются от имени ребёнка (пользователь раннера) через System.Windows.Automation. Страница
+# brave://policy этим путём не читается (дерево документа недоступно), её разбирает visual-reviewer по снимку.
+
+# Загружает UI Automation в pwsh 7. Не загрузилась — ошибка с текстом: запасного пути нет намеренно (PL-41).
+function Import-Uia {
+  if ('System.Windows.Automation.AutomationElement' -as [type]) { return }
+  try {
+    Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
+  } catch {
+    throw "UI Automation не загрузилась в pwsh (Add-Type UIAutomationClient, UIAutomationTypes): $($_.Exception.Message); запасного пути нет (T10-10, PL-41)"
+  }
+}
+
+# Окно Brave для UIA: окно переднего плана, если это Brave, иначе главное окно первого процесса Brave.
+function Get-BraveUiaHandle {
+  if (Test-BraveForeground) { return [PcbNative]::ForegroundHandle() }
+  return (Get-BraveHandle)
+}
+
+# Названия всех кнопок (ControlType.Button) окна Brave: панель, вкладки, страница. Окна нет или UIA вернул
+# ошибку (окно перестраивается) — пусто, причина в журнал. Вызывающий оборачивает в @().
+function Get-BraveButtonNames {
+  Import-Uia
+  $h = Get-BraveUiaHandle
+  if ($h -eq [IntPtr]::Zero) { return @() }
+  try {
+    $root = [System.Windows.Automation.AutomationElement]::FromHandle($h)
+    $cond = [System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::Button)
+    $found = $root.FindAll([System.Windows.Automation.TreeScope]::Descendants, $cond)
+    $names = @()
+    foreach ($el in $found) {
+      try { $names += [string]$el.Current.Name } catch {}
+    }
+    return $names
+  } catch {
+    Write-Log "UIA: кнопки окна Brave не прочитаны: $($_.Exception.Message)"
+    return @()
+  }
+}
+
+# Ждёт, пока в окне Brave будет не меньше Min кнопок (дерево доступности готово: холодное до 3,5 с,
+# RM4-1-итог), и возвращает их названия. Не дождались — ошибка с прочитанным и передним планом.
+function Wait-BraveButtons([int]$Min = 5, [double]$Seconds = 15) {
+  $sw = [Diagnostics.Stopwatch]::StartNew()
+  while ($true) {
+    $names = @(Get-BraveButtonNames)
+    if ($names.Count -ge $Min) {
+      Write-Log ("UIA: кнопок в окне Brave {0} за {1:N1} с: {2}" -f $names.Count, $sw.Elapsed.TotalSeconds, ($names -join ', '))
+      return $names
+    }
+    if ($sw.Elapsed.TotalSeconds -gt $Seconds) {
+      throw "За $Seconds с в окне Brave меньше $Min кнопок UIA ($($names.Count): $($names -join ', ')); передний план: $([PcbNative]::Foreground()); окно Brave: $(Get-BraveWindow)"
+    }
+    Start-Sleep -Milliseconds 500
+  }
+}
+
+# Число видимых окон Brave шире 100 точек (как Get-BraveWindow): новое окно Tor прибавляет одно.
+function Get-BraveWindowCount {
+  $pids = @(Get-Process -Name brave -ErrorAction SilentlyContinue | ForEach-Object { [uint32]$_.Id })
+  if ($pids.Count -eq 0) { return 0 }
+  $n = 0
+  foreach ($w in [PcbNative]::VisibleWindows([uint32[]]$pids)) {
+    $parts = $w -split '\|', 4
+    if ($parts[1] -ne "Chrome_WidgetWin_1") { continue }
+    $r = @($parts[2] -split ',' | ForEach-Object { [int]$_ })
+    if ($r[2] - $r[0] -ge 100) { $n++ }
+  }
+  return $n
+}
+
+# Клавиши в окно Brave от имени ребёнка (SendKeys: «%+n» — Alt+Shift+N, «Новое окно Tor»). Brave должен быть
+# на переднем плане (Set-BraveForeground), иначе клавиши ушли бы в чужое окно: тогда ошибка.
+function Send-BraveKeys([string]$Keys) {
+  if (-not (Test-BraveForeground)) { throw "Клавиши $Keys не нажаты: Brave не на переднем плане ($([PcbNative]::Foreground()))" }
+  [System.Windows.Forms.SendKeys]::SendWait($Keys)
+  Write-Log "Клавиши в окне Brave: $Keys"
 }
