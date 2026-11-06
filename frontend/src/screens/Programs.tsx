@@ -8,7 +8,10 @@ import { localOffsetMin } from "../lib/format";
 import {
   CATEGORY_OPTIONS,
   DECISIONS,
+  DECISION_HINTS,
   FILTERS,
+  NO_PUBLISHER,
+  NO_PUBLISHER_HINT,
   attemptsText,
   categoryTitle,
   decisionMessage,
@@ -387,6 +390,7 @@ export default function Programs({ initialFilter = "all" }: Props) {
                 {`Ждут решения: ${pending.length}`}
               </h3>
               <p className="programs-lead">Решение действует для всех детей</p>
+              <DecisionLegend />
               <ul className="pending-list">
                 {pending.map((p, i) => (
                   <PendingItem
@@ -665,6 +669,23 @@ function PathText({ path, max }: { path: string; max: number }) {
   );
 }
 
+/** id строки легенды для кнопки решения: одна легенда на блок, кнопки всех ждущих ссылаются на неё. */
+const decisionHintId = (category: ParentCategory) => `decision-hint-${category}`;
+
+/** Легенда кнопок решения (B-39): подпись кнопки выделена, за ней что она значит. */
+function DecisionLegend() {
+  return (
+    <ul className="pending-legend" aria-label="Что значат кнопки">
+      {DECISIONS.map((d) => (
+        <li key={d.category} id={decisionHintId(d.category)}>
+          <span className="pending-legend-label">{d.label}</span>
+          {DECISION_HINTS[d.category].slice(d.label.length)}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 interface PendingProps {
   program: PendingProgramDTO;
   now: number;
@@ -677,12 +698,14 @@ function PendingItem({ program: p, now, tz, busy, onDecide }: PendingProps) {
   const was = wasCategoryText(p.wasCategory);
   const attempts = attemptsText(p.byChild, p.attempts, p.lastAttemptAt, now, tz);
   const description = p.description.trim();
+  const publisher = publisherText(p.publisher);
   return (
     <li className="pending-item" aria-label={p.name} data-path={p.path}>
       <AppIcon />
       <div className="pending-body">
         <p className="program-name">{p.name}</p>
-        <p className="program-meta">{publisherText(p.publisher)}</p>
+        <p className="program-meta">{publisher}</p>
+        {publisher === NO_PUBLISHER ? <p className="program-meta pending-publisher-hint">{NO_PUBLISHER_HINT}</p> : null}
         {description && description !== p.name ? <p className="program-meta">{description}</p> : null}
         <p className="program-meta">
           <PathText path={p.path} max={PENDING_PATH_MAX} />
@@ -698,6 +721,7 @@ function PendingItem({ program: p, now, tz, busy, onDecide }: PendingProps) {
                 type="button"
                 data-category={d.category}
                 className="btn"
+                aria-describedby={decisionHintId(d.category)}
                 // Нажатая кнопка остаётся в фокусе и говорит «Сохраняю…», остальные недоступны.
                 aria-disabled={pressed || undefined}
                 disabled={busy !== null && !pressed}

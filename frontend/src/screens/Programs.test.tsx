@@ -168,6 +168,64 @@ describe("Программы: ждут решения", () => {
     expect(within(tr).getByText("Запускали: Аня 2 раза; последняя попытка сегодня 09:05")).toBeTruthy();
   });
 
+  // Ловит (B-39): нет пояснения, что значит каждая кнопка решения; кнопки не связаны со своей
+  // строкой легенды для диктора; легенда повторена в каждой ждущей программе.
+  it("легенда «Что значат кнопки» одна на блок, каждая кнопка ссылается на свою строку", async () => {
+    setup();
+    await screen.findByRole("heading", { name: "Ждут решения: 2" });
+    const legend = within(pendingBlock()).getByRole("list", { name: "Что значат кнопки" });
+    expect(within(legend).getAllByRole("listitem").map((li) => li.textContent)).toEqual([
+      "Игра: время идёт в лимит игр и в общее время",
+      "Учёба: время не тратит лимит",
+      "Прочее: время идёт в общее время",
+      "Запретить: программа будет закрываться сразу после запуска",
+    ]);
+    const hintOf = (btn: HTMLElement) => document.getElementById(btn.getAttribute("aria-describedby")!)!.textContent;
+    const sg = pendingItem("SuperGame");
+    expect(hintOf(within(sg).getByRole("button", { name: "Игра" }))).toBe("Игра: время идёт в лимит игр и в общее время");
+    expect(hintOf(within(sg).getByRole("button", { name: "Учёба" }))).toBe("Учёба: время не тратит лимит");
+    expect(hintOf(within(sg).getByRole("button", { name: "Прочее" }))).toBe("Прочее: время идёт в общее время");
+    expect(hintOf(within(sg).getByRole("button", { name: "Запретить" }))).toBe(
+      "Запретить: программа будет закрываться сразу после запуска",
+    );
+    expect(hintOf(within(pendingItem("Тренажёр")).getByRole("button", { name: "Запретить" }))).toBe(
+      "Запретить: программа будет закрываться сразу после запуска",
+    );
+    // Легенда идёт под «Решение действует для всех детей», до списка ждущих.
+    const lead = within(pendingBlock()).getByText("Решение действует для всех детей");
+    expect(lead.compareDocumentPosition(legend) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(legend.compareDocumentPosition(sg) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("нет ждущих: нет и легенды кнопок", async () => {
+    setup({ pending: [] });
+    await screen.findByRole("region", { name: "Все программы" });
+    expect(screen.queryByRole("list", { name: "Что значат кнопки" })).toBeNull();
+  });
+
+  // Ловит (B-39, P1-R2): «Без подписи издателя» без подсказки, что делать; подсказка у программы
+  // с издателем или в строке списка «Все программы».
+  it("неизвестный издатель: подсказка только в «Ждут решения»", async () => {
+    const NOPUB = "c:\\games\\nopub\\nopub.exe";
+    setup({
+      pending: [{ ...pendingSuperGame(), publisher: "Super Inc" }, pendingTrainer()],
+      programs: [...programs(), { path: NOPUB, name: "NoPub", publisher: "", category: "other", source: "snapshot", weekS: 0 }],
+    });
+    await screen.findByRole("heading", { name: "Ждут решения: 2" });
+    const HINT = "Издатель неизвестен: проверьте, откуда этот файл";
+    expect(within(pendingItem("Тренажёр")).getByText(HINT)).toBeTruthy();
+    expect(within(pendingItem("SuperGame")).getByText("Super Inc")).toBeTruthy();
+    expect(within(pendingItem("SuperGame")).queryByText(HINT)).toBeNull();
+    expect(within(rowOf("NoPub")).getByText("Без подписи издателя")).toBeTruthy();
+    expect(within(allBlock()).queryByText(HINT)).toBeNull();
+  });
+
+  it("издатель-заглушка от службы: та же подсказка", async () => {
+    setup();
+    await screen.findByRole("heading", { name: "Ждут решения: 2" });
+    expect(within(pendingItem("SuperGame")).getByText("Издатель неизвестен: проверьте, откуда этот файл")).toBeTruthy();
+  });
+
   it("длинный путь обрезан по центру, полный в подсказке и для чтения с клавиатуры", async () => {
     setup();
     await screen.findByRole("heading", { name: "Ждут решения: 2" });
@@ -279,7 +337,8 @@ describe("Программы: ждут решения", () => {
     expect(await screen.findByText("Решение отменено")).toBeTruthy();
     expect(mock.count("UndoProgram")).toBe(1);
     expect(screen.getByRole("heading", { name: "Ждут решения: 2" })).toBeTruthy();
-    expect(within(pendingBlock()).getAllByRole("listitem").map((li) => li.getAttribute("aria-label"))).toEqual([
+    // Только ждущие программы: строки легенды «Что значат кнопки» (B-39) — тоже элементы списка.
+    expect(Array.from(pendingBlock().querySelectorAll(".pending-list > li")).map((li) => li.getAttribute("aria-label"))).toEqual([
       "SuperGame",
       "Тренажёр",
     ]);

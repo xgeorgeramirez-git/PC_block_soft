@@ -2,7 +2,10 @@ import { describe, expect, it } from "vitest";
 import {
   CATEGORY_OPTIONS,
   DECISIONS,
+  DECISION_HINTS,
   FILTERS,
+  NO_PUBLISHER,
+  NO_PUBLISHER_HINT,
   attemptsText,
   categoryTitle,
   decisionMessage,
@@ -79,9 +82,24 @@ describe("подписи категорий", () => {
     expect(wasCategoryText("system")).toBe("");
   });
 
+  // Ловит (B-39): легенда кнопок решения не того текста или не по своей категории.
+  it("легенда кнопок решения: что значит каждая (R3, R5, R13)", () => {
+    expect(DECISION_HINTS).toEqual({
+      games: "Игра: время идёт в лимит игр и в общее время",
+      study: "Учёба: время не тратит лимит",
+      other: "Прочее: время идёт в общее время",
+      blocked: "Запретить: программа будет закрываться сразу после запуска",
+    });
+    // Каждая строка начинается с подписи своей кнопки (8.3.4 п.1).
+    expect(DECISIONS.map((d) => DECISION_HINTS[d.category].split(":")[0])).toEqual(DECISIONS.map((d) => d.label));
+  });
+
   it("издатель из файла или «Без подписи издателя»", () => {
+    expect(NO_PUBLISHER).toBe("Без подписи издателя");
+    expect(NO_PUBLISHER_HINT).toBe("Издатель неизвестен: проверьте, откуда этот файл");
     expect(publisherText("Mojang")).toBe("Mojang");
     expect(publisherText("")).toBe("Без подписи издателя");
+    expect(publisherText("")).toBe(NO_PUBLISHER);
     expect(publisherText("   ")).toBe("Без подписи издателя");
   });
 

@@ -14,6 +14,18 @@ export const DECISIONS: { category: ParentCategory; label: string }[] = [
   { category: "blocked", label: "Запретить" },
 ];
 
+/**
+ * Легенда кнопок решения под «Решение действует для всех детей» (B-39): что значит каждая кнопка.
+ * Тексты повторяют правила ядра: учёба не тратит лимит (R3), игры идут и в лимит игр, и в общее
+ * время (R5), запрещённая закрывается (R13). Каждая строка начинается с подписи своей кнопки.
+ */
+export const DECISION_HINTS: Record<ParentCategory, string> = {
+  games: "Игра: время идёт в лимит игр и в общее время",
+  study: "Учёба: время не тратит лимит",
+  other: "Прочее: время идёт в общее время",
+  blocked: "Запретить: программа будет закрываться сразу после запуска",
+};
+
 /** Выбор категории в строке списка и в панели «Выбрано: N». */
 export const CATEGORY_OPTIONS: { category: ParentCategory; label: string }[] = [
   { category: "games", label: "Игры" },
@@ -56,10 +68,16 @@ export function wasCategoryText(was: string): string {
   return `Раньше было: ${word}`;
 }
 
+/** Заглушка издателя (FR-20): та же строка, что присылает служба (programs.go textNoPublisher). */
+export const NO_PUBLISHER = "Без подписи издателя";
+
+/** Подсказка под заглушкой в «Ждут решения» (B-39, P1-R2): там родитель решает по файлу. */
+export const NO_PUBLISHER_HINT = "Издатель неизвестен: проверьте, откуда этот файл";
+
 /** Издатель из свойств файла или «Без подписи издателя» (RM3-3). */
 export function publisherText(publisher: string): string {
   const p = publisher.trim();
-  return p === "" ? "Без подписи издателя" : p;
+  return p === "" ? NO_PUBLISHER : p;
 }
 
 /** «Stalker2 скрыта» / «Stalker2 снова в списке» (8.3.4 п.4); служба присылает такое же, это запасной текст. */

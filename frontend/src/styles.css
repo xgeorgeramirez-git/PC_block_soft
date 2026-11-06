@@ -1581,6 +1581,23 @@ html:has(.shell-child) body {
   border-left-color: var(--status-danger);
 }
 
+/* Легенда кнопок решения (B-39): мелко и приглушённо, в две колонки, когда хватает ширины. */
+.pending-legend {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: var(--space-1) var(--space-4);
+  margin: 0 0 var(--space-3);
+  padding: 0;
+  list-style: none;
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+.pending-legend-label {
+  color: var(--text);
+  font-weight: 600;
+}
+
 .pending-list {
   margin: 0;
   padding: 0;
