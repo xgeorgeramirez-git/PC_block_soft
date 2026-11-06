@@ -3,6 +3,7 @@ import { act, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import Programs from "./Programs";
 import { installBackend, uninstallBackend, type MockBackend, type MockOptions } from "../__mocks__/backend";
+import { HIDE_LEAD } from "../lib/programs";
 import type { PendingProgramDTO, ProgramDTO } from "../types";
 
 // FR-20, сценарий 8.3.4: «Ждут решения» с кнопками, «Отменить» 10 с, список всех программ
@@ -148,7 +149,7 @@ describe("Программы: ждут решения", () => {
     expect(within(sg).getByText("Без подписи издателя")).toBeTruthy();
     expect(within(sg).getByText("Super Game Deluxe")).toBeTruthy();
     expect(within(sg).getByText("Запускали: Миша 3 раза, Аня 1 раз; последняя попытка вчера 18:40")).toBeTruthy();
-    expect(within(sg).getByText("Раньше было: игра")).toBeTruthy();
+    expect(within(sg).getByText("Файл изменился, проверьте решение. Было: игра")).toBeTruthy();
     expect(within(sg).getAllByRole("button").map((b) => b.textContent)).toEqual(["Игра", "Учёба", "Прочее", "Запретить"]);
     // Ловит: «Запретить» выглядит неактивной (серый текст btn-muted, приёмка P2 п.1). Она обычная
     // второстепенная кнопка того же вида, что «Игра»/«Учёба»/«Прочее»: не красная и доступна.
@@ -164,7 +165,7 @@ describe("Программы: ждут решения", () => {
     await screen.findByRole("heading", { name: "Ждут решения: 2" });
     const tr = pendingItem("Тренажёр");
     expect(within(tr).getByText("Без подписи издателя")).toBeTruthy();
-    expect(within(tr).queryByText(/Раньше было/)).toBeNull();
+    expect(within(tr).queryByText(/Файл изменился/)).toBeNull();
     expect(within(tr).getByText("Запускали: Аня 2 раза; последняя попытка сегодня 09:05")).toBeTruthy();
   });
 
@@ -492,6 +493,7 @@ describe("Программы: все программы", () => {
     setup({ pending: [], programs: [] });
     expect(await screen.findByText("Программ пока нет: они появятся, когда ребёнок запустит что-то новое")).toBeTruthy();
     expect(screen.queryByRole("table")).toBeNull();
+    expect(screen.queryByText(HIDE_LEAD)).toBeNull();
   });
 
   it("только системные: тоже «Программ пока нет…»", async () => {
@@ -537,13 +539,24 @@ describe("Программы: массовая смена категории", (
     expect(mock.calls.filter((c) => c.command === "SetProgramsCategory").map((c) => c.payload.paths)).toEqual([[MINECRAFT]]);
   });
 
-  it("«Применить» без категории: подсказка у поля, запроса нет", async () => {
+  // Ловит (B-43 п.4): «Применить» без категории выглядит доступной и объясняет ошибкой только после
+  // нажатия; недоступная кнопка не говорит почему (ТЗ 8.0 п.5); нажатие всё же шлёт запрос.
+  it("«Применить» без категории недоступна с причиной рядом, запроса нет", async () => {
     const user = setup();
     await screen.findByRole("region", { name: "Все программы" });
     await user.click(within(rowOf("Brave")).getByRole("checkbox"));
-    await user.click(screen.getByRole("button", { name: "Применить" }));
-    expect(screen.getByText("Выберите категорию")).toBeTruthy();
+    const apply = screen.getByRole("button", { name: "Применить" });
+    expect(apply.getAttribute("aria-disabled")).toBe("true");
+    expect(screen.getByText("Сначала выберите категорию")).toBeTruthy();
+    expect(document.getElementById(apply.getAttribute("aria-describedby") ?? "")?.textContent).toBe("Сначала выберите категорию");
+    await user.click(apply);
     expect(mock.count("SetProgramsCategory")).toBe(0);
+    expect(screen.queryByText("Выберите категорию")).toBeNull();
+
+    await user.selectOptions(screen.getByRole("combobox", { name: "Новая категория для отмеченных" }), "games");
+    expect(screen.getByRole("button", { name: "Применить" }).getAttribute("aria-disabled")).toBeNull();
+    expect(screen.getByRole("button", { name: "Применить" }).getAttribute("aria-describedby")).toBeNull();
+    expect(screen.queryByText("Сначала выберите категорию")).toBeNull();
   });
 
   // Ловит (B-41): смена, которая ничего не изменила (Учи.ру уже «Учёба» решением родителя), даёт
@@ -620,12 +633,14 @@ describe("Программы: скрытые (D-57, 8.3.4 п.4)", () => {
     await user.click(filterButton("Игры"));
     expect(rowNames()).toEqual(["Minecraft Launcher", "Stalker2-Win64-Shipping"]);
 
-    await user.click(filterButton("Скрытые"));
+    await user.click(filterButton("Скрытые (1)"));
     expect(rowNames()).toEqual(["Stalker2"]);
     const row = rowOf("Stalker2$");
     expect(within(row).queryByRole("combobox")).toBeNull();
     expect(within(row).getByText("Игры")).toBeTruthy();
     expect(within(row).queryByText("нет")).toBeNull();
+    // Время скрытой не считается совсем (R2, D-63): ячейка так и говорит, а не пустая (B-43 п.9).
+    expect(within(row).getByText("не считается")).toBeTruthy();
 
     await user.click(within(row).getByRole("button", { name: "Показать «Stalker2»" }));
     expect(await screen.findByText("Stalker2 снова в списке")).toBeTruthy();
@@ -652,7 +667,7 @@ describe("Программы: скрытые (D-57, 8.3.4 п.4)", () => {
     ]);
     expect(screen.queryByText(/^Выбрано:/)).toBeNull();
 
-    await user.click(filterButton("Скрытые"));
+    await user.click(filterButton("Скрытые (2)"));
     expect(rowNames()).toEqual(["Brave", "Stalker2"]);
     await user.click(screen.getByRole("checkbox", { name: "Выбрать всё в списке" }));
     expect(screen.queryByRole("combobox", { name: "Новая категория для отмеченных" })).toBeNull();
@@ -688,6 +703,46 @@ describe("Программы: скрытые (D-57, 8.3.4 п.4)", () => {
     expect(await screen.findByText("Brave скрыта. Запрещённую программу нельзя скрыть: сначала разрешите её")).toBeTruthy();
     expect(mock.state.programs.find((p) => p.path === BAD)?.hidden).not.toBe(true);
     expect(rowNames()).toContain("BadGame");
+  });
+
+  // Ловит (B-43 п.2): у «Скрытые» не видно, сколько скрыто; счётчик считает системные программы,
+  // которых родитель в списке не видит; число не уходит, когда скрытых не осталось.
+  it("«Скрытые (1)»: число скрытых у фильтра, без системных; после «Показать» снова «Скрытые»", async () => {
+    const list: ProgramDTO[] = [
+      ...withStalker(),
+      { path: "c:\\windows\\system32\\calc.exe", name: "Калькулятор", publisher: "Microsoft", category: "system", source: "snapshot", weekS: 0, hidden: true },
+    ];
+    list[4] = { ...list[4], hidden: true };
+    const user = setup({ programs: list });
+    await screen.findByRole("region", { name: "Все программы" });
+    const filters = within(allBlock()).getByRole("group", { name: "Показать" });
+    expect(within(filters).getAllByRole("button").map((b) => b.textContent)).toEqual([
+      "Все",
+      "Игры",
+      "Учёба",
+      "Прочее",
+      "Запрещено",
+      "Скрытые (1)",
+    ]);
+    await user.click(filterButton("Скрытые (1)"));
+    await user.click(within(rowOf("Stalker2$")).getByRole("button", { name: "Показать «Stalker2»" }));
+    expect(await screen.findByText("Stalker2 снова в списке")).toBeTruthy();
+    expect(filterButton("Скрытые").getAttribute("aria-pressed")).toBe("true");
+  });
+
+  // Ловит (B-43 п.3): не сказано, что делает «Скрыть»; у запрещённой ячейка действия пустая,
+  // почему скрыть нельзя, не видно (RF9-5).
+  it("пояснение «Скрыть» под «Все программы»; у запрещённой «Скрыть нельзя» вместо кнопки", async () => {
+    const list = withStalker().map((p) => (p.path === BRAVE ? { ...p, category: "blocked" as const } : p));
+    setup({ programs: list });
+    await screen.findByRole("region", { name: "Все программы" });
+    expect(within(allBlock()).getByText(HIDE_LEAD)).toBeTruthy();
+    const brave = rowOf("Brave");
+    expect(within(brave).getByText("Скрыть нельзя")).toBeTruthy();
+    expect(within(brave).queryByRole("button", { name: "Скрыть «Brave»" })).toBeNull();
+    expect(within(brave).getByText("Скрыть нельзя").closest("td")?.className).toBe("col-action");
+    expect(within(rowOf("Stalker2$")).queryByText("Скрыть нельзя")).toBeNull();
+    expect(within(rowOf("Stalker2$")).getByRole("button", { name: "Скрыть «Stalker2»" })).toBeTruthy();
   });
 
   // Ловит (ревью 0.3.1): операция без изменений даёт «Отменить».
@@ -788,6 +843,27 @@ describe("Программы: своё название (D-59, 8.3.4 п.5)", () 
   });
 
   // Ловит (ревью 0.3.1): то же название даёт «Название изменено» с «Отменить».
+  // Ловит (B-43 п.6): пока в строке открыто поле названия, флажок, выбор категории и «Скрыть» этой
+  // строки доступны; или, наоборот, недоступны и другие строки.
+  it("поле названия открыто: остальные действия этой строки недоступны, других строк доступны", async () => {
+    const user = setup({ programs: withShipping() });
+    await screen.findByRole("region", { name: "Все программы" });
+    await user.click(renameButton("Brave"));
+    const brave = rowOf("Brave");
+    const controls = (row: HTMLElement, name: string) =>
+      [
+        within(row).getByRole("checkbox", { name: `Отметить «${name}»` }),
+        within(row).getByRole("combobox", { name: `Категория для «${name}»` }),
+        within(row).getByRole("button", { name: `Скрыть «${name}»` }),
+      ] as (HTMLInputElement | HTMLSelectElement | HTMLButtonElement)[];
+    expect(controls(brave, "Brave").map((c) => c.disabled)).toEqual([true, true, true]);
+    expect(controls(rowOf("Учи.ру"), "Учи.ру").map((c) => c.disabled)).toEqual([false, false, false]);
+
+    await user.keyboard("{Escape}");
+    expect(within(rowOf("Brave")).queryByRole("textbox")).toBeNull();
+    expect(controls(rowOf("Brave"), "Brave").map((c) => c.disabled)).toEqual([false, false, false]);
+  });
+
   it("то же название: «Название не изменилось» без «Отменить»", async () => {
     const user = setup({ programs: withShipping() });
     await screen.findByRole("region", { name: "Все программы" });

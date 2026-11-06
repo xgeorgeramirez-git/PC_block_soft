@@ -37,13 +37,29 @@ export const CATEGORY_OPTIONS: { category: ParentCategory; label: string }[] = [
 /** Фильтр списка: «Все», категория или «Скрытые» (D-57: скрытые видны только там). */
 export type ProgramFilter = "all" | ParentCategory | "hidden";
 
-export const FILTERS: { id: ProgramFilter; label: string }[] = [
-  { id: "all", label: "Все" },
-  ...CATEGORY_OPTIONS.map((o) => ({ id: o.category, label: o.label })),
-  { id: "hidden", label: "Скрытые" },
-];
+/** Кнопки фильтра; у «Скрытые» число скрытых, когда они есть: «Скрытые (3)» (B-43 п.2). */
+export function filtersFor(hiddenCount: number): { id: ProgramFilter; label: string }[] {
+  return [
+    { id: "all", label: "Все" },
+    ...CATEGORY_OPTIONS.map((o) => ({ id: o.category, label: o.label })),
+    { id: "hidden", label: hiddenCount > 0 ? `Скрытые (${hiddenCount})` : "Скрытые" },
+  ];
+}
 
-/** Слово категории в сообщении «SuperGame: игра» и в пометке «Раньше было: игра». */
+/**
+ * Пояснение под «Все программы» (B-43 п.3): что делает «Скрыть» (FR-20, D-57, D-63) и почему у
+ * запрещённой её нет (RF9-5: запрет сильнее скрытия).
+ */
+export const HIDE_LEAD =
+  "Скрытая программа пропадает из списка и статистики, не закрывается и не тратит время. Вернуть её можно в фильтре «Скрытые». Запрещённую скрыть нельзя";
+
+/** Ячейка действия запрещённой программы вместо кнопки «Скрыть» (RF9-5). */
+export const NO_HIDE = "Скрыть нельзя";
+
+/** Почему «Применить» недоступна, пока категория не выбрана (ТЗ 8.0 п.5). */
+export const APPLY_HINT = "Сначала выберите категорию";
+
+/** Слово категории в сообщении «SuperGame: игра» и в пометке «… Было: игра». */
 const CATEGORY_WORD: Record<ParentCategory, string> = {
   games: "игра",
   study: "учёба",
@@ -60,12 +76,15 @@ export function categoryTitle(category: ProgramCategory): string {
   return CATEGORY_OPTIONS.find((o) => o.category === category)?.label ?? "";
 }
 
-/** «Раньше было: игра», если файл программы сменился после решения родителя (RM3-12). */
+/**
+ * «Файл изменился, проверьте решение. Было: игра», если файл программы сменился после решения
+ * родителя (RM3-12): программа снова ждёт решения, прежнее показано для сравнения.
+ */
 export function wasCategoryText(was: string): string {
   const w = was.trim();
   if (w === "" || w === "system") return "";
   const word = isParentCategory(w) ? CATEGORY_WORD[w] : w.toLowerCase();
-  return `Раньше было: ${word}`;
+  return `Файл изменился, проверьте решение. Было: ${word}`;
 }
 
 /** Заглушка издателя (FR-20): та же строка, что присылает служба (programs.go textNoPublisher). */
@@ -218,6 +237,11 @@ export function weekText(seconds: number): string {
   if (seconds <= 0) return "нет";
   if (seconds < 60) return "меньше минуты";
   return formatDuration(seconds);
+}
+
+/** Ячейка «За неделю»: время скрытой не считается совсем (R2, D-63), пустая ячейка выглядела бы сбоем. */
+export function weekCell(p: ProgramDTO): string {
+  return p.hidden === true ? "не считается" : weekText(p.weekS);
 }
 
 export interface ProgramSort {

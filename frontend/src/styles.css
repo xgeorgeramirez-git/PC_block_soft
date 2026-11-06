@@ -1769,7 +1769,6 @@ html:has(.shell-child) body {
   width: auto;
 }
 
-.bulk-error,
 .bulk-hint {
   margin-top: 0;
 }
@@ -1846,6 +1845,16 @@ html:has(.shell-child) body {
 
 .programs-table .col-action .btn {
   max-width: 100%;
+}
+
+/* «Скрыть нельзя» у запрещённой (RF9-5): вторичный текст, не красный (ТЗ 8.0 п.3); в узкой
+   колонке может перейти на вторую строку, но не выходит за правый край. */
+.program-nohide {
+  display: inline-block;
+  max-width: 100%;
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.3;
 }
 
 .program-category {
