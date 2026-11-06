@@ -325,8 +325,10 @@ func TestClassifyStoreApps(t *testing.T) {
 	}{
 		{"калькулятор из снимка", wa + `microsoft.windowscalculator_11.2405.2.0_x64__8wekyb3d8bbwe\calculatorapp.exe`,
 			Result{Verdict: VerdictAllow, Category: "other", Known: true, Name: "Калькулятор"}},
-		{"калькулятор новой версии: тот же корень", wa + `microsoft.windowscalculator_11.2502.0.0_x64__8wekyb3d8bbwe\calculatorapp.exe`,
-			Result{Verdict: VerdictAllow, Category: "other", Name: "calculatorapp"}},
+		{"калькулятор новой версии: тот же ключ (RM4-11)", wa + `microsoft.windowscalculator_11.2502.0.0_x64__8wekyb3d8bbwe\calculatorapp.exe`,
+			Result{Verdict: VerdictAllow, Category: "other", Known: true, Name: "Калькулятор"}},
+		{"другой exe новой версии: тот же корень", wa + `microsoft.windowscalculator_11.2502.0.0_x64__8wekyb3d8bbwe\helper.exe`,
+			Result{Verdict: VerdictAllow, Category: "other", Name: "helper"}},
 		{"Minecraft из Store: игра по имени exe", wa + `microsoft.minecraftuwp_1.21.0.0_x64__8wekyb3d8bbwe\minecraft.windows.exe`,
 			Result{Verdict: VerdictAllow, Category: "games", Name: "minecraft.windows"}},
 		{"Minecraft Java из Store: игра по семейству", wa + `microsoft.minecraftjavaedition_1.0.0.0_x64__8wekyb3d8bbwe\launcher\gamelauncher.exe`,

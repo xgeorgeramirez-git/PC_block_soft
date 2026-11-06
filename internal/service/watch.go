@@ -41,7 +41,8 @@ type procKey struct {
 type watchEntry struct {
 	session uint32
 	path    string // путь как прислал адаптер (регистр для имени)
-	norm    string // programs.Normalize(path)
+	norm    string // programs.Normalize(path): настоящий путь — свойства файла, отпечаток, родитель процесса
+	key     string // ключ программы (Roots.StableKey, RM4-11): «Ждут решения», журнал, плашка, повторы
 	fp      string
 	fpRead  bool
 	pub     string // издатель файла (RM3-13): читается, только если решение в профиле его ждёт
@@ -311,7 +312,7 @@ func (s *Service) watchDecide(t *watchTarget, p ProcInfo, gen uint64) (*watchAct
 	key := procKey{pid: p.PID, stamp: p.Stamp}
 	e := s.watch.procs[key]
 	if e == nil {
-		norm := programs.Normalize(p.Path)
+		norm := programs.Normalize(p.Path) // настоящий путь, не ключ
 		if norm == "" {
 			return nil, skipUnreadable
 		}
@@ -369,13 +370,13 @@ func (s *Service) watchDecide(t *watchTarget, p ProcInfo, gen uint64) (*watchAct
 // Родитель того же exe (многопроцессная программа): решение главного процесса (его запись
 // заводится здесь же, если он в списке дальше), записи только у него (quiet).
 func (s *Service) newWatchEntry(t *watchTarget, p ProcInfo, norm string, gen uint64, depth int) *watchEntry {
-	e := &watchEntry{session: t.session, path: p.Path, norm: norm, seen: gen}
 	roots := s.classifier.Roots()
+	e := &watchEntry{session: t.session, path: p.Path, norm: norm, key: roots.StableKey(norm), seen: gen}
 	e.parent = launchParentOf(p, t.byPID, t.sid)
 	e.facts = launchFacts{
 		At: t.at, LogonAt: t.logonAt, InputAt: t.inputAt, Self: norm, Parent: e.parent,
 		Shell: launchShell(roots.SystemRoot), Foreground: t.fg,
-		Store: launchStoreApp(norm, roots.ProgramFiles), Broker: launchBroker(roots.SystemRoot),
+		Store: launchStoreApp(norm, roots.StoreDir()), Broker: launchBroker(roots.SystemRoot),
 	}
 	if e.parent != "" && e.parent == norm && depth < maxLaunchDepth {
 		q := t.byPID[p.ParentPID]
@@ -478,11 +479,11 @@ func (s *Service) settleLaunches(real time.Time) {
 			keep = append(keep, p)
 			continue
 		}
-		if at, ok := s.watchAt[fmt.Sprintf("ev|%d|%s|%s", cs.child.ID, evProgramForbiddenTry, a.e.norm)]; ok && real.Sub(at) < watchRepeatEvery {
+		if at, ok := s.watchAt[fmt.Sprintf("ev|%d|%s|%s", cs.child.ID, evProgramForbiddenTry, a.e.key)]; ok && real.Sub(at) < watchRepeatEvery {
 			s.vlogf("наблюдатель: %s (PID %d) без записи «сама»: рядом ручной запуск того же exe", a.e.norm, a.p.PID)
 			continue
 		}
-		if s.autoClosedOnce(cs.child.ID, a.t.d.Day, a.e.norm, real) {
+		if s.autoClosedOnce(cs.child.ID, a.t.d.Day, a.e.key, real) {
 			_, details := closedName(a)
 			s.journal.Write(cs.child.ID, evProgramAutoClosed, details)
 		}
@@ -496,14 +497,14 @@ func closedName(a *watchAct) (string, map[string]any) {
 	if name == "" {
 		name = programs.NameFromPath(a.e.path)
 	}
-	return name, map[string]any{"name": name, "path": a.e.norm}
+	return name, map[string]any{"name": name, "path": a.e.key}
 }
 
 // recordClosed — записи о закрытой программе: журнал, «Ждут решения» и плашка.
 func (s *Service) recordClosed(cs *childState, a *watchAct, real time.Time) {
 	name, details := closedName(a)
 	var kind, text string
-	plate := ipc.BlockedPlate{Kind: a.plateKind, ShowS: blockedPlateShowS, Path: a.e.norm}
+	plate := ipc.BlockedPlate{Kind: a.plateKind, ShowS: blockedPlateShowS, Path: a.e.key}
 	switch a.plateKind {
 	case ipc.BlockedUnknown:
 		kind, text = evProgramPending, ""
@@ -511,10 +512,10 @@ func (s *Service) recordClosed(cs *childState, a *watchAct, real time.Time) {
 		// В «Ждут решения» своих названий нет (D-59): название из файла, иначе решение родителя
 		// записало бы своё название как название из файла.
 		pendName := name
-		if p, ok, err := s.cfg.Store.GetProgram(a.e.norm); err == nil && ok {
+		if p, ok, err := s.cfg.Store.GetProgram(a.e.key); err == nil && ok {
 			pendName = programName(p.Name, p.Path)
 		}
-		pend := PendingProgram{Path: a.e.norm, Name: pendName, Publisher: a.publisher, Description: a.descr, WasCategory: a.res.WasCategory}
+		pend := PendingProgram{Path: a.e.key, Name: pendName, Publisher: a.publisher, Description: a.descr, WasCategory: a.res.WasCategory}
 		if _, err := s.cfg.Store.AddPendingAttempt(pend, cs.child.ID, real.UnixMilli()); err != nil {
 			s.logRate("pending-add", "попытка запуска %s не записана в «Ждут решения»: %v", a.e.norm, err)
 		}
@@ -550,7 +551,7 @@ func (s *Service) recordClosed(cs *childState, a *watchAct, real time.Time) {
 	if text != "" {
 		details["text"] = text
 	}
-	if s.watchOnce(fmt.Sprintf("ev|%d|%s|%s", cs.child.ID, kind, a.e.norm), watchRepeatEvery, real) {
+	if s.watchOnce(fmt.Sprintf("ev|%d|%s|%s", cs.child.ID, kind, a.e.key), watchRepeatEvery, real) {
 		s.journal.Write(cs.child.ID, kind, details)
 	}
 	s.blockedPlate(a.t.session, cs.child.ID, plate, real)

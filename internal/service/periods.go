@@ -129,7 +129,7 @@ func (s *Service) hTestSeedDay(c *callCtx) ipc.Reply {
 	}
 	rows := make([]UsageRow, 0, len(req.Usage))
 	for _, u := range req.Usage {
-		path := programs.Normalize(u.Path)
+		path := s.programKey(u.Path)
 		if path == "" || !seedCategories[u.Category] || u.Seconds < 0 {
 			return bad()
 		}

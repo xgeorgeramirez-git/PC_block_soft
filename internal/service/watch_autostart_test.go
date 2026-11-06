@@ -350,14 +350,14 @@ func TestWatchForbiddenStoreAppManual(t *testing.T) {
 	h := newHarness(t, configured(), withChild(childSID, "Миша", 120), withPrograms(sc), withWatcher(w))
 	h.start()
 	h.childLogsIn()
-	h.setCategory(roblox, "blocked")
+	h.setCategory(svcRoots.StableKey(roblox), "blocked") // строка списка — по ключу пакета (RM4-11)
 	h.manualReady(w)
 	p := w.start(childSession, roblox) // родителя в сеансе нет
 	h.watch()
 	if w.alive(p) {
 		t.Fatal("запрещённая игра Магазина не закрыта")
 	}
-	want := []ipc.BlockedPlate{{Kind: ipc.BlockedForbidden, Text: "Программа «Roblox» запрещена родителем", ShowS: 10, Path: roblox}}
+	want := []ipc.BlockedPlate{{Kind: ipc.BlockedForbidden, Text: "Программа «Roblox» запрещена родителем", ShowS: 10, Path: svcRoots.StableKey(roblox)}}
 	if got := forbiddenPlates(h.poll(activeSample)); jsonOf(t, got) != jsonOf(t, want) {
 		t.Errorf("плашка игры Магазина: %s, want %s", jsonOf(t, got), jsonOf(t, want))
 	}

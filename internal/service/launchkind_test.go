@@ -161,12 +161,12 @@ func TestLaunchStoreAndBroker(t *testing.T) {
 		{pathTool, false},
 	}
 	for _, k := range cases {
-		if got := launchStoreApp(k.path, r.ProgramFiles); got != k.want {
+		if got := launchStoreApp(k.path, r.StoreDir()); got != k.want {
 			t.Errorf("launchStoreApp(%q): %v, want %v", k.path, got, k.want)
 		}
 	}
 	if launchStoreApp(pathRoblox, "") {
-		t.Error("launchStoreApp без папки Program Files: true, want false (не знаю — не Магазин)")
+		t.Error("launchStoreApp без папки пакетов: true, want false (не знаю — не Магазин)")
 	}
 	if got := launchBroker(`C:\Windows`); got != pathSvchost {
 		t.Errorf("launchBroker: %q, want %q", got, pathSvchost)

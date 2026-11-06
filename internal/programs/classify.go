@@ -61,7 +61,7 @@ type Classifier struct {
 	cat   Catalog
 
 	mu      sync.RWMutex
-	exact   map[string]Entry  // по нормализованному пути
+	exact   map[string]Entry  // по ключу программы (Roots.StableKey)
 	rootCat map[string]string // корень приложения → наследуемая категория
 	// profile — решения в профилях (RM3-13): «корень без имени профиля|имя файла» → издатели и
 	// категории. Корень без имени профиля: решение действует для всех детей (R12).
@@ -137,7 +137,7 @@ func (c *Classifier) Reload(entries []Entry) {
 	rank := map[string]int{}
 	profile := map[string][]profileRule{}
 	for _, e := range entries {
-		p := Normalize(e.Path)
+		p := c.roots.StableKey(e.Path) // все версии пакета магазина — одна программа (RM4-11)
 		if p == "" {
 			continue
 		}
@@ -179,7 +179,7 @@ func (c *Classifier) Reload(entries []Entry) {
 // месте), а в этом корне есть решение с тем же именем файла и издателем (RM3-13), или путь в
 // папке Brave профиля (RM4-8). Остальным путям издатель не нужен: опрос не замедляется.
 func (c *Classifier) NeedsPublisher(path string) bool {
-	p := Normalize(path)
+	p := c.roots.StableKey(path)
 	key, ok := c.profileKey(p)
 	if !ok {
 		return false
@@ -195,13 +195,14 @@ func (c *Classifier) NeedsPublisher(path string) bool {
 // NeedsFingerprint сообщает, что для пути в списке сохранён отпечаток файла: наблюдателю нужно
 // прочитать отпечаток и передать его в Classify (RM3-12).
 func (c *Classifier) NeedsFingerprint(path string) bool {
-	p := Normalize(path)
+	p := c.roots.StableKey(path)
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.exact[p].Fingerprint != ""
 }
 
-// Classify определяет вердикт для пути exe строго в порядке RM3-1 и RM4-8:
+// Classify определяет вердикт для пути exe (путь версии пакета магазина или его ключ StableKey —
+// одно и то же) строго в порядке RM3-1 и RM4-8:
 //  1. пустой или непригодный путь — «система» (PL-9: «не знаю» = «не трогать»);
 //  2. класс «система» (папка Windows, PC Block, WebView2, пакеты компонентов Windows, обновлятор
 //     Brave в Program Files);
@@ -222,7 +223,7 @@ func (c *Classifier) NeedsFingerprint(path string) bool {
 //  8. каталог по имени файла (в WindowsApps и по имени пакета) — только в доверенных каталогах;
 //  9. иначе «незнакомая».
 func (c *Classifier) Classify(path, fingerprint, publisher string) Result {
-	p := Normalize(path)
+	p := c.roots.StableKey(path) // путь версии пакета магазина и ключ — одна программа (RM4-11)
 	if p == "" {
 		return Result{Verdict: VerdictSystem}
 	}

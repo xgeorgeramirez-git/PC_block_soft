@@ -202,7 +202,7 @@ func (s *Service) siteGuard(cs *childState, ss *sessState, session uint32, sm ip
 	if cs.admin || ss == nil || ss.childID != cs.child.ID || ss.offScreen() {
 		return
 	}
-	norm := programs.Normalize(sm.ForegroundPath)
+	norm := programs.Normalize(sm.ForegroundPath) // настоящий путь, не ключ: по нему fpSeen и pubSeen
 	if norm == "" {
 		return
 	}

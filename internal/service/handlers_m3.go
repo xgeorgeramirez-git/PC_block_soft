@@ -155,7 +155,7 @@ func (s *Service) hDecideProgram(c *callCtx) ipc.Reply {
 	if !parentCategories[req.Category] {
 		return ipc.FailField(textCategoryBad, fieldCategory)
 	}
-	path := programs.Normalize(req.Path)
+	path := s.programKey(req.Path)
 	if path == "" {
 		return ipc.Fail(textNoProgram)
 	}
@@ -331,7 +331,7 @@ func (s *Service) hSetProgramsCategory(c *callCtx) ipc.Reply {
 	seen := map[string]bool{}
 	known := 0
 	for _, raw := range req.Paths {
-		p := programs.Normalize(raw)
+		p := s.programKey(raw)
 		if p == "" || seen[p] {
 			continue
 		}
@@ -388,7 +388,7 @@ func (s *Service) hSetProgramsHidden(c *callCtx) ipc.Reply {
 	seen := map[string]bool{}
 	blocked := 0
 	for _, raw := range req.Paths {
-		p := programs.Normalize(raw)
+		p := s.programKey(raw)
 		if p == "" || seen[p] {
 			continue
 		}
@@ -494,7 +494,7 @@ func (s *Service) hRenameProgram(c *callCtx) ipc.Reply {
 	if !ok {
 		return ipc.FailField(textNameTooLong, ipc.FieldName)
 	}
-	path := programs.Normalize(req.Path)
+	path := s.programKey(req.Path)
 	if path == "" {
 		return ipc.Fail(textNoProgram)
 	}
@@ -652,7 +652,7 @@ func (s *Service) setupPrograms(list []ipc.SetupProgram, at int64) ([]Program, s
 		if !parentCategories[sp.Category] {
 			return nil, textCategoryBad
 		}
-		p := programs.Normalize(sp.Path)
+		p := roots.StableKey(sp.Path)
 		if p == "" || seen[p] || roots.IsSystem(p) {
 			continue
 		}

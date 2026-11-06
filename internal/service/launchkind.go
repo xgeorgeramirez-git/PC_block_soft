@@ -109,13 +109,14 @@ func launchShell(systemRoot string) string {
 	return programs.Normalize(strings.TrimSuffix(systemRoot, `\`) + `\explorer.exe`)
 }
 
-// launchStoreApp — путь path лежит в папке приложений Магазина Program Files\WindowsApps (строго
-// глубже). Папка Program Files не определена — «не знаю», не Магазин.
-func launchStoreApp(path, programFiles string) bool {
-	if programFiles == "" {
+// launchStoreApp — путь path (настоящий или ключ StableKey) лежит в папке пакетов Магазина
+// storeDir (programs.Roots.StoreDir: Program Files\WindowsApps или TestMode\StoreRoot), строго
+// глубже. Папка не определена — «не знаю», не Магазин.
+func launchStoreApp(path, storeDir string) bool {
+	if storeDir == "" {
 		return false
 	}
-	root := programs.Normalize(strings.TrimSuffix(programFiles, `\`) + `\windowsapps`)
+	root := programs.Normalize(storeDir)
 	p := programs.Normalize(path)
 	return root != "" && strings.HasPrefix(p, root+`\`) && len(p) > len(root)+1
 }

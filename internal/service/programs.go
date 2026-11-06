@@ -187,7 +187,7 @@ func (s *Service) snapshotPrograms(found []FoundProgram) []Program {
 	out := make([]Program, 0, len(found))
 	seen := map[string]bool{}
 	for _, f := range found {
-		p := programs.Normalize(f.Path)
+		p := roots.StableKey(f.Path) // все версии пакета магазина — одна строка (RM4-11)
 		if p == "" || seen[p] || !roots.IsTrusted(p) || roots.IsSystem(p) {
 			continue
 		}

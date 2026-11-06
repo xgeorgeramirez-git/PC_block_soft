@@ -139,10 +139,11 @@ func (s *Service) sampleFor(cs *childState) (core.SessionSample, usageSubject) {
 // по старому решению. Путь для учёта — нормализованный, у системы, скрытой и запрещённой «».
 func (s *Service) foregroundOf(cs *childState, sm ipc.SensorSample) (cat core.Category, u usageSubject, hidden bool) {
 	prog := usageSubject{kind: usageKindProgram}
-	norm := programs.Normalize(sm.ForegroundPath)
+	norm := programs.Normalize(sm.ForegroundPath) // настоящий путь, не ключ: по нему fpSeen и pubSeen
 	if norm == "" {
 		return core.CatOther, prog, false
 	}
+	key := s.programKey(norm) // предмет учёта программы (RM4-11)
 	res := s.classifier.Classify(norm, s.fpSeen[norm], s.pubSeen[norm])
 	switch res.Verdict {
 	case programs.VerdictSystem:
@@ -153,7 +154,7 @@ func (s *Service) foregroundOf(cs *childState, sm ipc.SensorSample) (cat core.Ca
 				return cat, u, false
 			}
 		}
-		return coreCategory(res.Category), usageSubject{kind: usageKindProgram, subject: norm}, false
+		return coreCategory(res.Category), usageSubject{kind: usageKindProgram, subject: key}, false
 	case programs.VerdictHidden:
 		return core.CatOther, prog, true
 	case programs.VerdictForbidden:
@@ -161,8 +162,12 @@ func (s *Service) foregroundOf(cs *childState, sm ipc.SensorSample) (cat core.Ca
 		// даже если запрет по наследству, а не точной записью (D-64, RF16-1).
 		return core.CatOther, prog, false
 	}
-	return core.CatOther, usageSubject{kind: usageKindProgram, subject: norm}, false
+	return core.CatOther, usageSubject{kind: usageKindProgram, subject: key}, false
 }
+
+// programKey — ключ программы для списка, «Ждут решения», учёта и журнала (Roots.StableKey,
+// RM4-11): путь версии пакета магазина — ключ без версии, остальное — Normalize.
+func (s *Service) programKey(path string) string { return s.classifier.Roots().StableKey(path) }
 
 // progUsageKey — порция учёта: день, когда секунды засчитаны (PL-15), категория и предмет
 // (программа или сайт, RM4-7).
