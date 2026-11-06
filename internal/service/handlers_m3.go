@@ -209,6 +209,9 @@ func (s *Service) hDecideProgram(c *callCtx) ipc.Reply {
 			s.logRate("decide", "решение по программе не записано: %v", err)
 			return ipc.Fail(textSaveFailed)
 		}
+		if len(changed) == 0 {
+			return s.categoryUnchanged()
+		}
 		rec.programs = changed
 		name = displayName(prev)
 	default:
@@ -316,6 +319,14 @@ func (s *Service) rememberProgramsUndo(rec *progUndoRec, c *callCtx) {
 	s.progUndo = rec
 }
 
+// categoryUnchanged — ответ на смену категории, которая ничего не изменила (у всех программ уже
+// эта категория решением родителя, B-41): без «Отменить» и без записи журнала, как «Название не
+// изменилось»; прошлая отменяемая операция остаётся отменяемой.
+func (s *Service) categoryUnchanged() ipc.Reply {
+	view, _ := s.programsView()
+	return ipc.OK(ipc.DecideProgramReply{Message: textCategoryUnchanged, Programs: view})
+}
+
 func (s *Service) hSetProgramsCategory(c *callCtx) ipc.Reply {
 	var req ipc.SetProgramsCategoryRequest
 	if c.msg.Into(&req) != nil {
@@ -354,14 +365,15 @@ func (s *Service) hSetProgramsCategory(c *callCtx) ipc.Reply {
 		s.logRate("decide", "смена категории программ не записана: %v", err)
 		return ipc.Fail(textSaveFailed)
 	}
-	s.reloadPrograms()
-	if len(changed) > 0 {
-		d := map[string]any{"category": req.Category, "count": len(changed)}
-		if len(changed) == 1 {
-			d["name"], d["path"] = displayName(changed[0]), changed[0].Path
-		}
-		s.journal.Write(0, evProgramDecided, d)
+	if len(changed) == 0 {
+		return s.categoryUnchanged()
 	}
+	s.reloadPrograms()
+	d := map[string]any{"category": req.Category, "count": len(changed)}
+	if len(changed) == 1 {
+		d["name"], d["path"] = displayName(changed[0]), changed[0].Path
+	}
+	s.journal.Write(0, evProgramDecided, d)
 	rec := &progUndoRec{programs: changed}
 	s.rememberProgramsUndo(rec, c)
 	view, _ := s.programsView()

@@ -634,3 +634,41 @@ func TestSetupReadsFileMetaOutsideServiceLock(t *testing.T) {
 		t.Error("опоздавший мастер записал программу")
 	}
 }
+
+// Ловит (B-41): смена категории, которая ничего не изменила (у всех программ уже та же категория
+// решением родителя), выдаёт «Изменено программ: 0» с «Отменить» и пишет журнал; то же у решения
+// по программе из списка. Смешанный набор (часть уже такая) — прежнее «Изменено программ: N».
+func TestCategoryNoChangeNoUndo(t *testing.T) {
+	h := newProgHarness(t)
+	setCat := func(cat string, paths ...string) ipc.DecideProgramReply {
+		t.Helper()
+		var rep ipc.DecideProgramReply
+		h.ok(adminPeer(), h.tok, ipc.CmdSetProgramsCategory, ipc.SetProgramsCategoryRequest{Paths: paths, Category: cat}, &rep)
+		return rep
+	}
+	changedOK := func(step string, rep ipc.DecideProgramReply, want string) {
+		t.Helper()
+		if rep.Message != want || rep.UndoID == "" || rep.UndoUntilMs == 0 {
+			t.Errorf("%s: %+v, want %q с «Отменить»", step, rep, want)
+		}
+	}
+	unchanged := func(step string, rep ipc.DecideProgramReply) {
+		t.Helper()
+		if rep.Message != "Категория не изменилась" || rep.UndoID != "" || rep.UndoUntilMs != 0 {
+			t.Errorf("%s: %+v, want «Категория не изменилась» без «Отменить»", step, rep)
+		}
+		if len(rep.Programs.Programs) == 0 {
+			t.Errorf("%s: ответ без списка программ", step)
+		}
+	}
+
+	changedOK("(1) GeoGebra в учёбу", setCat("study", pathGeoGebra), "Изменено программ: 1")
+	unchanged("(2) GeoGebra в учёбу ещё раз", setCat("study", pathGeoGebra))
+	changedOK("(3) Brave в учёбу", setCat("study", pathBrave), "Изменено программ: 1")
+	unchanged("(3) GeoGebra и Brave в учёбу", setCat("study", pathGeoGebra, pathBrave))
+	changedOK("(4) GeoGebra и Chrome в учёбу", setCat("study", pathGeoGebra, pathChrome), "Изменено программ: 1")
+	unchanged("(5) решение по GeoGebra из списка", h.decide(pathGeoGebra, "study"))
+	if got := h.journal("program_decided"); len(got) != 3 {
+		t.Errorf("записей о решении %d (%q), want 3", len(got), got)
+	}
+}
