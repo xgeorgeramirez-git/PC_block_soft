@@ -76,6 +76,7 @@
 - `src/lib/programs.ts`
 - `src/lib/rest.ts`
 - `src/lib/schedule.ts`
+- `src/lib/sites.ts`
 - `src/lib/status.ts`
 - `src/main.tsx`
 - `src/screens/Bonus.tsx`
@@ -89,6 +90,7 @@
 - `src/screens/Programs.tsx`
 - `src/screens/ResetPassword.tsx`
 - `src/screens/Settings.tsx`
+- `src/screens/Sites.tsx`
 - `src/screens/Today.tsx`
 - `src/screens/UninstallGate.tsx`
 - `src/screens/Wizard.tsx`
