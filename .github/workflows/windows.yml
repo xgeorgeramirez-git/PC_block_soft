@@ -229,6 +229,10 @@ jobs:
           $dir = $exe.DirectoryName
           # Свой шаблон установщика (build/windows/installer/project.nsi), а не шаблон Wails: папка, служба, ярлык сброса пароля.
           if ($dir -ne (Join-Path $env:ProgramFiles "PCBlock")) { Write-Host "::error::Папка установки $dir, ждали $env:ProgramFiles\PCBlock"; exit 1 }
+          # Лицензия списка 18+ рядом с программой (RM4-3, ТЗ 8.3.5 п. 3; project.nsi). Её удаление проверяет «осталось: папка» ниже.
+          $lic = Join-Path $dir "LICENSE-UT1.txt"
+          if (-not (Test-Path -LiteralPath $lic)) { Write-Host "::error title=Лицензия UT1::После установки нет $lic (project.nsi: File LICENSE-UT1.txt после wails.files)"; exit 1 }
+          if (-not (Get-Content -LiteralPath $lic -Raw -Encoding UTF8).Contains("CC BY-SA 4.0")) { Write-Host "::error title=Лицензия UT1::В $lic ($((Get-Item -LiteralPath $lic).Length) б) нет «CC BY-SA 4.0»"; exit 1 }
           $svc = Get-Service -Name PCBlock -ErrorAction SilentlyContinue
           if (-not $svc -or $svc.Status -ne "Running") { Write-Host "::error::После тихой установки служба PCBlock не работает: $($svc.Status)"; exit 1 }
           $lnkDir = Join-Path $env:ProgramData "Microsoft\Windows\Start Menu\Programs"
@@ -241,7 +245,7 @@ jobs:
           if ($lnkText -notmatch [regex]::Escape("--reset-password") -or $lnkText -notmatch [regex]::Escape("PCBlock.exe")) {
             Write-Host "::error::Ярлык сброса пароля ведёт не туда: в $($lnk.FullName) ($($lnk.Length) б) нет --reset-password или PCBlock.exe"; exit 1
           }
-          Write-Host "::notice title=Установка::$($exe.FullName); служба PCBlock работает; ярлык «$($lnk.BaseName)» ведёт на --reset-password"
+          Write-Host "::notice title=Установка::$($exe.FullName); служба PCBlock работает; ярлык «$($lnk.BaseName)» ведёт на --reset-password; LICENSE-UT1.txt рядом с программой"
           $un = Join-Path $dir "uninstall.exe"
           if (-not (Test-Path $un)) { Write-Host "::error::Нет uninstall.exe в $dir"; exit 1 }
           Start-Process $un -ArgumentList "/S" -Wait

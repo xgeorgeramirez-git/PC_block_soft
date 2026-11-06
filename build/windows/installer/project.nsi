@@ -157,6 +157,8 @@ Section
     SetOutPath $INSTDIR
 
     !insertmacro wails.files
+    # Лицензия списка сайтов 18+ (UT1, CC BY-SA 4.0) лежит рядом с программой (RM4-3, ТЗ 8.3.5 п. 3).
+    File "..\..\..\internal\sites\adult\LICENSE-UT1.txt"
 
     CreateShortCut "${PCB_RESET_LINK}" "$INSTDIR\${PRODUCT_EXECUTABLE}" "--reset-password" "$INSTDIR\${PRODUCT_EXECUTABLE}" 0
     # Ярлыки шаблона Wails прежних версий: на общем рабочем столе их видят и дети.
@@ -292,6 +294,8 @@ Section "uninstall"
     RMDir /r "$APPDATA\${PRODUCT_EXECUTABLE}"
     SetShellVarContext all
 
+    # Лицензия списка 18+ (файл установки): не удалить её, и папка программы останется.
+    Delete "$INSTDIR\LICENSE-UT1.txt"
     Delete /REBOOTOK "$INSTDIR\${PRODUCT_EXECUTABLE}"
     !insertmacro wails.deleteUninstaller
     RMDir /REBOOTOK "$INSTDIR"
