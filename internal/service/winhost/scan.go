@@ -649,8 +649,9 @@ func skipStorePackage(dir string) bool {
 // appxManifest — нужная часть AppxManifest.xml (пространства имён не важны).
 type appxManifest struct {
 	Properties struct {
-		Framework       bool `xml:"Framework"`
-		ResourcePackage bool `xml:"ResourcePackage"`
+		Framework            bool   `xml:"Framework"`
+		ResourcePackage      bool   `xml:"ResourcePackage"`
+		PublisherDisplayName string `xml:"PublisherDisplayName"` // издатель для людей (RM4-11)
 	} `xml:"Properties"`
 	Applications []struct {
 		Executable string `xml:"Executable,attr"`

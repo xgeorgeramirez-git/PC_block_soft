@@ -68,6 +68,7 @@ func openHost() (*host, error) {
 	// процессов. В тестовом режиме наблюдатель трогает только папку WatchDir (RM3-8).
 	folders := readMachineFolders()
 	roots := folders.roots()
+	meta := winMeta(roots.StoreDir()) // снимок и служба видят одну папку пакетов (RM4-11)
 	s, err := service.New(service.Config{
 		Store:      res.Store,
 		Hasher:     hasher{},
@@ -84,8 +85,8 @@ func openHost() (*host, error) {
 		Recovered:  res.Recovered,
 		BrokenCopy: res.BrokenCopy,
 		Logf:       logf,
-		Scanner:    newWinScanner(folders),
-		FileMeta:   fileMeta,
+		Scanner:    newWinScanner(folders, roots.StoreDir(), meta),
+		FileMeta:   meta,
 		Roots:      roots,
 		Watcher:    newProcessWatcher(),
 	})
