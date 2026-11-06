@@ -31,6 +31,10 @@ const (
 	// killWorkers — сколько Kill одного прохода идут одновременно (B-37, NFR-6): Windows-адаптер
 	// ждёт исчезновения процесса до 300 мс, и по очереди пять закрываемых держали бы проход 1,5 с.
 	killWorkers = 8
+	// metaBudget — сколько проход ждёт свойства (издатель, описание) закрытых незнакомых (B-32,
+	// NFR-6, PL-17): чтение с сетевого пути может висеть. Не успело — в «Ждут решения» «Без подписи
+	// издателя»; решение родителя всё равно перечитывает свойства (fileMetaUnlocked).
+	metaBudget = 300 * time.Millisecond
 )
 
 // procKey — процесс: PID повторяется, пара (PID, момент создания) — нет (RM3-11).
@@ -118,6 +122,11 @@ type watchState struct {
 	mu    sync.Mutex
 	gen   uint64
 	procs map[procKey]*watchEntry
+	// metaBusy — пути, свойства которых сейчас читаются (B-32): зависший сетевой путь, запускаемый
+	// снова и снова, не плодит горутины. Под своим metaMu: горутина чтения снимает отметку сама,
+	// когда проход, начавший её, уже закончен.
+	metaMu   sync.Mutex
+	metaBusy map[string]bool
 }
 
 // RunWatch крутит наблюдатель на собственном тикере по настоящим часам, пока не отменён ctx.
@@ -196,14 +205,10 @@ func (s *Service) Watch(real time.Time) {
 		}
 	}
 	s.killAll(acts)
+	s.readClosedMeta(acts)
 	for i := range acts {
-		a := &acts[i]
-		if a.killed && !a.again && a.res.Verdict == programs.VerdictUnknown {
-			pub, descr, _ := s.cfg.FileMeta(a.e.norm)
-			a.publisher, a.descr = programs.ClipName(pub), programs.ClipName(descr)
-		}
-		if a.killed {
-			a.e.closed = true
+		if acts[i].killed {
+			acts[i].e.closed = true
 		}
 	}
 	s.mu.Lock()
@@ -255,6 +260,75 @@ func (s *Service) killAll(acts []watchAct) {
 	if panicked != nil {
 		panic(panicked)
 	}
+}
+
+// readClosedMeta читает издателя и описание закрытых незнакомых (для «Ждут решения») после всех
+// Kill (B-32): медленный путь одной программы не держит закрытие других. Одно чтение на путь в
+// своей горутине; проход ждёт их не дольше metaBudget, опоздавшие отбрасываются (запись без
+// издателя). Путь, чтение которого ещё висит с прошлого прохода, не читается снова.
+func (s *Service) readClosedMeta(acts []watchAct) {
+	byPath := map[string][]int{}
+	for i := range acts {
+		a := &acts[i]
+		if a.killed && !a.again && a.res.Verdict == programs.VerdictUnknown {
+			byPath[a.e.norm] = append(byPath[a.e.norm], i)
+		}
+	}
+	type meta struct{ path, pub, descr string }
+	out := make(chan meta, len(byPath)) // горутина не ждёт опоздавшего читателя
+	started := 0
+	for path := range byPath {
+		if !s.watch.takeMeta(path) {
+			continue
+		}
+		started++
+		go func() {
+			var pub, descr string
+			defer func() {
+				if p := recover(); p != nil {
+					s.cfg.Logf("наблюдатель: сбой чтения свойств %s: %v", path, p)
+				}
+				s.watch.doneMeta(path)
+				out <- meta{path, pub, descr}
+			}()
+			pub, descr, _ = s.cfg.FileMeta(path)
+		}()
+	}
+	if started == 0 {
+		return
+	}
+	budget := time.NewTimer(metaBudget)
+	defer budget.Stop()
+	for ; started > 0; started-- {
+		select {
+		case m := <-out:
+			for _, i := range byPath[m.path] {
+				acts[i].publisher, acts[i].descr = programs.ClipName(m.pub), programs.ClipName(m.descr)
+			}
+		case <-budget.C:
+			return
+		}
+	}
+}
+
+// takeMeta отмечает, что свойства path читаются; false — уже читаются.
+func (w *watchState) takeMeta(path string) bool {
+	w.metaMu.Lock()
+	defer w.metaMu.Unlock()
+	if w.metaBusy[path] {
+		return false
+	}
+	if w.metaBusy == nil {
+		w.metaBusy = map[string]bool{}
+	}
+	w.metaBusy[path] = true
+	return true
+}
+
+func (w *watchState) doneMeta(path string) {
+	w.metaMu.Lock()
+	defer w.metaMu.Unlock()
+	delete(w.metaBusy, path)
 }
 
 // keepSession помечает виденными процессы сеанса, список которого не прочитался: память о них
