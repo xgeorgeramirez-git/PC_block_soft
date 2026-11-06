@@ -1968,6 +1968,87 @@ html:has(.shell-child) body {
   margin-top: var(--space-4);
 }
 
+/* --- Сайты (FR-21, 8.3.5) ------------------------------------------------------------ */
+/* Блоки и сообщения: как у «Программ» (.programs-block, .programs-feedback). Цвет статуса не
+   используется: ни у «Запрещённых», ни у счётчика «N из 1000» (8.0 п.3). */
+
+.sites-intro {
+  margin-bottom: var(--space-4);
+}
+
+.sites-switches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3) var(--space-6);
+}
+
+/* Подпись источника списка «18+» мелко под переключателями (8.3.5 п.3, PL-36). */
+.sites-source {
+  margin-top: var(--space-3);
+}
+
+.sites-adult .sites-feedback {
+  margin: var(--space-3) 0 0;
+}
+
+.sites-tabs .tab {
+  padding: var(--space-2) var(--space-3);
+}
+
+.sites-limit {
+  margin-bottom: var(--space-3);
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+/* Подпись над полем, поле и «Добавить» в одну строку одной высоты, подсказка или ошибка под ними. */
+.sites-add {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  column-gap: var(--space-3);
+  max-width: 640px;
+  margin-bottom: var(--space-4);
+}
+
+.sites-add-label,
+.sites-add-note {
+  grid-column: 1 / -1;
+}
+
+.sites-add-button {
+  white-space: nowrap;
+}
+
+.sites-search {
+  max-width: 360px;
+}
+
+.sites-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border-top: 1px solid var(--line);
+}
+
+/* Домен до 253 знаков переносится, а не съедает «Удалить» (PL-26); кнопки в одну колонку справа. */
+.sites-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.sites-domain {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.sites-row .btn {
+  flex: none;
+}
+
 /* --- Узкое окно: масштаб Windows 150 % и выше (NFR-14) ------------------------------ */
 
 @media (max-width: 640px) {

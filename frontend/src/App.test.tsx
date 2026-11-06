@@ -225,7 +225,7 @@ describe("мастер и вход", () => {
 });
 
 describe("меню окна родителя", () => {
-  it("«Сегодня», «Дети», «Программы», «Копилка», «Статистика», «Журнал», «Настройки» и внизу «Что нового»", async () => {
+  it("«Сегодня», «Дети», «Программы», «Сайты», «Копилка», «Статистика», «Журнал», «Настройки» и внизу «Что нового»", async () => {
     const user = setup();
     await login(user);
     const nav = screen.getByRole("navigation", { name: "Разделы" });
@@ -233,6 +233,7 @@ describe("меню окна родителя", () => {
       "Сегодня",
       "Дети",
       "Программы",
+      "Сайты",
       "Копилка",
       "Статистика",
       "Журнал",
@@ -240,6 +241,18 @@ describe("меню окна родителя", () => {
       "Что нового",
     ]);
     expect(within(nav).getByRole("button", { name: "Сегодня" }).getAttribute("aria-current")).toBe("page");
+  });
+
+  // Ловит: пункта «Сайты» нет или он открывает не тот экран (8.3.2 п.2, FR-21).
+  it("«Сайты» после «Программ» открывают экран сайтов", async () => {
+    const user = setup();
+    await login(user);
+    const nav = screen.getByRole("navigation", { name: "Разделы" });
+    const item = within(nav).getByRole("button", { name: "Сайты" });
+    await user.click(item);
+    expect(await screen.findByRole("heading", { name: "Сайты" })).toBeTruthy();
+    expect(item.getAttribute("aria-current")).toBe("page");
+    expect(await screen.findByRole("tablist", { name: "Списки сайтов" })).toBeTruthy();
   });
 
   it("каждый пункт открывает свой раздел", async () => {
