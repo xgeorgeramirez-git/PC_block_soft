@@ -8,35 +8,7 @@ $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "common.ps1")
 
 $script:ProbeDomain = "probe-site.test"
-$script:BraveProfile = Join-Path $script:Work "brave-profile"
-
-function Find-Brave {
-  $rel = "BraveSoftware\Brave-Browser\Application\brave.exe"
-  foreach ($d in @($env:ProgramFiles, ${env:ProgramFiles(x86)}, $env:LOCALAPPDATA)) {
-    if (-not $d) { continue }
-    $p = Join-Path $d $rel
-    if (Test-Path -LiteralPath $p) { return $p }
-  }
-  return ""
-}
-
-function Stop-Brave {
-  Get-Process -Name brave -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
-  Start-Sleep -Seconds 1
-}
-
-# Видимое окно Brave шире 100 точек (у Chromium есть и скрытые служебные окна).
-function Get-BraveWindow {
-  $pids = @(Get-Process -Name brave -ErrorAction SilentlyContinue | ForEach-Object { [uint32]$_.Id })
-  if ($pids.Count -eq 0) { return $null }
-  foreach ($w in [PcbNative]::VisibleWindows([uint32[]]$pids)) {
-    $parts = $w -split '\|', 4
-    if ($parts[1] -ne "Chrome_WidgetWin_1") { continue }
-    $r = @($parts[2] -split ',' | ForEach-Object { [int]$_ })
-    if ($r[2] - $r[0] -ge 100) { return $w }
-  }
-  return $null
-}
+# Find-Brave, Stop-Brave, Get-BraveWindow и профиль $script:BraveProfile: common.ps1 (общие помощники Brave, M4 T10).
 
 function Write-ProbeFact([string]$Text) {
   Write-Host "::notice title=Проба Brave от SYSTEM::$Text"
