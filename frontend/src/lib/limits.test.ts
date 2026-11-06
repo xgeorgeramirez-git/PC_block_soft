@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest";
 import {
   GAMES_FALLBACK_MIN,
   MAX_LIMIT_MIN,
+  VIDEO_FALLBACK_MIN,
   copyDay,
   limitErrorKey,
   joinMinutes,
+  limitField,
   limitsEqual,
   normalizeLimits,
   setDay,
@@ -23,6 +25,8 @@ const week = (mins: number[], unlimitedDays: number[] = []): WeekdayLimit[] =>
     unlimited: unlimitedDays.includes(i + 1),
     gamesMin: 0,
     gamesUnlimited: true,
+    videoMin: 0,
+    videoUnlimited: true,
   }));
 
 /** Неделя с играми: games[i] = null - игры без лимита. */
@@ -33,6 +37,8 @@ const withGamesWeek = (mins: number[], games: (number | null)[]): WeekdayLimit[]
     unlimited: false,
     gamesMin: games[i] ?? 0,
     gamesUnlimited: games[i] === null,
+    videoMin: 0,
+    videoUnlimited: true,
   }));
 
 describe("шаблон", () => {
@@ -70,8 +76,8 @@ describe("normalizeLimits", () => {
     const got = normalizeLimits(messy);
     expect(got).toHaveLength(7);
     expect(got.map((l) => l.weekday)).toEqual([1, 2, 3, 4, 5, 6, 7]);
-    expect(got[0]).toEqual({ weekday: 1, totalMin: 60, unlimited: false, gamesMin: 0, gamesUnlimited: true });
-    expect(got[2]).toEqual({ weekday: 3, totalMin: 90, unlimited: false, gamesMin: 0, gamesUnlimited: true });
+    expect(got[0]).toEqual({ weekday: 1, totalMin: 60, unlimited: false, gamesMin: 0, gamesUnlimited: true, videoMin: 0, videoUnlimited: true });
+    expect(got[2]).toEqual({ weekday: 3, totalMin: 90, unlimited: false, gamesMin: 0, gamesUnlimited: true, videoMin: 0, videoUnlimited: true });
   });
   // Ловит: пустой ответ (null вместо массива) роняет таблицу.
   it("пусто и null дают шаблон", () => {
@@ -81,7 +87,7 @@ describe("normalizeLimits", () => {
   });
   it("у «без лимита» минуты сбрасываются в 0", () => {
     const got = normalizeLimits([{ weekday: 7, totalMin: 55, unlimited: true }]);
-    expect(got[6]).toEqual({ weekday: 7, totalMin: 0, unlimited: true, gamesMin: 0, gamesUnlimited: true });
+    expect(got[6]).toEqual({ weekday: 7, totalMin: 0, unlimited: true, gamesMin: 0, gamesUnlimited: true, videoMin: 0, videoUnlimited: true });
   });
   // Ловит: лимит игр из ответа программы теряется при чтении (таблица показывает «без лимита»).
   it("лимит игр из ответа сохраняется, нет полей игр - игры без лимита", () => {
@@ -91,10 +97,10 @@ describe("normalizeLimits", () => {
       { weekday: 6, totalMin: 240, unlimited: false, gamesMin: 45, gamesUnlimited: true },
       { weekday: 7, totalMin: 0, unlimited: true },
     ]);
-    expect(got[0]).toEqual({ weekday: 1, totalMin: 120, unlimited: false, gamesMin: 60, gamesUnlimited: false });
-    expect(got[2]).toEqual({ weekday: 3, totalMin: 90, unlimited: false, gamesMin: 0, gamesUnlimited: false });
-    expect(got[5]).toEqual({ weekday: 6, totalMin: 240, unlimited: false, gamesMin: 0, gamesUnlimited: true });
-    expect(got[6]).toEqual({ weekday: 7, totalMin: 0, unlimited: true, gamesMin: 0, gamesUnlimited: true });
+    expect(got[0]).toEqual({ weekday: 1, totalMin: 120, unlimited: false, gamesMin: 60, gamesUnlimited: false, videoMin: 0, videoUnlimited: true });
+    expect(got[2]).toEqual({ weekday: 3, totalMin: 90, unlimited: false, gamesMin: 0, gamesUnlimited: false, videoMin: 0, videoUnlimited: true });
+    expect(got[5]).toEqual({ weekday: 6, totalMin: 240, unlimited: false, gamesMin: 0, gamesUnlimited: true, videoMin: 0, videoUnlimited: true });
+    expect(got[6]).toEqual({ weekday: 7, totalMin: 0, unlimited: true, gamesMin: 0, gamesUnlimited: true, videoMin: 0, videoUnlimited: true });
   });
 });
 
@@ -111,14 +117,14 @@ describe("правка дней", () => {
   // Ловит: случайный щелчок по «Без лимита» и обратно обнуляет день (а 0 - это «нельзя»).
   it("«без лимита» помнит минуты дня", () => {
     const on = toggleUnlimited(base, 2, true);
-    expect(on[1]).toEqual({ weekday: 2, totalMin: 120, unlimited: true, gamesMin: 0, gamesUnlimited: true });
+    expect(on[1]).toEqual({ weekday: 2, totalMin: 120, unlimited: true, gamesMin: 0, gamesUnlimited: true, videoMin: 0, videoUnlimited: true });
     const off = toggleUnlimited(on, 2, false);
-    expect(off[1]).toEqual({ weekday: 2, totalMin: 120, unlimited: false, gamesMin: 0, gamesUnlimited: true });
+    expect(off[1]).toEqual({ weekday: 2, totalMin: 120, unlimited: false, gamesMin: 0, gamesUnlimited: true, videoMin: 0, videoUnlimited: true });
   });
 
   it("снять «без лимита» с дня без минут - не 0, а значение шаблона", () => {
     const sunday = toggleUnlimited(base, 7, false);
-    expect(sunday[6]).toEqual({ weekday: 7, totalMin: 240, unlimited: false, gamesMin: 0, gamesUnlimited: true });
+    expect(sunday[6]).toEqual({ weekday: 7, totalMin: 240, unlimited: false, gamesMin: 0, gamesUnlimited: true, videoMin: 0, videoUnlimited: true });
     const tuesday = toggleUnlimited(toggleUnlimited(setDay(base, 2, { totalMin: 0 }), 2, true), 2, false);
     expect(tuesday[1].totalMin).toBe(120);
   });
@@ -133,8 +139,8 @@ describe("правка дней", () => {
   it("wireLimits обнуляет минуты у «без лимита»", () => {
     const hidden = toggleUnlimited(base, 1, true);
     const sent = wireLimits(hidden);
-    expect(sent[0]).toEqual({ weekday: 1, totalMin: 0, unlimited: true, gamesMin: 0, gamesUnlimited: true });
-    expect(sent[1]).toEqual({ weekday: 2, totalMin: 120, unlimited: false, gamesMin: 0, gamesUnlimited: true });
+    expect(sent[0]).toEqual({ weekday: 1, totalMin: 0, unlimited: true, gamesMin: 0, gamesUnlimited: true, videoMin: 0, videoUnlimited: true });
+    expect(sent[1]).toEqual({ weekday: 2, totalMin: 120, unlimited: false, gamesMin: 0, gamesUnlimited: true, videoMin: 0, videoUnlimited: true });
     expect(hidden[0].totalMin).toBe(120);
   });
 
@@ -149,7 +155,7 @@ describe("правка дней", () => {
   it("«Как в субботу: на воскресенье» переносит и «без лимита»", () => {
     const start = week([120, 120, 120, 120, 120, 0, 60], [6]);
     const next = copyDay(start, 6, [7]);
-    expect(next[6]).toEqual({ weekday: 7, totalMin: 0, unlimited: true, gamesMin: 0, gamesUnlimited: true });
+    expect(next[6]).toEqual({ weekday: 7, totalMin: 0, unlimited: true, gamesMin: 0, gamesUnlimited: true, videoMin: 0, videoUnlimited: true });
   });
 });
 
@@ -187,23 +193,23 @@ describe("столбец «Игры» (FR-16, R5)", () => {
   // Ловит: столбцы «Общее» и «Игры» перепутаны при отправке в программу.
   it("wireLimits отправляет общее в totalMin, игры в gamesMin", () => {
     const sent = wireLimits(withGamesWeek([120, 120, 90, 120, 120, 240, 240], [60, null, 0, null, null, 150, null]));
-    expect(sent[0]).toEqual({ weekday: 1, totalMin: 120, unlimited: false, gamesMin: 60, gamesUnlimited: false });
-    expect(sent[1]).toEqual({ weekday: 2, totalMin: 120, unlimited: false, gamesMin: 0, gamesUnlimited: true });
-    expect(sent[2]).toEqual({ weekday: 3, totalMin: 90, unlimited: false, gamesMin: 0, gamesUnlimited: false });
-    expect(sent[5]).toEqual({ weekday: 6, totalMin: 240, unlimited: false, gamesMin: 150, gamesUnlimited: false });
+    expect(sent[0]).toEqual({ weekday: 1, totalMin: 120, unlimited: false, gamesMin: 60, gamesUnlimited: false, videoMin: 0, videoUnlimited: true });
+    expect(sent[1]).toEqual({ weekday: 2, totalMin: 120, unlimited: false, gamesMin: 0, gamesUnlimited: true, videoMin: 0, videoUnlimited: true });
+    expect(sent[2]).toEqual({ weekday: 3, totalMin: 90, unlimited: false, gamesMin: 0, gamesUnlimited: false, videoMin: 0, videoUnlimited: true });
+    expect(sent[5]).toEqual({ weekday: 6, totalMin: 240, unlimited: false, gamesMin: 150, gamesUnlimited: false, videoMin: 0, videoUnlimited: true });
   });
 
   // Ловит: у игр «без лимита» в программу уходят скрытые минуты (контракт: тогда gamesMin = 0).
   it("wireLimits обнуляет минуты игр у «без лимита»", () => {
     const hidden = toggleUnlimited(withGamesWeek([120, 120, 120, 120, 120, 240, 240], [45, 45, 45, 45, 45, 90, 90]), 1, true, "games");
     expect(hidden[0].gamesMin).toBe(45);
-    expect(wireLimits(hidden)[0]).toEqual({ weekday: 1, totalMin: 120, unlimited: false, gamesMin: 0, gamesUnlimited: true });
+    expect(wireLimits(hidden)[0]).toEqual({ weekday: 1, totalMin: 120, unlimited: false, gamesMin: 0, gamesUnlimited: true, videoMin: 0, videoUnlimited: true });
   });
 
   // Ловит: поля игр не доходят до программы, и она читает их как «играть нельзя».
   it("wireLimits у дня без полей игр шлёт «без отдельного лимита»", () => {
     expect(wireLimits([{ weekday: 2, totalMin: 60, unlimited: false }])).toEqual([
-      { weekday: 2, totalMin: 60, unlimited: false, gamesMin: 0, gamesUnlimited: true },
+      { weekday: 2, totalMin: 60, unlimited: false, gamesMin: 0, gamesUnlimited: true, videoMin: 0, videoUnlimited: true },
     ]);
   });
 
@@ -215,10 +221,10 @@ describe("столбец «Игры» (FR-16, R5)", () => {
   it("игры «без лимита» помнят минуты, снять с 0 - не «нельзя», а 1 ч", () => {
     const base = withGamesWeek([120, 120, 120, 120, 120, 240, 240], [30, null, null, null, null, null, null]);
     const on = toggleUnlimited(base, 1, true, "games");
-    expect(on[0]).toEqual({ weekday: 1, totalMin: 120, unlimited: false, gamesMin: 30, gamesUnlimited: true });
+    expect(on[0]).toEqual({ weekday: 1, totalMin: 120, unlimited: false, gamesMin: 30, gamesUnlimited: true, videoMin: 0, videoUnlimited: true });
     expect(toggleUnlimited(on, 1, false, "games")[0].gamesMin).toBe(30);
     const tue = toggleUnlimited(base, 2, false, "games");
-    expect(tue[1]).toEqual({ weekday: 2, totalMin: 120, unlimited: false, gamesMin: GAMES_FALLBACK_MIN, gamesUnlimited: false });
+    expect(tue[1]).toEqual({ weekday: 2, totalMin: 120, unlimited: false, gamesMin: GAMES_FALLBACK_MIN, gamesUnlimited: false, videoMin: 0, videoUnlimited: true });
     expect(GAMES_FALLBACK_MIN).toBe(60);
   });
 
@@ -227,7 +233,7 @@ describe("столбец «Игры» (FR-16, R5)", () => {
     const base = withGamesWeek([120, 120, 120, 120, 120, 240, 240], [30, null, null, null, null, null, null]);
     expect(toggleUnlimited(base, 1, true, "games")[0].unlimited).toBe(false);
     const total = toggleUnlimited(base, 1, true);
-    expect(total[0]).toEqual({ weekday: 1, totalMin: 120, unlimited: true, gamesMin: 30, gamesUnlimited: false });
+    expect(total[0]).toEqual({ weekday: 1, totalMin: 120, unlimited: true, gamesMin: 30, gamesUnlimited: false, videoMin: 0, videoUnlimited: true });
   });
 
   // Ловит: «Как в понедельник» переносит только общее время.
@@ -235,11 +241,11 @@ describe("столбец «Игры» (FR-16, R5)", () => {
     const start = withGamesWeek([45, 120, 90, 120, 120, 240, 60], [20, null, 0, null, null, 90, null]);
     const workdays = copyDay(start, 1, [2, 3, 4, 5]);
     for (const d of [1, 2, 3, 4, 5]) {
-      expect(workdays[d - 1]).toEqual({ weekday: d, totalMin: 45, unlimited: false, gamesMin: 20, gamesUnlimited: false });
+      expect(workdays[d - 1]).toEqual({ weekday: d, totalMin: 45, unlimited: false, gamesMin: 20, gamesUnlimited: false, videoMin: 0, videoUnlimited: true });
     }
     expect(workdays[5]).toEqual(start[5]);
     const sunday = copyDay(start, 6, [7]);
-    expect(sunday[6]).toEqual({ weekday: 7, totalMin: 240, unlimited: false, gamesMin: 90, gamesUnlimited: false });
+    expect(sunday[6]).toEqual({ weekday: 7, totalMin: 240, unlimited: false, gamesMin: 90, gamesUnlimited: false, videoMin: 0, videoUnlimited: true });
   });
 
   it("limitsEqual видит правку игр, а минуты игр «без лимита» не сравнивает", () => {
@@ -263,5 +269,116 @@ describe("столбец «Игры» (FR-16, R5)", () => {
     expect(limitErrorKey("games.8")).toBeNull();
     expect(limitErrorKey("endMode")).toBeNull();
     expect(limitErrorKey(undefined)).toBeNull();
+  });
+});
+
+describe("столбец «Видео и соцсети» (FR-16, R6)", () => {
+  const day = (extra: Partial<WeekdayLimit>): WeekdayLimit => ({
+    weekday: 1,
+    totalMin: 90,
+    unlimited: false,
+    gamesMin: 30,
+    gamesUnlimited: false,
+    ...extra,
+  });
+
+  it("шаблон: видео без отдельного лимита", () => {
+    expect(templateLimits()[0]).toEqual({
+      weekday: 1,
+      totalMin: 120,
+      unlimited: false,
+      gamesMin: 0,
+      gamesUnlimited: true,
+      videoMin: 0,
+      videoUnlimited: true,
+    });
+  });
+
+  // Ловит: день без videoUnlimited читается как «видео 20 мин» или «видео нельзя» (у службы - без лимита, S-3).
+  it("normalizeLimits: нет videoUnlimited - видео без лимита, есть - лимит сохраняется", () => {
+    expect(normalizeLimits([day({ videoMin: 20 })])[0]).toEqual({
+      weekday: 1,
+      totalMin: 90,
+      unlimited: false,
+      gamesMin: 30,
+      gamesUnlimited: false,
+      videoMin: 0,
+      videoUnlimited: true,
+    });
+    expect(normalizeLimits([day({ videoMin: 20, videoUnlimited: false })])[0]).toEqual({
+      weekday: 1,
+      totalMin: 90,
+      unlimited: false,
+      gamesMin: 30,
+      gamesUnlimited: false,
+      videoMin: 20,
+      videoUnlimited: false,
+    });
+    expect(normalizeLimits([day({ videoMin: 0, videoUnlimited: false })])[0].videoUnlimited).toBe(false);
+  });
+
+  // Ловит: «Сохранить» на «Лимитах» молча стирает лимит видео (поля видео не уходят в программу).
+  it("wireLimits всегда шлёт оба поля видео", () => {
+    expect(wireLimits([day({ videoMin: 20, videoUnlimited: false })])).toEqual([
+      { weekday: 1, totalMin: 90, unlimited: false, gamesMin: 30, gamesUnlimited: false, videoMin: 20, videoUnlimited: false },
+    ]);
+    expect(wireLimits([day({})])).toEqual([
+      { weekday: 1, totalMin: 90, unlimited: false, gamesMin: 30, gamesUnlimited: false, videoMin: 0, videoUnlimited: true },
+    ]);
+    expect(wireLimits([day({ videoMin: 45, videoUnlimited: true })])[0]).toMatchObject({ videoMin: 0, videoUnlimited: true });
+  });
+
+  it("сериализация туда и обратно не меняет лимит видео", () => {
+    const table = normalizeLimits([day({ videoMin: 20, videoUnlimited: false }), { ...day({ videoMin: 0, videoUnlimited: false }), weekday: 3 }]);
+    expect(normalizeLimits(wireLimits(table))).toEqual(table);
+  });
+
+  // Ловит: «Как в понедельник» не переносит видео.
+  it("copyDay переносит видео", () => {
+    const start = normalizeLimits([day({ videoMin: 20, videoUnlimited: false })]);
+    const next = copyDay(start, 1, [2]);
+    expect(next[1]).toEqual({
+      weekday: 2,
+      totalMin: 90,
+      unlimited: false,
+      gamesMin: 30,
+      gamesUnlimited: false,
+      videoMin: 20,
+      videoUnlimited: false,
+    });
+  });
+
+  // Ловит: правка только видео не включает «Есть несохранённые изменения».
+  it("limitsEqual видит правку видео, а минуты видео «без лимита» не сравнивает", () => {
+    const a = normalizeLimits([day({ videoMin: 20, videoUnlimited: false })]);
+    expect(limitsEqual(a, setDay(a, 1, { videoMin: 30 }))).toBe(false);
+    expect(limitsEqual(a, setDay(a, 1, { videoUnlimited: true }))).toBe(false);
+    expect(limitsEqual(a, setDay(a, 2, { videoMin: 30 }))).toBe(true);
+    const free = setDay(a, 1, { videoUnlimited: true });
+    expect(limitsEqual(free, setDay(free, 1, { videoMin: 30 }))).toBe(true);
+  });
+
+  it("видео больше суток - ошибка у видео этого дня", () => {
+    const limits = normalizeLimits([{ ...day({ videoMin: 1500, videoUnlimited: false }), weekday: 4 }]);
+    expect(validateLimits(limits)).toEqual({ "video.4": "Не больше 24 ч" });
+    expect(validateLimits(normalizeLimits([{ ...day({ videoMin: 1500, videoUnlimited: true }), weekday: 4 }]))).toEqual({});
+  });
+
+  it("снять «без лимита» видео с 0 мин - не «нельзя», а 1 ч; минуты помнятся", () => {
+    const base = normalizeLimits([]);
+    expect(toggleUnlimited(base, 3, false, "video")[2]).toMatchObject({ videoMin: 60, videoUnlimited: false });
+    expect(VIDEO_FALLBACK_MIN).toBe(60);
+    const set = setDay(base, 3, { videoMin: 25, videoUnlimited: false });
+    const on = toggleUnlimited(set, 3, true, "video");
+    expect(on[2]).toMatchObject({ videoMin: 25, videoUnlimited: true, gamesUnlimited: true, unlimited: false });
+    expect(toggleUnlimited(on, 3, false, "video")[2].videoMin).toBe(25);
+  });
+
+  it("ключ ошибки видео: video.N", () => {
+    expect(limitField("video", 3)).toBe("video.3");
+    expect(limitField("games", 3)).toBe("games.3");
+    expect(limitField("total", 3)).toBe("limits.3");
+    expect(limitErrorKey("video.7")).toBe("video.7");
+    expect(limitErrorKey("video.8")).toBeNull();
   });
 });

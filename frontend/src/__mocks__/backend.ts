@@ -301,14 +301,12 @@ function isoDay(ms: number): string {
   return d.toISOString().slice(0, 10);
 }
 
-/** Семь дней лимитов, как их отдаёт служба: с полями игр (нет поля - игры без отдельного лимита). */
+/**
+ * Семь дней лимитов, как их отдаёт служба: с полями игр (нет поля - игры без отдельного лимита) и видео
+ * (нет videoUnlimited - видео без отдельного лимита, S-3). Поля видео не теряются (T9-1).
+ */
 function limitsWithGames(limits: WeekdayLimit[] | null | undefined): WeekdayLimit[] {
-  const src = new Map((limits ?? []).map((l) => [l.weekday, l]));
-  return normalizeLimits(limits).map((l) => {
-    const got = src.get(l.weekday);
-    const gamesUnlimited = got?.gamesUnlimited ?? got?.gamesMin === undefined;
-    return { ...l, gamesMin: gamesUnlimited ? 0 : (got?.gamesMin ?? 0), gamesUnlimited };
-  });
+  return normalizeLimits(limits);
 }
 
 function todayLimit(child: MockChild, nowMs: number): WeekdayLimit {
@@ -800,6 +798,9 @@ export function createBackend(opts: MockOptions = {}): MockBackend {
       }
       if (l.gamesUnlimited === false && (l.gamesMin ?? 0) > MAX_LIMIT_MIN) {
         return fail("Не больше 24 ч", `games.${l.weekday}`);
+      }
+      if (l.videoUnlimited === false && (l.videoMin ?? 0) > MAX_LIMIT_MIN) {
+        return fail("Не больше 24 ч", `video.${l.weekday}`);
       }
     }
     return null;

@@ -193,9 +193,9 @@ describe("ChildLimits: одна панель сохранения (L-44)", () =>
     expect(sent.childId).toBe(1);
     expect(sent.limits).toHaveLength(7);
     // Лимит игр понедельника (1 ч) не стёрт правкой общего времени (RM3-9).
-    expect(sent.limits[0]).toEqual({ weekday: 1, totalMin: 90, unlimited: false, gamesMin: 60, gamesUnlimited: false });
-    expect(sent.limits[2]).toEqual({ weekday: 3, totalMin: 90, unlimited: false, gamesMin: 0, gamesUnlimited: false });
-    expect(sent.limits[6]).toEqual({ weekday: 7, totalMin: 0, unlimited: true, gamesMin: 0, gamesUnlimited: true });
+    expect(sent.limits[0]).toEqual({ weekday: 1, totalMin: 90, unlimited: false, gamesMin: 60, gamesUnlimited: false, videoMin: 60, videoUnlimited: false });
+    expect(sent.limits[2]).toEqual({ weekday: 3, totalMin: 90, unlimited: false, gamesMin: 0, gamesUnlimited: false, videoMin: 0, videoUnlimited: false });
+    expect(sent.limits[6]).toEqual({ weekday: 7, totalMin: 0, unlimited: true, gamesMin: 0, gamesUnlimited: true, videoMin: 0, videoUnlimited: true });
     expect(sent.endMode).toBe("lock");
     expect(screen.queryByText("Есть несохранённые изменения")).toBeNull();
     expect(mock.state.children[0].limits[0].totalMin).toBe(90);
@@ -424,9 +424,9 @@ describe("ChildLimits: столбец «Игры» (FR-16)", () => {
     await user.click(screen.getByRole("button", { name: "Сохранить" }));
     await screen.findByText("Сохранено. Новые правила уже действуют");
     const sent = sentLimits();
-    expect(sent.limits[1]).toEqual({ weekday: 2, totalMin: 120, unlimited: false, gamesMin: 75, gamesUnlimited: false });
-    expect(sent.limits[0]).toEqual({ weekday: 1, totalMin: 120, unlimited: false, gamesMin: 60, gamesUnlimited: false });
-    expect(mock.state.children[0].limits[1]).toEqual({ weekday: 2, totalMin: 120, unlimited: false, gamesMin: 75, gamesUnlimited: false });
+    expect(sent.limits[1]).toEqual({ weekday: 2, totalMin: 120, unlimited: false, gamesMin: 75, gamesUnlimited: false, videoMin: 0, videoUnlimited: true });
+    expect(sent.limits[0]).toEqual({ weekday: 1, totalMin: 120, unlimited: false, gamesMin: 60, gamesUnlimited: false, videoMin: 60, videoUnlimited: false });
+    expect(mock.state.children[0].limits[1]).toEqual({ weekday: 2, totalMin: 120, unlimited: false, gamesMin: 75, gamesUnlimited: false, videoMin: 0, videoUnlimited: true });
   });
 
   // Ловит: «Без лимита» у игр оставляет в программе прежние минуты.
@@ -437,7 +437,7 @@ describe("ChildLimits: столбец «Игры» (FR-16)", () => {
     expect(gHours("понедельник").disabled).toBe(true);
     await user.click(screen.getByRole("button", { name: "Сохранить" }));
     await screen.findByText("Сохранено. Новые правила уже действуют");
-    expect(sentLimits().limits[0]).toEqual({ weekday: 1, totalMin: 120, unlimited: false, gamesMin: 0, gamesUnlimited: true });
+    expect(sentLimits().limits[0]).toEqual({ weekday: 1, totalMin: 120, unlimited: false, gamesMin: 0, gamesUnlimited: true, videoMin: 60, videoUnlimited: false });
   });
 
   it("игры больше общего лимита сохраняются без ошибки", async () => {
@@ -560,8 +560,8 @@ describe("ChildLimits: «Когда время вышло» (FR-18, R8)", () => 
     const sent = sentLimits();
     expect(sent.endMode).toBe("study_only");
     expect(sent.limits).toHaveLength(7);
-    expect(sent.limits[0]).toEqual({ weekday: 1, totalMin: 120, unlimited: false, gamesMin: 60, gamesUnlimited: false });
-    expect(sent.limits[6]).toEqual({ weekday: 7, totalMin: 0, unlimited: true, gamesMin: 0, gamesUnlimited: true });
+    expect(sent.limits[0]).toEqual({ weekday: 1, totalMin: 120, unlimited: false, gamesMin: 60, gamesUnlimited: false, videoMin: 60, videoUnlimited: false });
+    expect(sent.limits[6]).toEqual({ weekday: 7, totalMin: 0, unlimited: true, gamesMin: 0, gamesUnlimited: true, videoMin: 0, videoUnlimited: true });
     expect(mock.count("SaveSchedule")).toBe(0);
     expect(mock.state.children[0].endMode).toBe("study_only");
     expect(mock.state.children[0].limits[0].gamesMin).toBe(60);
@@ -670,6 +670,6 @@ describe("ChildLimits: «Скопировать правила с…» (FR-33)",
     await screen.findByText("Сохранено. Новые правила уже действуют");
     const sent = sentLimits();
     expect(sent.endMode).toBe("study_only");
-    expect(sent.limits[6]).toEqual({ weekday: 7, totalMin: 90, unlimited: false, gamesMin: 30, gamesUnlimited: false });
+    expect(sent.limits[6]).toEqual({ weekday: 7, totalMin: 90, unlimited: false, gamesMin: 30, gamesUnlimited: false, videoMin: 0, videoUnlimited: true });
   });
 });

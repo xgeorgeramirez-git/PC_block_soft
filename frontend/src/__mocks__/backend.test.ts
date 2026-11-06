@@ -139,6 +139,16 @@ describe("мастер", () => {
     await expect(api.setup("123456", mini)).rejects.toMatchObject({ message: "Программа уже настроена" });
   });
 
+  // Ловит: подмена теряет лимит видео при сохранении (тесты «Сохранить» зелёные на данных без видео, PL-9).
+  it("SaveLimits хранит видео; больше суток - отказ у поля video.N", async () => {
+    installBackend({ sessionActive: true });
+    const limits = (await api.getChildRules(1)).limits.map((l) => (l.weekday === 1 ? { ...l, videoMin: 20, videoUnlimited: false } : l));
+    await api.saveLimits(1, limits);
+    expect((await api.getChildRules(1)).limits[0]).toMatchObject({ videoMin: 20, videoUnlimited: false });
+    const tooMuch = limits.map((l) => (l.weekday === 2 ? { ...l, videoMin: 1500, videoUnlimited: false } : l));
+    await expect(api.saveLimits(1, tooMuch)).rejects.toMatchObject({ message: "Не больше 24 ч", field: "video.2" });
+  });
+
   it("учётки: у уже добавленного ребёнка стоит отметка", async () => {
     installBackend();
     const accounts = await api.listAccounts();

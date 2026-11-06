@@ -163,10 +163,11 @@ export async function listAccounts(): Promise<Account[]> {
 
 /**
  * Лимиты для программы: у дня без полей игр - «игры без отдельного лимита» (R5). Иначе служба
- * прочитала бы отсутствие поля как «игры нельзя» (gamesMin 0).
+ * прочитала бы отсутствие поля как «игры нельзя» (gamesMin 0). Поля видео (R6) дописываются тем же
+ * способом, чтобы день всегда уходил целиком.
  */
 export function withGames(limits: WeekdayLimit[]): WeekdayLimit[] {
-  return limits.map((l) => ({ gamesMin: 0, gamesUnlimited: true, ...l }));
+  return limits.map((l) => ({ gamesMin: 0, gamesUnlimited: true, videoMin: 0, videoUnlimited: true, ...l }));
 }
 
 export async function setup(password: string, children: SetupChild[], programs?: SetupProgram[], sites?: SetupSites): Promise<void> {

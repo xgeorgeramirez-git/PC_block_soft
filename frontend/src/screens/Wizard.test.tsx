@@ -324,13 +324,13 @@ describe("Wizard: шаг 4, программы (FR-2)", () => {
     expect(sent.children[0].sid).toBe("S-1-5-21-111-222-333-1001");
     expect(sent.children[0].name).toBe("Миша");
     expect(sent.children[0].limits).toEqual([
-      { weekday: 1, totalMin: 120, unlimited: false, gamesMin: 60, gamesUnlimited: false },
-      { weekday: 2, totalMin: 120, unlimited: false, gamesMin: 0, gamesUnlimited: true },
-      { weekday: 3, totalMin: 120, unlimited: false, gamesMin: 0, gamesUnlimited: true },
-      { weekday: 4, totalMin: 120, unlimited: false, gamesMin: 0, gamesUnlimited: true },
-      { weekday: 5, totalMin: 120, unlimited: false, gamesMin: 0, gamesUnlimited: true },
-      { weekday: 6, totalMin: 240, unlimited: false, gamesMin: 0, gamesUnlimited: true },
-      { weekday: 7, totalMin: 0, unlimited: true, gamesMin: 0, gamesUnlimited: true },
+      { weekday: 1, totalMin: 120, unlimited: false, gamesMin: 60, gamesUnlimited: false, videoMin: 0, videoUnlimited: true },
+      { weekday: 2, totalMin: 120, unlimited: false, gamesMin: 0, gamesUnlimited: true, videoMin: 0, videoUnlimited: true },
+      { weekday: 3, totalMin: 120, unlimited: false, gamesMin: 0, gamesUnlimited: true, videoMin: 0, videoUnlimited: true },
+      { weekday: 4, totalMin: 120, unlimited: false, gamesMin: 0, gamesUnlimited: true, videoMin: 0, videoUnlimited: true },
+      { weekday: 5, totalMin: 120, unlimited: false, gamesMin: 0, gamesUnlimited: true, videoMin: 0, videoUnlimited: true },
+      { weekday: 6, totalMin: 240, unlimited: false, gamesMin: 0, gamesUnlimited: true, videoMin: 0, videoUnlimited: true },
+      { weekday: 7, totalMin: 0, unlimited: true, gamesMin: 0, gamesUnlimited: true, videoMin: 0, videoUnlimited: true },
     ]);
     expect(sent.programs).toBeUndefined();
     expect(sent.children[0].endMode).toBeUndefined();
