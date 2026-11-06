@@ -57,6 +57,11 @@ func TestBuildSampleFillsFieldsAndKeepsNothingElse(t *testing.T) {
 	if got := BuildSample(now, RawSensors{Locked: true}, 1); got.SessionActive {
 		t.Fatal("заблокированный сеанс назван активным")
 	}
+	// B-23: рабочий стол ввода не прочитан — секунда считается (R2), а служба узнаёт, что страж
+	// о блокировке не знает, и не снимает блокировку, поставленную событием (PL-7).
+	if got := BuildSample(now, RawSensors{IdleMs: 1000, LockUnknown: true}, 1); !got.SessionActive || !got.LockUnknown {
+		t.Fatalf("рабочий стол не прочитан: активен %v, блокировка неизвестна %v; ждали true, true", got.SessionActive, got.LockUnknown)
+	}
 	west := time.FixedZone("EST", -5*3600)
 	if got := BuildSample(now.In(west), RawSensors{}, 1).TzOffsetMin; got != -300 {
 		t.Fatalf("пояс к западу: %d, ждали -300", got)

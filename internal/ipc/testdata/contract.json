@@ -1263,7 +1263,8 @@
         "foreground": "games",
         "foregroundPath": "",
         "foregroundDomain": "",
-        "domainUnread": false
+        "domainUnread": false,
+        "lockUnknown": false
       },
       "events": [
         {
@@ -1373,7 +1374,8 @@
         "foreground": "games",
         "foregroundPath": "c:\\users\\миша\\downloads\\supergame.exe",
         "foregroundDomain": "",
-        "domainUnread": false
+        "domainUnread": false,
+        "lockUnknown": false
       },
       "events": []
     },
@@ -1449,7 +1451,8 @@
         "foreground": "videoSocial",
         "foregroundPath": "c:\\program files\\bravesoftware\\brave-browser\\application\\brave.exe",
         "foregroundDomain": "youtube.com",
-        "domainUnread": false
+        "domainUnread": false,
+        "lockUnknown": false
       },
       "events": []
     },
@@ -1529,7 +1532,8 @@
         "foreground": "other",
         "foregroundPath": "c:\\program files\\bravesoftware\\brave-browser\\application\\brave.exe",
         "foregroundDomain": "",
-        "domainUnread": true
+        "domainUnread": true,
+        "lockUnknown": false
       },
       "events": []
     },
@@ -1590,7 +1594,8 @@
         "foreground": "other",
         "foregroundPath": "",
         "foregroundDomain": "",
-        "domainUnread": false
+        "domainUnread": false,
+        "lockUnknown": false
       },
       "events": []
     },

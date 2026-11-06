@@ -631,6 +631,10 @@ type SensorSample struct {
 	// адреса, ни документа); служебная страница — false (RM4-1). Служба по нему пишет журнал
 	// (RK5) и закрывает окно без адреса командой GuardCmdCloseBraveWindow.
 	DomainUnread bool `json:"domainUnread"`
+	// LockUnknown — рабочий стол ввода не прочитан, о блокировке страж не знает (B-23).
+	// SessionActive при этом true (секунда считается, R2), но признак блокировки, поставленный
+	// событием сеанса, служба по такому снимку не снимает (PL-7).
+	LockUnknown bool `json:"lockUnknown"`
 }
 
 // Виды событий стража в GuardPollRequest.Events.

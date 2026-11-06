@@ -61,7 +61,8 @@ func ReadSensors(now time.Time, speed int) ipc.SensorSample {
 // путь и домен вкладки Brave относятся к одному окну (PL-15).
 func readRaw() RawSensors {
 	fg, _, _ := procGetForegroundWin.Call()
-	raw := RawSensors{IdleMs: idleMs(), Fullscreen: windowIsFullscreen(fg), Locked: sessionLocked(), ForegroundPath: foregroundPath(fg)}
+	locked, known := sessionLocked()
+	raw := RawSensors{IdleMs: idleMs(), Fullscreen: windowIsFullscreen(fg), Locked: locked, LockUnknown: !known, ForegroundPath: foregroundPath(fg)}
 	if isBravePath(raw.ForegroundPath) {
 		raw.ForegroundDomain, raw.DomainUnread = braveDomain(windows.HWND(fg))
 	}
@@ -210,12 +211,13 @@ func windowIsFullscreen(fg uintptr) bool {
 
 // sessionLocked: сейчас на экране не рабочий стол сеанса, а защищённый (экран входа Windows
 // после блокировки). Страж работает от имени системы и может открыть рабочий стол ввода
-// и узнать его имя; не получилось открыть, значит ничего не известно, и сеанс считается
-// незаблокированным (лучше засчитать секунду, чем перестать считать совсем).
-func sessionLocked() bool {
+// и узнать его имя; не получилось открыть или прочитать имя — known = false: ничего не
+// известно, сеанс считается незаблокированным (лучше засчитать секунду, чем перестать считать
+// совсем), а служба по такому снимку не снимает блокировку, поставленную событием (B-23).
+func sessionLocked() (locked, known bool) {
 	h, _, _ := procOpenInputDesktop.Call(0, 0, desktopReadObjects)
 	if h == 0 {
-		return false
+		return false, false
 	}
 	defer procCloseDesktop.Call(h)
 	buf := make([]uint16, 64)
@@ -223,9 +225,9 @@ func sessionLocked() bool {
 	r, _, _ := procGetUserObjectInfoW.Call(h, uoiName, uintptr(unsafe.Pointer(&buf[0])),
 		uintptr(len(buf)*2), uintptr(unsafe.Pointer(&need)))
 	if r == 0 {
-		return false
+		return false, false
 	}
-	return strings.EqualFold(windows.UTF16ToString(buf), "Winlogon")
+	return strings.EqualFold(windows.UTF16ToString(buf), "Winlogon"), true
 }
 
 // testModeKeyPath — ключ реестра тестового режима (ТЗ 10.8); его читает и служба.

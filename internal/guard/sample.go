@@ -15,6 +15,9 @@ type RawSensors struct {
 	IdleMs     int64 // сколько прошло с последнего ввода с клавиатуры или мыши, мс
 	Fullscreen bool  // окно переднего плана занимает весь монитор (рабочий стол не в счёт, Ruling 24)
 	Locked     bool  // сеанс заблокирован (экран входа Windows)
+	// LockUnknown — рабочий стол ввода не открылся или имя не прочитано: о блокировке не известно
+	// (B-23). Locked при этом false: секунда считается (R2), служба решает по событиям сеанса.
+	LockUnknown bool
 	// ForegroundPath — путь exe программы на переднем плане (R3, M3) после ForegroundPathFor;
 	// «» — не определён, не прочитан или это окно PC Block.
 	ForegroundPath string
@@ -94,6 +97,7 @@ func BuildSample(now time.Time, raw RawSensors, speed int) ipc.SensorSample {
 
 		ForegroundDomain: raw.ForegroundDomain,
 		DomainUnread:     raw.DomainUnread,
+		LockUnknown:      raw.LockUnknown,
 	}
 }
 

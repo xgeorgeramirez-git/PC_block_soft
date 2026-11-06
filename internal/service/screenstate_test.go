@@ -255,6 +255,19 @@ func TestLostUnlockIsRecoveredByGuardSample(t *testing.T) {
 	}
 }
 
+// Ловит (B-23, R2): признак «страж не прочитал рабочий стол» сам ставит блокировку — без события
+// блокировки секунда с таким снимком перестала бы считаться (R2: «лучше засчитать»).
+func TestLockUnknownSampleAloneStillCounts(t *testing.T) {
+	h := newHarness(t, withChild(childSID, "Миша", 120))
+	h.start()
+	h.childSessionIs(ScreenOn)
+	h.svc.OnSession(SessionLogon, childSession, h.real.Now())
+	h.run(5, ipc.SensorSample{SessionActive: true, LastInputAgoMs: 1000, Foreground: ipc.CatNameOther, LockUnknown: true})
+	if got := h.usedS(); got != 5 {
+		t.Fatalf("учтено %d с; want 5 (блокировки не было, страж её не видел и не утверждал)", got)
+	}
+}
+
 // Ловит: признак блокировки сбрасывается снимком, который блокировке не противоречит:
 // страж блокировку видит (SessionActive=false), либо ввода давно не было, либо сеанс не на экране.
 func TestLockStaysWhileGuardSampleAgreesWithIt(t *testing.T) {
@@ -266,6 +279,8 @@ func TestLockStaysWhileGuardSampleAgreesWithIt(t *testing.T) {
 		{"страж видит блокировку", ScreenOn, ipc.SensorSample{SessionActive: false, LastInputAgoMs: 0, Fullscreen: true}},
 		{"ввода давно не было", ScreenOn, fullscreenSample},
 		{"сеанс не на экране", ScreenOff, recentInputActive},
+		// B-23: страж не открыл рабочий стол ввода — «активен» неотличим от настоящего (PL-7).
+		{"страж не прочитал рабочий стол", ScreenOn, ipc.SensorSample{SessionActive: true, LastInputAgoMs: 1000, LockUnknown: true}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
