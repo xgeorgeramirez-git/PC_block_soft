@@ -1946,6 +1946,8 @@ test("m4 сайты: узкое окно", async ({ page }) => {
   expect(button.left).toBeGreaterThanOrEqual(input.right - 0.5);
   await siteRowsFit(page);
   await noHorizontalScroll(page);
+  // Снимок страницы целиком: окно растёт ровно на невидимый остаток, ширина 960 прежняя.
+  await wholePage(page);
   await page.screenshot({ path: `${SCREENS}/m4-sites-960.png`, fullPage: true });
 });
 
