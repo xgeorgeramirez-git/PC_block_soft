@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as api from "../api";
 import { ADULT_SOURCE_TEXT } from "../lib/sites";
 import { DEFAULT_PASSWORD, installBackend, mockChild, statusOf, uninstallBackend } from "./backend";
+import type { ProgramDTO } from "../types";
 
 // Подмена программы сама должна вести себя как служба, иначе тесты экранов проверяют выдумку.
 
@@ -557,5 +558,32 @@ describe("сайты (FR-21)", () => {
       ["site_added", "Вы добавили сайт example.org в «Запрещённые»"],
     ]);
     expect(mock.state.events[0].childId).toBe(1);
+  });
+});
+
+describe("программы: пустая смена категории (B-41)", () => {
+  const UCHI = "c:\\program files\\uchi\\uchi.exe";
+  const BRAVE = "c:\\program files\\bravesoftware\\brave-browser\\application\\brave.exe";
+  const list = (): ProgramDTO[] => [
+    { path: UCHI, name: "Учи.ру", publisher: "Учи.ру", category: "study", source: "parent", weekS: 0 },
+    { path: BRAVE, name: "Brave", publisher: "Brave Software, Inc.", category: "other", source: "snapshot", weekS: 0 },
+  ];
+  const undoOf = (r: { message: string; undoId: string; undoUntilMs: number }) => ({
+    message: r.message,
+    undoId: r.undoId,
+    undoUntilMs: r.undoUntilMs,
+  });
+
+  // Ловит: мок, как служба до B-41, даёт «Изменено программ: 0» с «Отменить» и пишет журнал.
+  it("та же категория решением родителя: «Категория не изменилась» без «Отменить» и журнала", async () => {
+    const mock = installBackend({ sessionActive: true, programs: list() });
+    const unchanged = { message: "Категория не изменилась", undoId: "", undoUntilMs: 0 };
+    expect(undoOf(await api.setProgramsCategory([UCHI], "study"))).toEqual(unchanged);
+    expect(undoOf(await api.decideProgram(UCHI, "study"))).toEqual(unchanged);
+    expect(mock.state.events.filter((e) => e.kind === "program_decided")).toEqual([]);
+
+    const mixed = await api.setProgramsCategory([UCHI, BRAVE], "study");
+    expect(mixed.message).toBe("Изменено программ: 1");
+    expect(mixed.undoId).not.toBe("");
   });
 });

@@ -39,6 +39,8 @@ export const DEFAULT_PASSWORD = "секрет-123";
 /** Версия программы по умолчанию: одна на всех экранах (настоящий номер поднимает оркестратор). */
 export const DEFAULT_VERSION = "0.0.1";
 const UNDO_WINDOW_MS = 10_000;
+// Текст службы (texts.go textCategoryUnchanged): смена категории ничего не изменила (B-41).
+const CATEGORY_UNCHANGED = "Категория не изменилась";
 const MAX_LIMIT_MIN = 1440;
 
 /** Ребёнок в памяти подменной программы. */
@@ -1343,6 +1345,10 @@ export function createBackend(opts: MockOptions = {}): MockBackend {
       const known = state.programs.find((x) => x.path === path);
       // Как служба: ждущая программа или уже в списке, иначе отказ.
       if (!p && !known) return fail("Такой программы нет в списке");
+      // Как служба (B-41): та же категория решением родителя — без «Отменить» и без журнала.
+      if (!p && known && known.category === req.category && known.source === "parent") {
+        return okReply({ message: CATEGORY_UNCHANGED, undoId: "", undoUntilMs: 0, programs: programsReply() });
+      }
       const undo = rememberUndo(now);
       const name = p?.name ?? known?.name ?? "";
       if (p) {
@@ -1362,16 +1368,15 @@ export function createBackend(opts: MockOptions = {}): MockBackend {
       const paths = new Set<string>((req.paths ?? []).map((x: string) => x.toLowerCase()));
       if (paths.size > 200) return fail("Можно изменить не больше 200 программ за раз");
       if (!state.programs.some((p) => paths.has(p.path))) return fail("Такой программы нет в списке");
+      const changing = state.programs.filter((p) => paths.has(p.path) && (p.category !== req.category || p.source !== "parent"));
+      // Как служба (B-41): ничего не изменилось — без «Отменить».
+      if (changing.length === 0) return okReply({ message: CATEGORY_UNCHANGED, undoId: "", undoUntilMs: 0, programs: programsReply() });
       const undo = rememberUndo(now);
-      let n = 0;
-      for (const p of state.programs) {
-        if (paths.has(p.path) && (p.category !== req.category || p.source !== "parent")) {
-          p.category = req.category;
-          p.source = "parent";
-          n += 1;
-        }
+      for (const p of changing) {
+        p.category = req.category;
+        p.source = "parent";
       }
-      return okReply({ message: `Изменено программ: ${n}`, ...undo, programs: programsReply() });
+      return okReply({ message: `Изменено программ: ${changing.length}`, ...undo, programs: programsReply() });
     },
 
     SetProgramsHidden: (req, now) => {

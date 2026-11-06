@@ -487,6 +487,21 @@ describe("Программы: массовая смена категории", (
     expect(mock.count("SetProgramsCategory")).toBe(0);
   });
 
+  // Ловит (B-41): смена, которая ничего не изменила (Учи.ру уже «Учёба» решением родителя), даёт
+  // «Изменено программ: 0» и «Отменить».
+  it("та же категория: «Категория не изменилась» без «Отменить»", async () => {
+    const user = setup();
+    await screen.findByRole("region", { name: "Все программы" });
+    await user.click(within(rowOf("Учи.ру")).getByRole("checkbox", { name: "Отметить «Учи.ру»" }));
+    await user.selectOptions(screen.getByRole("combobox", { name: "Новая категория для отмеченных" }), "study");
+    await user.click(screen.getByRole("button", { name: "Применить" }));
+    expect(await screen.findByText("Категория не изменилась")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Отменить" })).toBeNull();
+    expect(mock.calls.filter((c) => c.command === "SetProgramsCategory").map((c) => c.payload)).toEqual([
+      { paths: [UCHI], category: "study" },
+    ]);
+  });
+
   it("пока массовая смена в пути: «Сохраняю…» и повторно не нажать", async () => {
     const user = setup();
     await screen.findByRole("region", { name: "Все программы" });
