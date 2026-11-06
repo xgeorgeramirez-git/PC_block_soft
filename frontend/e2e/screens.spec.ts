@@ -2003,9 +2003,11 @@ const videoWeek = () =>
     videoUnlimited: l.weekday === 7,
   }));
 
-/** Каждый день: 2 ч, игры 1 ч, видео 20 мин (снимок не зависит от дня недели сборки). */
-const videoEveryDay = () =>
-  [1, 2, 3, 4, 5, 6, 7].map((weekday) => ({ weekday, totalMin: 120, unlimited: false, gamesMin: 60, gamesUnlimited: false, videoMin: 20, videoUnlimited: false }));
+/**
+ * Один день на всех снимках T9 (PL-28): понедельник 19.10.2026 15:00. Лимиты понедельника по videoWeek:
+ * 2 ч, игры 1 ч, видео 20 мин; за день 35 мин, из них игры 10 мин и видео 15 мин, учёба 5 мин.
+ */
+const M4_NOW = new Date(2026, 9, 19, 15, 0, 0);
 
 /** Сайты сегодня: youtube.com 10 мин, vk.com 5 мин. */
 const videoSitesToday = () => [
@@ -2014,7 +2016,7 @@ const videoSitesToday = () => [
 ];
 
 const videoChild = () =>
-  child({ limits: videoEveryDay(), usedS: 2100, gamesUsedS: 600, videoUsedS: 900, studyUsedS: 300, programsToday: videoSitesToday() });
+  child({ limits: videoWeek(), usedS: 2100, gamesUsedS: 600, videoUsedS: 900, studyUsedS: 300, programsToday: videoSitesToday() });
 
 /** Подписи вкладок «Итогов» целиком внутри своих кнопок (длинная «Видео и соцсети» переносится), вкладки не налезают. */
 async function totalsTabsFit(page: Page, where: string) {
@@ -2037,6 +2039,9 @@ async function totalsTabsFit(page: Page, where: string) {
       if (!apart) problems.push(`«${x.text}» и «${o.text}» налезают`);
     }
   });
+  // Ряды плиток: все пять в ряд или 3 + 2, но не 4 + 1 с одинокой плиткой (визуальная приёмка T9).
+  const rows = [...new Set(report.map((x) => Math.round(x.t)))].map((top) => report.filter((x) => Math.round(x.t) === top).length);
+  if (rows.length > 1 && rows.some((n) => n < 2)) problems.push(`плитки по рядам ${rows.join(" + ")}`);
   expect(problems, `${where}: ${problems.join("; ")} | ${JSON.stringify(report)}`).toEqual([]);
 }
 
@@ -2047,8 +2052,9 @@ for (const [w, h] of [
   [1200, 820],
 ]) {
   test(`m4 лимиты с видео в окне ${w} x ${h}`, async ({ page }) => {
+    await page.clock.setFixedTime(M4_NOW);
     await page.setViewportSize({ width: w, height: h });
-    await mockProgram(page, { mode: "parent", sessionActive: true, children: [child({ limits: videoWeek() })] });
+    await mockProgram(page, { mode: "parent", sessionActive: true, children: [videoChild()] });
     await page.goto("/");
     await page.getByRole("navigation", { name: "Разделы" }).getByRole("button", { name: "Дети" }).click();
     await expect(page.getByRole("columnheader", { name: "Видео и соцсети", exact: true })).toBeVisible();
@@ -2109,10 +2115,10 @@ for (const [w, h] of [
     const list = page.getByRole("list", { name: "Видео и соцсети: сайты" });
     await expect(list.getByRole("listitem")).toHaveCount(9);
     const field = page.getByRole("textbox", { name: "Добавить сайт" });
-    await field.fill("https://Kids.Example/video");
+    await field.fill("https://Pikabu.ru/hot");
     await field.press("Enter");
     await expect(list.getByRole("listitem")).toHaveCount(10);
-    await expect(list.getByRole("listitem").last()).toContainText("kids.example");
+    await expect(list.getByRole("listitem").last()).toContainText("pikabu.ru");
     await field.fill("котики видео");
     await field.press("Enter");
     await expect(page.getByText("Это не похоже на адрес сайта", { exact: true })).toBeVisible();
@@ -2135,17 +2141,16 @@ for (const [w, h] of [
   });
 }
 
-// m4-today-video — «Сегодня» (8.3.2 п.3): «Видео 10 мин из 20 мин» от службы под строкой игр.
+// m4-today-video — «Сегодня» (8.3.2 п.3): «Видео 15 мин из 20 мин» от службы под строкой игр; цифры те же,
+// что на снимках «Статистики» и «Лимитов» того же дня (M4_NOW).
 test("m4 сегодня с видео", async ({ page }) => {
-  await mockProgram(page, {
-    mode: "parent",
-    sessionActive: true,
-    children: [child({ limits: videoEveryDay(), usedS: 3600, gamesUsedS: 2400, videoUsedS: 600 })],
-  });
+  await page.clock.setFixedTime(M4_NOW);
+  await mockProgram(page, { mode: "parent", sessionActive: true, children: [videoChild()] });
   await page.goto("/");
   const misha = page.getByRole("article", { name: "Миша" });
-  const games = misha.getByText("Игры 40 мин из 1 ч", { exact: true });
-  const video = misha.getByText("Видео 10 мин из 20 мин", { exact: true });
+  await expect(misha.getByText("Использовано 35 мин из 2 ч", { exact: true })).toBeVisible();
+  const games = misha.getByText("Игры 10 мин из 1 ч", { exact: true });
+  const video = misha.getByText("Видео 15 мин из 20 мин", { exact: true });
   await expect(video).toBeVisible();
   const gb = await boxOf(games);
   const vb = await boxOf(video);
@@ -2161,6 +2166,7 @@ for (const [w, h] of [
   [640, 520],
 ]) {
   test(`m4 моя статистика: видео в окне ${w} x ${h}`, async ({ page }) => {
+    await page.clock.setFixedTime(M4_NOW);
     await page.setViewportSize({ width: w, height: h });
     await mockProgram(page, { mode: "mystats", children: [videoChild()], myChildId: 1 });
     await page.goto("/");
@@ -2186,6 +2192,7 @@ for (const [w, h] of [
 
 // m4-parent-stats-video — статистика родителя (FR-23): те же строки сайтов, «Всего» включает сайты.
 test("m4 статистика родителя: видео", async ({ page }) => {
+  await page.clock.setFixedTime(M4_NOW);
   await page.setViewportSize({ width: 960, height: 620 });
   await mockProgram(page, { mode: "parent", sessionActive: true, children: [videoChild(), child({ childId: 2, sid: "S-1-5-21-111-222-333-1002", name: "Даша", usedS: 600 })] });
   await page.goto("/");
