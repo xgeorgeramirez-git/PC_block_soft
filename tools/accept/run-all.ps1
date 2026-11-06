@@ -1,4 +1,4 @@
-﻿# Приёмка M1+M2+0.2.3...0.2.5+M3 на настоящей Windows: сценарии S1...S15, S25...S27, S34...S37, LE1, LE2 (выходы с экрана блокировки), FB1, FB5, S41, S38, S40, S39, S42, S43, S44, S45 и S33 по очереди, каждый в своём процессе
+﻿# Приёмка M1+M2+0.2.3...0.2.5+M3+0.3.1...0.3.3+M4 на настоящей Windows: сценарии S1…S20, S25…S27, S33…S46, LE1, LE2 (выходы с экрана блокировки), FB1, FB5 (S16…S20 и S46 — M4: сайты, браузеры, правила Brave, магазин; S33 последним) по очереди, каждый в своём процессе
 # на свежей установке и свежей папке данных (счётчик сбоев службы, Ruling 27). Падение одного не мешает
 # остальным: прогоняются все, код выхода 1 при любом падении. Снимки в папке accept-screens (PCB_ACCEPT_SHOTS).
 param(
@@ -49,6 +49,9 @@ $all = @(
   @{ Id = "S16"; File = "s16-adult.ps1" },          # M4: Brave раннера, домены приёмки в hosts (шаг «Brave для пробы и приёмки»)
   @{ Id = "S17"; File = "s17-forbidden-sub.ps1" },
   @{ Id = "S18"; File = "s18-video-limit.ps1" },
+  @{ Id = "S19"; File = "s19-browsers.ps1" },
+  @{ Id = "S20"; File = "s20-brave-rules.ps1" },      # Brave раннера: UIA окна, сервер приёмки 127.0.0.1:8765
+  @{ Id = "S46"; File = "s46-store-app.ps1" },        # TestMode\StoreRoot и TestSeedPrograms; перезапуск службы без перезаписи TestMode
   @{ Id = "PROBE"; File = "probe-brave.ps1" },  # проба M4 T0: домен вкладки Brave от SYSTEM (нужен шаг «Brave для пробы и приёмки»)
   @{ Id = "S33"; File = "s33-switch-user.ps1" }  # последним: после отключения сеанса у раннера нет экрана
 )
@@ -77,6 +80,6 @@ if ($failed.Count -gt 0) {
 if ($Only.Count -gt 0) {
   Write-Host "::notice title=Приёмка M1::$($passed -join ', '): PASS (выборочный прогон)"
 } else {
-  Write-Host "::notice title=Приёмка::S1...S15, S25...S27, S33...S37, LE1, LE2, FB1, FB5: PASS"
+  Write-Host "::notice title=Приёмка::S1…S20, S25…S27, S33…S46, LE1, LE2, FB1, FB5: PASS"
 }
 exit 0
