@@ -351,14 +351,45 @@ const S39: ProgramTime[] = [
 ];
 
 describe("вкладки «Итогов»", () => {
-  it("вкладки «Всего», «Игры», «Учёба», «Прочее» с суммами от службы", () => {
+  it("вкладки «Всего», «Игры», «Видео и соцсети», «Учёба», «Прочее» с суммами от службы", () => {
     const r = totalsReply(S39);
     expect(TOTALS_TABS.map((t) => [t.label, formatDuration(tabSeconds(r, t.id))])).toEqual([
       ["Всего", "23 мин"],
       ["Игры", "15 мин"],
+      ["Видео и соцсети", "0 мин"],
       ["Учёба", "3 мин"],
       ["Прочее", "5 мин"],
     ]);
+    expect(formatDuration(tabSeconds(totalsReply(S39, { videoS: 900 }), "video_social"))).toBe("15 мин");
+  });
+
+  it("имена списков вкладок для диктора", () => {
+    expect(TOTALS_TABS.map((t) => t.list)).toEqual([
+      "Всего: по программам и сайтам",
+      "Игры: по программам",
+      "Видео и соцсети: по сайтам",
+      "Учёба: по программам",
+      "Прочее: по программам",
+    ]);
+  });
+
+  // Ловит (PL-28): «Всего» без сайтов не сходится с плиткой; у видео «Остальное время» не последнее.
+  it("сайты: строки «Видео и соцсетей» и во «Всего», «Остальное время» последним", () => {
+    const sites: ProgramTime[] = [
+      { path: "youtube.com", name: "youtube.com", category: "video_social", seconds: 600, kind: "site" },
+      { path: "vk.com", name: "vk.com", category: "video_social", seconds: 240, kind: "site" },
+      { path: "", name: "Остальное время", category: "video_social", seconds: 60 },
+    ];
+    const r = totalsReply([...S39, ...sites], { videoS: 900, allS: 2280 });
+    expect(tabRows(r, "video_social").map((x) => [x.name, x.time, x.share])).toEqual([
+      ["youtube.com", "10 мин", "67%"],
+      ["vk.com", "4 мин", "27%"],
+      ["Остальное время", "1 мин", "7%"],
+    ]);
+    const all = tabRows(r, "all");
+    expect(all.map((x) => x.name)).toEqual(["game", "youtube.com", "game2", "vk.com", "study", "Brave", "Остальное время"]);
+    expect(all.find((x) => x.name === "youtube.com")?.key).toBe("youtube.com");
+    expect(all.at(-1)).toMatchObject({ time: "4 мин", rest: true });
   });
 
   // Ловит (S39): доля не от суммы категории, проценты дробные или не округлены; не по убыванию.

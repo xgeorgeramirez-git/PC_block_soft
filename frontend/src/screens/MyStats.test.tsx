@@ -241,17 +241,17 @@ describe("MyStats: Итоги", () => {
   });
 
   // Ловит: итоги игр и учёбы не из ответа службы (S13: «в статистике Учёба 40 мин»).
-  it("итоги: игры и учёба за сегодня от службы, видео и соцсети «Пока не считается»", async () => {
-    setup({ children: [mockChild({ usedS: 2100, gamesUsedS: 1200, studyUsedS: 2400 })] });
+  it("итоги: игры, видео и учёба за сегодня от службы, «Пока не считается» больше нет", async () => {
+    setup({ children: [mockChild({ usedS: 2100, gamesUsedS: 1200, videoUsedS: 300, studyUsedS: 2400 })] });
     const box = await screen.findByRole("region", { name: "Итоги" });
     const tabs = within(within(box).getByRole("tablist", { name: "Итоги по категориям" }));
     const value = (label: string) => tabs.getByRole("tab", { name: label }).querySelector(".totals-tab-value")?.textContent;
     expect(value("Всего")).toBe("1 ч 15 мин");
     expect(value("Игры")).toBe("20 мин");
+    expect(value("Видео и соцсети")).toBe("5 мин");
     expect(value("Учёба")).toBe("40 мин");
-    expect(value("Прочее")).toBe("15 мин");
-    expect(within(box).getByText("Видео и соцсети").closest("div")?.querySelector("dd")?.textContent).toBe("Пока не считается");
-    expect(within(box).queryByRole("tab", { name: "Видео и соцсети" })).toBeNull();
+    expect(value("Прочее")).toBe("10 мин");
+    expect(screen.queryByText("Пока не считается")).toBeNull();
     expect(within(box).queryByText("Появится позже")).toBeNull();
   });
 
@@ -291,7 +291,7 @@ function s39Child() {
 
 /** Строки списка выбранной вкладки: [название, время, доля]. */
 function listRows(box: HTMLElement): string[][] {
-  const list = within(box).queryByRole("list", { name: /по программам$/ });
+  const list = within(box).queryByRole("list", { name: /: по / });
   if (!list) return [];
   return within(list)
     .getAllByRole("listitem")
@@ -307,13 +307,75 @@ function categoryPanel(box: HTMLElement): HTMLElement {
   return panels[0];
 }
 
+// T9-6, PL-28: вкладка «Видео и соцсети» со строками сайтов, «Всего» включает сайты.
+describe("MyStats: «Итоги» по сайтам", () => {
+  const SITES: ProgramTime[] = [
+    { path: "youtube.com", name: "youtube.com", category: "video_social", seconds: 600, kind: "site" },
+    { path: "vk.com", name: "vk.com", category: "video_social", seconds: 300, kind: "site" },
+  ];
+  const videoChild = () => mockChild({ usedS: 2100, gamesUsedS: 600, videoUsedS: 900, studyUsedS: 300, programsToday: SITES });
+
+  it("плитки и вкладка «Видео и соцсети»: сайты по убыванию, доля от суммы видео", async () => {
+    const user = setup({ children: [videoChild()] });
+    const box = await screen.findByRole("region", { name: "Итоги" });
+    const tabs = within(within(box).getByRole("tablist", { name: "Итоги по категориям" }));
+    const value = (label: string) => tabs.getByRole("tab", { name: label }).querySelector(".totals-tab-value")?.textContent;
+    expect(["Всего", "Игры", "Видео и соцсети", "Учёба", "Прочее"].map(value)).toEqual(["40 мин", "10 мин", "15 мин", "5 мин", "10 мин"]);
+    await user.click(tabs.getByRole("tab", { name: "Видео и соцсети" }));
+    const panel = categoryPanel(box);
+    expect(panel.getAttribute("aria-labelledby")).toBe("totals-tab-video_social");
+    expect(within(panel).getByText("Видео и соцсети за сегодня: 15 мин")).toBeTruthy();
+    expect(within(panel).getByRole("list", { name: "Видео и соцсети: по сайтам" })).toBeTruthy();
+    expect(listRows(panel)).toEqual([
+      ["youtube.com", "10 мин", "67%"],
+      ["vk.com", "5 мин", "33%"],
+    ]);
+  });
+
+  // Ловит (PL-28): строки «Всего» без сайтов не сходятся с плиткой «Всего».
+  it("«Всего» содержит сайты; список назван «по программам и сайтам»", async () => {
+    setup({ children: [videoChild()] });
+    const box = await screen.findByRole("region", { name: "Итоги" });
+    expect(within(box).getByRole("list", { name: "Всего: по программам и сайтам" })).toBeTruthy();
+    const names = listRows(box).map((r) => r[0]);
+    expect(names).toContain("youtube.com");
+    expect(names).toContain("vk.com");
+    expect(names.at(-1)).toBe("Остальное время");
+  });
+
+  it("видео без строк: «Пока ничего не запускалось»", async () => {
+    const user = setup({ children: [mockChild({ usedS: 600, videoUsedS: 0 })] });
+    const box = await screen.findByRole("region", { name: "Итоги" });
+    await user.click(within(box).getByRole("tab", { name: "Видео и соцсети" }));
+    expect(within(categoryPanel(box)).getByText("Пока ничего не запускалось")).toBeTruthy();
+  });
+
+  // PL-31: «Неделя» = прошлые дни недели из базы + сегодня.
+  it("«Неделя»: видео прошлых дней и сегодня", async () => {
+    const history = [
+      // Вторник этой недели: youtube.com 10 мин.
+      { day: "2026-10-13", totalS: 1200, videoS: 600, programs: [{ path: "youtube.com", name: "youtube.com", category: "video_social" as const, seconds: 600, kind: "site" as const }] },
+      // Прошлая неделя: в «Неделю» не входит.
+      { day: "2026-10-05", totalS: 900, videoS: 900 },
+    ];
+    vi.setSystemTime(new Date(2026, 9, 14, 12, 0, 0)); // ср, 14 октября 2026
+    const user = setup({ children: [mockChild({ usedS: 2100, videoUsedS: 900, programsToday: SITES, history })] });
+    const box = await screen.findByRole("region", { name: "Итоги" });
+    await user.click(screen.getByRole("tab", { name: "Неделя" }));
+    await within(box).findByText("Использовано за неделю");
+    await user.click(within(box).getByRole("tab", { name: "Видео и соцсети" }));
+    expect(within(box).getByText("Видео и соцсети за неделю: 25 мин")).toBeTruthy();
+    expect(listRows(categoryPanel(box))[0]).toEqual(["youtube.com", "20 мин", "80%"]);
+  });
+});
+
 describe("MyStats: вкладки «Итогов»", () => {
   // Ловит (S39): нажатие «Игры» не показывает сумму и игры по отдельности, доли не 67% и 33%.
   it("«Игры»: сумма 15 мин, game 10 мин 67%, game2 5 мин 33%", async () => {
     const user = setup({ children: [s39Child()] });
     const box = await screen.findByRole("region", { name: "Итоги" });
     const tabs = within(within(box).getByRole("tablist", { name: "Итоги по категориям" }));
-    expect(tabs.getAllByRole("tab").map((t) => t.querySelector(".totals-tab-label")?.textContent)).toEqual(["Всего", "Игры", "Учёба", "Прочее"]);
+    expect(tabs.getAllByRole("tab").map((t) => t.querySelector(".totals-tab-label")?.textContent)).toEqual(["Всего", "Игры", "Видео и соцсети", "Учёба", "Прочее"]);
     await user.click(tabs.getByRole("tab", { name: "Игры" }));
     expect(tabs.getByRole("tab", { name: "Игры" }).getAttribute("aria-selected")).toBe("true");
     expect(tabs.getByRole("tab", { name: "Всего" }).getAttribute("aria-selected")).toBe("false");
@@ -355,7 +417,7 @@ describe("MyStats: вкладки «Итогов»", () => {
     const user = setup({ children: [s39Child()] });
     const box = await screen.findByRole("region", { name: "Итоги" });
     const text = "Всего = 20 мин в счёт лимита + 3 мин учёбы вне лимита";
-    for (const name of ["Всего", "Игры", "Учёба", "Прочее"]) {
+    for (const name of ["Всего", "Игры", "Видео и соцсети", "Учёба", "Прочее"]) {
       await user.click(within(box).getByRole("tab", { name }));
       const note = within(box).getByText(text);
       // Под рядом вкладок, не внутри панели: виден при любой выбранной вкладке и не дублируется.
@@ -382,7 +444,7 @@ describe("MyStats: вкладки «Итогов»", () => {
     const box = await screen.findByRole("region", { name: "Итоги" });
     await user.click(within(box).getByRole("tab", { name: "Игры" }));
     expect(within(box).getByText("Пока ничего не запускалось")).toBeTruthy();
-    expect(within(box).queryByRole("list", { name: /по программам$/ })).toBeNull();
+    expect(within(box).queryByRole("list", { name: /: по / })).toBeNull();
   });
 
   // Ловит: вкладки не переключаются стрелками, фокус не идёт за выбором (доступность вкладок).

@@ -49,18 +49,19 @@ export interface TodayRow {
   value: string;
 }
 
-/** «Видео и соцсети» появятся в M4. */
-export const NOT_COUNTED = "Пока не считается";
+/** Вкладка «Итогов» (D-58): «Всего» или категория учёта программ и сайтов. */
+export type TotalsTab = "all" | "games" | "video_social" | "study" | "other";
 
-/** Вкладка «Итогов» (D-58): «Всего» или категория учёта программ. */
-export type TotalsTab = "all" | "games" | "study" | "other";
-
-/** Строки-вкладки «Итогов» по порядку (8.2.6 п.3); «Видео и соцсети» - строка без вкладки (M4). */
-export const TOTALS_TABS: { id: TotalsTab; label: string }[] = [
-  { id: "all", label: "Всего" },
-  { id: "games", label: "Игры" },
-  { id: "study", label: "Учёба" },
-  { id: "other", label: "Прочее" },
+/**
+ * Строки-вкладки «Итогов» по порядку (8.2.6 п.3, как statsCatOrder службы). list - имя списка строк
+ * вкладки для экранного диктора: в «Видео и соцсетях» сайты, во «Всего» программы и сайты.
+ */
+export const TOTALS_TABS: { id: TotalsTab; label: string; list: string }[] = [
+  { id: "all", label: "Всего", list: "Всего: по программам и сайтам" },
+  { id: "games", label: "Игры", list: "Игры: по программам" },
+  { id: "video_social", label: "Видео и соцсети", list: "Видео и соцсети: по сайтам" },
+  { id: "study", label: "Учёба", list: "Учёба: по программам" },
+  { id: "other", label: "Прочее", list: "Прочее: по программам" },
 ];
 
 /** Пустая вкладка. */
@@ -119,6 +120,8 @@ export function tabSeconds(reply: MyTodayReply, tab: TotalsTab): number {
       return reply.allS;
     case "games":
       return reply.gamesS;
+    case "video_social":
+      return reply.videoS ?? 0;
     case "study":
       return reply.studyS;
     case "other":
@@ -142,16 +145,16 @@ function rowTime(seconds: number): string {
 }
 
 /**
- * Строки вкладки (D-58, S39): программы самые долгие сверху, «Остальное время» (время без программы)
- * последней. «Всего» - все программы, одна программа одной строкой, даже если её секунды в двух
- * категориях. Доля - целые проценты от суммы вкладки, каждая округлена сама: сумма долей может
+ * Строки вкладки (D-58, S39): программы и сайты самые долгие сверху, «Остальное время» (время без
+ * программы) последней. «Всего» - все программы и сайты (у сайта path - домен), одна программа одной
+ * строкой, даже если её секунды в двух категориях. Строки - как их отдала служба: категория сайта за
+ * прошлые дни не пересчитывается по нынешним спискам. Доля - целые проценты от суммы вкладки, каждая округлена сама: сумма долей может
  * быть 99-101, подгонки нет.
  */
 export function tabRows(reply: MyTodayReply, tab: TotalsTab): TabRow[] {
   const merged = new Map<string, { name: string; seconds: number; rest: boolean }>();
   for (const p of reply.programs) {
     if (tab !== "all" && p.category !== tab) continue;
-    if (tab === "all" && p.category === "video_social") continue;
     const key = p.path === "" ? "" : p.path;
     const cur = merged.get(key);
     if (cur) cur.seconds += p.seconds;

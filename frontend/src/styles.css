@@ -710,10 +710,6 @@ p {
   margin: 0;
 }
 
-.stat-row-muted {
-  color: var(--text-muted);
-}
-
 .stat-row-lead dt,
 .stat-row-lead dd {
   font-weight: 600;

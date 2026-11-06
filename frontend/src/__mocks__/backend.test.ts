@@ -373,6 +373,21 @@ describe("ребёнок о себе: MyToday, FirstRunSeen, Finish", () => {
     ]);
   });
 
+  // Ловит: подмена оставляет видео в «Прочем» (плитка «Прочее» больше на видео) или теряет «Остальное время» видео.
+  it("MyToday: видео за период и «Прочее» без видео, как у службы", async () => {
+    const programsToday = [{ path: "youtube.com", name: "youtube.com", category: "video_social" as const, seconds: 600, kind: "site" as const }];
+    const history = [{ day: "2026-10-12", totalS: 600, videoS: 300 }];
+    installBackend({ children: [mockChild({ usedS: 2100, gamesUsedS: 600, videoUsedS: 900, studyUsedS: 300, programsToday, history })] });
+    const today = await api.myToday();
+    expect([today.gamesS, today.videoS, today.studyS, today.otherS, today.allS]).toEqual([600, 900, 300, 600, 2400]);
+    expect(today.programs.filter((p) => p.category === "video_social")).toEqual([
+      ...programsToday,
+      { path: "", name: "Остальное время", category: "video_social", seconds: 300 },
+    ]);
+    const all = await api.myToday("all");
+    expect([all.videoS, all.otherS]).toEqual([1200, 900]);
+  });
+
   it("FirstRunSeen запоминается, Finish отдаёт код окну", async () => {
     const mock = installBackend();
     expect(mock.state.firstRunSeen).toBe(false);

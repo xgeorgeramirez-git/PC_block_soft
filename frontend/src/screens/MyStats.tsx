@@ -12,7 +12,6 @@ import { formatDuration, formatEventTime, formatLimit, weekdayName } from "../li
 import {
   allWithStudyText,
   EMPTY_TAB,
-  NOT_COUNTED,
   TOTALS_TABS,
   periodEmpty,
   periodOf,
@@ -221,10 +220,10 @@ export function Remaining({ data, onAsk, onSpend }: { data: MyTodayReply; onAsk:
 }
 
 /**
- * «Итоги» (8.2.6 п.3, D-58, D-61) за период ответа: строки «Всего», «Игры», «Учёба», «Прочее» - вкладки;
- * выбранная показывает сумму и каждую программу «название, время, доля», самые долгие сверху. «Видео и
- * соцсети» - строка без вкладки (сайты, M4). busy - идёт загрузка другого периода: прежние цифры стоят,
- * у заголовка короткий признак. Общий для окна ребёнка и статистики родителя.
+ * «Итоги» (8.2.6 п.3, D-58, D-61) за период ответа: «Всего», «Игры», «Видео и соцсети», «Учёба», «Прочее» -
+ * вкладки; выбранная показывает сумму и каждую программу или сайт «название, время, доля», самые долгие
+ * сверху. busy - идёт загрузка другого периода: прежние цифры стоят, у заголовка короткий признак. Общий
+ * для окна ребёнка и статистики родителя.
  */
 export function Totals({
   data,
@@ -270,10 +269,6 @@ export function Totals({
             <div className="stat-row">
               <dt>{info.used}</dt>
               <dd>{formatDuration(data.usedS)}</dd>
-            </div>
-            <div className="stat-row stat-row-muted">
-              <dt>Видео и соцсети</dt>
-              <dd>{NOT_COUNTED}</dd>
             </div>
             <div className="stat-row">
               <dt>Доп. время</dt>
@@ -321,7 +316,7 @@ export function Totals({
             {rows.length === 0 ? (
               <p className="panel-text totals-empty">{EMPTY_TAB}</p>
             ) : (
-              <ul className="totals-list" aria-label={`${current.label}: по программам`}>
+              <ul className="totals-list" aria-label={current.list}>
                 {rows.map((r) => (
                   <li key={r.key} className={r.rest ? "totals-item totals-item-rest" : "totals-item"} style={{ "--share": r.share } as CSSProperties}>
                     <LineText className="totals-name" text={r.name} />

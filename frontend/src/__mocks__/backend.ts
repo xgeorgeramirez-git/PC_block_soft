@@ -605,8 +605,9 @@ function myToday(child: MockChild | undefined, nowMs: number, period: StatsPerio
   const usedS = status.usedS + sum((d) => d.totalS);
   const gamesS = (child.gamesUsedS ?? 0) + sum((d) => d.gamesS);
   const studyS = (child.studyUsedS ?? 0) + sum((d) => d.studyS);
-  // «Прочее» и «Всего» - как у службы: общее время без игр (видео в M3 нет) и общее плюс учёба.
-  const otherS = Math.max(0, usedS - gamesS);
+  const videoS = (child.videoUsedS ?? 0) + sum((d) => d.videoS);
+  // «Прочее» и «Всего» - как у службы (stats.go): общее время без игр и видео и общее плюс учёба.
+  const otherS = Math.max(0, usedS - gamesS - videoS);
   const merged = new Map<string, ProgramTime>();
   for (const p of [...(child.programsToday ?? []), ...past.flatMap((d) => d.programs ?? [])]) {
     const key = `${p.category}|${p.path}`;
@@ -616,7 +617,7 @@ function myToday(child: MockChild | undefined, nowMs: number, period: StatsPerio
   }
   const programs = [...merged.values()];
   // Как служба: время категории, не названное строками, - строка «Остальное время» (сумма строк = итог).
-  for (const [category, total] of [["games", gamesS], ["study", studyS], ["other", otherS]] as const) {
+  for (const [category, total] of [["games", gamesS], ["video_social", videoS], ["study", studyS], ["other", otherS]] as const) {
     const named = programs.filter((p) => p.category === category).reduce((n, p) => n + p.seconds, 0);
     if (total > named) programs.push({ path: "", name: "Остальное время", category, seconds: total - named });
   }
@@ -627,6 +628,7 @@ function myToday(child: MockChild | undefined, nowMs: number, period: StatsPerio
     period,
     usedS,
     gamesS,
+    videoS,
     studyS,
     otherS,
     allS: usedS + studyS,
