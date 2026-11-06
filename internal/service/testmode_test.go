@@ -190,3 +190,37 @@ func TestParseTestModeWatchDir(t *testing.T) {
 		t.Errorf("без значения WatchDir = %q, want пусто", tm.WatchDir)
 	}
 }
+
+// Ловит (RM4-11, T6-13, RM3-8): StoreRoot не читается из реестра (S46 не подменит WindowsApps),
+// не нормализуется, принимается вне WatchDir (наблюдатель не тронет тестовые приложения
+// магазина) или без WatchDir.
+func TestParseTestModeStoreRoot(t *testing.T) {
+	tm, err := ParseTestMode(map[string]string{"WatchDir": `C:\Temp\pcb-programs`, "StoreRoot": ` C:\Temp\PCB-Programs\Store\ `}, tzMSK)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tm.StoreRoot != `c:\temp\pcb-programs\store` {
+		t.Errorf("StoreRoot = %q", tm.StoreRoot)
+	}
+	if tm, _ := ParseTestMode(map[string]string{"WatchDir": `C:\Temp\pcb-programs`}, tzMSK); tm.StoreRoot != "" {
+		t.Errorf("без StoreRoot = %q, want пусто", tm.StoreRoot)
+	}
+	for _, bad := range []map[string]string{
+		{"WatchDir": `C:\Temp\pcb-programs`, "StoreRoot": `C:\Temp\other`},
+		{"WatchDir": `C:\Temp\pcb-programs`, "StoreRoot": `C:\Temp\pcb-programs`},
+		{"WatchDir": `C:\Temp\pcb-programs`, "StoreRoot": `C:\Temp\pcb-programs-store`},
+		{"WatchDir": `C:\Temp\pcb-programs`, "StoreRoot": `store`},
+		{"StoreRoot": `C:\Temp\pcb-programs\store`},
+	} {
+		if _, err := ParseTestMode(bad, tzMSK); err == nil || !strings.Contains(err.Error(), "StoreRoot должен быть папкой внутри WatchDir") {
+			t.Errorf("ParseTestMode(%v): ошибка %v, want «StoreRoot должен быть папкой внутри WatchDir»", bad, err)
+		}
+	}
+	found := false
+	for _, n := range TestModeValueNames {
+		found = found || n == "StoreRoot"
+	}
+	if !found {
+		t.Errorf("TestModeValueNames без StoreRoot: %v", TestModeValueNames)
+	}
+}

@@ -68,6 +68,9 @@ func openHost() (*host, error) {
 	// процессов. В тестовом режиме наблюдатель трогает только папку WatchDir (RM3-8).
 	folders := readMachineFolders()
 	roots := folders.roots()
+	if tm.StoreRoot != "" {
+		roots.Store = tm.StoreRoot // тестовый режим: поддельные пакеты магазина внутри WatchDir (RM4-11)
+	}
 	meta := winMeta(roots.StoreDir()) // снимок и служба видят одну папку пакетов (RM4-11)
 	s, err := service.New(service.Config{
 		Store:      res.Store,
@@ -95,8 +98,8 @@ func openHost() (*host, error) {
 		return fail(err)
 	}
 	logf("Служба PC Block %s запускается, папка данных %s, программа %s", version.Version, dataDir, exe)
-	logf("Корни программ: Windows %q, Program Files %q и %q, PC Block %q, ProgramData %q, профили %q; папка тестовых программ %q",
-		roots.SystemRoot, roots.ProgramFiles, roots.ProgramFilesX86, roots.InstallDir, roots.ProgramData, roots.UserProfiles, tm.WatchDir)
+	logf("Корни программ: Windows %q, Program Files %q и %q, PC Block %q, ProgramData %q, профили %q, пакеты магазина %q; папка тестовых программ %q",
+		roots.SystemRoot, roots.ProgramFiles, roots.ProgramFilesX86, roots.InstallDir, roots.ProgramData, roots.UserProfiles, roots.StoreDir(), tm.WatchDir)
 	if err := s.Start(time.Now()); err != nil {
 		_ = res.Store.Close()
 		return fail(err)

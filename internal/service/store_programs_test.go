@@ -2,6 +2,7 @@ package service
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -103,5 +104,89 @@ func TestWatchEntryStoreFact(t *testing.T) {
 	}
 	if seen[pathGeoGebra] || !seen[storeTool1] {
 		t.Errorf("признак Магазина: GeoGebra %v, пакет %v; want false, true", seen[pathGeoGebra], seen[storeTool1])
+	}
+}
+
+// Ловит (PL-41, T6-12, S46): тестовая команда засева программ «до обновления» не доходит до
+// хранилища, пишет ключ вместо пути версии (S46 не проверит слияние), не сбрасывает флаг слияния,
+// работает без тестового режима, принимает чужую категорию или неизвестного ребёнка; после
+// перезапуска службы засеянное не сливается.
+func TestTestSeedPrograms(t *testing.T) {
+	h := newHarness(t, configured(), withChild(childSID, "Миша", 240), withPrograms(typicalScan()), withTestMode(TestMode{}))
+	h.start()
+	id := h.childID(childSID)
+	req := ipc.TestSeedProgramsRequest{
+		Programs: []ipc.TestSeedProgram{
+			{Path: strings.ToUpper(edge99), Name: "msedge_proxy", Category: "blocked", Source: "parent", DecidedAt: 50},
+			{Path: edge130, Name: "msedge_proxy", Category: "other", Source: "snapshot"},
+			{Path: edge131, Name: "Microsoft Edge", Publisher: "Microsoft Corporation", Category: "other", Source: "parent", Hidden: true, DecidedAt: 100},
+		},
+		Usage:   []ipc.TestSeedProgramUsage{{ChildID: id, Day: "2026-10-12", Path: edge130, Category: "other", Seconds: 600}},
+		Pending: []ipc.TestSeedPending{{Path: edge131, Name: "msedge_proxy", Publisher: "Microsoft Corporation", ChildID: id, Attempts: 2, LastAttemptAt: 1000}},
+	}
+	h.ok(adminPeer(), "", ipc.CmdTestSeedPrograms, req, nil)
+	for _, p := range []string{edge99, edge130, edge131} {
+		if _, ok := h.store.programs[p]; !ok {
+			t.Errorf("нет строки по пути версии %s", p)
+		}
+	}
+	if _, ok := h.store.programs[edgeKey]; ok {
+		t.Error("засев записал ключ: «база 0.3.3» должна быть по путям версий")
+	}
+	if got := h.store.usage[fmt.Sprintf("%d|2026-10-12|other|program|%s", id, edge130)]; got != 600 {
+		t.Errorf("учёт по версии 130: %d, want 600", got)
+	}
+	if p := h.store.pending[edge131]; p == nil || p.Attempts != 2 || len(p.Children) != 1 || p.Children[0].ChildID != id {
+		t.Errorf("«Ждут решения» по версии 131: %+v", p)
+	}
+	if h.store.settings[settingStoreMerged] != "0" {
+		t.Errorf("флаг слияния после засева %q, want 0", h.store.settings[settingStoreMerged])
+	}
+	if !strings.Contains(h.logText(), "Тестовые программы: 3, учёт 1, ждут решения 1") {
+		t.Errorf("журнал работы: %s", h.logText())
+	}
+	h.svc.Shutdown(h.real.Now())
+
+	// Перезапуск службы: повторы слиты.
+	h2 := newHarness(t, withStore(h.store), configured(), withPrograms(typicalScan()), withTestMode(TestMode{}))
+	h2.start()
+	if p, ok := h2.store.programs[edgeKey]; !ok || !p.Hidden || p.Name != "Microsoft Edge" {
+		t.Errorf("после перезапуска строка ключа: %+v (есть %v)", p, ok)
+	}
+	for _, p := range []string{edge99, edge130, edge131} {
+		if _, ok := h2.store.programs[p]; ok {
+			t.Errorf("после перезапуска осталась строка версии %s", p)
+		}
+	}
+	if got := h2.store.usage[fmt.Sprintf("%d|2026-10-12|other|program|%s", id, edgeKey)]; got != 600 || len(h2.store.pending) != 0 {
+		t.Errorf("после перезапуска учёт ключа %d, ждут решения %v; want 600 и пусто", got, h2.store.pending)
+	}
+
+	for name, bad := range map[string]ipc.TestSeedProgramsRequest{
+		"категория":       {Programs: []ipc.TestSeedProgram{{Path: edge130, Name: "x", Category: "x", Source: "parent"}}},
+		"источник":        {Programs: []ipc.TestSeedProgram{{Path: edge130, Name: "x", Category: "other", Source: "x"}}},
+		"путь":            {Programs: []ipc.TestSeedProgram{{Path: "x.exe", Name: "x", Category: "other", Source: "parent"}}},
+		"категория учёта": {Usage: []ipc.TestSeedProgramUsage{{ChildID: id, Day: "2026-10-12", Path: edge130, Category: "blocked", Seconds: 1}}},
+		"день":            {Usage: []ipc.TestSeedProgramUsage{{ChildID: id, Day: "12.10.2026", Path: edge130, Category: "other", Seconds: 1}}},
+		"будущий день":    {Usage: []ipc.TestSeedProgramUsage{{ChildID: id, Day: "2026-10-20", Path: edge130, Category: "other", Seconds: 1}}},
+		"попытки":         {Pending: []ipc.TestSeedPending{{Path: edge130, Name: "x", ChildID: id, Attempts: 0, LastAttemptAt: 1}}},
+	} {
+		if rep := h2.do(adminPeer(), "", ipc.CmdTestSeedPrograms, bad); rep.OK || rep.Error != ipc.TextBadRequest {
+			t.Errorf("%s: ответ %+v, want %q", name, rep, ipc.TextBadRequest)
+		}
+	}
+	for name, bad := range map[string]ipc.TestSeedProgramsRequest{
+		"учёт":  {Usage: []ipc.TestSeedProgramUsage{{ChildID: 999, Day: "2026-10-12", Path: edge130, Category: "other", Seconds: 1}}},
+		"ждущ.": {Pending: []ipc.TestSeedPending{{Path: edge130, Name: "x", ChildID: 999, Attempts: 1, LastAttemptAt: 1}}},
+	} {
+		if rep := h2.do(adminPeer(), "", ipc.CmdTestSeedPrograms, bad); rep.OK || rep.Error != textNoSuchChild {
+			t.Errorf("ребёнок 999 (%s): ответ %+v, want %q", name, rep, textNoSuchChild)
+		}
+	}
+
+	plain := newHarness(t, configured(), withChild(childSID, "Миша", 240), withPrograms(typicalScan()))
+	plain.start()
+	if rep := plain.do(adminPeer(), "", ipc.CmdTestSeedPrograms, req); rep.OK {
+		t.Error("без тестового режима команда работает")
 	}
 }

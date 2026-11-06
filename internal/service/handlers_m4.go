@@ -1,16 +1,17 @@
 package service
 
 import (
+	"time"
+
+	"pcblock/internal/core"
 	"pcblock/internal/ipc"
+	"pcblock/internal/programs"
 	"pcblock/internal/sites"
 )
 
 // Обработчики команд вехи M4 «Сайты и Brave» (R14, FR-21, RM4-4, RM4-5). Права проверены в
 // Handle (parentToken). Всё, что меняет списки, вызывает sitesChanged: служба сразу закрывает
-// по новым спискам, правила Brave переписываются (RM4-10). TestSeedPrograms — T6.
-
-// textNotReadyM4 — ответ заглушки, пока обработчик не написан.
-const textNotReadyM4 = "Пока не готово"
+// по новым спискам, правила Brave переписываются (RM4-10).
 
 // sitesView собирает экран «Сайты» (FR-21, 8.3.5): списки в порядке хранилища (по списку и
 // домену), переключатели «18+» всех детей, предел «Запрещённых», подпись источника «18+».
@@ -159,6 +160,79 @@ func (s *Service) hSetAdultFilter(c *callCtx) ipc.Reply {
 	return ipc.OK(reply)
 }
 
-// hTestSeedPrograms — программы «до обновления» в тестовом режиме (RM4-11, S46). Заглушка T3;
-// обработчик — T6.
-func (s *Service) hTestSeedPrograms(*callCtx) ipc.Reply { return ipc.Fail(textNotReadyM4) }
+// hTestSeedPrograms записывает программы, учёт и «Ждут решения» как есть, без ключа магазина
+// (только тестовый режим, права в commands.go; RM4-11, S46, PL-41): это «база 0.3.3» с повторами
+// приложения магазина по версиям. Флаг слияния сбрасывается: повторы сольются при следующем
+// старте службы (приёмка перезапускает службу). Сначала проверяется весь запрос, потом пишется.
+func (s *Service) hTestSeedPrograms(c *callCtx) ipc.Reply {
+	var req ipc.TestSeedProgramsRequest
+	if c.msg.Into(&req) != nil {
+		return bad()
+	}
+	roots := s.classifier.Roots()
+	progs := make([]Program, 0, len(req.Programs))
+	for _, p := range req.Programs {
+		path := programs.Normalize(p.Path)
+		if path == "" || !seedProgramCats[p.Category] || !seedProgramSources[p.Source] || p.DecidedAt < 0 {
+			return bad()
+		}
+		progs = append(progs, Program{Path: path, Name: programName(p.Name, path), Publisher: programs.ClipName(p.Publisher),
+			Category: p.Category, Source: p.Source, AppRoot: roots.AppRoot(path), DecidedAt: p.DecidedAt,
+			Hidden: p.Hidden, CustomName: p.CustomName})
+	}
+	today := core.DayOf(s.cfg.Clock.Now().In(s.cfg.Loc))
+	for _, u := range req.Usage {
+		t, err := time.Parse(time.DateOnly, u.Day)
+		if programs.Normalize(u.Path) == "" || !seedCategories[u.Category] || u.Seconds < 0 || err != nil ||
+			t.Format(time.DateOnly) != u.Day || u.Day > today {
+			return bad()
+		}
+		if s.children[u.ChildID] == nil {
+			return ipc.Fail(textNoSuchChild)
+		}
+	}
+	for _, p := range req.Pending {
+		if programs.Normalize(p.Path) == "" || p.Attempts < 1 || p.LastAttemptAt < 0 {
+			return bad()
+		}
+		if s.children[p.ChildID] == nil {
+			return ipc.Fail(textNoSuchChild)
+		}
+	}
+	for _, p := range progs {
+		if err := s.cfg.Store.UpsertProgram(p); err != nil {
+			s.cfg.Logf("тестовая программа %s не записана: %v", p.Path, err)
+			return ipc.Fail(textSaveFailed)
+		}
+	}
+	for _, u := range req.Usage {
+		if err := s.cfg.Store.AddUsage(u.ChildID, u.Day, u.Category, usageKindProgram, programs.Normalize(u.Path), u.Seconds); err != nil {
+			s.cfg.Logf("тестовый учёт %s не записан: %v", u.Path, err)
+			return ipc.Fail(textSaveFailed)
+		}
+	}
+	for _, p := range req.Pending {
+		path := programs.Normalize(p.Path)
+		pend := PendingProgram{Path: path, Name: programName(p.Name, path), Publisher: programs.ClipName(p.Publisher),
+			FirstChildID: p.ChildID, FirstAttemptAt: p.LastAttemptAt, LastAttemptAt: p.LastAttemptAt, Attempts: p.Attempts,
+			Children: []PendingChild{{ChildID: p.ChildID, Attempts: p.Attempts, LastAttemptAt: p.LastAttemptAt}}}
+		if err := s.cfg.Store.RestorePending(pend); err != nil {
+			s.cfg.Logf("тестовая попытка %s не записана: %v", path, err)
+			return ipc.Fail(textSaveFailed)
+		}
+	}
+	if err := s.cfg.Store.SetSetting(settingStoreMerged, "0"); err != nil {
+		s.cfg.Logf("флаг слияния повторов магазина не сброшен: %v", err)
+		return ipc.Fail(textSaveFailed)
+	}
+	s.reloadPrograms()
+	s.cfg.Logf("Тестовые программы: %d, учёт %d, ждут решения %d", len(req.Programs), len(req.Usage), len(req.Pending))
+	return ipc.OK(ipc.Empty{})
+}
+
+// seedProgramCats и seedProgramSources — категории и источники, которые принимает TestSeedPrograms.
+var (
+	seedProgramCats = map[string]bool{ipc.ProgramCatGames: true, ipc.ProgramCatStudy: true, ipc.ProgramCatOther: true,
+		ipc.ProgramCatBlocked: true, ipc.ProgramCatSystem: true}
+	seedProgramSources = map[string]bool{ipc.ProgramSourceCatalog: true, ipc.ProgramSourceSnapshot: true, ipc.ProgramSourceParent: true}
+)
