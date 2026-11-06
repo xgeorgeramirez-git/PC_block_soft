@@ -1370,8 +1370,9 @@ export function createBackend(opts: MockOptions = {}): MockBackend {
     ListSites: () => okReply(sitesReply()),
 
     AddSite: (req, now) => {
-      if (!isSiteKind(req?.kind)) return fail("Не удалось разобрать запрос. Попробуйте ещё раз");
-      const kind = req.kind;
+      // Запрос приходит как any: список сужается проверкой до SiteKind (индекс SITE_LIST_NAMES без any).
+      const kind: unknown = req?.kind;
+      if (!isSiteKind(kind)) return fail("Не удалось разобрать запрос. Попробуйте ещё раз");
       const domain = cleanDomain(String(req.domain ?? ""));
       if (!domain) return fail(NOT_DOMAIN_TEXT, "domain");
       const known = state.sites.find((x) => x.domain === domain);
