@@ -1380,6 +1380,20 @@ html:has(.shell-child) body {
   border-radius: var(--radius-control);
 }
 
+/* Шаг мастера «Сайты» (FR-2): «18+» с подписью источника рядом, список видео и поле одним блоком
+   (PL-36). Поле, строки и переключатели - те же, что на экране «Сайты». */
+.wizard-sites-block {
+  margin-bottom: var(--space-4);
+}
+
+.wizard-sites-block .sites-add {
+  margin-bottom: var(--space-3);
+}
+
+.wizard-sites-list {
+  max-width: 640px;
+}
+
 .wizard-scanning {
   display: flex;
   align-items: center;

@@ -6,15 +6,16 @@ import TextField from "../components/TextField";
 import { CallError, errorText } from "../lib/errors";
 import { limitErrorKey, templateLimits, validateLimits, wireLimits, type LimitColumn } from "../lib/limits";
 import { validatePasswordPair, type PasswordPairErrors } from "../lib/password";
-import type { Account, ProgramCategory, ScanProgramDTO, SetupProgram, WeekdayLimit } from "../types";
+import { ADULT_SOURCE_TEXT, DEFAULT_VIDEO_SITES, DUPLICATE_TEXT, NOT_DOMAIN_TEXT, cleanDomain } from "../lib/sites";
+import type { Account, ProgramCategory, ScanProgramDTO, SetupProgram, SetupSites, WeekdayLimit } from "../types";
 
 interface Props {
   /** Кнопка «Открыть настройки» на итоговом экране; получает только что заданный пароль, чтобы войти сразу. */
   onOpenSettings: (password: string) => void;
 }
 
-type Step = 1 | 2 | 3 | 4 | "done";
-const STEPS = 4;
+type Step = 1 | 2 | 3 | 4 | 5 | "done";
+const STEPS = 5;
 
 /** Выбор на шаге «Программы» (FR-2): «Запретить» и системное здесь не предлагаются. */
 type WizardCategory = Extract<ProgramCategory, "games" | "study" | "other">;
@@ -46,7 +47,17 @@ const TEMPLATE_LABEL = "Шаблон: будни 2 ч, выходные 4 ч";
 /** Мастер: общее время и игры; лимит видео задаётся позже во вкладке «Лимиты» (T9-2: окно 720 px). */
 const WIZARD_COLUMNS: LimitColumn[] = ["total", "games"];
 
-/** Мастер первоначальной настройки (FR-1, FR-2, сценарий 8.3.1): пароль, дети, время, программы. */
+export const SITES_NOTE =
+  "Программа следит за сайтами в Brave. Другие браузеры у детей закрываются. Лимит на видео и соцсети можно задать позже в разделе «Дети», вкладка «Лимиты»";
+const VIDEO_NOTE = "Время на этих сайтах можно ограничить отдельно. Список можно изменить позже в разделе «Сайты»";
+const VIDEO_EMPTY = "В этом списке пока нет сайтов";
+
+/** Что отправить службе с шага «Сайты» (FR-2): SID детей с выключенным «18+» и список видео целиком. */
+export function wizardSites(chosen: Account[], adultOn: Record<string, boolean>, video: string[]): SetupSites {
+  return { adultOff: chosen.filter((a) => adultOn[a.sid] === false).map((a) => a.sid), video: [...video] };
+}
+
+/** Мастер первоначальной настройки (FR-1, FR-2, сценарий 8.3.1): пароль, дети, время, программы, сайты. */
 export default function Wizard({ onOpenSettings }: Props) {
   const [step, setStep] = useState<Step>(1);
   const [password, setPassword] = useState("");
@@ -66,6 +77,17 @@ export default function Wizard({ onOpenSettings }: Props) {
   const [scan, setScan] = useState<ScanProgramDTO[] | null>(null);
   const [scanError, setScanError] = useState("");
   const [choices, setChoices] = useState<Record<string, WizardCategory>>({});
+  /** «Настрою позже» на шаге программ: в программу они не уходят. */
+  const [skipPrograms, setSkipPrograms] = useState(false);
+
+  // Шаг «Сайты»: «18+» по детям (нет записи - включено, R14) и стартовый набор видео (R14).
+  const [adultOn, setAdultOn] = useState<Record<string, boolean>>({});
+  const [videoSites, setVideoSites] = useState<string[]>(() => [...DEFAULT_VIDEO_SITES]);
+  const [siteDraft, setSiteDraft] = useState("");
+  const [siteError, setSiteError] = useState("");
+  const siteInput = useRef<HTMLInputElement>(null);
+  const siteInputId = useId();
+  const siteNoteId = useId();
 
   const heading = useRef<HTMLHeadingElement>(null);
   const firstStep = useRef(true);
@@ -168,8 +190,32 @@ export default function Wizard({ onOpenSettings }: Props) {
     setStep(4);
   };
 
-  /** «Готово» отправляет изменённые отметки программ, «Настрою позже» - без программ (FR-2). */
-  const finish = async (withPrograms: boolean) => {
+  const goStep5 = (withPrograms: boolean) => {
+    setSkipPrograms(!withPrograms);
+    setFormError("");
+    setStep(5);
+  };
+
+  /** Добавить сайт в список видео: домен из ввода; не домен и повтор - ошибка у поля. */
+  const addVideoSite = () => {
+    const domain = cleanDomain(siteDraft);
+    if (!domain) {
+      setSiteError(NOT_DOMAIN_TEXT);
+    } else if (videoSites.includes(domain)) {
+      setSiteError(DUPLICATE_TEXT);
+    } else {
+      setVideoSites((prev) => [...prev, domain]);
+      setSiteDraft("");
+      setSiteError("");
+    }
+    siteInput.current?.focus();
+  };
+
+  /**
+   * «Готово» отправляет изменённые отметки программ (если их не пропустили) и выбор шага «Сайты»;
+   * «Настрою позже» на шаге «Сайты» - без sites: служба оставит «18+» всем и стартовый набор (FR-2).
+   */
+  const finish = async (withSites: boolean) => {
     if (!limitsValid()) {
       setStep(3);
       return;
@@ -180,7 +226,8 @@ export default function Wizard({ onOpenSettings }: Props) {
       await setup(
         password,
         chosen.map((a) => ({ sid: a.sid, name: a.name, limits: wireLimits(limits[a.sid] ?? templateLimits()) })),
-        withPrograms ? changedPrograms(scan ?? [], choices) : undefined,
+        skipPrograms ? undefined : changedPrograms(scan ?? [], choices),
+        withSites ? wizardSites(chosen, adultOn, videoSites) : undefined,
       );
       setStep("done");
     } catch (e) {
@@ -196,6 +243,12 @@ export default function Wizard({ onOpenSettings }: Props) {
       } else if (day) {
         setLimitErrors({ [day]: text });
         setStep(3);
+      } else if (field === "domain") {
+        setSiteError(text);
+        setStep(5);
+      } else if (field === "programs") {
+        setFormError(text);
+        setStep(4);
       } else {
         setFormError(text);
       }
@@ -221,7 +274,7 @@ export default function Wizard({ onOpenSettings }: Props) {
   }
 
   const percent = Math.round((step / STEPS) * 100);
-  const titles = { 1: "Пароль родителя", 2: "Кто дети", 3: "Время", 4: "Программы" } as const;
+  const titles = { 1: "Пароль родителя", 2: "Кто дети", 3: "Время", 4: "Программы", 5: "Сайты" } as const;
 
   return (
     <section className="panel wizard" aria-label="Первоначальная настройка">
@@ -398,15 +451,116 @@ export default function Wizard({ onOpenSettings }: Props) {
             <button type="button" className="btn" onClick={() => setStep(3)} disabled={busy}>
               Назад
             </button>
+            <button type="button" className="btn" onClick={() => goStep5(false)} disabled={busy}>
+              Настрою позже
+            </button>
+            <button type="button" className="btn btn-primary" onClick={() => goStep5(true)} disabled={busy}>
+              Далее
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      {step === 5 ? (
+        <div>
+          <p className="panel-text">{SITES_NOTE}</p>
+          {formError ? (
+            <Notice tone="warn" urgent>
+              {formError}
+            </Notice>
+          ) : null}
+          <section className="wizard-sites-block" aria-labelledby="wizard-adult-title">
+            <h3 id="wizard-adult-title" className="section-title">
+              Блокировать сайты 18+
+            </h3>
+            <div className="sites-switches" role="group" aria-labelledby="wizard-adult-title">
+              {chosen.map((a) => (
+                <label key={a.sid} className="switch">
+                  <input
+                    type="checkbox"
+                    checked={adultOn[a.sid] !== false}
+                    disabled={busy}
+                    onChange={(e) => setAdultOn((prev) => ({ ...prev, [a.sid]: e.target.checked }))}
+                  />
+                  {a.name}
+                </label>
+              ))}
+            </div>
+            <p className="field-hint sites-source">{ADULT_SOURCE_TEXT}</p>
+          </section>
+
+          <section className="wizard-sites-block" aria-labelledby="wizard-video-title">
+            <h3 id="wizard-video-title" className="section-title">
+              Видео и соцсети
+            </h3>
+            <p className="panel-text">{VIDEO_NOTE}</p>
+            <form
+              className={siteError ? "sites-add field-invalid" : "sites-add"}
+              noValidate
+              onSubmit={(e) => {
+                e.preventDefault();
+                addVideoSite();
+              }}
+            >
+              <label className="field-label sites-add-label" htmlFor={siteInputId}>
+                Добавить сайт
+              </label>
+              <input
+                id={siteInputId}
+                ref={siteInput}
+                type="text"
+                name="site"
+                className="field-input sites-add-input"
+                autoComplete="off"
+                spellCheck={false}
+                value={siteDraft}
+                disabled={busy}
+                aria-invalid={siteError ? "true" : undefined}
+                aria-describedby={siteError ? siteNoteId : undefined}
+                onChange={(e) => {
+                  setSiteDraft(e.target.value);
+                  if (siteError) setSiteError("");
+                }}
+              />
+              <button type="submit" className="btn btn-primary sites-add-button" disabled={busy}>
+                Добавить
+              </button>
+              {siteError ? (
+                <p id={siteNoteId} className="field-error sites-add-note" role="alert">
+                  {siteError}
+                </p>
+              ) : null}
+            </form>
+            {videoSites.length === 0 ? (
+              <p className="panel-text">{VIDEO_EMPTY}</p>
+            ) : (
+              <ul className="sites-list wizard-sites-list" aria-label="Видео и соцсети: сайты">
+                {videoSites.map((domain) => (
+                  <li key={domain} className="sites-row">
+                    <span className="sites-domain">{domain}</span>
+                    <button
+                      type="button"
+                      className="btn btn-small"
+                      aria-label={`Убрать ${domain}`}
+                      disabled={busy}
+                      onClick={() => setVideoSites((prev) => prev.filter((d) => d !== domain))}
+                    >
+                      Убрать
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+
+          <div className="form-actions">
+            <button type="button" className="btn" onClick={() => setStep(4)} disabled={busy}>
+              Назад
+            </button>
             <button type="button" className="btn" onClick={() => void finish(false)} disabled={busy}>
               Настрою позже
             </button>
-            <button
-              type="button"
-              className="btn btn-primary"
-              onClick={() => void finish(true)}
-              disabled={busy}
-            >
+            <button type="button" className="btn btn-primary" onClick={() => void finish(true)} disabled={busy}>
               Готово
             </button>
           </div>

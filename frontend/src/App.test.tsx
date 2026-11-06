@@ -67,7 +67,7 @@ describe("окно: название и версия", () => {
 describe("выбор экрана по режиму", () => {
   it("window, программа не настроена: мастер", async () => {
     setup({ configured: false });
-    expect(await screen.findByText("Шаг 1 из 4")).toBeTruthy();
+    expect(await screen.findByText("Шаг 1 из 5")).toBeTruthy();
   });
 
   it("window, настроена: вход, потом «Сегодня»", async () => {

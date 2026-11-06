@@ -139,6 +139,31 @@ describe("мастер", () => {
     await expect(api.setup("123456", mini)).rejects.toMatchObject({ message: "Программа уже настроена" });
   });
 
+  // Ловит: подмена принимает шаг «Сайты» не как служба (тесты мастера зелёные на выдумке, PL-9).
+  it("Setup с sites: «18+» выключен у названных детей, видео заменяет набор; не домен - отказ у поля", async () => {
+    const mock = installBackend({ configured: false, sites: [{ domain: "example.com", kind: "blocked" }, { domain: "youtube.com", kind: "video_social" }] });
+    const limits = [1, 2, 3, 4, 5, 6, 7].map((weekday) => ({ weekday, totalMin: 120, unlimited: false }));
+    const kids = [
+      { sid: "S-1", name: "Миша", limits },
+      { sid: "S-2", name: "Даша", limits },
+    ];
+    await expect(api.setup("123456", kids, undefined, { adultOff: [], video: ["котики видео"] })).rejects.toMatchObject({
+      message: "Это не похоже на адрес сайта",
+      field: "domain",
+    });
+    expect(mock.state.configured).toBe(false);
+    await api.setup("123456", kids, undefined, { adultOff: ["S-2"], video: ["vk.com", "https://VK.com/feed", "kids.example"] });
+    expect(mock.state.children.map((c) => [c.name, c.adultFilter])).toEqual([
+      ["Миша", undefined],
+      ["Даша", false],
+    ]);
+    expect(mock.state.sites).toEqual([
+      { domain: "example.com", kind: "blocked" },
+      { domain: "vk.com", kind: "video_social" },
+      { domain: "kids.example", kind: "video_social" },
+    ]);
+  });
+
   // Ловит: подмена теряет лимит видео при сохранении (тесты «Сохранить» зелёные на данных без видео, PL-9).
   it("SaveLimits хранит видео; больше суток - отказ у поля video.N", async () => {
     installBackend({ sessionActive: true });

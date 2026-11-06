@@ -3,8 +3,9 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import Wizard from "./Wizard";
 import { installBackend, mockAccounts, uninstallBackend, type MockBackend } from "../__mocks__/backend";
+import { DEFAULT_VIDEO_SITES } from "../lib/sites";
 
-// FR-1, FR-2, сценарий 8.3.1: мастер из 4 шагов (пароль, дети, время, программы). Ошибки у поля, недоступное объясняет почему.
+// FR-1, FR-2, сценарий 8.3.1: мастер из 5 шагов (пароль, дети, время, программы). Ошибки у поля, недоступное объясняет почему.
 
 let mock: MockBackend;
 let openSettings: Mock<(password: string) => void>;
@@ -25,7 +26,7 @@ async function passStep1(user: ReturnType<typeof userEvent.setup>, password = "�
   await user.type(pw(), password);
   await user.type(again(), password);
   await user.click(next());
-  await screen.findByText("Шаг 2 из 4");
+  await screen.findByText("Шаг 2 из 5");
 }
 
 async function passStep2(user: ReturnType<typeof userEvent.setup>, ...names: string[]) {
@@ -33,17 +34,24 @@ async function passStep2(user: ReturnType<typeof userEvent.setup>, ...names: str
     await user.click(await screen.findByRole("checkbox", { name: new RegExp(name) }));
   }
   await user.click(next());
-  await screen.findByText("Шаг 3 из 4");
+  await screen.findByText("Шаг 3 из 5");
 }
 
 /** С третьего шага на «Программы»: ждёт, пока список найден. */
 async function passStep3(user: ReturnType<typeof userEvent.setup>) {
   await user.click(next());
-  await screen.findByText("Шаг 4 из 4");
+  await screen.findByText("Шаг 4 из 5");
   await screen.findByRole("table", { name: "Программы на этом компьютере" });
 }
 
 const done = () => screen.getByRole("button", { name: "Готово" });
+const later = () => screen.getByRole("button", { name: "Настрою позже" });
+
+/** С шага «Программы» на «Сайты» кнопкой «Далее». */
+async function toSites(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(next());
+  await screen.findByText("Шаг 5 из 5");
+}
 
 afterEach(() => {
   uninstallBackend();
@@ -52,7 +60,7 @@ afterEach(() => {
 describe("Wizard: шаг 1, пароль", () => {
   it("показывает прогресс, два поля пароля и подсказку", () => {
     setup();
-    expect(screen.getByText("Шаг 1 из 4")).toBeTruthy();
+    expect(screen.getByText("Шаг 1 из 5")).toBeTruthy();
     expect(pw().type).toBe("password");
     expect(again().type).toBe("password");
     expect(screen.getByText(/Не сообщайте пароль детям/)).toBeTruthy();
@@ -69,7 +77,7 @@ describe("Wizard: шаг 1, пароль", () => {
     expect(alert.textContent).toBe("Не меньше 6 символов");
     expect(pw().getAttribute("aria-invalid")).toBe("true");
     expect(pw().getAttribute("aria-describedby")).toContain(alert.id);
-    expect(screen.getByText("Шаг 1 из 4")).toBeTruthy();
+    expect(screen.getByText("Шаг 1 из 5")).toBeTruthy();
   });
 
   it("пароли разные: «Пароли не совпадают» у второго поля", async () => {
@@ -87,7 +95,7 @@ describe("Wizard: шаг 1, пароль", () => {
     const user = setup();
     await user.type(pw(), "секрет-123");
     await user.type(again(), "секрет-123{Enter}");
-    expect(await screen.findByText("Шаг 2 из 4")).toBeTruthy();
+    expect(await screen.findByText("Шаг 2 из 5")).toBeTruthy();
   });
 
   it("ошибка уходит, когда родитель правит поле", async () => {
@@ -134,7 +142,7 @@ describe("Wizard: шаг 2, кто дети", () => {
     const user = setup();
     await passStep1(user);
     await user.click(screen.getByRole("button", { name: "Назад" }));
-    expect(screen.getByText("Шаг 1 из 4")).toBeTruthy();
+    expect(screen.getByText("Шаг 1 из 5")).toBeTruthy();
     expect(pw().value).toBe("секрет-123");
     expect(again().value).toBe("секрет-123");
   });
@@ -224,12 +232,12 @@ describe("Wizard: шаг 3, время", () => {
     expect(screen.queryByRole("alert")).toBeNull();
   });
 
-  it("«Далее» ведёт на шаг «Программы», прогресс 4 из 4", async () => {
+  it("«Далее» ведёт на шаг «Программы», прогресс 4 из 5", async () => {
     const user = setup();
     await passStep1(user);
     await passStep2(user, "Миша");
     await user.click(next());
-    expect(await screen.findByText("Шаг 4 из 4")).toBeTruthy();
+    expect(await screen.findByText("Шаг 4 из 5")).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Программы" })).toBeTruthy();
     expect(mock.count("Setup")).toBe(0);
   });
@@ -292,6 +300,7 @@ describe("Wizard: шаг 4, программы (FR-2)", () => {
     await passStep2(user, "Миша");
     await passStep3(user);
     await user.selectOptions(pick("Brave"), "study");
+    await toSites(user);
     await user.click(done());
     expect(await screen.findByText("Готово. Правила начнут действовать при следующем входе детей")).toBeTruthy();
     const sent = mock.calls.find((c) => c.command === "Setup")?.payload;
@@ -304,6 +313,7 @@ describe("Wizard: шаг 4, программы (FR-2)", () => {
     await passStep2(user, "Миша");
     await passStep3(user);
     await user.selectOptions(pick("Minecraft Launcher"), "other");
+    await toSites(user);
     await user.click(done());
     await screen.findByText("Готово. Правила начнут действовать при следующем входе детей");
     const sent = mock.calls.find((c) => c.command === "Setup")?.payload;
@@ -318,6 +328,7 @@ describe("Wizard: шаг 4, программы (FR-2)", () => {
     await user.click(screen.getByRole("checkbox", { name: "Без лимита, воскресенье" }));
     await user.click(screen.getByLabelText("Игры без лимита, понедельник"));
     await passStep3(user);
+    await toSites(user);
     await user.click(done());
 
     expect(await screen.findByText("Готово. Правила начнут действовать при следующем входе детей")).toBeTruthy();
@@ -338,7 +349,7 @@ describe("Wizard: шаг 4, программы (FR-2)", () => {
     expect(sent.programs).toBeUndefined();
     expect(sent.children[0].endMode).toBeUndefined();
     expect(mock.state.configured).toBe(true);
-    expect(screen.queryByText(/Шаг \d из 4/)).toBeNull();
+    expect(screen.queryByText(/Шаг \d из 5/)).toBeNull();
 
     await user.click(screen.getByRole("button", { name: "Открыть настройки" }));
     expect(openSettings).toHaveBeenCalledTimes(1);
@@ -351,9 +362,14 @@ describe("Wizard: шаг 4, программы (FR-2)", () => {
     await passStep2(user, "Миша");
     await passStep3(user);
     await user.selectOptions(pick("Brave"), "games");
-    await user.click(screen.getByRole("button", { name: "Настрою позже" }));
+    await user.click(later());
+    expect(await screen.findByText("Шаг 5 из 5")).toBeTruthy();
+    expect(mock.count("Setup")).toBe(0);
+    await user.click(done());
     expect(await screen.findByText("Готово. Правила начнут действовать при следующем входе детей")).toBeTruthy();
-    expect(mock.calls.find((c) => c.command === "Setup")?.payload.programs).toBeUndefined();
+    const sent = mock.calls.find((c) => c.command === "Setup")?.payload;
+    expect(sent.programs).toBeUndefined();
+    expect(sent.sites).toEqual({ adultOff: [], video: [...DEFAULT_VIDEO_SITES] });
   });
 
   it("«Настрою позже» доступна, пока программы ищутся", async () => {
@@ -363,8 +379,11 @@ describe("Wizard: шаг 4, программы (FR-2)", () => {
     await passStep2(user, "Миша");
     await user.click(next());
     await screen.findByText("Ищу установленные программы");
-    await user.click(screen.getByRole("button", { name: "Настрою позже" }));
+    await user.click(later());
+    await screen.findByText("Шаг 5 из 5");
+    await user.click(later());
     expect(await screen.findByText("Готово. Правила начнут действовать при следующем входе детей")).toBeTruthy();
+    expect(mock.calls.find((c) => c.command === "Setup")?.payload.sites).toBeUndefined();
   });
 
   // Review Focus 4: после ошибки шаг можно повторить, «Настрою позже» есть всегда.
@@ -399,6 +418,7 @@ describe("Wizard: шаг 4, программы (FR-2)", () => {
     await passStep2(user, "Миша");
     await user.click(next());
     expect(await screen.findByText("Программы не найдены. Их можно настроить позже в разделе «Программы»")).toBeTruthy();
+    await toSites(user);
     await user.click(done());
     expect(await screen.findByText("Готово. Правила начнут действовать при следующем входе детей")).toBeTruthy();
     expect(mock.calls.find((c) => c.command === "Setup")?.payload.programs).toBeUndefined();
@@ -412,7 +432,7 @@ describe("Wizard: шаг 4, программы (FR-2)", () => {
     await passStep3(user);
     await user.selectOptions(pick("Brave"), "study");
     await user.click(screen.getByRole("button", { name: "Назад" }));
-    expect(await screen.findByText("Шаг 3 из 4")).toBeTruthy();
+    expect(await screen.findByText("Шаг 3 из 5")).toBeTruthy();
     expect(hours("понедельник").value).toBe("2");
     await user.click(next());
     expect(pick("Brave").value).toBe("study");
@@ -426,8 +446,9 @@ describe("Wizard: шаг 4, программы (FR-2)", () => {
     await passStep2(user, "Миша");
     await passStep3(user);
     mock.override("Setup", { ok: false, error: "Не меньше 6 символов", field: "password" }, 1);
+    await toSites(user);
     await user.click(done());
-    expect(await screen.findByText("Шаг 1 из 4")).toBeTruthy();
+    expect(await screen.findByText("Шаг 1 из 5")).toBeTruthy();
     expect((await screen.findByRole("alert")).textContent).toBe("Не меньше 6 символов");
   });
 
@@ -437,8 +458,9 @@ describe("Wizard: шаг 4, программы (FR-2)", () => {
     await passStep2(user, "Миша");
     await passStep3(user);
     mock.override("Setup", { ok: false, error: "Эту учётку нельзя сделать детской", field: "children" }, 1);
+    await toSites(user);
     await user.click(done());
-    expect(await screen.findByText("Шаг 2 из 4")).toBeTruthy();
+    expect(await screen.findByText("Шаг 2 из 5")).toBeTruthy();
     expect((await screen.findByRole("alert")).textContent).toBe("Эту учётку нельзя сделать детской");
   });
 
@@ -448,10 +470,11 @@ describe("Wizard: шаг 4, программы (FR-2)", () => {
     await passStep2(user, "Миша");
     await passStep3(user);
     mock.override("Setup", { ok: false, error: "Не больше 24 ч", field: "limits.3" }, 1);
+    await toSites(user);
     await user.click(done());
     const row = await screen.findByRole("row", { name: /Среда/ });
     expect(within(row).getByRole("alert").textContent).toBe("Не больше 24 ч");
-    expect(screen.getByText("Шаг 3 из 4")).toBeTruthy();
+    expect(screen.getByText("Шаг 3 из 5")).toBeTruthy();
   });
 
   it("ошибка службы по играм дня - у игр на третьем шаге", async () => {
@@ -460,6 +483,7 @@ describe("Wizard: шаг 4, программы (FR-2)", () => {
     await passStep2(user, "Миша");
     await passStep3(user);
     mock.override("Setup", { ok: false, error: "Не больше 24 ч", field: "games.5" }, 1);
+    await toSites(user);
     await user.click(done());
     const row = await screen.findByRole("row", { name: /Пятница/ });
     expect(within(row).getByRole("alert").closest("td")?.contains(within(row).getByLabelText("Часы игр, пятница"))).toBe(true);
@@ -471,9 +495,10 @@ describe("Wizard: шаг 4, программы (FR-2)", () => {
     await passStep2(user, "Миша");
     await passStep3(user);
     mock.override("Setup", { ok: false, error: "Выберите категорию программы", field: "programs" }, 1);
+    await toSites(user);
     await user.click(done());
     expect(await screen.findByText("Выберите категорию программы")).toBeTruthy();
-    expect(screen.getByText("Шаг 4 из 4")).toBeTruthy();
+    expect(screen.getByText("Шаг 4 из 5")).toBeTruthy();
   });
 
   it("нет связи: простыми словами, можно нажать «Готово» ещё раз", async () => {
@@ -482,9 +507,166 @@ describe("Wizard: шаг 4, программы (FR-2)", () => {
     await passStep2(user, "Миша");
     await passStep3(user);
     mock.override("Setup", "reject", 1);
+    await toSites(user);
     await user.click(done());
     expect(await screen.findByText("Программа не отвечает. Попробуйте ещё раз через минуту")).toBeTruthy();
     await user.click(done());
     expect(await screen.findByText("Готово. Правила начнут действовать при следующем входе детей")).toBeTruthy();
+  });
+});
+
+describe("Wizard: шаг 5, сайты (FR-2, 8.3.1 п.5–7)", () => {
+  const MISHA = "S-1-5-21-111-222-333-1001";
+  const DASHA = "S-1-5-21-111-222-333-1002";
+  const siteField = () => screen.getByLabelText("Добавить сайт") as HTMLInputElement;
+  const videoList = () => screen.getByRole("list", { name: "Видео и соцсети: сайты" });
+  const domains = () => within(videoList()).getAllByRole("listitem").map((li) => li.querySelector(".sites-domain")?.textContent);
+  const adult = () => screen.getByRole("group", { name: "Блокировать сайты 18+" });
+
+  async function toStep5(user: ReturnType<typeof userEvent.setup>, ...names: string[]) {
+    await passStep1(user);
+    await passStep2(user, ...(names.length ? names : ["Миша"]));
+    await passStep3(user);
+    await toSites(user);
+  }
+
+  it("шаг 4: кнопки «Назад», «Настрою позже», «Далее»; «Готово» только на шаге 5", async () => {
+    const user = setup();
+    await passStep1(user);
+    await passStep2(user, "Миша");
+    await passStep3(user);
+    const buttons = screen.getAllByRole("button").map((b) => b.textContent);
+    expect(buttons.slice(-3)).toEqual(["Назад", "Настрою позже", "Далее"]);
+    expect(screen.queryByRole("button", { name: "Готово" })).toBeNull();
+    await toSites(user);
+    expect(screen.getByRole("heading", { name: "Сайты" })).toBeTruthy();
+    expect(screen.getAllByRole("button").map((b) => b.textContent).slice(-3)).toEqual(["Назад", "Настрою позже", "Готово"]);
+  });
+
+  it("«18+» по выбранным детям включён, источник списка рядом, стартовый набор видео виден", async () => {
+    const user = setup();
+    await toStep5(user, "Миша");
+    expect(
+      screen.getByText(
+        "Программа следит за сайтами в Brave. Другие браузеры у детей закрываются. Лимит на видео и соцсети можно задать позже в разделе «Дети», вкладка «Лимиты»",
+      ),
+    ).toBeTruthy();
+    const misha = within(adult()).getByRole("checkbox", { name: "Миша" }) as HTMLInputElement;
+    expect(misha.checked).toBe(true);
+    expect(within(adult()).queryByRole("checkbox", { name: "Даша" })).toBeNull();
+    expect(screen.getByText("Список сайтов для взрослых: UT1, Университет Тулуза Капитоль, лицензия CC BY-SA 4.0")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Видео и соцсети" })).toBeTruthy();
+    expect(screen.getByText("Время на этих сайтах можно ограничить отдельно. Список можно изменить позже в разделе «Сайты»")).toBeTruthy();
+    expect(domains()).toEqual(["youtube.com", "vk.com", "tiktok.com", "rutube.ru", "ok.ru", "telegram.org", "web.telegram.org", "discord.com", "twitch.tv"]);
+  });
+
+  // Ловит: «Убрать» убирает не ту строку; новый сайт не по cleanDomain; поле не очищается.
+  it("убрать и добавить сайт: домен из адреса в конец списка, поле пусто, фокус в поле", async () => {
+    const user = setup();
+    await toStep5(user);
+    await user.click(screen.getByRole("button", { name: "Убрать tiktok.com" }));
+    expect(domains()).toEqual(["youtube.com", "vk.com", "rutube.ru", "ok.ru", "telegram.org", "web.telegram.org", "discord.com", "twitch.tv"]);
+    await user.type(siteField(), "https://Kids.Example/video");
+    await user.click(screen.getByRole("button", { name: "Добавить" }));
+    expect(domains().at(-1)).toBe("kids.example");
+    expect(domains()).toHaveLength(9);
+    expect(siteField().value).toBe("");
+    expect(document.activeElement).toBe(siteField());
+  });
+
+  it("не домен и повтор: ошибка у поля, список прежний; Enter добавляет", async () => {
+    const user = setup();
+    await toStep5(user);
+    await user.type(siteField(), "котики видео{Enter}");
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toBe("Это не похоже на адрес сайта");
+    expect(siteField().getAttribute("aria-invalid")).toBe("true");
+    expect(siteField().getAttribute("aria-describedby")).toBe(alert.id);
+    expect(domains()).toHaveLength(9);
+    await user.clear(siteField());
+    expect(screen.queryByRole("alert")).toBeNull();
+    await user.type(siteField(), "YouTube.com{Enter}");
+    expect((await screen.findByRole("alert")).textContent).toBe("Этот сайт уже в списке");
+    expect(domains()).toHaveLength(9);
+    await user.clear(siteField());
+    await user.type(siteField(), "kids.example{Enter}");
+    expect(domains().at(-1)).toBe("kids.example");
+  });
+
+  // Ловит: adultOff собран из включённых или из снятых на шаге 2 детей; видео уходит не целиком.
+  it("«Готово»: SID выключенных «18+» и список видео целиком", async () => {
+    const user = setup();
+    await passStep1(user);
+    await passStep2(user, "Миша", "Даша");
+    await user.click(screen.getByRole("button", { name: "Назад" }));
+    await user.click(await screen.findByRole("checkbox", { name: /Даша/ }));
+    await user.click(next());
+    await screen.findByText("Шаг 3 из 5");
+    await passStep3(user);
+    await toSites(user);
+    expect(within(adult()).getAllByRole("checkbox")).toHaveLength(1);
+    await user.click(within(adult()).getByRole("checkbox", { name: "Миша" }));
+    await user.click(screen.getByRole("button", { name: "Убрать tiktok.com" }));
+    await user.type(siteField(), "https://Kids.Example/video{Enter}");
+    await user.click(done());
+    expect(await screen.findByText("Готово. Правила начнут действовать при следующем входе детей")).toBeTruthy();
+    const sent = mock.calls.find((c) => c.command === "Setup")?.payload;
+    expect(sent.sites).toEqual({
+      adultOff: [MISHA],
+      video: ["youtube.com", "vk.com", "rutube.ru", "ok.ru", "telegram.org", "web.telegram.org", "discord.com", "twitch.tv", "kids.example"],
+    });
+    expect(sent.children.map((c: { sid: string }) => c.sid)).toEqual([MISHA]);
+    expect(mock.state.children[0].adultFilter).toBe(false);
+  });
+
+  it("двое детей: выключен «18+» только у Даши", async () => {
+    const user = setup();
+    await toStep5(user, "Миша", "Даша");
+    await user.click(within(adult()).getByRole("checkbox", { name: "Даша" }));
+    await user.click(done());
+    await screen.findByText("Готово. Правила начнут действовать при следующем входе детей");
+    expect(mock.calls.find((c) => c.command === "Setup")?.payload.sites.adultOff).toEqual([DASHA]);
+  });
+
+  // Ловит: «Настрою позже» шлёт урезанный список, и служба заменяет им стартовый набор.
+  it("«Настрою позже» на шаге 5: без sites, программы уходят", async () => {
+    const user = setup();
+    await passStep1(user);
+    await passStep2(user, "Миша");
+    await passStep3(user);
+    await user.selectOptions(screen.getByRole("combobox", { name: "Что это: Brave" }), "study");
+    await toSites(user);
+    await user.click(screen.getByRole("button", { name: "Убрать youtube.com" }));
+    await user.click(later());
+    await screen.findByText("Готово. Правила начнут действовать при следующем входе детей");
+    const sent = mock.calls.find((c) => c.command === "Setup")?.payload;
+    expect(sent.sites).toBeUndefined();
+    expect(sent.programs).toEqual([{ path: "c:\\program files\\bravesoftware\\brave-browser\\application\\brave.exe", category: "study" }]);
+  });
+
+  it("отказ службы по домену: снова шаг 5, ошибка у поля «Добавить сайт»", async () => {
+    const user = setup();
+    await toStep5(user);
+    mock.override("Setup", { ok: false, error: "Это не похоже на адрес сайта", field: "domain" }, 1);
+    await user.click(done());
+    expect((await screen.findByRole("alert")).textContent).toBe("Это не похоже на адрес сайта");
+    expect(screen.getByText("Шаг 5 из 5")).toBeTruthy();
+    expect(siteField().getAttribute("aria-invalid")).toBe("true");
+    expect(mock.state.configured).toBe(false);
+  });
+
+  // Ловит: «Назад» на шаг 4 и «Далее» сбрасывают список и переключатели.
+  it("«Назад» и «Далее» сохраняют список и переключатели", async () => {
+    const user = setup();
+    await toStep5(user);
+    await user.click(within(adult()).getByRole("checkbox", { name: "Миша" }));
+    await user.click(screen.getByRole("button", { name: "Убрать vk.com" }));
+    await user.type(siteField(), "kids.example{Enter}");
+    await user.click(screen.getByRole("button", { name: "Назад" }));
+    expect(await screen.findByText("Шаг 4 из 5")).toBeTruthy();
+    await toSites(user);
+    expect((within(adult()).getByRole("checkbox", { name: "Миша" }) as HTMLInputElement).checked).toBe(false);
+    expect(domains()).toEqual(["youtube.com", "tiktok.com", "rutube.ru", "ok.ru", "telegram.org", "web.telegram.org", "discord.com", "twitch.tv", "kids.example"]);
+    expect(mock.count("ScanPrograms")).toBe(1);
   });
 });

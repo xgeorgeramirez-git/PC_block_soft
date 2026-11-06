@@ -829,11 +829,30 @@ export function createBackend(opts: MockOptions = {}): MockBackend {
         const bad = limitsError(c.limits ?? []);
         if (bad) return bad;
       }
+      // Шаг «Сайты» (handlers.go): video заменяет список целиком, повторы схлопываются, не домен - отказ.
+      const sites = req.sites as { adultOff?: string[]; video?: string[] } | undefined;
+      const video: string[] = [];
+      for (const raw of sites?.video ?? []) {
+        const domain = cleanDomain(String(raw));
+        if (!domain) return fail(NOT_DOMAIN_TEXT, "domain");
+        if (!video.includes(domain)) video.push(domain);
+      }
       state.password = req.password;
       state.configured = true;
+      const adultOff = new Set(sites?.adultOff ?? []);
       state.children = req.children.map((c: { sid: string; name: string; limits: WeekdayLimit[] }) =>
-        mockChild({ childId: state.nextChildId++, sid: c.sid, name: c.name, limits: c.limits, usedS: 0 }),
+        mockChild({
+          childId: state.nextChildId++,
+          sid: c.sid,
+          name: c.name,
+          limits: c.limits,
+          usedS: 0,
+          ...(adultOff.has(c.sid) ? { adultFilter: false } : {}),
+        }),
       );
+      if (sites) {
+        state.sites = [...state.sites.filter((x) => x.kind !== "video_social" && !video.includes(x.domain)), ...video.map((domain) => ({ domain, kind: "video_social" as const }))];
+      }
       addEvent(now, undefined, "settings", "Программа настроена");
       return okReply();
     },
