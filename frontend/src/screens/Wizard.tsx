@@ -522,7 +522,8 @@ export default function Wizard({ onOpenSettings }: Props) {
                   if (siteError) setSiteError("");
                 }}
               />
-              <button type="submit" className="btn btn-primary sites-add-button" disabled={busy}>
+              {/* Главная кнопка шага одна - «Готово»; «Добавить» второстепенная. */}
+              <button type="submit" className="btn sites-add-button" disabled={busy}>
                 Добавить
               </button>
               {siteError ? (

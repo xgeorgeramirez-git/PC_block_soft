@@ -742,6 +742,18 @@ p {
   margin-top: var(--space-4);
 }
 
+/* Пять плиток в ряд нужны 592 px (5 × 112 + 4 зазора). Уже - сетка 3 + 2, а не 4 + 1 с одинокой
+   плиткой во втором ряду: ширина «Итогов», а не окна (окно ребёнка 640 px, статистика родителя 800 px). */
+.totals {
+  container-type: inline-size;
+}
+
+@container (max-width: 591.98px) {
+  .totals-tabs {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
 .totals-tab {
   display: flex;
   flex-direction: column;
