@@ -47,6 +47,7 @@ $all = @(
   @{ Id = "S44"; File = "s44-blocked-stats.ps1" },
   @{ Id = "S45"; File = "s45-forbidden-autostart.ps1" },
   @{ Id = "S16"; File = "s16-adult.ps1" },          # M4: Brave раннера, домены приёмки в hosts (шаг «Brave для пробы и приёмки»)
+  @{ Id = "S17"; File = "s17-forbidden-sub.ps1" },
   @{ Id = "PROBE"; File = "probe-brave.ps1" },  # проба M4 T0: домен вкладки Brave от SYSTEM (нужен шаг «Brave для пробы и приёмки»)
   @{ Id = "S33"; File = "s33-switch-user.ps1" }  # последним: после отключения сеанса у раннера нет экрана
 )
