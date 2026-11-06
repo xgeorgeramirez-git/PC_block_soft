@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as api from "../api";
+import { ADULT_SOURCE_TEXT } from "../lib/sites";
 import { DEFAULT_PASSWORD, installBackend, mockChild, statusOf, uninstallBackend } from "./backend";
 
 // Подмена программы сама должна вести себя как служба, иначе тесты экранов проверяют выдумку.
@@ -393,5 +394,99 @@ describe("команды окна ребёнка", () => {
     await expect(api.openWindow("parent")).resolves.toEqual({ opened: true });
     expect(mock.state.openedWindows).toEqual(["parent"]);
     await expect(api.openWindow("нет такого" as never)).rejects.toBeTruthy();
+  });
+});
+
+// T8-7: «Сайты» отвечают как служба (handlers_m4.go), а не примером контракта: иначе тест экрана
+// «удалить» зелёный там, где домен не удаляется (PL-9).
+describe("сайты (FR-21)", () => {
+  const thousand = () => Array.from({ length: 1000 }, (_, i) => ({ domain: `s${i}.test`, kind: "blocked" as const }));
+
+  it("ListSites без опций: сайты примера, «18+» детей, предел и подпись источника", async () => {
+    installBackend({ sessionActive: true });
+    const r = await api.listSites();
+    expect(r.sites).toEqual([
+      { domain: "example.com", kind: "blocked" },
+      { domain: "school.example", kind: "study" },
+      { domain: "youtube.com", kind: "video_social" },
+    ]);
+    expect(r.children).toEqual([{ childId: 1, name: "Миша", on: true }]);
+    expect(r.blockedMax).toBe(1000);
+    expect(r.adultSource).toBe(ADULT_SOURCE_TEXT);
+  });
+
+  it("без сессии: «Сессия закончилась. Введите пароль»", async () => {
+    installBackend();
+    await expect(api.listSites()).rejects.toMatchObject({ message: "Сессия закончилась. Введите пароль" });
+  });
+
+  it("AddSite: домен из адреса, повтор и не домен — отказ у поля", async () => {
+    installBackend({ sessionActive: true });
+    const r = await api.addSite("https://www.Example.org/a", "blocked");
+    expect(r).toMatchObject({ message: "Добавлено: example.org", domain: "example.org", moved: false });
+    expect(r.sites.sites).toContainEqual({ domain: "example.org", kind: "blocked" });
+    await expect(api.addSite("example.org", "blocked")).rejects.toMatchObject({ message: "Этот сайт уже в списке", field: "domain" });
+    await expect(api.addSite("просто текст", "blocked")).rejects.toMatchObject({ message: "Это не похоже на адрес сайта", field: "domain" });
+    await expect(api.addSite("a.ru", "games" as never)).rejects.toMatchObject({ message: "Не удалось разобрать запрос. Попробуйте ещё раз" });
+  });
+
+  it("AddSite: домен из другого списка переносится, запись одна", async () => {
+    installBackend({ sessionActive: true });
+    const r = await api.addSite("youtube.com", "study");
+    expect(r).toMatchObject({ message: "Сайт перенесён в «Учёбу»", domain: "youtube.com", moved: true });
+    expect(r.sites.sites.filter((s) => s.domain === "youtube.com")).toEqual([{ domain: "youtube.com", kind: "study" }]);
+  });
+
+  it("AddSite: сайты в ответе по списку, затем по домену", async () => {
+    installBackend({ sessionActive: true });
+    const r = await api.addSite("aaa.test", "video_social");
+    expect(r.sites.sites.map((s) => s.domain)).toEqual(["example.com", "school.example", "aaa.test", "youtube.com"]);
+  });
+
+  it("AddSite: в «Запрещённых» 1000 — новый не добавляется, отказ у поля", async () => {
+    installBackend({ sessionActive: true, sites: thousand() });
+    await expect(api.addSite("new.test", "blocked")).rejects.toMatchObject({
+      message: "В списке запрещённых уже 1000 сайтов. Удалите ненужные",
+      field: "domain",
+    });
+    await expect(api.addSite("s5.test", "blocked")).rejects.toMatchObject({ message: "Этот сайт уже в списке", field: "domain" });
+    await expect(api.addSite("study.test", "study")).resolves.toMatchObject({ message: "Добавлено: study.test" });
+  });
+
+  it("RemoveSite: прежний список и «Отменить» на 10 с; повтор — сайта уже нет", async () => {
+    installBackend({ sessionActive: true });
+    const r = await api.removeSite("example.com");
+    expect(r).toMatchObject({ message: "Удалён example.com", domain: "example.com", kind: "blocked" });
+    expect(r.undoUntilMs).toBe(Date.now() + 10_000);
+    expect(r.sites.sites.map((s) => s.domain)).not.toContain("example.com");
+    await expect(api.removeSite("example.com")).rejects.toMatchObject({ message: "Этого сайта уже нет в списках" });
+  });
+
+  it("SetAdultFilter: переключатель ребёнка; незнакомый ребёнок — отказ", async () => {
+    installBackend({ sessionActive: true });
+    const r = await api.setAdultFilter(1, false);
+    expect(r.message).toBe("Миша: сайты 18+ не блокируются");
+    expect(r.sites.children).toEqual([{ childId: 1, name: "Миша", on: false }]);
+    await expect(api.setAdultFilter(9, true)).rejects.toMatchObject({ message: "Такого ребёнка нет в списке" });
+  });
+
+  it("MockChild.adultFilter: false — переключатель выключен", async () => {
+    installBackend({ sessionActive: true, children: [mockChild({ adultFilter: false })] });
+    expect((await api.listSites()).children).toEqual([{ childId: 1, name: "Миша", on: false }]);
+  });
+
+  it("журнал: тексты и виды событий, как у службы", async () => {
+    const mock = installBackend({ sessionActive: true });
+    await api.addSite("https://www.Example.org/a", "blocked");
+    await api.addSite("youtube.com", "study");
+    await api.removeSite("example.com");
+    await api.setAdultFilter(1, false);
+    expect(mock.state.events.slice(0, 4).map((e) => [e.kind, e.text])).toEqual([
+      ["site_adult_filter", "Миша: сайты 18+ не блокируются"],
+      ["site_removed", "Вы удалили сайт example.com из «Запрещённых»"],
+      ["site_moved", "Вы перенесли сайт youtube.com в «Учёбу»"],
+      ["site_added", "Вы добавили сайт example.org в «Запрещённые»"],
+    ]);
+    expect(mock.state.events[0].childId).toBe(1);
   });
 });

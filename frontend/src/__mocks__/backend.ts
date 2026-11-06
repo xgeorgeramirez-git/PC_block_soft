@@ -9,6 +9,7 @@ import contract from "../../../internal/ipc/testdata/contract.json";
 import { formatDuration, formatHour, formatLimit, localOffsetMin, weekdayOfMs, weekdayShort } from "../lib/format";
 import { normalizeLimits } from "../lib/limits";
 import { breakEqual, DEFAULT_BREAK, validateBreak } from "../lib/rest";
+import { ADULT_SOURCE_TEXT, DUPLICATE_TEXT, NOT_DOMAIN_TEXT, cleanDomain } from "../lib/sites";
 import type {
   BreakRules,
   Account,
@@ -28,6 +29,9 @@ import type {
   ProgramDTO,
   ProgramsReply,
   ProgramTime,
+  ListSitesReply,
+  SiteDTO,
+  SiteKind,
   StatsPeriod,
 } from "../types";
 
@@ -84,6 +88,8 @@ export interface MockChild {
    * programsToday; день сегодня или позже в периоды не входит (его ведёт ядро).
    */
   history?: MockDay[];
+  /** «Блокировать сайты 18+» (R14); нет поля - включено, как у нового ребёнка. */
+  adultFilter?: boolean;
 }
 
 /** Прошлый день ребёнка в подменной программе (периоды «Итогов», D-61). */
@@ -175,6 +181,8 @@ export interface MockOptions {
   /** «Программы» на старте (FR-20); по умолчанию - как в примере контракта ListPrograms. */
   programs?: ProgramDTO[];
   pending?: PendingProgramDTO[];
+  /** Списки «Сайтов» на старте (FR-21); по умолчанию - как в примере контракта ListSites. */
+  sites?: SiteDTO[];
 }
 
 export interface MockState {
@@ -221,6 +229,8 @@ export interface MockState {
   pending: PendingProgramDTO[];
   /** «Отменить» решений по программам: снимок списков до решения. */
   programUndo: Map<string, { programs: ProgramDTO[]; pending: PendingProgramDTO[]; undoUntilMs: number }>;
+  /** Домены трёх списков «Сайтов»: у домена одна запись (RM4-5). */
+  sites: SiteDTO[];
 }
 
 export type Override = Reply | "reject" | "garbage" | ((request: any) => Reply | Promise<Reply>);
@@ -672,8 +682,26 @@ function makeState(opts: MockOptions): MockState {
     programs: (opts.programs ?? exampleProgramsReply().programs).map((p) => ({ ...p })),
     pending: (opts.pending ?? exampleProgramsReply().pending).map((p) => ({ ...p, byChild: [...p.byChild] })),
     programUndo: new Map(),
+    sites: (opts.sites ?? exampleSites()).map((x) => ({ ...x })),
   };
 }
+
+/** Сайты из примера контракта ListSites (копия). */
+function exampleSites(): SiteDTO[] {
+  return JSON.parse(JSON.stringify((examples.ListSites.reply.payload as ListSitesReply).sites)) as SiteDTO[];
+}
+
+/** Порядок списков в ответе, как у хранилища (ListSiteRules: по списку, затем по домену). */
+const SITE_KIND_ORDER: SiteKind[] = ["blocked", "study", "video_social"];
+/** Предел «Запрещённых» (ipc.MaxBlockedSites). */
+const MAX_BLOCKED_SITES = 1000;
+/** Названия списков в сообщениях и журнале (service.siteListNames): винительный и родительный падежи. */
+const SITE_LIST_NAMES: Record<SiteKind, { acc: string; gen: string }> = {
+  blocked: { acc: "«Запрещённые»", gen: "«Запрещённых»" },
+  study: { acc: "«Учёбу»", gen: "«Учёбы»" },
+  video_social: { acc: "«Видео и соцсети»", gen: "«Видео и соцсетей»" },
+};
+const isSiteKind = (k: unknown): k is SiteKind => typeof k === "string" && (SITE_KIND_ORDER as string[]).includes(k);
 
 /** «Программы» из примера контракта (копия). */
 function exampleProgramsReply(): ProgramsReply {
@@ -730,6 +758,14 @@ export function createBackend(opts: MockOptions = {}): MockBackend {
     });
     return { undoId, undoUntilMs: now + UNDO_WINDOW_MS };
   };
+  const sitesReply = (): ListSitesReply => ({
+    sites: [...state.sites]
+      .sort((a, b) => SITE_KIND_ORDER.indexOf(a.kind) - SITE_KIND_ORDER.indexOf(b.kind) || (a.domain < b.domain ? -1 : a.domain > b.domain ? 1 : 0))
+      .map((x) => ({ ...x })),
+    children: state.children.map((c) => ({ childId: c.childId, name: c.name, on: c.adultFilter ?? true })),
+    blockedMax: MAX_BLOCKED_SITES,
+    adultSource: ADULT_SOURCE_TEXT,
+  });
   const parentCategory = (c: unknown): c is ProgramCategory => typeof c === "string" && c in PROGRAM_CATEGORY_WORD;
 
   // Неверный пароль: считаем попытки, после серии закрываем ввод на паузу (R19).
@@ -1328,6 +1364,59 @@ export function createBackend(opts: MockOptions = {}): MockBackend {
       state.programs = rec.programs;
       state.pending = rec.pending;
       return okReply({ message: "Решение отменено", programs: programsReply() });
+    },
+
+    // «Сайты» (FR-21) как handlers_m4.go: разбор домена, один домен - один список, предел 1000.
+    ListSites: () => okReply(sitesReply()),
+
+    AddSite: (req, now) => {
+      if (!isSiteKind(req?.kind)) return fail("Не удалось разобрать запрос. Попробуйте ещё раз");
+      const kind = req.kind;
+      const domain = cleanDomain(String(req.domain ?? ""));
+      if (!domain) return fail(NOT_DOMAIN_TEXT, "domain");
+      const known = state.sites.find((x) => x.domain === domain);
+      // Как blockedFull: повтор в «Запрещённых» получает свой отказ, перенос в полный список - отказ о пределе.
+      const blockedCount = state.sites.filter((x) => x.kind === "blocked").length;
+      if (kind === "blocked" && known?.kind !== "blocked" && blockedCount >= MAX_BLOCKED_SITES) {
+        return fail("В списке запрещённых уже 1000 сайтов. Удалите ненужные", "domain");
+      }
+      if (known && known.kind === kind) return fail(DUPLICATE_TEXT, "domain");
+      let message: string;
+      if (known) {
+        known.kind = kind;
+        message = `Сайт перенесён в ${SITE_LIST_NAMES[kind].acc}`;
+        addEvent(now, undefined, "site_moved", `Вы перенесли сайт ${domain} в ${SITE_LIST_NAMES[kind].acc}`);
+      } else {
+        state.sites.push({ domain, kind });
+        message = `Добавлено: ${domain}`;
+        addEvent(now, undefined, "site_added", `Вы добавили сайт ${domain} в ${SITE_LIST_NAMES[kind].acc}`);
+      }
+      return okReply({ message, domain, moved: Boolean(known), sites: sitesReply() });
+    },
+
+    RemoveSite: (req, now) => {
+      const domain = cleanDomain(String(req?.domain ?? ""));
+      if (!domain) return fail(NOT_DOMAIN_TEXT, "domain");
+      const at = state.sites.findIndex((x) => x.domain === domain);
+      if (at < 0) return fail("Этого сайта уже нет в списках");
+      const [gone] = state.sites.splice(at, 1);
+      addEvent(now, undefined, "site_removed", `Вы удалили сайт ${domain} из ${SITE_LIST_NAMES[gone.kind].gen}`);
+      return okReply({
+        message: `Удалён ${domain}`,
+        domain,
+        kind: gone.kind,
+        undoUntilMs: now + UNDO_WINDOW_MS,
+        sites: sitesReply(),
+      });
+    },
+
+    SetAdultFilter: (req, now) => {
+      const child = childById(req?.childId);
+      if (!child) return fail("Такого ребёнка нет в списке");
+      child.adultFilter = Boolean(req.on);
+      const text = `${child.name}: ${child.adultFilter ? "сайты 18+ блокируются" : "сайты 18+ не блокируются"}`;
+      addEvent(now, child, "site_adult_filter", text);
+      return okReply({ message: text, sites: sitesReply() });
     },
 
     GetBonusRate: () => okReply({ minutes: state.bonusRate }),
