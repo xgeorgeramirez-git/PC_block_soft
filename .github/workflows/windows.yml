@@ -13,7 +13,7 @@ on:
   workflow_dispatch:
     inputs:
       scenario:
-        description: "Что прогнать после сборки: пусто = обычная сборка, smoke = ранний смоук службы (tools/accept/smoke.ps1), accept = приёмка S1...S15, S25...S27, S33...S41, LE1, LE2, FB1, FB5, PROBE (tools/accept/run-all.ps1), probe = проба Brave (TestBraveProbe, M4 T0)"
+        description: "Что прогнать после сборки: пусто = обычная сборка, smoke = ранний смоук службы (tools/accept/smoke.ps1), accept = приёмка S1...S18, S25...S27, S33...S45, LE1, LE2, FB1, FB5, PROBE (tools/accept/run-all.ps1), probe = проба Brave (TestBraveProbe, M4 T0)"
         required: false
         default: ""
         type: string
@@ -152,7 +152,15 @@ jobs:
           fi
           ver=$(powershell -NoProfile -Command "(Get-Item -LiteralPath '$(cygpath -w "$exe")').VersionInfo.FileVersion")
           echo "::notice title=Brave::$how: $(cygpath -w "$exe"), версия $ver"
-          printf '\r\n127.0.0.1 probe-site.test probe-two.test probe-app.test blocked-probe.test\r\n' >> /c/Windows/System32/drivers/etc/hosts
+          # Домены приёмки сайтов (M4 T10): пробы, «Запрещённые» и поддомен, «Учёба», YouTube и образец «18+»
+          # сборки (PCB_ADULT_SAMPLE из шага «Полный список 18+» без IP: по IP hosts не работает, Brave ушёл бы
+          # в сеть). Не больше 9 имён в строке: дальше Windows их может не читать.
+          adult=$(printf '%s' "$PCB_ADULT_SAMPLE" | tr ',' '\n' | { grep -Ev '^[0-9.]+$' || true; } | tr '\n' ' ')
+          hosts=/c/Windows/System32/drivers/etc/hosts
+          printf '\r\n127.0.0.1 probe-site.test probe-two.test probe-app.test blocked-probe.test\r\n' >> "$hosts"
+          printf '127.0.0.1 forbidden-site.test video.forbidden-site.test study-site.test youtube.com www.youtube.com\r\n' >> "$hosts"
+          if [ -n "${adult// /}" ]; then printf '127.0.0.1 %s\r\n' "$adult" >> "$hosts"; else echo "PCB_ADULT_SAMPLE без доменов: «$PCB_ADULT_SAMPLE»"; fi
+          echo "hosts: $(tail -n 3 "$hosts" | tr -d '\r' | paste -sd ';')"
           echo "PCB_BRAVE_PROBE=1" >> "$GITHUB_ENV"
 
       - name: Тесты Go на Windows
@@ -354,7 +362,7 @@ jobs:
         if: failure() && steps.smoke.conclusion == 'failure'
         run: bash tools/annotate-errors.sh "$RUNNER_TEMP/ci.log" "Смоук службы"
 
-      # Приёмка на настоящей Windows: S1...S15 (S12...S15 — программы и игры M3: тестовые программы в папке WatchDir, RM3-8), S25...S27, S34...S37, LE1 и LE2 (выходы с экрана блокировки), FB1 (конец сеанса), FB5 (выход другого сеанса при отключённом сеансе ребёнка), S41 (последняя минута идёт по часам при выходе и перезапуске службы), S38 (скрытая программа), S40 (своё название программы), S39 (вкладки «Итогов»: время каждой программы), S42 (периоды «Итогов»: прошлые дни подкладывает тестовая команда TestSeedDay), S43 (перерыв на отдых: часы ядра ×20, «вышел» — TestSession), S44 (запрещённые программы не в «Итогах»: прошлый день — TestSeedDay), S45 (запрещённая, запустившаяся сама, закрыта без плашки и нарушения, раз в день в журнал; ручной запуск из программы на переднем плане — с плашкой: передний план подменой TestGuard foreground), S33 (смена пользователя), каждый на свежей установке и свежей папке данных.
+      # Приёмка на настоящей Windows: S1...S15 (S12...S15 — программы и игры M3: тестовые программы в папке WatchDir, RM3-8), S25...S27, S34...S37, LE1 и LE2 (выходы с экрана блокировки), FB1 (конец сеанса), FB5 (выход другого сеанса при отключённом сеансе ребёнка), S41 (последняя минута идёт по часам при выходе и перезапуске службы), S38 (скрытая программа), S40 (своё название программы), S39 (вкладки «Итогов»: время каждой программы), S42 (периоды «Итогов»: прошлые дни подкладывает тестовая команда TestSeedDay), S43 (перерыв на отдых: часы ядра ×20, «вышел» — TestSession), S44 (запрещённые программы не в «Итогах»: прошлый день — TestSeedDay), S45 (запрещённая, запустившаяся сама, закрыта без плашки и нарушения, раз в день в журнал; ручной запуск из программы на переднем плане — с плашкой: передний план подменой TestGuard foreground), S16…S18 (сайты в настоящем Brave раннера: «18+» из образца сборки, поддомен «Запрещённых», учёба на сайте и подмена домена TestGuard domain, лимит «Видео и соцсети»; домены в hosts ведут на 127.0.0.1, шаг «Brave для пробы и приёмки»), S33 (смена пользователя), каждый на свежей установке и свежей папке данных.
       # Идёт по одному сценарию за раз (одна учётка раннера, одна служба, один экран). Снимки sNN-*.png уходят
       # в ветку screenshots (папка screens/<ветка>).
       - name: Приёмка M1 (ручной запуск, scenario=accept)
