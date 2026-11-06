@@ -10,6 +10,7 @@ import {
   cleanDomain,
   filterSites,
   sitesOf,
+  sourceDisplay,
 } from "./sites";
 import type { SiteDTO } from "../types";
 
@@ -88,5 +89,14 @@ describe("списки и поиск", () => {
     ];
     expect(filterSites(list, " YOU ").map((s) => s.domain)).toEqual(["youtube.com"]);
     expect(filterSites(list, "").map((s) => s.domain)).toEqual(["youtube.com", "vk.com"]);
+  });
+});
+
+describe("подпись источника «18+» для показа", () => {
+  // Ловит: в окне 960 px «4.0» уходит одна на новую строку.
+  it("«лицензия CC BY-SA 4.0» через неразрывные пробелы, остальной текст тот же", () => {
+    const shown = sourceDisplay(ADULT_SOURCE_TEXT);
+    expect(shown).toContain("лицензия\u00a0CC\u00a0BY-SA\u00a04.0");
+    expect(shown.replace(/\u00a0/g, " ")).toBe(ADULT_SOURCE_TEXT);
   });
 });

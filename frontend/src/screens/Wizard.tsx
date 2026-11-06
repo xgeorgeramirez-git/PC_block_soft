@@ -6,7 +6,7 @@ import TextField from "../components/TextField";
 import { CallError, errorText } from "../lib/errors";
 import { limitErrorKey, templateLimits, validateLimits, wireLimits, type LimitColumn } from "../lib/limits";
 import { validatePasswordPair, type PasswordPairErrors } from "../lib/password";
-import { ADULT_SOURCE_TEXT, DEFAULT_VIDEO_SITES, DUPLICATE_TEXT, NOT_DOMAIN_TEXT, cleanDomain } from "../lib/sites";
+import { ADULT_SOURCE_TEXT, DEFAULT_VIDEO_SITES, DUPLICATE_TEXT, NOT_DOMAIN_TEXT, cleanDomain, sourceDisplay } from "../lib/sites";
 import type { Account, ProgramCategory, ScanProgramDTO, SetupProgram, SetupSites, WeekdayLimit } from "../types";
 
 interface Props {
@@ -486,7 +486,7 @@ export default function Wizard({ onOpenSettings }: Props) {
                 </label>
               ))}
             </div>
-            <p className="field-hint sites-source">{ADULT_SOURCE_TEXT}</p>
+            <p className="field-hint sites-source">{sourceDisplay(ADULT_SOURCE_TEXT)}</p>
           </section>
 
           <section className="wizard-sites-block" aria-labelledby="wizard-video-title">

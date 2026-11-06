@@ -3,7 +3,7 @@ import { addSite, listSites, removeSite, setAdultFilter } from "../api";
 import Notice from "../components/Notice";
 import UndoLine from "../components/UndoLine";
 import { errorField, errorText } from "../lib/errors";
-import { NOT_DOMAIN_TEXT, SITE_LISTS, filterSites, sitesOf } from "../lib/sites";
+import { NOT_DOMAIN_TEXT, SITE_LISTS, filterSites, sitesOf, sourceDisplay } from "../lib/sites";
 import type { ListSitesReply, SiteKind } from "../types";
 
 const UNDO_MS = 10_000;
@@ -142,6 +142,8 @@ export default function Sites() {
         const reply = await removeSite(domain);
         if (!alive.current) return null;
         setData(reply.sites);
+        // Ошибка поля относилась к прежнему вводу: рядом с «Удалён …» она сбивает с толку.
+        setFieldError("");
         const left = Math.min(reply.undoUntilMs - Date.now(), UNDO_MS);
         say("list", reply.message, false, left > 0 ? { domain: reply.domain, kind: reply.kind, ms: left } : undefined);
         return { to: "row", index };
@@ -206,6 +208,7 @@ export default function Sites() {
       <UndoLine
         key={feedback.seq}
         className="programs-feedback sites-feedback"
+        undoClassName="btn btn-small"
         text={feedback.text}
         error={feedback.error}
         undoMs={feedback.undo?.ms}
@@ -265,7 +268,7 @@ export default function Sites() {
                 ))}
               </div>
             )}
-            {data.adultSource ? <p className="field-hint sites-source">{data.adultSource}</p> : null}
+            {data.adultSource ? <p className="field-hint sites-source">{sourceDisplay(data.adultSource)}</p> : null}
             {message("adult")}
           </section>
 

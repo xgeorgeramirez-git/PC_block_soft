@@ -76,6 +76,8 @@ describe("Сайты: вид", () => {
     expect(checkbox("Миша").checked).toBe(true);
     expect(checkbox("Даша").checked).toBe(false);
     const source = screen.getByText("Список сайтов для взрослых: UT1, Университет Тулуза Капитоль, лицензия CC BY-SA 4.0");
+    // «4.0» не переносится одна: неразрывные пробелы в разметке (текст службы прежний).
+    expect(source.textContent).toContain("лицензия\u00a0CC\u00a0BY-SA\u00a04.0");
     expect(group.compareDocumentPosition(source) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     const tablist = screen.getByRole("tablist", { name: "Списки сайтов" });
     expect(group.compareDocumentPosition(tablist) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
@@ -264,6 +266,30 @@ describe("Сайты: удаление и «Отменить»", () => {
     // «Отменить» — это AddSite с доменом и прежним списком из ответа (S-15).
     expect(addCalls()).toEqual([{ domain: "example.com", kind: "blocked" }]);
     expect(document.activeElement).toBe(screen.getByRole("button", { name: "Удалить example.com" }));
+  });
+
+  // Ловит: «Отменить» мелкой ссылкой рядом с контурными «Удалить» (визуальная приёмка T8).
+  it("«Отменить» — контурная кнопка того же вида, что «Удалить»", async () => {
+    const user = setup();
+    await screen.findByRole("tablist", { name: "Списки сайтов" });
+    const removeClass = screen.getByRole("button", { name: "Удалить example.com" }).className;
+    await user.click(screen.getByRole("button", { name: "Удалить example.com" }));
+    expect(await screen.findByText("Удалён example.com")).toBeTruthy();
+    const undo = screen.getByRole("button", { name: "Отменить" });
+    expect(undo.className).toBe(removeClass);
+    expect(undo.className).toBe("btn btn-small");
+  });
+
+  // Ловит: ошибка «Это не похоже на адрес сайта» висит рядом с «Удалён example.com».
+  it("удаление убирает ошибку поля «Добавить сайт»", async () => {
+    const user = setup();
+    await screen.findByRole("tablist", { name: "Списки сайтов" });
+    await user.type(field(), "просто текст{Enter}");
+    expect(await screen.findByText("Это не похоже на адрес сайта")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Удалить example.com" }));
+    expect(await screen.findByText("Удалён example.com")).toBeTruthy();
+    expect(screen.queryByText("Это не похоже на адрес сайта")).toBeNull();
+    expect(field().getAttribute("aria-invalid")).toBeNull();
   });
 
   it("«Отменить» пропадает через 10 с, сообщение остаётся", async () => {

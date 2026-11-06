@@ -10,6 +10,14 @@ export const DUPLICATE_TEXT = "Этот сайт уже в списке";
 /** Подпись источника списка «18+» (textAdultSource, D-67). */
 export const ADULT_SOURCE_TEXT = "Список сайтов для взрослых: UT1, Университет Тулуза Капитоль, лицензия CC BY-SA 4.0";
 
+/**
+ * Подпись источника для показа: «лицензия CC BY-SA 4.0» через неразрывные пробелы, чтобы «4.0» не
+ * уходила одна на новую строку в окне 960 px. Сам текст (копия службы) не меняется.
+ */
+export function sourceDisplay(text: string): string {
+  return text.replace("лицензия CC BY-SA 4.0", "лицензия\u00a0CC\u00a0BY-SA\u00a04.0");
+}
+
 /** Стартовый набор «Видео и соцсетей» (ipc.DefaultVideoSites, миграция 009). */
 export const DEFAULT_VIDEO_SITES: readonly string[] = [
   "youtube.com",

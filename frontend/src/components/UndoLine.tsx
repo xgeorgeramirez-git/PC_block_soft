@@ -10,6 +10,8 @@ interface Props {
   /** «Отменить» недоступна, пока идёт другой запрос. */
   disabled?: boolean;
   className?: string;
+  /** Вид «Отменить»: по умолчанию ссылка; «Сайты» - контурная кнопка, как «Удалить» рядом. */
+  undoClassName?: string;
 }
 
 /**
@@ -17,7 +19,7 @@ interface Props {
  * «SuperGame: игра»). Пока фокус внутри сообщения, кнопка не пропадает: до неё можно дойти
  * клавишей Tab и нажать, не теряя фокус. Новое сообщение - новый ключ у родителя.
  */
-export default function UndoLine({ text, error = false, undoMs, onUndo, disabled = false, className = "" }: Props) {
+export default function UndoLine({ text, error = false, undoMs, onUndo, disabled = false, className = "", undoClassName = "link" }: Props) {
   const withUndo = Boolean(onUndo && undoMs && undoMs > 0);
   const [expired, setExpired] = useState(!withUndo);
   const [focused, setFocused] = useState(false);
@@ -49,7 +51,7 @@ export default function UndoLine({ text, error = false, undoMs, onUndo, disabled
     >
       <span>{text}</span>
       {showUndo ? (
-        <button type="button" className="link" disabled={disabled} onClick={() => onUndo?.()}>
+        <button type="button" className={undoClassName} disabled={disabled} onClick={() => onUndo?.()}>
           Отменить
         </button>
       ) : null}
