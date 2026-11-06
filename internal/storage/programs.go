@@ -517,6 +517,113 @@ func (s *Store) RestorePending(p PendingProgram) error {
 	return nil
 }
 
+// ProgramMerge — слияние повторов приложения магазина на ключ без версии (RM4-11, T6-11).
+// Into — строка программы ключа Key (nil — строк программ в группе нет); From — пути строк
+// программ группы; Pending — строка «Ждут решения» ключа (nil — «Ждут решения» группы только
+// удаляются); PendingFrom — пути строк «Ждут решения» группы.
+type ProgramMerge struct {
+	Key         string
+	Into        *Program
+	From        []string
+	Pending     *PendingProgram
+	PendingFrom []string
+}
+
+// checkMerge проверяет одно слияние (ErrInvalid).
+func checkMerge(m ProgramMerge) error {
+	switch {
+	case m.Key == "":
+		return fmt.Errorf("%w: у слияния программ нет ключа", ErrInvalid)
+	case m.Into != nil && m.Into.Path != m.Key:
+		return fmt.Errorf("%w: строка слияния %q не по ключу %q", ErrInvalid, m.Into.Path, m.Key)
+	case m.Pending != nil && (m.Pending.Path != m.Key || m.Pending.Name == ""):
+		return fmt.Errorf("%w: ждущая программа слияния %q без имени или не по ключу", ErrInvalid, m.Pending.Path)
+	}
+	if m.Into != nil {
+		return checkProgram(*m.Into)
+	}
+	return nil
+}
+
+// MergePrograms сливает повторы приложений магазина (RM4-11) одной транзакцией: строки From
+// (кроме Key) удаляются, Into записывается по ключу целиком; учёт вида «программа» с предметом
+// из From и PendingFrom суммируется на Key; строки «Ждут решения» PendingFrom удаляются вместе с
+// попытками (каскад), затем пишется Pending с попытками детей. Каждое слияние проверяется внутри
+// транзакции: ошибка в любом — ничего не изменилось.
+func (s *Store) MergePrograms(ms []ProgramMerge) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("storage: слить повторы программ: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	for _, m := range ms {
+		if err := checkMerge(m); err != nil {
+			return err
+		}
+		if err := mergeOne(tx, m); err != nil {
+			return fmt.Errorf("storage: слить повторы программ: %w", err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("storage: слить повторы программ: %w", err)
+	}
+	return nil
+}
+
+// mergeOne — одно слияние внутри транзакции.
+func mergeOne(tx *sql.Tx, m ProgramMerge) error {
+	if m.Into != nil {
+		for _, p := range m.From {
+			if _, err := tx.Exec(`DELETE FROM programs WHERE exe_path = ? AND exe_path <> ?`, p, m.Key); err != nil {
+				return err
+			}
+		}
+		if err := upsertProgram(tx, *m.Into); err != nil {
+			return err
+		}
+	}
+	for _, p := range append(append([]string{}, m.From...), m.PendingFrom...) {
+		if p == m.Key {
+			continue
+		}
+		if _, err := tx.Exec(`INSERT INTO usage_daily (child_id, day, category, subject_kind, subject, seconds)
+			SELECT child_id, day, category, subject_kind, ?, seconds FROM usage_daily WHERE subject_kind = ? AND subject = ?
+			ON CONFLICT (child_id, day, category, subject_kind, subject) DO UPDATE SET seconds = seconds + excluded.seconds`,
+			m.Key, SubjectProgram, p); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(`DELETE FROM usage_daily WHERE subject_kind = ? AND subject = ?`, SubjectProgram, p); err != nil {
+			return err
+		}
+	}
+	for _, p := range m.PendingFrom {
+		if _, err := tx.Exec(`DELETE FROM pending_programs WHERE exe_path = ?`, p); err != nil {
+			return err
+		}
+	}
+	if p := m.Pending; p != nil {
+		var first any
+		if p.FirstChildID != 0 {
+			first = p.FirstChildID
+		}
+		if _, err := tx.Exec(`DELETE FROM pending_programs WHERE exe_path = ?`, p.Path); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(`INSERT INTO pending_programs (exe_path, display_name, publisher, description, was_category,
+				first_child_id, first_attempt_at, last_attempt_at, attempts) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			p.Path, p.Name, p.Publisher, p.Description, p.WasCategory, first, p.FirstAttemptAt, p.LastAttemptAt, p.Attempts); err != nil {
+			return err
+		}
+		for _, c := range p.Children {
+			if _, err := tx.Exec(`INSERT INTO pending_attempts (exe_path, child_id, attempts, last_attempt_at) VALUES (?, ?, ?, ?)`,
+				p.Path, c.ChildID, c.Attempts, c.LastAttemptAt); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 // --- учёт по программам ---------------------------------------------------------------------
 
 // UsageRow — порция учёта usage_daily (RM3-6): секунды категории по программе или сайту за день.
