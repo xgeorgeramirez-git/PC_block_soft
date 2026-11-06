@@ -832,7 +832,8 @@ function ProgramRow(props: RowProps) {
         )}
         {saving ? <span className="program-saving">Сохраняю…</span> : null}
       </td>
-      <td className="col-week">{weekCell(p)}</td>
+      {/* У скрытой время не считается (R2, D-63): вторичным текстом, чтобы не спорить с настоящим временем. */}
+      <td className="col-week">{hidden ? <span className="program-week-off">{weekCell(p)}</span> : weekCell(p)}</td>
       <td className="col-action">
         {/* Запрещённую скрыть нельзя (RF9-5): запрет сильнее скрытия, вместо кнопки сказано почему.
             «Показать» у скрытой — всегда. */}
