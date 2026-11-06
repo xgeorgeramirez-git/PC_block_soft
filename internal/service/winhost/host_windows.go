@@ -22,6 +22,7 @@ type host struct {
 	logf   func(string, ...any)
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
+	sessq  *sessionQueue // события сеанса в службу по порядку (B-22)
 }
 
 // openHost собирает службу: читает тестовый режим, открывает базу и журнал работы, строит
@@ -108,11 +109,16 @@ func openHost() (*host, error) {
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	h := &host{svc: s, store: res.Store, rlog: rl, logf: logf, cancel: cancel}
-	h.wg.Add(2)
+	h := &host{svc: s, store: res.Store, rlog: rl, logf: logf, cancel: cancel, sessq: newSessionQueue()}
+	h.wg.Add(3)
 	go func() {
 		defer h.wg.Done()
 		s.RunLoop(ctx)
+	}()
+	go func() {
+		defer h.wg.Done()
+		// Момент — в доставке, а не в событии: иначе поздняя доставка откатила бы часы службы (P2-R6).
+		h.sessq.run(ctx, func(ev service.SessionEvent, id uint32) { s.OnSession(ev, id, time.Now()) })
 	}()
 	go func() {
 		defer h.wg.Done()
@@ -144,9 +150,10 @@ func (h *host) serve(ctx context.Context) {
 	}
 }
 
-// onSession сообщает службе о событии сеанса (вход, выход, подключение) и номере сеанса.
+// onSession сообщает службе о событии сеанса (вход, выход, подключение) и номере сеанса через
+// очередь (B-22): цикл Execute не ждёт службу, а служба получает события по порядку.
 func (h *host) onSession(ev service.SessionEvent, id uint32) {
-	go h.svc.OnSession(ev, id, time.Now())
+	h.sessq.push(ev, id)
 }
 
 // stop останавливает цикл и канал, сохраняет состояние, завершает значки, стражей и окна во
