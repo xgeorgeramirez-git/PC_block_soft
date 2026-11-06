@@ -192,7 +192,8 @@ describe("мастер и вход", () => {
     await user.click(screen.getByRole("button", { name: "Далее" }));
     await user.click(await screen.findByRole("button", { name: "Далее" }));
     await screen.findByRole("table", { name: "Программы на этом компьютере" });
-    await user.click(screen.getByRole("button", { name: "Готово" }));
+    await user.click(screen.getByRole("button", { name: "Далее" }));
+    await user.click(await screen.findByRole("button", { name: "Готово" }));
     await user.click(await screen.findByRole("button", { name: "Открыть настройки" }));
     expect(await screen.findByRole("heading", { name: "Сегодня" })).toBeTruthy();
     expect(mock.count("Login")).toBe(1);
@@ -208,7 +209,8 @@ describe("мастер и вход", () => {
     await user.click(screen.getByRole("button", { name: "Далее" }));
     await user.click(await screen.findByRole("button", { name: "Далее" }));
     await screen.findByRole("table", { name: "Программы на этом компьютере" });
-    await user.click(screen.getByRole("button", { name: "Готово" }));
+    await user.click(screen.getByRole("button", { name: "Далее" }));
+    await user.click(await screen.findByRole("button", { name: "Готово" }));
     await user.click(await screen.findByRole("button", { name: "Открыть настройки" }));
     expect(await screen.findByLabelText("Пароль родителя")).toBeTruthy();
     expect(screen.queryByRole("heading", { name: "Сегодня" })).toBeNull();
