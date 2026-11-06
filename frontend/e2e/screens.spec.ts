@@ -1252,13 +1252,13 @@ async function pathsOneLine(page: Page) {
   expect(bad, `пути в одну строку: ${bad.join("; ")}`).toEqual([]);
 }
 
-// s11 — «Программы»: два ждущих решения (одна с пометкой «Раньше было: игра», другая с длинным
-// путём и без издателя) и список всех программ.
+// s11 — «Программы»: два ждущих решения (одна с пометкой «Файл изменился, проверьте решение. Было:
+// игра», другая с длинным путём и без издателя) и список всех программ.
 test("s11 программы: ждут решения и список", async ({ page }) => {
   await tallWindow(page, 1500);
   await openPrograms(page, { pending: pendingPrograms(Date.now()), programs: programList() });
   await expect(page.getByRole("heading", { name: "Ждут решения: 2" })).toBeVisible();
-  await expect(page.getByText("Раньше было: игра")).toBeVisible();
+  await expect(page.getByText("Файл изменился, проверьте решение. Было: игра")).toBeVisible();
   const longPath = page.locator(".pending-item").nth(1).locator(".path-short");
   await expect(longPath).toContainText("…");
   await expect(longPath).toContainText("тренажёр таблицы умножения.exe");
@@ -1429,9 +1429,11 @@ test("s11 программы: фильтр «Скрытые»", async ({ page })
   await nothingSticksOut(page);
   const filters = all.getByRole("group", { name: "Показать" });
   const first = await boxOf(filters.getByRole("button", { name: "Все", exact: true }));
-  const last = await boxOf(filters.getByRole("button", { name: "Скрытые", exact: true }));
-  expect(Math.abs(last.top - first.top), "фильтр «Скрытые» перенёсся на новую строку").toBeLessThanOrEqual(0.5);
-  await filters.getByRole("button", { name: "Скрытые", exact: true }).click();
+  // Число скрытых у фильтра (B-43 п.2): «Скрытые (1)» тоже помещается в ряд в окне 960.
+  const last = await boxOf(filters.getByRole("button", { name: "Скрытые (1)", exact: true }));
+  expect(Math.abs(last.top - first.top), "фильтр «Скрытые (1)» перенёсся на новую строку").toBeLessThanOrEqual(0.5);
+  await filters.getByRole("button", { name: "Скрытые (1)", exact: true }).click();
+  await expect(all.getByRole("row", { name: "Stalker2", exact: true }).getByText("не считается", { exact: true })).toBeVisible();
   await expect(all.getByRole("row", { name: "Stalker2", exact: true })).toBeVisible();
   await expect(all.getByRole("button", { name: "Показать «Stalker2»", exact: true })).toBeVisible();
   await hideButtonsInColumn(page);
@@ -1583,6 +1585,69 @@ test("s11 программы, тёмная тема", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "Ждут решения: 2" })).toBeVisible();
   await page.screenshot({ path: `${SCREENS}/s11-programs-dark.png`, fullPage: true });
 });
+
+// m4-programs-hints — пояснения на «Программах» (B-39, B-43): легенда кнопок решения под «Решение
+// действует для всех детей», подсказка у неизвестного издателя, пояснение «Скрыть», «Скрыть нельзя»
+// у запрещённой в своей ячейке, «Применить» без категории недоступна с причиной в той же строке
+// панели. Самое узкое окно родителя 960 x 620 (PL-26) и 1200 x 820; окно не прокручивается вбок.
+for (const [w, h] of [
+  [960, 620],
+  [1200, 820],
+]) {
+  test(`m4 программы: пояснения в окне ${w} x ${h}`, async ({ page }) => {
+    await page.setViewportSize({ width: w, height: h });
+    await openPrograms(page, { pending: pendingPrograms(Date.now()), programs: programList() });
+    const pending = page.getByRole("region", { name: /^Ждут решения/ });
+    const legend = pending.getByRole("list", { name: "Что значат кнопки" });
+    await expect(legend.getByRole("listitem")).toHaveText([
+      "Игра: время идёт в лимит игр и в общее время",
+      "Учёба: время не тратит лимит",
+      "Прочее: время идёт в общее время",
+      "Запретить: программа будет закрываться сразу после запуска",
+    ]);
+    const lead = await boxOf(pending.getByText("Решение действует для всех детей", { exact: true }));
+    const legendBox = await boxOf(legend);
+    const firstItem = await boxOf(page.locator(".pending-item").first());
+    expect(legendBox.top, "легенда не под «Решение действует для всех детей»").toBeGreaterThanOrEqual(lead.bottom - 0.5);
+    expect(firstItem.top, "легенда не над списком ждущих").toBeGreaterThanOrEqual(legendBox.bottom - 0.5);
+    await expect(page.locator(".pending-item").nth(1).getByText("Издатель неизвестен: проверьте, откуда этот файл", { exact: true })).toBeVisible();
+
+    const all = page.getByRole("region", { name: "Все программы" });
+    await expect(
+      all.getByText(
+        "Скрытая программа пропадает из списка и статистики, не закрывается и не тратит время. Вернуть её можно в фильтре «Скрытые». Запрещённую скрыть нельзя",
+        { exact: true },
+      ),
+    ).toBeVisible();
+    const bad = all.getByRole("row", { name: "Bad", exact: true });
+    const nohide = await boxOf(bad.getByText("Скрыть нельзя", { exact: true }));
+    const cell = await boxOf(bad.locator("td.col-action"));
+    expect(nohide.right, "«Скрыть нельзя» за правым краем ячейки").toBeLessThanOrEqual(cell.right + 0.5);
+    expect(nohide.left, "«Скрыть нельзя» за левым краем ячейки").toBeGreaterThanOrEqual(cell.left - 0.5);
+
+    await all.getByRole("checkbox", { name: "Отметить «Brave»", exact: true }).check();
+    const apply = all.getByRole("button", { name: "Применить", exact: true });
+    await expect(apply).toHaveAttribute("aria-disabled", "true");
+    const hint = all.getByText("Сначала выберите категорию", { exact: true });
+    await expect(hint).toBeVisible();
+    await expect(apply).toHaveAttribute("aria-describedby", "bulk-apply-hint");
+    // Подсказка одной строкой и в той же строке панели, что «Применить» (рядом с выбором категории).
+    const hb = await boxOf(hint);
+    const ab = await boxOf(apply);
+    const lh = await hint.evaluate((el) => parseFloat(getComputedStyle(el).lineHeight) || 20);
+    expect(hb.height, "подсказка «Применить» в две строки").toBeLessThanOrEqual(lh * 1.5);
+    expect(Math.abs(hb.top + hb.height / 2 - (ab.top + ab.height / 2)), "подсказка не в строке «Применить»").toBeLessThanOrEqual(2);
+
+    await decisionButtonsEven(page);
+    await blocksApart(page);
+    await nothingSticksOut(page);
+    await hideButtonsInColumn(page);
+    await rowsEven(page);
+    await noHorizontalScroll(page);
+    await wholePage(page);
+    await page.screenshot({ path: `${SCREENS}/${w === 960 ? "m4-programs-hints.png" : "m4-programs-hints-1200.png"}`, fullPage: true });
+  });
+}
 
 // --- M3: лимит игр, «Когда время вышло», шаг мастера «Программы» (T6b) -----------------
 
