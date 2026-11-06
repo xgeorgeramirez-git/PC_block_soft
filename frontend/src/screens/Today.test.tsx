@@ -390,6 +390,14 @@ describe("Today: общее", () => {
     expect(openJournal).toHaveBeenCalledWith({ violations: true });
   });
 
+  // Ловит (T9-7): попытки открыть запрещённый сайт не считаются, закрытие по лимиту видео считается.
+  it("«Нарушения сегодня» считают попытки открыть запрещённый сайт", async () => {
+    const t = NOW.getTime();
+    const ev = (atMs: number, kind: string) => ({ atMs, tzOffsetMin: 180, childId: 1, childName: "Миша", kind, text: kind });
+    setup({ events: [ev(t - 3600_000, "site_forbidden_try"), ev(t - 1800_000, "site_forbidden_try"), ev(t - 600_000, "site_closed_video")] });
+    expect(await screen.findByRole("button", { name: "Нарушения сегодня: 2" })).toBeTruthy();
+  });
+
   it("без нарушений: «Нарушения сегодня: 0»", async () => {
     setup();
     expect(await screen.findByRole("button", { name: "Нарушения сегодня: 0" })).toBeTruthy();

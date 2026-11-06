@@ -126,6 +126,32 @@ describe("Journal", () => {
     expect(screen.getByText("Миша: программа «Revo Uninstaller» запускалась сама и закрыта")).toBeTruthy();
   });
 
+  // Ловит (R14, T9-7): попытка открыть запрещённый сайт не попадает в нарушения, а закрытие по
+  // лимиту видео или в «только учёбе» попадает; тексты службы показаны как есть.
+  it("сайты: в нарушениях только попытки открыть запрещённое, во всех событиях - всё", async () => {
+    const texts = [
+      ["site_forbidden_try", "Миша: попытка открыть запрещённое: сайт example.com"],
+      ["site_forbidden_try", "Миша: попытка открыть запрещённое: сайт для взрослых adult.example"],
+      ["site_closed_video", "Миша: закрыт сайт youtube.com: время на видео и соцсети закончилось"],
+      ["site_closed_study_only", "Миша: закрыт сайт youtube.com: время вышло, доступна только учёба"],
+      ["brave_restored", "Правила Brave восстановлены"],
+    ];
+    installBackend({
+      sessionActive: true,
+      events: texts.map(([kind, text], i) => event({ atMs: Date.UTC(2026, 9, 19, 18, 14 - i), kind, text, ...(kind === "brave_restored" ? { childId: 0, childName: "" } : {}) })),
+    });
+    const user = userEvent.setup();
+    render(<Journal violationsOnly />);
+    expect(await screen.findByText("Миша: попытка открыть запрещённое: сайт example.com")).toBeTruthy();
+    expect(screen.getByText("Миша: попытка открыть запрещённое: сайт для взрослых adult.example")).toBeTruthy();
+    expect(screen.queryByText(/закрыт сайт/)).toBeNull();
+    expect(screen.queryByText("Правила Brave восстановлены")).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Показать все события" }));
+    for (const [, text] of texts) {
+      expect(screen.getByText(text)).toBeTruthy();
+    }
+  });
+
   it("нарушений нет: так и говорит", async () => {
     installBackend({ sessionActive: true, events: [event({ kind: "extra_time", text: "Миша: доп. время +30 мин" })] });
     render(<Journal violationsOnly />);
