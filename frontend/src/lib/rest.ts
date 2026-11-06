@@ -2,7 +2,7 @@
 // итог словами. Тексты ошибок те же, что у службы (handlers_0_3_2.go).
 
 import { clampDigits } from "./numinput";
-import type { BreakRules } from "../types";
+import type { BreakCounts, BreakRules } from "../types";
 
 /** Стандартное сообщение на экране перерыва (служба хранит его как «»). */
 export const DEFAULT_BREAK_MESSAGE = "Разомнись, попей воды, посмотри в окно";
@@ -121,4 +121,19 @@ export function breakSummary(d: BreakRules): string {
     `После ${d.afterMin} мин ${what} ребёнок увидит «Пора отдохнуть», через ${d.warnMin} мин компьютер закроется на ${d.restMin} мин. ` +
     `Если сам ${quiet}, это засчитается как отдых`
   );
+}
+
+/**
+ * Подпись поля «сам отошёл» по режиму «Что считать» (B-45, R27, PL-35): в режиме «Только игры»
+ * тишина — не играл (буква FR-37), в режиме «Всё время, кроме учёбы» — не был за компьютером.
+ */
+export function selfRestLabel(counts: BreakCounts): string {
+  return counts === "games" ? "Засчитать как отдых, если не играл подряд" : "Засчитать как отдых, если не был за компьютером подряд";
+}
+
+/** Подсказка того же поля: в режиме «всё время» учёба тоже тишина, как в итоге словами (breakSummary). */
+export function selfRestHint(counts: BreakCounts): string {
+  return counts === "games"
+    ? "Если ребёнок сам не играл столько минут подряд, перерыв уже не нужен"
+    : "Если ребёнок столько минут подряд не был за компьютером или занимался только учёбой, перерыв уже не нужен";
 }
