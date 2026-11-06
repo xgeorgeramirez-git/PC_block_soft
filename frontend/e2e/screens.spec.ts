@@ -112,7 +112,7 @@ test("s00 вход родителя, тёмная тема", async ({ page }) =>
 test("s01 мастер, шаг пароля", async ({ page }) => {
   await mockProgram(page, { configured: false, mode: "wizard" });
   await page.goto("/");
-  await expect(page.getByText("Шаг 1 из 4")).toBeVisible();
+  await expect(page.getByText("Шаг 1 из 5")).toBeVisible();
   await page.getByLabel("Пароль родителя").fill("123");
   await page.getByLabel("Повторите пароль").fill("123");
   await page.getByRole("button", { name: "Далее" }).click();
@@ -321,7 +321,7 @@ test("s07 что нового", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("navigation", { name: "Разделы" }).getByRole("button", { name: "Что нового" }).click();
   await expect(page.getByRole("heading", { name: "Что нового", level: 2 })).toBeVisible();
-  await expect(page.getByRole("heading", { level: 3 }).first()).toHaveText("Версия 0.3.3. Скрытые и запрещённые программы");
+  await expect(page.getByRole("heading", { level: 3 }).first()).toHaveText("Версия 0.4.0. Сайты и Brave");
   await expect(page.locator("main.content").getByRole("button")).toHaveCount(0);
   await noHorizontalScroll(page);
   await wholePage(page);
@@ -754,7 +754,7 @@ for (const [w, h] of [
     await page.goto("/");
     const totals = page.getByRole("region", { name: "Итоги" });
     const tabs = totals.getByRole("tablist", { name: "Итоги по категориям" });
-    await expect(tabs.getByRole("tab")).toHaveCount(4);
+    await expect(tabs.getByRole("tab")).toHaveCount(5);
     await tabs.getByRole("tab", { name: "Игры", exact: true }).click();
     await expect(tabs.getByRole("tab", { name: "Игры", exact: true })).toHaveAttribute("aria-selected", "true");
     const panel = totals.locator(CATEGORY_PANEL);
@@ -961,7 +961,7 @@ for (const scheme of ["light", "dark"] as const) {
     await page.emulateMedia({ colorScheme: scheme });
     await mockProgram(page, { mode: "mystats", children: [s39Child()], myChildId: 1 });
     await page.goto("/");
-    await expect(page.getByRole("region", { name: "Итоги" }).getByRole("tablist", { name: "Итоги по категориям" }).getByRole("tab")).toHaveCount(4);
+    await expect(page.getByRole("region", { name: "Итоги" }).getByRole("tablist", { name: "Итоги по категориям" }).getByRole("tab")).toHaveCount(5);
     await textContrast(page, `тема ${scheme}`);
     await tabsState(page, "Прочее", `тема ${scheme}, после перебора`);
   });
@@ -976,7 +976,7 @@ test("s06 моя статистика: пояснение «Всего» про 
   const panel = totals.locator(CATEGORY_PANEL);
   const text = "Всего = 22 мин в счёт лимита + 3 мин учёбы вне лимита";
   await expect(panel.getByText("Всего за сегодня: 25 мин", { exact: true })).toBeVisible();
-  for (const name of ["Всего", "Игры", "Учёба", "Прочее"]) {
+  for (const name of ["Всего", "Игры", "Видео и соцсети", "Учёба", "Прочее"]) {
     await totals.getByRole("tab", { name, exact: true }).click();
     const note = totals.getByText(text, { exact: true });
     await expect(note).toBeVisible();
@@ -1617,8 +1617,8 @@ async function limitCellsFit(page: Page) {
   expect(bad, "в ячейках лимитов что-то вылезает").toEqual([]);
 }
 
-// s12 — «Дети → Лимиты» со столбцом «Игры» (FR-16): подсказка «0 мин: в этот день играть нельзя»
-// в среде, игры без лимита в воскресенье, пояснение про игры и учёбу под таблицей. Окно 960x640.
+// s12 — «Дети → Лимиты» со столбцами «Игры» и «Видео и соцсети» (FR-16): подсказка «0 мин: в этот день
+// играть нельзя» в среде, игры без лимита в воскресенье, пояснение про игры, видео и учёбу под таблицей.
 test("s12 лимиты с играми", async ({ page }) => {
   await tallWindow(page, 900);
   await mockProgram(page, { mode: "parent", sessionActive: true, children: [child({ limits: gamesWeek() })] });
@@ -1628,15 +1628,15 @@ test("s12 лимиты с играми", async ({ page }) => {
   await expect(page.getByLabel("Часы игр, понедельник")).toHaveValue("1");
   await expect(page.getByRole("row", { name: /Среда/ }).getByText("0 мин: в этот день играть нельзя")).toBeVisible();
   await expect(page.getByLabel("Игры без лимита, воскресенье")).toBeChecked();
-  const note = page.getByText("Время игр входит в общее. Учёба в общее время не входит");
+  const note = page.getByText("Время игр и видео входит в общее. Учёба в общее время не входит");
   await expect(note).toBeVisible();
   // Пояснение стоит под таблицей с зазором, а не прижато к ней.
   const table = await boxOf(page.locator(".limits-table"));
   const noteBox = await boxOf(note);
   expect(noteBox.top - table.bottom).toBeGreaterThanOrEqual(4 - 0.5);
-  // Столбцы «Общее» и «Игры» одинаковой ширины по содержимому не обязаны, но оба целиком в окне.
-  for (const name of ["Общее", "Игры"]) {
-    const h = await boxOf(page.getByRole("columnheader", { name }));
+  // Столбцы одинаковой ширины по содержимому не обязаны, но все целиком в окне.
+  for (const name of ["Общее", "Игры", "Видео и соцсети"]) {
+    const h = await boxOf(page.getByRole("columnheader", { name, exact: true }));
     expect(h.right).toBeLessThanOrEqual(960);
   }
   await limitCellsFit(page);
@@ -1812,7 +1812,7 @@ test("s12 мастер, шаг программ", async ({ page }) => {
   await page.getByRole("button", { name: "Далее" }).click();
   await page.getByRole("checkbox", { name: /Миша/ }).check();
   await page.getByRole("button", { name: "Далее" }).click();
-  await expect(page.getByText("Шаг 3 из 4")).toBeVisible();
+  await expect(page.getByText("Шаг 3 из 5")).toBeVisible();
   await limitCellsFit(page);
   await noHorizontalScroll(page);
   // Шаг целиком, с кнопками внизу; дальше снова окно мастера 880x680.
@@ -1821,12 +1821,12 @@ test("s12 мастер, шаг программ", async ({ page }) => {
   await page.screenshot({ path: `${SCREENS}/s12-wizard-time.png`, fullPage: true });
   await page.setViewportSize({ width: 880, height: 680 });
   await page.getByRole("button", { name: "Далее" }).click();
-  await expect(page.getByText("Шаг 4 из 4")).toBeVisible();
+  await expect(page.getByText("Шаг 4 из 5")).toBeVisible();
   await expect(page.getByRole("table", { name: "Программы на этом компьютере" })).toBeVisible();
   await expect(page.getByRole("combobox", { name: "Что это: Minecraft Launcher" })).toHaveValue("games");
   await expect(page.getByText(/Незнакомые программы будут ждать вашего решения/)).toBeVisible();
   // Кнопки шага в одну строку, одной высоты, под списком.
-  const buttons = ["Назад", "Настрою позже", "Готово"].map((name) => page.getByRole("button", { name, exact: true }));
+  const buttons = ["Назад", "Настрою позже", "Далее"].map((name) => page.getByRole("button", { name, exact: true }));
   const boxes = await Promise.all(buttons.map((b) => boxOf(b)));
   for (const b of boxes) {
     expect(Math.abs(b.top - boxes[0].top)).toBeLessThanOrEqual(0.5);
@@ -1989,4 +1989,215 @@ test("m4 сайты: вкладка «Видео и соцсети»", async ({ 
   await noHorizontalScroll(page);
   await wholePage(page);
   await page.screenshot({ path: `${SCREENS}/m4-sites-video.png`, fullPage: true });
+});
+
+// --- M4: видео-лимит, шаг мастера «Сайты», «Итоги» по сайтам (T9) --------------------------
+
+/** Неделя с видео: как gamesWeek, видео пн 20 мин, ср 0 (закрыто), вс без лимита, остальные 30 мин. */
+const videoWeek = () =>
+  gamesWeek().map((l) => ({
+    ...l,
+    videoMin: l.weekday === 1 ? 20 : l.weekday === 3 ? 0 : 30,
+    videoUnlimited: l.weekday === 7,
+  }));
+
+/** Каждый день: 2 ч, игры 1 ч, видео 20 мин (снимок не зависит от дня недели сборки). */
+const videoEveryDay = () =>
+  [1, 2, 3, 4, 5, 6, 7].map((weekday) => ({ weekday, totalMin: 120, unlimited: false, gamesMin: 60, gamesUnlimited: false, videoMin: 20, videoUnlimited: false }));
+
+/** Сайты сегодня: youtube.com 10 мин, vk.com 5 мин. */
+const videoSitesToday = () => [
+  { path: "youtube.com", name: "youtube.com", category: "video_social" as const, seconds: 600, kind: "site" as const },
+  { path: "vk.com", name: "vk.com", category: "video_social" as const, seconds: 300, kind: "site" as const },
+];
+
+const videoChild = () =>
+  child({ limits: videoEveryDay(), usedS: 2100, gamesUsedS: 600, videoUsedS: 900, studyUsedS: 300, programsToday: videoSitesToday() });
+
+/** Подписи вкладок «Итогов» целиком внутри своих кнопок (длинная «Видео и соцсети» переносится), вкладки не налезают. */
+async function totalsTabsFit(page: Page, where: string) {
+  const report = await page
+    .getByRole("region", { name: "Итоги" })
+    .getByRole("tablist", { name: "Итоги по категориям" })
+    .evaluate((list) =>
+      [...list.querySelectorAll<HTMLElement>('[role="tab"]')].map((t) => {
+        const b = t.getBoundingClientRect();
+        const l = t.querySelector(".totals-tab-label")!.getBoundingClientRect();
+        return { text: t.textContent ?? "", l: b.left, r: b.right, t: b.top, b: b.bottom, labelL: l.left, labelR: l.right, labelB: l.bottom, scroll: t.scrollWidth, client: t.clientWidth };
+      }),
+    );
+  const problems: string[] = [];
+  report.forEach((x, i) => {
+    if (x.labelL < x.l - 0.5 || x.labelR > x.r + 0.5 || x.labelB > x.b + 0.5) problems.push(`«${x.text}»: подпись вне вкладки`);
+    if (x.scroll > x.client + 1) problems.push(`«${x.text}»: не помещается (${x.scroll} > ${x.client})`);
+    for (const o of report.slice(i + 1)) {
+      const apart = x.r <= o.l + 0.5 || o.r <= x.l + 0.5 || x.b <= o.t + 0.5 || o.b <= x.t + 0.5;
+      if (!apart) problems.push(`«${x.text}» и «${o.text}» налезают`);
+    }
+  });
+  expect(problems, `${where}: ${problems.join("; ")} | ${JSON.stringify(report)}`).toEqual([]);
+}
+
+// m4-limits-video — «Дети → Лимиты» с третьим столбцом «Видео и соцсети» (FR-16, T9-2): в самом узком
+// окне родителя 960x640 три столбца без прокрутки вбок (PL-26), подсказка «закрыты» в среде.
+for (const [w, h] of [
+  [960, 640],
+  [1200, 820],
+]) {
+  test(`m4 лимиты с видео в окне ${w} x ${h}`, async ({ page }) => {
+    await page.setViewportSize({ width: w, height: h });
+    await mockProgram(page, { mode: "parent", sessionActive: true, children: [child({ limits: videoWeek() })] });
+    await page.goto("/");
+    await page.getByRole("navigation", { name: "Разделы" }).getByRole("button", { name: "Дети" }).click();
+    await expect(page.getByRole("columnheader", { name: "Видео и соцсети", exact: true })).toBeVisible();
+    await expect(page.getByLabel("Минуты видео, понедельник")).toHaveValue("20");
+    await expect(page.getByLabel("Видео без лимита, воскресенье")).toBeChecked();
+    await expect(page.getByRole("row", { name: /Среда/ }).getByText("0 мин: в этот день видео и соцсети закрыты", { exact: true })).toBeVisible();
+    await expect(page.getByText("Время игр и видео входит в общее. Учёба в общее время не входит", { exact: true })).toBeVisible();
+    const content = await boxOf(page.locator("main.content"));
+    for (const name of ["День", "Общее", "Игры", "Видео и соцсети"]) {
+      const head = await boxOf(page.getByRole("columnheader", { name, exact: true }));
+      expect(head.right, `столбец «${name}» за краем окна ${w}`).toBeLessThanOrEqual(Math.min(w, content.right) + 0.5);
+    }
+    await limitCellsFit(page);
+    await noHorizontalScroll(page);
+    await wholePage(page);
+    await page.screenshot({ path: `${SCREENS}/${w === 960 ? "m4-limits-video.png" : "m4-limits-video-1200.png"}`, fullPage: true });
+  });
+}
+
+/** Мастер до шага 5 «Сайты»: пароль, Миша, шаблон времени, программы без правок. */
+async function wizardToSites(page: Page, check3?: () => Promise<void>) {
+  await mockProgram(page, { configured: false, mode: "wizard" });
+  await page.goto("/");
+  await page.getByLabel("Пароль родителя").fill("секрет-123");
+  await page.getByLabel("Повторите пароль").fill("секрет-123");
+  await page.getByRole("button", { name: "Далее" }).click();
+  await page.getByRole("checkbox", { name: /Миша/ }).check();
+  await page.getByRole("button", { name: "Далее" }).click();
+  await expect(page.getByText("Шаг 3 из 5")).toBeVisible();
+  if (check3) await check3();
+  await page.getByRole("button", { name: "Далее" }).click();
+  await expect(page.getByText("Шаг 4 из 5")).toBeVisible();
+  await expect(page.getByRole("table", { name: "Программы на этом компьютере" })).toBeVisible();
+  await page.getByRole("button", { name: "Далее", exact: true }).click();
+  await expect(page.getByText("Шаг 5 из 5")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Сайты", level: 2 })).toBeVisible();
+}
+
+// m4-wizard-sites — шаг мастера 5 «Сайты» (FR-2, 8.3.1 п.5–7): «18+» по детям с подписью источника рядом,
+// стартовый набор видео и поле добавления одним блоком (PL-36), кнопки шага в одну строку.
+for (const [w, h] of [
+  [880, 680],
+  [720, 560],
+]) {
+  test(`m4 мастер, шаг сайтов в окне ${w} x ${h}`, async ({ page }) => {
+    await page.setViewportSize({ width: w, height: h });
+    await wizardToSites(page, async () => {
+      // Шаг «Время» в мастере - два столбца, без «Видео и соцсетей» (T9-2).
+      await expect(page.getByRole("columnheader")).toHaveText(["День", "Общее", "Игры"]);
+    });
+    const group = page.getByRole("group", { name: "Блокировать сайты 18+" });
+    await expect(group.getByRole("checkbox", { name: "Миша" })).toBeChecked();
+    const source = page.getByText("Список сайтов для взрослых: UT1, Университет Тулуза Капитоль, лицензия CC BY-SA 4.0", { exact: true });
+    await expect(source).toBeVisible();
+    const g = await boxOf(group);
+    const s = await boxOf(source);
+    expect(s.top - g.bottom, "источник списка не рядом с переключателями").toBeLessThanOrEqual(24);
+    const list = page.getByRole("list", { name: "Видео и соцсети: сайты" });
+    await expect(list.getByRole("listitem")).toHaveCount(9);
+    const field = page.getByRole("textbox", { name: "Добавить сайт" });
+    await field.fill("https://Kids.Example/video");
+    await field.press("Enter");
+    await expect(list.getByRole("listitem")).toHaveCount(10);
+    await expect(list.getByRole("listitem").last()).toContainText("kids.example");
+    await field.fill("котики видео");
+    await field.press("Enter");
+    await expect(page.getByText("Это не похоже на адрес сайта", { exact: true })).toBeVisible();
+    await siteRowsFit(page);
+    // Кнопки шага в одну строку, одной высоты, под списком.
+    const buttons = ["Назад", "Настрою позже", "Готово"].map((name) => page.getByRole("button", { name, exact: true }));
+    const boxes = await Promise.all(buttons.map((b) => boxOf(b)));
+    for (const b of boxes) {
+      expect(Math.abs(b.top - boxes[0].top)).toBeLessThanOrEqual(0.5);
+      expect(Math.abs(b.height - boxes[0].height)).toBeLessThanOrEqual(0.5);
+    }
+    expect(boxes[0].top).toBeGreaterThanOrEqual((await boxOf(list)).bottom - 0.5);
+    const form = await boxOf(page.locator(".wizard .sites-add"));
+    const panel = await boxOf(page.locator(".wizard"));
+    expect(form.right, "поле шире панели мастера").toBeLessThanOrEqual(panel.right + 0.5);
+    await noHorizontalScroll(page);
+    await wholePage(page);
+    await inFrame(page, buttons[2]);
+    await page.screenshot({ path: `${SCREENS}/${w === 880 ? "m4-wizard-sites.png" : "m4-wizard-sites-720.png"}`, fullPage: true });
+  });
+}
+
+// m4-today-video — «Сегодня» (8.3.2 п.3): «Видео 10 мин из 20 мин» от службы под строкой игр.
+test("m4 сегодня с видео", async ({ page }) => {
+  await mockProgram(page, {
+    mode: "parent",
+    sessionActive: true,
+    children: [child({ limits: videoEveryDay(), usedS: 3600, gamesUsedS: 2400, videoUsedS: 600 })],
+  });
+  await page.goto("/");
+  const misha = page.getByRole("article", { name: "Миша" });
+  const games = misha.getByText("Игры 40 мин из 1 ч", { exact: true });
+  const video = misha.getByText("Видео 10 мин из 20 мин", { exact: true });
+  await expect(video).toBeVisible();
+  const gb = await boxOf(games);
+  const vb = await boxOf(video);
+  expect(vb.top, "строка видео не под строкой игр").toBeGreaterThanOrEqual(gb.bottom - 0.5);
+  await noHorizontalScroll(page);
+  await page.screenshot({ path: `${SCREENS}/m4-today-video.png`, fullPage: true });
+});
+
+// m4-my-stats-video — окно ребёнка (8.2.6 п.1, п.3): «Видео и соцсети» в «Сколько осталось» и вкладка
+// «Видео и соцсети» со строками сайтов; подпись вкладки переносится внутри неё в узком окне.
+for (const [w, h] of [
+  [800, 640],
+  [640, 520],
+]) {
+  test(`m4 моя статистика: видео в окне ${w} x ${h}`, async ({ page }) => {
+    await page.setViewportSize({ width: w, height: h });
+    await mockProgram(page, { mode: "mystats", children: [videoChild()], myChildId: 1 });
+    await page.goto("/");
+    const left = page.getByRole("region", { name: "Сколько осталось" });
+    await expect(left.locator(".stat-row").filter({ hasText: "Видео и соцсети" })).toHaveText("Видео и соцсетиОсталось 5 мин из 20 мин");
+    const totals = page.getByRole("region", { name: "Итоги" });
+    const tabs = totals.getByRole("tablist", { name: "Итоги по категориям" });
+    await expect(tabs.getByRole("tab")).toHaveCount(5);
+    await expect(page.getByText("Пока не считается")).toHaveCount(0);
+    await tabs.getByRole("tab", { name: "Видео и соцсети", exact: true }).click();
+    const panel = totals.locator(CATEGORY_PANEL);
+    await expect(panel.getByText("Видео и соцсети за сегодня: 15 мин", { exact: true })).toBeVisible();
+    await expect(panel.getByRole("list", { name: "Видео и соцсети: по сайтам" }).getByRole("listitem")).toHaveText(["youtube.com10 мин67%", "vk.com5 мин33%"]);
+    await tabListFits(page, `видео, окно ${w} x ${h}`);
+    await totalsTabsFit(page, `видео, окно ${w} x ${h}`);
+    await tabsState(page, "Видео и соцсети", `видео, окно ${w} x ${h}`);
+    await noHorizontalScroll(page);
+    await totals.scrollIntoViewIfNeeded();
+    await settled(page);
+    await page.screenshot({ path: `${SCREENS}/${w === 800 ? "m4-my-stats-video.png" : "m4-my-stats-video-small.png"}`, fullPage: w === 800 });
+  });
+}
+
+// m4-parent-stats-video — статистика родителя (FR-23): те же строки сайтов, «Всего» включает сайты.
+test("m4 статистика родителя: видео", async ({ page }) => {
+  await page.setViewportSize({ width: 960, height: 620 });
+  await mockProgram(page, { mode: "parent", sessionActive: true, children: [videoChild(), child({ childId: 2, sid: "S-1-5-21-111-222-333-1002", name: "Даша", usedS: 600 })] });
+  await page.goto("/");
+  await page.getByRole("article", { name: "Миша" }).getByRole("button", { name: "Статистика" }).click();
+  const totals = page.getByRole("region", { name: "Итоги" });
+  const tabs = totals.getByRole("tablist", { name: "Итоги по категориям" });
+  const panel = totals.locator(CATEGORY_PANEL);
+  await expect(panel.getByRole("list", { name: "Всего: по программам и сайтам" }).getByRole("listitem").filter({ hasText: "youtube.com" })).toHaveCount(1);
+  await tabs.getByRole("tab", { name: "Видео и соцсети", exact: true }).click();
+  await expect(panel.getByRole("list", { name: "Видео и соцсети: по сайтам" }).getByRole("listitem")).toHaveText(["youtube.com10 мин67%", "vk.com5 мин33%"]);
+  await tabListFits(page, "статистика родителя, видео");
+  await totalsTabsFit(page, "статистика родителя, видео");
+  await tabsState(page, "Видео и соцсети", "статистика родителя, видео");
+  await noHorizontalScroll(page);
+  await settled(page);
+  await page.screenshot({ path: `${SCREENS}/m4-parent-stats-video.png`, fullPage: true });
 });
