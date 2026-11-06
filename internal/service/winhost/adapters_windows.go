@@ -204,6 +204,24 @@ func (a storeAdapter) RestorePending(p service.PendingProgram) error {
 	return a.s.RestorePending(pendingToStorage(p))
 }
 
+// MergePrograms — слияние повторов магазина (RM4-11) с переносом типов.
+func (a storeAdapter) MergePrograms(ms []service.ProgramMerge) error {
+	in := make([]storage.ProgramMerge, 0, len(ms))
+	for _, m := range ms {
+		sm := storage.ProgramMerge{Key: m.Key, From: m.From, PendingFrom: m.PendingFrom}
+		if m.Into != nil {
+			p := storage.Program(*m.Into)
+			sm.Into = &p
+		}
+		if m.Pending != nil {
+			p := pendingToStorage(*m.Pending)
+			sm.Pending = &p
+		}
+		in = append(in, sm)
+	}
+	return a.s.MergePrograms(in)
+}
+
 // --- сайты (M4) ------------------------------------------------------------------------
 
 func (a storeAdapter) ListSiteRules() ([]service.SiteRule, error) {

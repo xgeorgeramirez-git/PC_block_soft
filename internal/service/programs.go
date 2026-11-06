@@ -116,6 +116,7 @@ func (s *Service) startSeed() {
 		return
 	}
 	if ok && v == "1" {
+		s.mergeStorePrograms()
 		s.progReady = s.reloadPrograms()
 		return
 	}
@@ -175,6 +176,10 @@ func (s *Service) writeSeed(found []FoundProgram, scanErr error) bool {
 		s.logRate("seed", "отметка о снимке программ не записана: %v", err)
 		return false
 	}
+	// Снимок уже по ключам магазина (RM4-11): повторов нет, сливать нечего.
+	if err := s.cfg.Store.SetSetting(settingStoreMerged, "1"); err != nil {
+		s.logRate("storemerge", "отметка о слиянии повторов магазина не записана: %v", err)
+	}
 	s.cfg.Logf("Снимок программ: найдено %d, в списке %d, добавлено %d", len(found), len(list), added)
 	return true
 }
@@ -220,6 +225,43 @@ func programName(name, path string) string {
 		return n
 	}
 	return programs.NameFromPath(path)
+}
+
+// mergeStorePrograms — под s.mu, из startSeed: однократное слияние повторов приложений магазина
+// из 0.3.3 на ключ без версии (RM4-11, T6-11). Флаг ставится только после удачной записи: сбой —
+// база не тронута (одна транзакция), повтор при следующем старте.
+func (s *Service) mergeStorePrograms() {
+	if v, ok, err := s.cfg.Store.GetSetting(settingStoreMerged); err != nil {
+		s.logRate("storemerge", "Повторы приложений магазина не слиты: отметка не прочитана: %v", err)
+		return
+	} else if ok && v == "1" {
+		return
+	}
+	list, err := s.cfg.Store.ListPrograms()
+	if err != nil {
+		s.logRate("storemerge", "Повторы приложений магазина не слиты: список программ не прочитан: %v", err)
+		return
+	}
+	pend, err := s.cfg.Store.ListPending()
+	if err != nil {
+		s.logRate("storemerge", "Повторы приложений магазина не слиты: «Ждут решения» не прочитаны: %v", err)
+		return
+	}
+	plan := planStoreMerge(s.classifier.Roots(), list, pend)
+	if len(plan) > 0 {
+		if err := s.cfg.Store.MergePrograms(plan); err != nil {
+			s.logRate("storemerge", "Повторы приложений магазина не слиты, повтор при следующем старте: %v", err)
+			return
+		}
+		rows := 0
+		for _, m := range plan {
+			rows += len(m.From)
+		}
+		s.cfg.Logf("Повторы приложений магазина слиты: %d строк в %d", rows, len(plan))
+	}
+	if err := s.cfg.Store.SetSetting(settingStoreMerged, "1"); err != nil {
+		s.logRate("storemerge", "отметка о слиянии повторов магазина не записана: %v", err)
+	}
 }
 
 // reloadPrograms перечитывает список программ в классификатор (после снимка и решений

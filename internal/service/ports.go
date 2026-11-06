@@ -70,6 +70,19 @@ type PendingProgram struct {
 	Children       []PendingChild // новые сверху; нет — [], не nil
 }
 
+// ProgramMerge — слияние повторов приложения магазина на ключ без версии (RM4-11, T6-11):
+// storage.ProgramMerge. Хранилище пишет весь набор одной транзакцией: строка Into по ключу Key,
+// строки From (кроме Key) удаляются; учёт usage_daily вида «программа» с предметом из From и
+// PendingFrom суммируется на Key; строки «Ждут решения» PendingFrom удаляются, и, если Pending не
+// nil, пишется он (с попытками детей).
+type ProgramMerge struct {
+	Key         string
+	Into        *Program // nil — строк программ в группе нет
+	From        []string
+	Pending     *PendingProgram // nil — «Ждут решения» группы только удаляются
+	PendingFrom []string
+}
+
 // UsageRow — порция учёта usage_daily (storage.UsageRow, RM3-6). Day пусто — день состояния;
 // Category: games|video_social|study|other («Системное» не пишется); Kind: program|site.
 type UsageRow struct {
@@ -174,6 +187,9 @@ type Store interface {
 	ListPending() ([]PendingProgram, error)
 	ResolvePending(path string) (PendingProgram, bool, error)
 	RestorePending(p PendingProgram) error
+	// MergePrograms — слияние повторов приложений магазина (RM4-11) одной транзакцией: ошибка —
+	// ничего не изменилось.
+	MergePrograms(ms []ProgramMerge) error
 
 	// Сайты (M4: R14, FR-21, RM4-5). Домен нормализует служба (sites.NormalizeInput); хранилище
 	// отклоняет пустой, длиннее 253 и чужой список. Предел 1000 запрещённых проверяет служба.

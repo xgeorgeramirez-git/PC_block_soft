@@ -40,6 +40,8 @@ type fakeStore struct {
 	failSchedule bool // GetSchedule возвращает ошибку
 	failEndMode  bool // GetEndMode возвращает ошибку
 	failPrograms bool // ListPrograms возвращает ошибку
+	failMerge    bool // MergePrograms возвращает ошибку, ничего не меняя (RM4-11)
+	mergeCalls   int  // сколько раз вызван MergePrograms
 
 	endModes   map[int64]string           // режим «Когда время вышло» (M3); нет записи — "lock"
 	programs   map[string]Program         // программы по пути (M3)
@@ -456,6 +458,52 @@ func (f *fakeStore) RestorePending(p PendingProgram) error {
 		}
 		if !found {
 			cur.Children = append(cur.Children, c)
+		}
+	}
+	return nil
+}
+
+// MergePrograms — как storage: весь набор или ничего (проверка до записи).
+func (f *fakeStore) MergePrograms(ms []ProgramMerge) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.mergeCalls++
+	if f.failMerge {
+		return errFake
+	}
+	for _, m := range ms {
+		if m.Key == "" || (m.Into != nil && (m.Into.Path != m.Key || m.Into.Name == "" || !fakeCategories[m.Into.Category])) ||
+			(m.Pending != nil && (m.Pending.Path != m.Key || m.Pending.Name == "")) {
+			return errFake
+		}
+	}
+	for _, m := range ms {
+		if m.Into != nil {
+			for _, p := range m.From {
+				if p != m.Key {
+					delete(f.programs, p)
+				}
+			}
+			f.putProgram(*m.Into)
+		}
+		for _, p := range append(append([]string{}, m.From...), m.PendingFrom...) {
+			if p == m.Key {
+				continue
+			}
+			for k, sec := range f.usage {
+				parts := strings.SplitN(k, "|", 5)
+				if len(parts) == 5 && parts[3] == usageKindProgram && parts[4] == p {
+					delete(f.usage, k)
+					f.usage[strings.Join(parts[:4], "|")+"|"+m.Key] += sec
+				}
+			}
+		}
+		for _, p := range m.PendingFrom {
+			delete(f.pending, p)
+		}
+		if m.Pending != nil {
+			cp := pendingCopy(m.Pending)
+			f.pending[m.Key] = &cp
 		}
 	}
 	return nil
