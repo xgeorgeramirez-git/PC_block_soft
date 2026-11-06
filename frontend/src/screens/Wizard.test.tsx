@@ -5,7 +5,7 @@ import Wizard from "./Wizard";
 import { installBackend, mockAccounts, uninstallBackend, type MockBackend } from "../__mocks__/backend";
 import { DEFAULT_VIDEO_SITES } from "../lib/sites";
 
-// FR-1, FR-2, сценарий 8.3.1: мастер из 5 шагов (пароль, дети, время, программы). Ошибки у поля, недоступное объясняет почему.
+// FR-1, FR-2, сценарий 8.3.1: мастер из 5 шагов (пароль, дети, время, программы, сайты). Ошибки у поля, недоступное объясняет почему.
 
 let mock: MockBackend;
 let openSettings: Mock<(password: string) => void>;
