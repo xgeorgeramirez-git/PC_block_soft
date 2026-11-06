@@ -523,6 +523,52 @@ function Enable-TestMode([int]$Speed = 1, [string]$ChildSid = $script:MySid, [bo
   Write-Log "Тестовый режим: ClockSpeed=$Speed, ClockStart=2026-10-19T15:00:00, данные $($script:Data), WatchDir $($script:Apps)"
 }
 
+# Строки журналов работы службы про тестовый режим (service.log, boot.log в папке данных и в ProgramData):
+# для текста ошибки, журналы Actions не скачиваются (PL-1).
+function Get-TestModeLog([int]$Last = 8) {
+  $out = @()
+  foreach ($dir in @($script:Data, $script:DefaultData)) {
+    foreach ($name in @("service.log", "boot.log")) {
+      $f = Join-Path (Join-Path $dir "logs") $name
+      if (-not (Test-Path -LiteralPath $f)) { continue }
+      $lines = @(Get-Content -LiteralPath $f -Tail 400 -Encoding UTF8 -ErrorAction SilentlyContinue | Where-Object { $_ -match 'Тестовый режим|StoreRoot|WatchDir|папка тестовых программ' }) | Select-Object -Last $Last
+      foreach ($l in @($lines)) { $out += "$name`: $l" }
+    }
+  }
+  if ($out.Count -eq 0) { return "строк про тестовый режим нет" }
+  return ($out -join ' | ')
+}
+
+# Перезапуск службы без перезаписи значений TestMode (T10-12, S46): база и настройка остаются, часы ядра идут
+# дальше по ClockRealStart (не с ClockStart заново, как в Enable-TestMode), новые значения TestMode (StoreRoot)
+# служба читает при старте. Пауза часов ядра живёт только в памяти службы: если её ставил сценарий
+# (Suspend-Clock), она включается снова. Ждёт Running 40 с и ответ Hello в тестовом режиме ещё 40 с.
+function Restart-PcbService {
+  $sw = [Diagnostics.Stopwatch]::StartNew()
+  Close-PipeConn
+  $script:Token = ""
+  Restart-Service -Name $script:ServiceName -Force
+  Wait-Until { (Get-ServiceState) -eq "Running" } 40 "служба в состоянии Running после перезапуска"
+  $wait = [Diagnostics.Stopwatch]::StartNew()
+  $hello = $null
+  while ($null -eq $hello) {
+    try {
+      $h = Send-Pcb "Hello"
+      if ($h.ok -and $h.payload.testMode) { $hello = $h.payload; break }
+    } catch { Close-PipeConn }
+    if ($wait.Elapsed.TotalSeconds -gt 40) {
+      throw "За 40 с после перезапуска служба не ответила в тестовом режиме (состояние $(Get-ServiceState)); журналы работы: $(Get-TestModeLog)"
+    }
+    Start-Sleep -Milliseconds 200
+  }
+  $clock = ""
+  if ($script:ClockPausedByUs) {
+    $c = Set-ClockPaused $true
+    $clock = "; часы ядра снова на паузе, " + [DateTimeOffset]::FromUnixTimeMilliseconds([int64]$c.nowMs).ToLocalTime().ToString("dd.MM.yyyy HH:mm")
+  }
+  Write-Log ("Служба перезапущена за {0:N1} с без перезаписи TestMode: настроена {1}{2}" -f $sw.Elapsed.TotalSeconds, $hello.configured, $clock)
+}
+
 # Приводит машину к чистому состоянию. Вызывается в начале и в конце сценария и ничего не бросает.
 function Reset-Machine {
   Close-PipeConn
