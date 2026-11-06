@@ -122,6 +122,24 @@ describe("ParentStats", () => {
     for (const t of periods) expect(t.getAttribute("aria-controls")).toBe(panel.id);
   });
 
+  // Ловит (B-46): пока данные идут, вкладки периодов ссылаются aria-controls на панель, которой ещё
+  // нет в документе (панель рисовалась только с данными).
+  it("пока данные идут: вкладки периодов ссылаются на существующую панель «Загружаю данные»", async () => {
+    mock = installBackend({ sessionActive: true, children: [mockChild({ usedS: 2100 })] });
+    mock.override("ParentStats", () => new Promise<never>(() => {}));
+    render(<ParentStats />);
+    const tabs = within(await screen.findByRole("tablist", { name: "Период" })).getAllByRole("tab");
+    expect(tabs.length).toBeGreaterThan(0);
+    for (const tab of tabs) {
+      const panel = document.getElementById(tab.getAttribute("aria-controls")!);
+      expect(panel).not.toBeNull();
+      expect(panel!.getAttribute("role")).toBe("tabpanel");
+      expect(panel!.getAttribute("aria-busy")).toBe("true");
+      expect(panel!.textContent).toBe("Загружаю данные");
+    }
+    expect(screen.queryByRole("region", { name: "Мои правила" })).toBeNull();
+  });
+
   // Ловит: переключение ребёнка сбрасывает выбранный период на «Сегодня».
   it("переключение ребёнка сохраняет период", async () => {
     const user = setup(1);
