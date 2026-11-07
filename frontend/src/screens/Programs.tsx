@@ -670,17 +670,24 @@ function PathText({ path, max }: { path: string; max: number }) {
 /** id строки легенды для кнопки решения: одна легенда на блок, кнопки всех ждущих ссылаются на неё. */
 const decisionHintId = (category: ParentCategory) => `decision-hint-${category}`;
 
-/** Легенда кнопок решения (B-39): подпись кнопки выделена, за ней что она значит. */
+const LEGEND_TITLE_ID = "pending-legend-title";
+
+/** Легенда кнопок решения (B-39): видимый заголовок; подпись кнопки выделена, за ней что она значит. */
 function DecisionLegend() {
   return (
-    <ul className="pending-legend" aria-label="Что значат кнопки">
-      {DECISIONS.map((d) => (
-        <li key={d.category} id={decisionHintId(d.category)}>
-          <span className="pending-legend-label">{d.label}</span>
-          {DECISION_HINTS[d.category].slice(d.label.length)}
-        </li>
-      ))}
-    </ul>
+    <>
+      <h4 id={LEGEND_TITLE_ID} className="pending-legend-title">
+        Что значат кнопки
+      </h4>
+      <ul className="pending-legend" aria-labelledby={LEGEND_TITLE_ID}>
+        {DECISIONS.map((d) => (
+          <li key={d.category} id={decisionHintId(d.category)}>
+            <span className="pending-legend-label">{d.label}</span>
+            {`: ${DECISION_HINTS[d.category]}`}
+          </li>
+        ))}
+      </ul>
+    </>
   );
 }
 

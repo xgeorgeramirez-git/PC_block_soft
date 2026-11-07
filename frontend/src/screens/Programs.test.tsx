@@ -175,6 +175,19 @@ describe("Программы: ждут решения", () => {
     setup();
     await screen.findByRole("heading", { name: "Ждут решения: 2" });
     const legend = within(pendingBlock()).getByRole("list", { name: "Что значат кнопки" });
+    // Ловит (ревью M4): заголовок легенды только для диктора; зрячий не видит, что это за строки.
+    const title = within(pendingBlock()).getByRole("heading", { name: "Что значат кнопки", level: 4 });
+    expect(title.classList.contains("visually-hidden")).toBe(false);
+    expect(legend.getAttribute("aria-labelledby")).toBe(title.id);
+    expect(legend.getAttribute("aria-label")).toBeNull();
+    expect(title.compareDocumentPosition(legend) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // Подпись кнопки выделена, за ней двоеточие и смысл из явной строки.
+    expect(Array.from(legend.querySelectorAll(".pending-legend-label")).map((el) => el.textContent)).toEqual([
+      "Игра",
+      "Учёба",
+      "Прочее",
+      "Запретить",
+    ]);
     expect(within(legend).getAllByRole("listitem").map((li) => li.textContent)).toEqual([
       "Игра: время идёт в лимит игр и в общее время",
       "Учёба: время не тратит лимит",
