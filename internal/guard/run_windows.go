@@ -179,11 +179,14 @@ func Run(opts launch.Options) error {
 
 	procSetTimer.Call(host, tickTimerID, tickEveryMs, 0)
 	a.loop()
+	runStage.Store(1)
 
 	close(stop)
 	caller.close() // прерывает ожидающий запрос
 	wg.Wait()
+	runStage.Store(2)
 	a.shutdown()
+	runStage.Store(3)
 	return nil
 }
 

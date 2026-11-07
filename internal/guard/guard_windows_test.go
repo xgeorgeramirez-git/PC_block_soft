@@ -270,6 +270,7 @@ func TestRunStartsOneGuardAndStopsOnClose(t *testing.T) {
 		t.Skip("на этой машине служба PCBlock уже работает")
 	}
 	opts := launch.Options{"session": "4242422"}
+	runStage.Store(0)
 	done := make(chan error, 1)
 	go func() { done <- Run(opts) }()
 
@@ -307,9 +308,14 @@ func TestRunStartsOneGuardAndStopsOnClose(t *testing.T) {
 	// Закрываем окно стража. Единичный PostMessage изредка приходил раньше, чем окно начинало
 	// качать очередь сообщений, и терялся — тогда Run не завершался и тест падал по таймауту
 	// (B-16). Шлём WM_CLOSE повторно, пока Run не вернётся, с общим запасом времени.
+	// Падение называет этап Run и число опросов службы после закрытия (B-20): этап 0 — WM_QUIT
+	// не дошёл до цикла окон; этап 1 и опросов 2 и больше — опрос не выходит по стопу; этап 1 и
+	// опросов не больше 1 — завис сам опрос (подключение к каналу); этап 2 — уборка окон.
 	deadline := time.After(15 * time.Second)
 	retry := time.NewTicker(250 * time.Millisecond)
 	defer retry.Stop()
+	closedAt := time.Now()
+	before := pollRounds.Load()
 	procPostMessage.Call(host, wmClose, 0, 0)
 	for {
 		select {
@@ -317,11 +323,12 @@ func TestRunStartsOneGuardAndStopsOnClose(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Run завершился с ошибкой: %v", err)
 			}
+			t.Logf("Run вернулся через %v, опросов после закрытия %d", time.Since(closedAt).Round(time.Millisecond), pollRounds.Load()-before)
 			return
 		case <-retry.C:
 			procPostMessage.Call(host, wmClose, 0, 0)
 		case <-deadline:
-			t.Fatal("Run не завершился после закрытия окна")
+			t.Fatalf("Run не завершился за 15 с после закрытия окна: этап %d, опросов службы после закрытия %d", runStage.Load(), pollRounds.Load()-before)
 		}
 	}
 }
