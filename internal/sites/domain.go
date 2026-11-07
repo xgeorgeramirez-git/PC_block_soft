@@ -51,7 +51,7 @@ func FromOmnibox(text string) string {
 	} else if i := strings.IndexByte(s, ':'); i > 0 && nonWebSchemes[strings.ToLower(s[:i])] {
 		return ""
 	}
-	if i := strings.IndexAny(s, "/?#"); i >= 0 {
+	if i := strings.IndexAny(s, "/?#\\"); i >= 0 { // «\» Chromium читает как «/» в адресах http(s)
 		s = s[:i]
 	}
 	if i := strings.LastIndexByte(s, '@'); i >= 0 {

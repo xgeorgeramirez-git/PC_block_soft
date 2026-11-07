@@ -30,6 +30,8 @@ func fromOmniboxCases() []struct{ in, want string } {
 		{"192.168.0.1:8080/x", "192.168.0.1"},
 		{"user:pw@host.ru/", "host.ru"},
 		{"https://user@Host.RU:443/p", "host.ru"},
+		{`https://evil.ru\@youtube.com`, "evil.ru"}, // ревью M4 F1-8: «\» — разделитель пути, как у Chromium
+		{`evil.ru\path`, "evil.ru"},
 		{"", ""},
 		{"   ", ""},
 		{"www.ru", "www.ru"},
@@ -38,7 +40,7 @@ func fromOmniboxCases() []struct{ in, want string } {
 		{"xn--e1afmkfd.xn--p1ai", "xn--e1afmkfd.xn--p1ai"},
 		{"https://a..b/", ""},
 		{"https://.a.b/", ""},
-		{"https://a.b\\c/", ""},
+		{"https://a.b\\c/", "a.b"}, // «\» — начало пути (ревью M4 F1-8)
 		{"mailto:me@a.ru", ""},
 		{longPath, "a.ru"},
 		{longHost, ""},
