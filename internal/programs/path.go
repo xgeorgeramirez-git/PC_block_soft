@@ -329,7 +329,8 @@ var braveAppHelpers = map[string]bool{
 // служебная часть Brave (ревью M4 F1-2): обновлятор и обработчик сбоев в «update\» (в том числе в
 // папке версии), служебные exe в «brave-browser\application\» и его папке версии, установщик
 // «brave-browser\application\<версия>\installer\setup.exe». Любой другой exe этой папки — не
-// служебный: ребёнок может положить туда свою программу с подделанным издателем.
+// служебный: ребёнок может положить туда свою программу с подделанным издателем. Установщик
+// обновления в «update\install\{GUID}\» — только по именам braveUpdateInstaller (возврат F1 №1).
 func braveProfileService(rel string) bool {
 	parts := strings.Split(rel, `\`)
 	base := parts[len(parts)-1]
@@ -340,6 +341,8 @@ func braveProfileService(rel string) bool {
 				return true
 			}
 		}
+	case len(parts) == 4 && parts[0] == "update" && parts[1] == "install" && isGUIDDir(parts[2]):
+		return braveUpdateInstaller(base)
 	case len(parts) >= 3 && parts[0] == "brave-browser" && parts[1] == "application":
 		switch dirs := parts[2 : len(parts)-1]; {
 		case len(dirs) == 0:
@@ -351,6 +354,52 @@ func braveProfileService(rel string) bool {
 		}
 	}
 	return false
+}
+
+// braveInstallerArch — окончания имени полного установщика Brave («brave_installer-x64.exe» в
+// выпусках brave/brave-browser), которые обновлятор запускает из «update\install\{GUID}\».
+var braveInstallerArch = []string{"brave_installer-x64.exe", "brave_installer-ia32.exe", "brave_installer-arm64.exe"}
+
+// braveUpdateInstaller — имя файла, которое обновлятор Brave (Omaha) кладёт и запускает в
+// «update\install\{GUID}\»: полный установщик Brave (по образцу Google Update — с номером версии
+// впереди через «_»), BraveBrowserStandaloneSetup.exe и BraveBrowserSetup.exe, установщик самого
+// обновлятора (braveupdate*), setup.exe. Любое другое имя — не служебное.
+func braveUpdateInstaller(base string) bool {
+	switch base {
+	case "setup.exe", "bravebrowserstandalonesetup.exe", "bravebrowsersetup.exe":
+		return true
+	}
+	if strings.HasPrefix(base, "braveupdate") && strings.HasSuffix(base, ".exe") {
+		return true
+	}
+	for _, tail := range braveInstallerArch {
+		if base == tail {
+			return true
+		}
+		if ver, ok := strings.CutSuffix(base, "_"+tail); ok && isVersionDir(ver) {
+			return true
+		}
+	}
+	return false
+}
+
+// isGUIDDir — имя папки «{xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx}» (шестнадцатеричные цифры в нижнем
+// регистре: путь уже нормализован), как у папок установки Omaha.
+func isGUIDDir(s string) bool {
+	if len(s) != 38 || s[0] != '{' || s[37] != '}' {
+		return false
+	}
+	for i := 1; i < 37; i++ {
+		switch c := s[i]; {
+		case i == 9 || i == 14 || i == 19 || i == 24:
+			if c != '-' {
+				return false
+			}
+		case (c < '0' || c > '9') && (c < 'a' || c > 'f'):
+			return false
+		}
+	}
+	return true
 }
 
 // isVersionDir — имя папки версии: цифры через точку («157.1.99.1»).
