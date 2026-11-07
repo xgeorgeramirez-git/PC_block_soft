@@ -556,7 +556,9 @@ describe("Wizard: шаг 5, сайты (FR-2, 8.3.1 п.5–7)", () => {
     const misha = within(adult()).getByRole("checkbox", { name: "Миша" }) as HTMLInputElement;
     expect(misha.checked).toBe(true);
     expect(within(adult()).queryByRole("checkbox", { name: "Даша" })).toBeNull();
-    expect(screen.getByText("Список сайтов для взрослых: UT1, Университет Тулуза Капитоль, лицензия CC BY-SA 4.0")).toBeTruthy();
+    const source = screen.getByText("Список сайтов для взрослых: UT1, Университет Тулуза Капитоль, лицензия CC BY\u2011SA 4.0");
+    // «CC BY-SA 4.0» не рвётся и в мастере: неразрывные пробелы и неразрывный дефис (как на экране «Сайты»).
+    expect(source.textContent).toContain("лицензия\u00a0CC\u00a0BY\u2011SA\u00a04.0");
     expect(screen.getByRole("heading", { name: "Видео и соцсети" })).toBeTruthy();
     expect(screen.getByText("Время на этих сайтах можно ограничить отдельно. Список можно изменить позже в разделе «Сайты»")).toBeTruthy();
     expect(domains()).toEqual(["youtube.com", "vk.com", "tiktok.com", "rutube.ru", "ok.ru", "telegram.org", "web.telegram.org", "discord.com", "twitch.tv"]);
