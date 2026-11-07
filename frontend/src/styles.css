@@ -1829,16 +1829,17 @@ html:has(.shell-child) body {
   vertical-align: middle;
 }
 
-/* 8 + список 136 + 8: «Запрещено» целиком со стрелкой и полями 8 px и в шрифте Windows, и в
-   запасном шрифте снимков CI (в 122 px обрезалось: Chromium добавляет к полям ещё ~27 px под
-   стрелку; ревью M4, e2e categoriesFit меряет). Шире не надо: в окне 960 имя файла
-   «fortniteclient-win64-shipping.exe» в пути должно остаться целиком (PL-26). */
+/* 8 + список 122 + 8. Шире колонку не делать: в окне 960 путь «c:…\stalker2-win64-shipping.exe»
+   перестаёт помещаться в одну строку (F2: при 152 px упал e2e «переименование», pathsOneLine). */
 .programs-table .col-category {
-  width: 152px;
+  width: 138px;
 }
 
+/* Справа поля нет: Chromium и так оставляет под стрелку ~27 px, а 8 px справа обрезали «Запрещено»
+   в запасном шрифте снимков CI (ревью M4). Слева 8 px, как у текста других полей; e2e categoriesFit
+   меряет, что список вмещает самую длинную подпись. */
 .programs-table .col-category select {
-  padding-inline: var(--space-2);
+  padding-inline: var(--space-2) 0;
 }
 
 /* 8 + 96 («12 ч 30 мин» — 84 px) + 8; редкое «меньше минуты» переносится на вторую строку. */
