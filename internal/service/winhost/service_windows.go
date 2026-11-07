@@ -3,6 +3,7 @@
 package winhost
 
 import (
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"unsafe"
@@ -61,18 +62,28 @@ func (serviceHandler) Execute(_ []string, requests <-chan svc.ChangeRequest, sta
 	return false, 0
 }
 
-// notificationBytes возвращает данные уведомления WTSSESSION_NOTIFICATION, на которые указывает
-// EventData события SessionChange (указатель действителен, пока обрабатывается запрос). nil:
-// указателя нет или cbSize в самой структуре меньше её размера. Единственное место с unsafe.
+// notificationBytes возвращает копию первых 8 байт уведомления WTSSESSION_NOTIFICATION (cbSize и
+// dwSessionId), на которое указывает EventData события SessionChange. nil: указателя нет или cbSize
+// в самой структуре меньше 8. Единственное место с unsafe.
+//
+// Ruling P2-R7 (B-21): гарантии, что память ещё жива, нет. golang.org/x/sys/windows/svc (v0.48.0)
+// копирует EventData как число в своём HandlerEx и возвращает управление диспетчеру служб раньше,
+// чем запрос доходит до Execute; срок жизни lpEventData после возврата HandlerEx Microsoft не
+// обещает (golang.org/issue/65832). Копия сразу окно гонки не закрывает (она всё равно после
+// возврата), но читает ровно 8 байт, а не срез длиной cbSize поверх чужой памяти. Полное решение —
+// свой HandlerEx (бэклог, M7).
 func notificationBytes(eventData uintptr) []byte {
 	if eventData == 0 {
 		return nil
 	}
 	p := *(*unsafe.Pointer)(unsafe.Pointer(&eventData)) // uintptr от системы, не от Go: vet не жалуется
 	const size = 8
-	cb := *(*uint32)(p)
-	if cb < size {
+	if cb := *(*uint32)(p); cb < size {
 		return nil
 	}
-	return unsafe.Slice((*byte)(p), cb)
+	b := make([]byte, size)
+	copy(b, unsafe.Slice((*byte)(p), size))
+	// Длина структуры проверена здесь, дальше — только номер: sessionIDOf сверяет cbSize с длиной копии.
+	binary.LittleEndian.PutUint32(b, size)
+	return b
 }
