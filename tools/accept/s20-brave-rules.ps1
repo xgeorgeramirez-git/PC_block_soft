@@ -1,8 +1,9 @@
 ﻿# S20. Правила Brave в учётке ребёнка (R15, FR-31, ТЗ 3.4, RM4-10, RM4-10-итог, T10-10, T10-11, PL-12, PL-16, PL-41).
 # Ребёнок — пользователь раннера: служба пишет ветку HKU\<SID раннера>\Software\Policies\BraveSoftware\Brave, Brave
 # раннера применяет её как пользовательские политики (проба T0). Каждый Brave — со свежим профилем приёмки.
-# 1. Контроль до правил (ребёнка ещё нет): ветки нет; в окне Brave есть кнопка с «VPN» (UIA) и Alt+Shift+N
-#    открывает новое окно (Tor). Нет кнопки или окна — ::warning, дальше VPN и Tor проверяются по реестру.
+# 1. Контроль до правил (ребёнка ещё нет): ветки нет; в окне Brave есть кнопка с «VPN» (UIA). Нет кнопки —
+#    ::warning, дальше VPN проверяется по реестру. Окно Tor без правил не открывается: оно сразу идёт в сеть
+#    Tor, а приёмка ничего не грузит из сети (NFR-1); «нет окна Tor» — шаг 3 и TorDisabled в реестре.
 # 2. Ребёнок настроен, probe «blocked-probe.test» в «Запрещённых». Тогда: TorDisabled=1, BraveVPNDisabled=1 (DWORD),
 #    DnsOverHttpsMode="off", ExtensionInstallBlocklist\1="*", URLBlocklist\1="blocked-probe.test".
 # 3. Brave ребёнка: кнопок окна не меньше 5, ни одной с «VPN»; Alt+Shift+N окна Tor не открывает.
@@ -24,7 +25,6 @@ $script:Blocked = "blocked-probe.test"
 $script:RestoredKind = "brave_restored"
 $script:Port = 8765
 $script:VpnControl = $false
-$script:TorControl = $false
 $script:Listener = $null
 $script:ServerJob = $null
 $script:HostLog = $null
@@ -167,7 +167,7 @@ Invoke-Scenario "S20" "Правила Brave: нет кнопки VPN и окна
     [void](Assert-BraveInstalled)
   }
 
-  Step "1. Контроль до правил: ветки нет, в Brave есть кнопка VPN и окно Tor" {
+  Step "1. Контроль до правил: ветки нет, в Brave есть кнопка VPN" {
     Assert-That (-not (Test-Path -LiteralPath $script:B)) "До настройки ребёнка ветка правил Brave уже есть: $(Format-BraveRules)"
     Import-Uia
     $sw = Open-Brave "http://probe-site.test/" -NewWindow
@@ -183,11 +183,7 @@ Invoke-Scenario "S20" "Правила Brave: нет кнопки VPN и окна
       Write-Host "::warning title=S20 контроль VPN::в Brave без правил нет кнопки с «VPN» (кнопки: $($names -join ', ')); «нет VPN» проверяется только по BraveVPNDisabled в реестре"
       Write-Log "Контроль VPN не прошёл: кнопок с «VPN» нет"
     }
-    Set-BraveForeground -NoGuard
-    $script:TorControl = Test-TorWindowOpens 5
-    if (-not $script:TorControl) {
-      Write-Host "::warning title=S20 контроль Tor::в Brave без правил Alt+Shift+N не открыл новое окно; «нет окна Tor» проверяется только по TorDisabled в реестре"
-    }
+    # Alt+Shift+N без правил не нажимается: окно Tor пошло бы в сеть (NFR-1, ревью M4).
     Stop-Brave
     Remove-BraveProfile
   }
@@ -213,8 +209,8 @@ Invoke-Scenario "S20" "Правила Brave: нет кнопки VPN и окна
     Save-Screen "s20-brave-toolbar"
     Set-BraveForeground
     $opened = Test-TorWindowOpens 5
-    Assert-That (-not $opened) "Alt+Shift+N в Brave ребёнка открыл новое окно (TorDisabled не применён; контроль до правил: $($script:TorControl)); ветка: $(Format-BraveRules)"
-    Write-Log "Окно Tor не открылось (контроль до правил: $($script:TorControl))"
+    Assert-That (-not $opened) "Alt+Shift+N в Brave ребёнка открыл новое окно (TorDisabled не применён, окно Tor могло уйти в сеть); ветка: $(Format-BraveRules)"
+    Write-Log "Окно Tor не открылось за 5 с после Alt+Shift+N (TorDisabled в ветке ребёнка)"
   }
 
   Step "4. URLBlocklist: разрешённый домен — страница сервера, blocked-probe.test — нет" {
