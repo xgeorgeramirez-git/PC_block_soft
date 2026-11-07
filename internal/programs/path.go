@@ -314,6 +314,58 @@ func (r Roots) braveProfileRel(p string) string {
 	return parts[4]
 }
 
+// braveUpdatePrefixes — начала имён файлов обновлятора Brave в «bravesoftware\update\…»
+// (braveupdate.exe, braveupdatebroker.exe, braveupdatecore.exe, bravecrashhandler64.exe…).
+var braveUpdatePrefixes = []string{"braveupdate", "bravecrashhandler"}
+
+// braveAppHelpers — служебные exe Brave рядом с brave.exe и в папке версии
+// «brave-browser\application\<версия>\» (сборка Chromium и Brave VPN).
+var braveAppHelpers = map[string]bool{
+	"notification_helper.exe": true, "chrome_proxy.exe": true, "chrome_pwa_launcher.exe": true,
+	"elevation_service.exe": true, "brave_vpn_helper.exe": true, "brave_vpn_wireguard_service.exe": true,
+}
+
+// braveProfileService сообщает, что путь внутри папки Brave профиля (braveProfileRel) — известная
+// служебная часть Brave (ревью M4 F1-2): обновлятор и обработчик сбоев в «update\» (в том числе в
+// папке версии), служебные exe в «brave-browser\application\» и его папке версии, установщик
+// «brave-browser\application\<версия>\installer\setup.exe». Любой другой exe этой папки — не
+// служебный: ребёнок может положить туда свою программу с подделанным издателем.
+func braveProfileService(rel string) bool {
+	parts := strings.Split(rel, `\`)
+	base := parts[len(parts)-1]
+	switch {
+	case parts[0] == "update" && (len(parts) == 2 || (len(parts) == 3 && isVersionDir(parts[1]))):
+		for _, pre := range braveUpdatePrefixes {
+			if strings.HasPrefix(base, pre) && strings.HasSuffix(base, ".exe") {
+				return true
+			}
+		}
+	case len(parts) >= 3 && parts[0] == "brave-browser" && parts[1] == "application":
+		switch dirs := parts[2 : len(parts)-1]; {
+		case len(dirs) == 0:
+			return braveAppHelpers[base]
+		case len(dirs) == 1 && isVersionDir(dirs[0]):
+			return braveAppHelpers[base]
+		case len(dirs) == 2 && isVersionDir(dirs[0]) && dirs[1] == "installer":
+			return base == "setup.exe"
+		}
+	}
+	return false
+}
+
+// isVersionDir — имя папки версии: цифры через точку («157.1.99.1»).
+func isVersionDir(s string) bool {
+	if s == "" || s[0] == '.' || s[len(s)-1] == '.' {
+		return false
+	}
+	for _, r := range s {
+		if (r < '0' || r > '9') && r != '.' {
+			return false
+		}
+	}
+	return strings.Contains(s, ".")
+}
+
 // NameFromPath — имя программы для плашки и журнала из пути: имя файла без «.exe», обрезанное до
 // MaxNameLen символов (регистр как в пути). Имя берётся из пути, не из слов стража.
 func NameFromPath(path string) string {

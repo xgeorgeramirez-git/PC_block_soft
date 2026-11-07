@@ -9,7 +9,7 @@ const braveCompany = "Brave Software, Inc."
 // решения» в профиле и Загрузках; browser.exe из чужой папки запрещён как Яндекс Браузер; WebView2
 // или msedge_proxy стали браузером; Brave в профиле разрешён без издателя или с чужим издателем;
 // служебные части Brave (обновлятор, обработчик сбоев, уведомления) — «незнакомые»; brave.exe вне
-// своей папки профиля разрешён.
+// своей папки профиля разрешён; любой exe папки Brave с издателем Brave — «система» (ревью M4 F1-2).
 func TestBrowsersClassify(t *testing.T) {
 	c := NewClassifier(testRoots, DefaultCatalog)
 	c.Reload(nil)
@@ -53,6 +53,23 @@ func TestBrowsersClassify(t *testing.T) {
 			Result{Verdict: VerdictSystem, Name: "notification_helper"}},
 		{`c:\users\миша\appdata\local\bravesoftware\update\braveupdate.exe`, "",
 			Result{Verdict: VerdictUnknown, Name: "braveupdate"}},
+		{`c:\users\миша\appdata\local\bravesoftware\update\1.3.361.151\bravecrashhandler64.exe`, braveCompany,
+			Result{Verdict: VerdictSystem, Name: "bravecrashhandler64"}},
+		{`c:\users\миша\appdata\local\bravesoftware\brave-browser\application\chrome_proxy.exe`, braveCompany,
+			Result{Verdict: VerdictSystem, Name: "chrome_proxy"}},
+		{`c:\users\миша\appdata\local\bravesoftware\brave-browser\application\157.1.99.1\installer\setup.exe`, braveCompany,
+			Result{Verdict: VerdictSystem, Name: "setup"}},
+		// Ревью M4 F1-2: подделанный издатель у чужого exe в папке Brave — не «система».
+		{`c:\users\миша\appdata\local\bravesoftware\game\game.exe`, braveCompany,
+			Result{Verdict: VerdictUnknown, Name: "game"}},
+		{`c:\users\миша\appdata\local\bravesoftware\update\game.exe`, braveCompany,
+			Result{Verdict: VerdictUnknown, Name: "game"}},
+		{`c:\users\миша\appdata\local\bravesoftware\brave-browser\application\157.1.99.1\game.exe`, braveCompany,
+			Result{Verdict: VerdictUnknown, Name: "game"}},
+		{`c:\users\миша\appdata\local\bravesoftware\brave-browser\application\game\notification_helper.exe`, braveCompany,
+			Result{Verdict: VerdictUnknown, Name: "notification_helper"}},
+		{`c:\users\миша\appdata\local\bravesoftware\brave-browser\game.exe`, braveCompany,
+			Result{Verdict: VerdictUnknown, Name: "game"}},
 		{`c:\users\миша\downloads\brave.exe`, braveCompany,
 			Result{Verdict: VerdictUnknown, Name: "brave"}},
 		{`c:\users\миша\appdata\local\games\brave.exe`, braveCompany,

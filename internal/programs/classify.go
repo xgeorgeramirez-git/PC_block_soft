@@ -223,8 +223,9 @@ func (c *Classifier) NeedsFingerprint(path string) bool {
 //     одной программы, а не блокировка компьютера (R18 не нарушается). Решение родителя
 //     сильнее каталога браузеров (RM4-8);
 //  4. папка Brave в профиле (RM4-8, PL-20) с издателем «Brave Software»: сам Brave
-//     («brave-browser\application\brave.exe») — «Прочее», остальные exe папки (обновлятор,
-//     обработчик сбоев, уведомления) — «система»; издатель пустой или чужой — дальше по порядку;
+//     («brave-browser\application\brave.exe») — «Прочее», известные служебные exe папки
+//     (braveProfileService: обновлятор, обработчик сбоев, уведомления) — «система»; прочие exe
+//     папки, пустой или чужой издатель — дальше по порядку;
 //  5. браузер из каталога, кроме Brave, в любом каталоге — «запрещена» (R15, D-68);
 //  6. корень приложения в профиле пользователя (RM3-13): категория решения с тем же именем файла
 //     и тем же издателем (publisher; пустой — не наследуется), иначе «незнакомая»;
@@ -265,7 +266,9 @@ func (c *Classifier) Classify(path, fingerprint, publisher string) Result {
 		if rel == braveProfileMain {
 			return Result{Verdict: VerdictAllow, Category: CatOther, Name: name}
 		}
-		return Result{Verdict: VerdictSystem, Name: name}
+		if braveProfileService(rel) {
+			return Result{Verdict: VerdictSystem, Name: name}
+		}
 	}
 	if _, ok := c.cat.ForbiddenBrowser(p); ok {
 		return Result{Verdict: VerdictForbidden, Category: CatBlocked, Name: name}
