@@ -143,3 +143,40 @@ func TestIsOmniboxClass(t *testing.T) {
 		}
 	}
 }
+
+// Ловит (ревью M4 F1-6): запасные источники (первый Edit с ValuePattern, Document окна без поля
+// адреса) дают «домен» из поля диалога Brave («Сохранить как»: report.pdf) или служебной страницы.
+func TestFallbackDomain(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"report.pdf", ""},
+		{"https://a.ru/x", "a.ru"},
+		{"HTTP://WWW.B.RU", "b.ru"},
+		{"  https://c.ru  ", "c.ru"},
+		{"a.ru", ""},
+		{"file:///c:/x.html", ""},
+		{"brave://settings", ""},
+		{"", ""},
+	}
+	for _, c := range cases {
+		if got := fallbackDomain(c.in); got != c.want {
+			t.Errorf("fallbackDomain(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+	var m domainMemo
+	steps := []struct {
+		rd         braveRead
+		want       string
+		wantUnread bool
+	}{
+		{braveRead{Omnibox: "report.pdf", HasOmnibox: true, OmniboxByEdit: true}, "", false},
+		{braveRead{Omnibox: "https://a.ru/x", HasOmnibox: true, OmniboxByEdit: true}, "a.ru", false},
+		{braveRead{Omnibox: "b.ru", HasOmnibox: true}, "b.ru", false},
+		{braveRead{Document: "report.pdf"}, "", false},
+		{braveRead{Document: "https://app.example/"}, "app.example", false},
+	}
+	for i, s := range steps {
+		if got, unread := m.Read(5, s.rd, nil); got != s.want || unread != s.wantUnread {
+			t.Errorf("шаг %d: Read(%+v) = (%q, %v), want (%q, %v)", i, s.rd, got, unread, s.want, s.wantUnread)
+		}
+	}
+}

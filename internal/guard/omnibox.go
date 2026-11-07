@@ -64,18 +64,23 @@ func isOmniboxClass(class string) bool { return strings.HasSuffix(class, omnibox
 type braveRead struct {
 	Omnibox    string // текст поля адреса
 	HasOmnibox bool   // поле адреса найдено
-	Focused    bool   // поле адреса в фокусе клавиатуры (ребёнок печатает)
-	Document   string // адрес документа активной вкладки (ValuePattern Document); «» — нет
-	Tab        string // RuntimeId выбранной вкладки; «» — не прочитан
+	// OmniboxByEdit — поле найдено запасным признаком (первый Edit с ValuePattern), а не по классу
+	// …OmniboxViewViews: это может быть поле диалога Brave.
+	OmniboxByEdit bool
+	Focused       bool   // поле адреса в фокусе клавиатуры (ребёнок печатает)
+	Document      string // адрес документа активной вкладки (ValuePattern Document); «» — нет
+	Tab           string // RuntimeId выбранной вкладки; «» — не прочитан
 }
 
 // Read — домен окна hwnd по одному чтению braveReader.Read и признак «адрес не прочитан» (RM4-1,
 // RK5, ревью M4 F1-4). Ошибка UIA — («», true) и память окна забыта. Основной источник — адрес
 // документа активной вкладки (http:// или https://): текст поля адреса ребёнок может набрать и не
 // открыть. Нет такого адреса — поле адреса (в фокусе — прошлый домен этой вкладки, Next); смена
-// выбранной вкладки (RuntimeId) забывает прошлый домен окна; у окна нет поля адреса, а адрес документа пуст — («», true). Служебная страница,
-// поисковая фраза, file: дают («», false) — адрес прочитан, сайта нет. Тексты дальше этой функции
-// не идут (R23).
+// выбранной вкладки (RuntimeId) забывает прошлый домен окна; у окна нет поля адреса, а адрес
+// документа пуст — («», true). Запасные источники (OmniboxByEdit, Document без поля адреса) дают
+// домен только из http:// и https:// (webOnly, ревью M4 F1-6). Служебная страница, поисковая
+// фраза, file: дают («», false) — адрес прочитан, сайта нет. Тексты дальше этой функции не идут
+// (R23).
 func (m *domainMemo) Read(hwnd uintptr, rd braveRead, err error) (domain string, unread bool) {
 	if err != nil {
 		m.Next(hwnd, "", false, err)
@@ -86,12 +91,16 @@ func (m *domainMemo) Read(hwnd uintptr, rd braveRead, err error) (domain string,
 		return m.Next(hwnd, rd.Document, false, nil), false // адрес страницы, а не набранный текст
 	}
 	if rd.HasOmnibox {
-		return m.Next(hwnd, rd.Omnibox, rd.Focused, nil), false
+		text := rd.Omnibox
+		if rd.OmniboxByEdit {
+			text = webOnly(text)
+		}
+		return m.Next(hwnd, text, rd.Focused, nil), false
 	}
 	if strings.TrimSpace(rd.Document) == "" {
 		return "", true
 	}
-	return m.Next(hwnd, rd.Document, false, nil), false
+	return m.Next(hwnd, webOnly(rd.Document), false, nil), false
 }
 
 // switchTab забывает домен окна hwnd, если выбрана другая вкладка (RuntimeId tab; «» — не прочитан,
@@ -117,4 +126,19 @@ func (m *domainMemo) switchTab(hwnd uintptr, tab string) {
 func isWebAddress(text string) bool {
 	t := strings.ToLower(strings.TrimSpace(text))
 	return strings.HasPrefix(t, "http://") || strings.HasPrefix(t, "https://")
+}
+
+// fallbackDomain — домен из текста запасного источника (поле без класса поля адреса, Document
+// окна без поля адреса).
+func fallbackDomain(text string) string {
+	return sites.FromOmnibox(webOnly(text))
+}
+
+// webOnly — текст запасного источника, если это адрес страницы (http:// или https://), иначе «»:
+// имя файла в поле диалога или служебная страница доменом не становятся (ревью M4 F1-6).
+func webOnly(text string) string {
+	if !isWebAddress(text) {
+		return ""
+	}
+	return text
 }

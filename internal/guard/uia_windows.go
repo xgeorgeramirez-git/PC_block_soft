@@ -710,7 +710,7 @@ func (r *braveReader) Read(hwnd windows.HWND) (braveRead, error) {
 			r.forget()
 			return err
 		}
-		res.Omnibox, res.HasOmnibox, res.Focused = v, true, f
+		res.Omnibox, res.HasOmnibox, res.Focused, res.OmniboxByEdit = v, true, f, r.match == braveMatchEdit
 		res.Document, res.Tab = activeTabAddress(u, hwnd)
 		return nil
 	})
