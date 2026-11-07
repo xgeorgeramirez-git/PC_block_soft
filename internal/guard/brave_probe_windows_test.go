@@ -318,8 +318,15 @@ type readOut struct {
 }
 
 func readOnce(r *braveReader, hwnd windows.HWND) readOut {
-	text, focused, source, err := r.Read(hwnd)
-	return readOut{domain: sites.FromOmnibox(text), source: source, focused: focused, err: err}
+	rd, err := r.Read(hwnd)
+	text, source := rd.Omnibox, braveSourceOmnibox
+	if !rd.HasOmnibox {
+		text, source = rd.Document, braveSourceDocument
+	}
+	if err != nil {
+		source = ""
+	}
+	return readOut{domain: sites.FromOmnibox(text), source: source, focused: rd.Focused, err: err}
 }
 
 // waitDomain читает домен окна, пока он не станет want, не дольше d.

@@ -32,6 +32,12 @@ var (
 	procSysFreeString    = oleaut32.NewProc("SysFreeString")
 	procSysStringLen     = oleaut32.NewProc("SysStringLen")
 	procVariantClear     = oleaut32.NewProc("VariantClear")
+
+	procSafeArrayGetLBound   = oleaut32.NewProc("SafeArrayGetLBound")
+	procSafeArrayGetUBound   = oleaut32.NewProc("SafeArrayGetUBound")
+	procSafeArrayAccessData  = oleaut32.NewProc("SafeArrayAccessData")
+	procSafeArrayUnaccessDat = oleaut32.NewProc("SafeArrayUnaccessData")
+	procSafeArrayDestroy     = oleaut32.NewProc("SafeArrayDestroy")
 )
 
 var (
@@ -99,6 +105,7 @@ const (
 	// 23 get_CurrentName, 24 get_CurrentAcceleratorKey, 25 get_CurrentAccessKey,
 	// 26 get_CurrentHasKeyboardFocus, 27 get_CurrentIsKeyboardFocusable, 28 get_CurrentIsEnabled,
 	// 29 get_CurrentAutomationId, 30 get_CurrentClassName.
+	vtElemGetRuntimeID            = 4
 	vtElemFindFirst               = 5
 	vtElemFindAll                 = 6
 	vtElemGetCurrentPropertyValue = 10
@@ -288,6 +295,43 @@ func elemControlType(el comObj) (int32, error) {
 		return 0, hresultErr("get_CurrentControlType", hr)
 	}
 	return ct, nil
+}
+
+// safeArray — SAFEARRAY (поля не читаются: только указатель для функций oleaut32).
+type safeArray struct{ _ [2]uintptr }
+
+// elemRuntimeID — RuntimeId элемента строкой «a.b.c»: он не меняется, пока элемент жив, и у
+// другого элемента другой (заголовок вкладки этого не даёт).
+func elemRuntimeID(el comObj) (string, error) {
+	var sa *safeArray
+	if hr := call(el, vtElemGetRuntimeID, uintptr(unsafe.Pointer(&sa))); hr != 0 || sa == nil {
+		return "", hresultErr("GetRuntimeId", hr)
+	}
+	defer procSafeArrayDestroy.Call(uintptr(unsafe.Pointer(sa)))
+	var lb, ub int32
+	if hr, _, _ := procSafeArrayGetLBound.Call(uintptr(unsafe.Pointer(sa)), 1, uintptr(unsafe.Pointer(&lb))); hr != 0 {
+		return "", hresultErr("SafeArrayGetLBound", hr)
+	}
+	if hr, _, _ := procSafeArrayGetUBound.Call(uintptr(unsafe.Pointer(sa)), 1, uintptr(unsafe.Pointer(&ub))); hr != 0 {
+		return "", hresultErr("SafeArrayGetUBound", hr)
+	}
+	n := int(ub) - int(lb) + 1
+	if n <= 0 || n > 64 {
+		return "", errUIANotFound
+	}
+	var data *int32
+	if hr, _, _ := procSafeArrayAccessData.Call(uintptr(unsafe.Pointer(sa)), uintptr(unsafe.Pointer(&data))); hr != 0 || data == nil {
+		return "", hresultErr("SafeArrayAccessData", hr)
+	}
+	defer procSafeArrayUnaccessDat.Call(uintptr(unsafe.Pointer(sa)))
+	b := make([]byte, 0, n*8)
+	for i, v := range unsafe.Slice(data, n) {
+		if i > 0 {
+			b = append(b, '.')
+		}
+		b = fmt.Appendf(b, "%d", v)
+	}
+	return string(b), nil
 }
 
 // elemBool — GetCurrentPropertyValue свойства-флага (VT_BOOL).
@@ -640,17 +684,15 @@ func (r *braveReader) ensure(u uia, hwnd windows.HWND) error {
 	return r.locate(u, hwnd)
 }
 
-// Read читает текст поля адреса окна hwnd. focused — поле адреса в фокусе клавиатуры (ребёнок
-// печатает). source — omnibox, document (окно без поля адреса: адрес документа) или «» при ошибке.
-// Ошибка — кэш сброшен, текст «» (PL-9). Итог задача пишет в свою переменную res: после
+// Read читает окно Brave hwnd (braveRead): текст поля адреса и его фокус клавиатуры, адрес
+// документа активной вкладки (ревью M4 F1-4: основной источник домена) и RuntimeId выбранной
+// вкладки. У окна без поля адреса (сайт-приложение, всплывающее окно) — только адрес документа.
+// Ошибка поля адреса — кэш сброшен, итог пустой (PL-9); документ или вкладка не нашлись — их поля
+// «» (поле адреса остаётся запасным путём). Итог задача пишет в свою переменную res: после
 // errUIATimeout вызывающий её не читает, а поздняя задача не трогает его переменные.
-func (r *braveReader) Read(hwnd windows.HWND) (text string, focused bool, source string, err error) {
-	type result struct {
-		text, source string
-		focused      bool
-	}
-	res := &result{}
-	err = r.th.do(func(u uia) error {
+func (r *braveReader) Read(hwnd windows.HWND) (braveRead, error) {
+	res := &braveRead{}
+	err := r.th.do(func(u uia) error {
 		if err := r.ensure(u, hwnd); err != nil {
 			return err
 		}
@@ -659,21 +701,47 @@ func (r *braveReader) Read(hwnd windows.HWND) (text string, focused bool, source
 			r.forget()
 			return err
 		}
-		if r.source == braveSourceOmnibox {
-			f, err := elemBool(r.el, uiaHasKeyboardFocusPropertyID)
-			if err != nil {
-				r.forget()
-				return err
-			}
-			res.focused = f
+		if r.source == braveSourceDocument {
+			res.Document = v
+			return nil
 		}
-		res.text, res.source = v, r.source
+		f, err := elemBool(r.el, uiaHasKeyboardFocusPropertyID)
+		if err != nil {
+			r.forget()
+			return err
+		}
+		res.Omnibox, res.HasOmnibox, res.Focused = v, true, f
+		res.Document, res.Tab = activeTabAddress(u, hwnd)
 		return nil
 	})
 	if err != nil {
-		return "", false, "", err
+		return braveRead{}, err
 	}
-	return res.text, res.focused, res.source, nil
+	return *res, nil
+}
+
+// activeTabAddress — адрес документа активной вкладки окна hwnd (первый Document окна: Chromium
+// показывает в дереве только страницу выбранной вкладки) и RuntimeId выбранной вкладки; что не
+// прочитано — «». Документ ищется заново при каждом чтении: элемент прошлой страницы мог остаться
+// живым со старым адресом. Поток COM.
+func activeTabAddress(u uia, hwnd windows.HWND) (doc, tab string) {
+	root, err := u.fromHandle(hwnd)
+	if err != nil {
+		return "", ""
+	}
+	defer release(root)
+	if dcond, err := u.intCond(uiaControlTypePropertyID, uiaDocumentControlTypeID); err == nil {
+		if el, err := findFirst(root, treeScopeDescendants, dcond); err == nil {
+			doc, _ = elemValue(el)
+			release(el)
+		}
+		release(dcond)
+	}
+	if el, err := selectedTab(u, root); err == nil {
+		tab, _ = elemRuntimeID(el)
+		release(el)
+	}
+	return doc, tab
 }
 
 // Describe — ClassName, ControlType найденного для hwnd элемента и признак, по которому он найден

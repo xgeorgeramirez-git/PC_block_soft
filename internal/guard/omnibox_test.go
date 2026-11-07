@@ -61,35 +61,63 @@ func TestDomainMemo(t *testing.T) {
 func TestDomainMemoRead(t *testing.T) {
 	var m domainMemo
 	uiaErr := errors.New("UIA: элемент не найден")
+	omni := func(text string, focused bool) braveRead {
+		return braveRead{Omnibox: text, HasOmnibox: true, Focused: focused}
+	}
+	doc := func(text string) braveRead { return braveRead{Document: text} }
 	steps := []struct {
 		hwnd       uintptr
-		text       string
-		focused    bool
-		source     string
+		rd         braveRead
 		err        error
 		want       string
 		wantUnread bool
 	}{
-		{1, "https://www.youtube.com/watch?v=1", false, "omnibox", nil, "youtube.com", false},
-		{1, "пример.рф/путь", false, "omnibox", nil, "xn--e1afmkfd.xn--p1ai", false},
-		{1, "www.www.a.ru", false, "omnibox", nil, "a.ru", false},
-		{1, "kotiki.ru", true, "omnibox", nil, "a.ru", false},
-		{1, "brave://newtab", false, "omnibox", nil, "", false},
-		{1, "котики видео", false, "omnibox", nil, "", false},
-		{2, "", false, "", uiaErr, "", true},
-		{3, "", false, "document", nil, "", true},
-		{3, "   ", false, "document", nil, "", true},
-		{3, "https://app.example/x", false, "document", nil, "app.example", false},
-		{3, "", false, "omnibox", nil, "", false},
-		{4, "vk.com", false, "omnibox", nil, "vk.com", false},
-		{4, "", false, "", uiaErr, "", true},
-		{4, "x.ru", true, "omnibox", nil, "", false},
+		{1, omni("https://www.youtube.com/watch?v=1", false), nil, "youtube.com", false},
+		{1, omni("пример.рф/путь", false), nil, "xn--e1afmkfd.xn--p1ai", false},
+		{1, omni("www.www.a.ru", false), nil, "a.ru", false},
+		{1, omni("kotiki.ru", true), nil, "a.ru", false},
+		{1, omni("brave://newtab", false), nil, "", false},
+		{1, omni("котики видео", false), nil, "", false},
+		{2, braveRead{}, uiaErr, "", true},
+		{3, doc(""), nil, "", true},
+		{3, doc("   "), nil, "", true},
+		{3, doc("https://app.example/x"), nil, "app.example", false},
+		{3, omni("", false), nil, "", false},
+		{4, omni("vk.com", false), nil, "vk.com", false},
+		{4, braveRead{}, uiaErr, "", true},
+		{4, omni("x.ru", true), nil, "", false},
 	}
 	for i, s := range steps {
-		got, unread := m.Read(s.hwnd, s.text, s.focused, s.source, s.err)
+		got, unread := m.Read(s.hwnd, s.rd, s.err)
 		if got != s.want || unread != s.wantUnread {
-			t.Errorf("шаг %d: Read(%d, %q, %v, %q, %v) = (%q, %v), want (%q, %v)",
-				i, s.hwnd, s.text, s.focused, s.source, s.err, got, unread, s.want, s.wantUnread)
+			t.Errorf("шаг %d: Read(%d, %+v, %v) = (%q, %v), want (%q, %v)",
+				i, s.hwnd, s.rd, s.err, got, unread, s.want, s.wantUnread)
+		}
+	}
+}
+
+// Ловит (ревью M4 F1-4): домен берётся из текста поля адреса, который ребёнок набрал и не открыл
+// (поле не в фокусе, а набранное осталось), а не из адреса страницы; поле в фокусе без адреса
+// страницы даёт набранный домен; после смены вкладки (RuntimeId, а не заголовок) поле в фокусе
+// даёт домен прошлой вкладки.
+func TestDomainMemoPrefersDocument(t *testing.T) {
+	var m domainMemo
+	steps := []struct {
+		rd   braveRead
+		want string
+	}{
+		{braveRead{Document: "https://a.ru/x", Omnibox: "evil.ru", HasOmnibox: true, Tab: "42.1"}, "a.ru"},
+		{braveRead{Document: "HTTPS://b.ru/", Omnibox: "evil.ru", HasOmnibox: true, Focused: true, Tab: "42.1"}, "b.ru"},
+		{braveRead{Omnibox: "evil.ru", HasOmnibox: true, Focused: true, Tab: "42.1"}, "b.ru"},
+		{braveRead{Document: "brave://newtab/", Omnibox: "evil.ru", HasOmnibox: true, Focused: true, Tab: "42.1"}, "b.ru"},
+		{braveRead{Omnibox: "evil.ru", HasOmnibox: true, Focused: true, Tab: "42.7"}, ""},
+		{braveRead{Document: "http://c.ru/", Omnibox: "c.ru", HasOmnibox: true, Tab: "42.7"}, "c.ru"},
+		{braveRead{Omnibox: "evil.ru", HasOmnibox: true, Focused: true, Tab: "42.7"}, "c.ru"},
+		{braveRead{Omnibox: "evil.ru", HasOmnibox: true, Focused: true}, "c.ru"}, // вкладка не прочитана — не смена
+	}
+	for i, s := range steps {
+		if got, unread := m.Read(1, s.rd, nil); got != s.want || unread {
+			t.Errorf("шаг %d: Read(%+v) = (%q, %v), want (%q, false)", i, s.rd, got, unread, s.want)
 		}
 	}
 }

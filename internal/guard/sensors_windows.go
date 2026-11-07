@@ -76,17 +76,17 @@ var (
 	braveDomains domainMemo
 )
 
-// braveDomain — домен активной вкладки окна Brave fg и признак «адрес не прочитан». Текст поля
-// адреса живёт только здесь и сразу превращается в домен (R23). Поле в фокусе — прежний домен
-// окна; ошибка UIA и окно без адреса — («», true) (PL-9, domainMemo.Read).
+// braveDomain — домен активной вкладки окна Brave fg и признак «адрес не прочитан». Адрес документа
+// и текст поля адреса живут только здесь и сразу превращаются в домен (R23). Основной источник —
+// адрес документа; поле в фокусе без него — прежний домен вкладки; ошибка UIA и окно без адреса — («», true) (PL-9, domainMemo.Read).
 func braveDomain(fg windows.HWND) (domain string, unread bool) {
 	braveMu.Lock()
 	defer braveMu.Unlock()
 	if braveRd == nil {
 		braveRd = newBraveReader()
 	}
-	text, focused, source, err := braveRd.Read(fg)
-	return braveDomains.Read(uintptr(fg), text, focused, source, err)
+	rd, err := braveRd.Read(fg)
+	return braveDomains.Read(uintptr(fg), rd, err)
 }
 
 // fgPathBuf — сколько символов пути читается: больше ipc.MaxForegroundPathLen, чтобы длинный путь
