@@ -8,7 +8,8 @@ import (
 )
 
 // Закрытие активной вкладки Brave сочетанием Ctrl+W (RM4-2). Нажатия уходят окну переднего плана;
-// вызывающий перед этим перечитывает передний план и домен (то же окно, тот же домен).
+// вызывающий перед этим перечитывает передний план и домен (то же окно, тот же домен), а прямо
+// перед SendInput окно переднего плана сверяется ещё раз (sendCtrlW).
 
 var (
 	procSendInput        = user32.NewProc("SendInput")
@@ -43,14 +44,27 @@ func keyHeld(vk uintptr) bool {
 	return r&0x8000 != 0
 }
 
-// closeActiveTab нажимает Ctrl+W в окне переднего плана. Зажат Shift, Alt или Win — errModifierHeld
-// (tabs.go) без нажатий.
-func closeActiveTab() error {
-	for _, vk := range []uintptr{vkShift, vkMenu, vkLWin, vkRWin} {
-		if keyHeld(vk) {
-			return errModifierHeld
+// ctrlWOS — настоящие Windows для sendCtrlW.
+var ctrlWOS = ctrlWPort{
+	foreground: func() uintptr { fg, _, _ := procGetForegroundWin.Call(); return fg },
+	held: func() bool {
+		for _, vk := range []uintptr{vkShift, vkMenu, vkLWin, vkRWin} {
+			if keyHeld(vk) {
+				return true
+			}
 		}
-	}
+		return false
+	},
+	send: sendCtrlWKeys,
+}
+
+// closeActiveTab нажимает Ctrl+W, если window всё ещё окно переднего плана: зажат Shift, Alt или
+// Win — errModifierHeld, на переднем плане другое окно — errForegroundChanged (sendkeys.go), без
+// нажатий.
+func closeActiveTab(window uintptr) error { return sendCtrlW(ctrlWOS, window) }
+
+// sendCtrlWKeys посылает Ctrl+W окну переднего плана.
+func sendCtrlWKeys() error {
 	in := []keybdInput{
 		{typ: inputKeyboard, wVk: vkControl},
 		{typ: inputKeyboard, wVk: vkW},

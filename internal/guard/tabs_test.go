@@ -424,3 +424,22 @@ func TestDomainOverrideInTestMode(t *testing.T) {
 		t.Fatalf("вне тестового режима подмена сработала: %q", s.ForegroundDomain)
 	}
 }
+
+// Ловит (ревью M4 F1-3): Ctrl+W не отправлен, потому что сменился передний план, а шаг лестницы
+// засчитан и ClosedTab записан: следующий опрос пошёл бы сразу на кнопку вкладки.
+func TestCloseTabForegroundChangedNotCounted(t *testing.T) {
+	r, f := tabRig(true, TabLook{Window: 7, Brave: true, Domain: "example.com"})
+	f.errs = []error{errForegroundChanged}
+	r.svc.cmds = closeTabCmd("example.com")
+	r.ctl.PollOnce()
+	r.ctl.PushState()
+	if st := lastPushed(t, r); st.ClosedTab != "" || st.ClosedTabWay != "" {
+		t.Fatalf("при сменившемся окне ClosedTab %q, ClosedTabWay %q", st.ClosedTab, st.ClosedTabWay)
+	}
+	r.clk.Advance(2 * time.Second)
+	r.svc.cmds = closeTabCmd("example.com")
+	r.ctl.PollOnce()
+	if got := f.got(); !sameCalls(got, "ctrlW 7", "ctrlW 7") {
+		t.Fatalf("вызовы %q; ждали два ctrlW 7 (первый шаг не засчитан)", got)
+	}
+}

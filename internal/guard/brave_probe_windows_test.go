@@ -733,7 +733,7 @@ func TestBraveProbe(t *testing.T) {
 			forceForeground(uintptr(hwnd))
 			time.Sleep(300 * time.Millisecond)
 			fg, _, _ := procGetForegroundWin.Call()
-			cerr := closeActiveTab()
+			cerr := closeActiveTab(uintptr(hwnd))
 			back, took := waitDomain(r, hwnd, probeSite, 2*time.Second)
 			g = append(g, fmt.Sprintf("Ctrl+W (окно на переднем плане %v, ошибка %v): через %.1f с %s", fg == uintptr(hwnd), cerr, took.Seconds(), back))
 		}

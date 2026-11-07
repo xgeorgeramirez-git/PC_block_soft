@@ -45,13 +45,13 @@ func braveTabCount(hwnd windows.HWND) int {
 	return n
 }
 
-// Close закрывает вкладку или окно Brave window способом way. Ctrl+W уходит окну переднего плана
-// (контроллер только что увидел там window); WM_CLOSE — PostMessage, а не SendMessage: зависший
+// Close закрывает вкладку или окно Brave window способом way. Ctrl+W уходит окну переднего плана,
+// только если это всё ещё window (контроллер только что увидел там window); WM_CLOSE — PostMessage, а не SendMessage: зависший
 // Brave не держит опрос стража.
 func (winTabs) Close(way string, window uintptr) error {
 	switch way {
 	case ipc.CloseTabCtrlW:
-		return closeActiveTab()
+		return closeActiveTab(window)
 	case ipc.CloseTabInvoke:
 		braveMu.Lock()
 		defer braveMu.Unlock()

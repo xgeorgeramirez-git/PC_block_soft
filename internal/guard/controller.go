@@ -441,8 +441,8 @@ func (c *Controller) runCloses(cmds Commands, now time.Time) {
 	}
 	err := errors.New("исполнитель упал")
 	safely(func() { err = actor.Close(way, look.Window) })
-	if errors.Is(err, errModifierHeld) {
-		return // шаг не засчитан: следующая команда службы попробует снова
+	if errors.Is(err, errModifierHeld) || errors.Is(err, errForegroundChanged) {
+		return // ничего не послано, шаг не засчитан: следующая команда службы попробует снова
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
