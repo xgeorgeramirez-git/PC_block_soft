@@ -202,7 +202,7 @@ func (a *app) readSensors(now time.Time) ipc.SensorSample {
 func (a *app) pollLoop(stop <-chan struct{}) {
 	t := time.NewTicker(time.Second)
 	defer t.Stop()
-	for {
+	pollEvery(stop, t.C, a.ctl.Kicked(), func() {
 		safely(func() {
 			a.ctl.PollOnce()
 			// Экран показан 15 минут, пароль родителя не введён: смена пользователя (D-40).
@@ -211,13 +211,7 @@ func (a *app) pollLoop(stop <-chan struct{}) {
 			}
 			a.ctl.PushState()
 		})
-		select {
-		case <-stop:
-			return
-		case <-t.C:
-		case <-a.ctl.Kicked():
-		}
-	}
+	})
 }
 
 // loop крутит цикл сообщений потока окон. Enter на экране блокировки нажимает главную
