@@ -1383,6 +1383,38 @@ async function rowsEven(page: Page) {
 }
 
 /**
+ * Список категории в строке программ вмещает самую длинную подпись («Запрещено») целиком (ревью M4):
+ * ширина того же списка без ограничения (width: auto, Chromium берёт самую длинную подпись, поля и
+ * стрелку) не больше настоящей. Текст категории у скрытой не шире своей ячейки. При сбое в тексте
+ * ошибки — строка, нужная и настоящая ширина (PL-1).
+ */
+async function categoriesFit(page: Page) {
+  const bad = await page.evaluate(() => {
+    const out: string[] = [];
+    for (const row of Array.from(document.querySelectorAll<HTMLElement>(".programs-table tbody tr"))) {
+      const name = row.getAttribute("aria-label") ?? "";
+      const select = row.querySelector<HTMLSelectElement>(".col-category select");
+      if (select) {
+        const probe = select.cloneNode(true) as HTMLSelectElement;
+        probe.style.cssText = "width:auto;min-width:0;max-width:none;position:fixed;left:0;top:0;visibility:hidden";
+        select.parentElement!.appendChild(probe);
+        const need = probe.getBoundingClientRect().width;
+        probe.remove();
+        const has = select.getBoundingClientRect().width;
+        if (need > has + 0.5) out.push(`«${name}»: списку категории нужно ${need.toFixed(1)} px, есть ${has.toFixed(1)} px`);
+        const cell = select.closest("td")!.getBoundingClientRect();
+        const box = select.getBoundingClientRect();
+        if (box.right > cell.right + 0.5) out.push(`«${name}»: список категории за краем ячейки`);
+      }
+      const text = row.querySelector<HTMLElement>(".col-category .program-category");
+      if (text && text.scrollWidth > text.clientWidth + 1) out.push(`«${name}»: «${text.textContent}» не помещается (${text.scrollWidth} > ${text.clientWidth})`);
+    }
+    return out;
+  });
+  expect(bad, bad.join("; ")).toEqual([]);
+}
+
+/**
  * Кнопка «Скрыть» / «Показать» в своей колонке: не налезает на категорию и время за неделю (D-57).
  * У запрещённой (видимой) кнопки нет: запрещённую скрыть нельзя (RF9-5).
  */
@@ -1559,6 +1591,9 @@ for (const [w, h] of [
     const long = row("Очень длинное название игры с пробелами и цифрами 2026");
     expect(long.nameLines, msg).toBe(2);
     expect(String(long.nameShown).startsWith("Очень длинное название игры"), msg).toBe(true);
+    // «Запрещено» в списке категории целиком (ревью M4): строка с запрещённой программой есть.
+    await expect(all.locator(".col-category select").filter({ has: page.locator('option[value="blocked"]:checked') })).not.toHaveCount(0);
+    await categoriesFit(page);
     await hideButtonsInColumn(page);
     await rowsEven(page);
     await nothingSticksOut(page);
@@ -1599,6 +1634,10 @@ for (const [w, h] of [
     await openPrograms(page, { pending: pendingPrograms(Date.now()), programs: programList() });
     const pending = page.getByRole("region", { name: /^Ждут решения/ });
     const legend = pending.getByRole("list", { name: "Что значат кнопки" });
+    // Заголовок легенды виден и стоит над её строками (ревью M4).
+    const legendTitle = pending.getByRole("heading", { name: "Что значат кнопки", level: 4 });
+    await expect(legendTitle).toBeVisible();
+    expect((await boxOf(legend)).top, "легенда не под своим заголовком").toBeGreaterThanOrEqual((await boxOf(legendTitle)).bottom - 0.5);
     await expect(legend.getByRole("listitem")).toHaveText([
       "Игра: время идёт в лимит игр и в общее время",
       "Учёба: время не тратит лимит",
@@ -1641,6 +1680,7 @@ for (const [w, h] of [
     await decisionButtonsEven(page);
     await blocksApart(page);
     await nothingSticksOut(page);
+    await categoriesFit(page);
     await hideButtonsInColumn(page);
     await rowsEven(page);
     await noHorizontalScroll(page);
@@ -1944,8 +1984,35 @@ async function openSites(page: Page, options: MockOptions = {}) {
   await expect(page.getByRole("tablist", { name: "Списки сайтов" })).toBeVisible();
 }
 
+/** Подсказка поля «Добавить сайт» на экране «Сайты» и в мастере. */
+const SITE_HINT = "Можно вставить адрес страницы целиком: программа возьмёт из него только сайт. Например: youtube.com";
+
 const sitesTab = (page: Page, title: string) =>
   page.getByRole("tablist", { name: "Списки сайтов" }).getByRole("tab", { name: new RegExp(`^${title} \\d+$`) });
+
+/**
+ * «лицензия CC BY-SA 4.0» в подписи источника не рвётся (ни на пробеле, ни на дефисе): все её
+ * символы на одной строке. Замер по прямоугольникам символов фрагмента (Range.getClientRects).
+ */
+async function licenseOneLine(page: Page) {
+  const report = await page.locator(".sites-source").first().evaluate((p) => {
+    const node = p.firstChild as Text;
+    const text = node.textContent ?? "";
+    const start = text.indexOf("лицензия");
+    if (start < 0) return { text, tops: [] as number[] };
+    const tops: number[] = [];
+    for (let i = start; i < text.length; i++) {
+      const r = document.createRange();
+      r.setStart(node, i);
+      r.setEnd(node, i + 1);
+      const box = r.getBoundingClientRect();
+      if (box.width > 0) tops.push(Math.round(box.top));
+    }
+    return { text, tops };
+  });
+  expect(report.tops.length, `нет фрагмента «лицензия …»: ${report.text}`).toBeGreaterThan(0);
+  expect(new Set(report.tops).size, `«лицензия CC BY-SA 4.0» на разных строках: ${JSON.stringify(report)}`).toBe(1);
+}
 
 /** Домены целиком внутри строк, кнопки «Удалить» в одну колонку справа. */
 async function siteRowsFit(page: Page) {
@@ -1968,14 +2035,14 @@ async function siteRowsFit(page: Page) {
 }
 
 // m4-sites — «Сайты» (8.3.5): переключатели «18+» по детям, под ними мелко источник списка;
-// вкладки со счётчиками, «4 из 1000», длинный домен переносится.
+// вкладки со счётчиками, «Сайтов: 4 из 1000», длинный домен переносится; «CC BY-SA 4.0» одной строкой.
 test("m4 сайты: списки и 18+", async ({ page }) => {
   await page.setViewportSize({ width: 1200, height: 820 });
   await openSites(page);
   const group = page.getByRole("group", { name: "Блокировать сайты 18+" });
   await expect(group.getByRole("checkbox", { name: "Миша", exact: true })).toBeChecked();
   await expect(group.getByRole("checkbox", { name: "Даша", exact: true })).not.toBeChecked();
-  const source = page.getByText("Список сайтов для взрослых: UT1, Университет Тулуза Капитоль, лицензия CC BY-SA 4.0");
+  const source = page.getByText("Список сайтов для взрослых: UT1, Университет Тулуза Капитоль, лицензия CC BY\u2011SA 4.0");
   await expect(source).toBeVisible();
   expect((await boxOf(source)).top, "подпись источника не под переключателями").toBeGreaterThanOrEqual((await boxOf(group)).bottom - 0.5);
   await expect(page.getByRole("tablist", { name: "Списки сайтов" }).getByRole("tab")).toHaveText([
@@ -1983,7 +2050,7 @@ test("m4 сайты: списки и 18+", async ({ page }) => {
     "Учёба 2",
     "Видео и соцсети 9",
   ]);
-  await expect(page.getByText("4 из 1000", { exact: true })).toBeVisible();
+  await expect(page.getByText("Сайтов: 4 из 1000", { exact: true })).toBeVisible();
   await expect(page.getByRole("list", { name: "Запрещённые: сайты" }).getByText(LONG_SITE, { exact: true })).toBeVisible();
   await siteRowsFit(page);
   await noHorizontalScroll(page);
@@ -2009,6 +2076,7 @@ test("m4 сайты: узкое окно", async ({ page }) => {
   const button = await boxOf(page.getByRole("button", { name: "Добавить", exact: true }));
   expect(Math.abs(input.top - button.top), "поле и «Добавить» не в одну строку").toBeLessThanOrEqual(0.5);
   expect(button.left).toBeGreaterThanOrEqual(input.right - 0.5);
+  await licenseOneLine(page);
   await siteRowsFit(page);
   await noHorizontalScroll(page);
   // Снимок страницы целиком: окно растёт ровно на невидимый остаток, ширина 960 прежняя.
@@ -2023,9 +2091,14 @@ test("m4 сайты: ошибка у поля и отмена удаления",
   const field = page.getByRole("textbox", { name: "Добавить сайт" });
   await field.fill("просто текст");
   await field.press("Enter");
-  await expect(page.getByText("Это не похоже на адрес сайта", { exact: true })).toBeVisible();
+  const error = page.getByText("Это не похоже на адрес сайта", { exact: true });
+  await expect(error).toBeVisible();
   await expect(field).toHaveAttribute("aria-invalid", "true");
   await expect(field).toBeFocused();
+  // Подсказка с примером не пропадает при ошибке: под ошибкой, в той же форме (ревью M4).
+  const hint = page.getByText(SITE_HINT, { exact: true });
+  await expect(hint).toBeVisible();
+  expect((await boxOf(hint)).top, "подсказка не под ошибкой").toBeGreaterThanOrEqual((await boxOf(error)).bottom - 0.5);
   await page.screenshot({ path: `${SCREENS}/m4-sites-error.png`, fullPage: true });
 
   await page.getByRole("button", { name: "Удалить example.com", exact: true }).click();
@@ -2172,7 +2245,7 @@ for (const [w, h] of [
     });
     const group = page.getByRole("group", { name: "Блокировать сайты 18+" });
     await expect(group.getByRole("checkbox", { name: "Миша" })).toBeChecked();
-    const source = page.getByText("Список сайтов для взрослых: UT1, Университет Тулуза Капитоль, лицензия CC BY-SA 4.0", { exact: true });
+    const source = page.getByText("Список сайтов для взрослых: UT1, Университет Тулуза Капитоль, лицензия CC BY\u2011SA 4.0", { exact: true });
     await expect(source).toBeVisible();
     const g = await boxOf(group);
     const s = await boxOf(source);
@@ -2187,6 +2260,8 @@ for (const [w, h] of [
     await field.fill("котики видео");
     await field.press("Enter");
     await expect(page.getByText("Это не похоже на адрес сайта", { exact: true })).toBeVisible();
+    await expect(page.getByText(SITE_HINT, { exact: true })).toBeVisible();
+    await licenseOneLine(page);
     await siteRowsFit(page);
     // Кнопки шага в одну строку, одной высоты, под списком.
     const buttons = ["Назад", "Настрою позже", "Готово"].map((name) => page.getByRole("button", { name, exact: true }));
