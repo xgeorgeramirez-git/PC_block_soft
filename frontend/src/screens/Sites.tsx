@@ -3,7 +3,7 @@ import { addSite, listSites, removeSite, setAdultFilter } from "../api";
 import Notice from "../components/Notice";
 import UndoLine from "../components/UndoLine";
 import { errorField, errorText } from "../lib/errors";
-import { NOT_DOMAIN_TEXT, SITE_LISTS, filterSites, sitesOf, sourceDisplay } from "../lib/sites";
+import { NOT_DOMAIN_TEXT, SITE_HINT_TEXT, SITE_LISTS, filterSites, sitesOf, sourceDisplay } from "../lib/sites";
 import type { ListSitesReply, SiteKind } from "../types";
 
 const UNDO_MS = 10_000;
@@ -179,11 +179,15 @@ export default function Sites() {
       { to: "adult", childId },
     );
 
-  /** Другая вкладка: поиск, ошибка поля и сообщение списка относились к прежней. */
+  /**
+   * Другая вкладка: поиск, набранный адрес, ошибка поля и сообщение списка относились к прежней.
+   * Пока идёт запрос, вкладка не меняется: ответ («Удалён …», «Отменить») относится к этой.
+   */
   const chooseTab = (kind: SiteKind) => {
-    if (kind === tab) return;
+    if (kind === tab || busyRef.current) return;
     setTab(kind);
     setQuery("");
+    setDraft("");
     setFieldError("");
     setFeedback((f) => (f?.where === "list" ? null : f));
   };
@@ -197,25 +201,39 @@ export default function Sites() {
     else if (e.key === "End") next = last;
     else return;
     e.preventDefault();
+    if (busyRef.current) return;
     const kind = SITE_LISTS[next].kind;
     chooseTab(kind);
     tabs.current.get(kind)?.focus();
   };
 
-  /** Одно сообщение на экране: там, где было действие. */
-  const message = (where: Feedback["where"]) =>
-    feedback && feedback.where === where ? (
-      <UndoLine
-        key={feedback.seq}
-        className="programs-feedback sites-feedback"
-        undoClassName="btn btn-small"
-        text={feedback.text}
-        error={feedback.error}
-        undoMs={feedback.undo?.ms}
-        disabled={busy !== null}
-        onUndo={feedback.undo ? () => undo(feedback.undo!) : undefined}
-      />
-    ) : null;
+  /**
+   * Одно сообщение на экране: там, где было действие. Живая область каждого места есть в DOM до
+   * сообщения, меняется только её содержимое (диктор читает и первое «Удалён …»). Ошибка - отдельно,
+   * role="alert" читается при появлении.
+   */
+  const message = (where: Feedback["where"]) => {
+    const f = feedback && feedback.where === where ? feedback : null;
+    return (
+      <>
+        <div className="sites-live" role="status">
+          {f && !f.error ? (
+            <UndoLine
+              key={f.seq}
+              live={false}
+              className="programs-feedback sites-feedback"
+              undoClassName="btn btn-small"
+              text={f.text}
+              undoMs={f.undo?.ms}
+              disabled={busy !== null}
+              onUndo={f.undo ? () => undo(f.undo!) : undefined}
+            />
+          ) : null}
+        </div>
+        {f && f.error ? <UndoLine key={f.seq} className="programs-feedback sites-feedback" text={f.text} error /> : null}
+      </>
+    );
+  };
 
   const current = SITE_LISTS.find((l) => l.kind === tab) ?? SITE_LISTS[0];
   const all = data?.sites ?? [];
@@ -299,7 +317,7 @@ export default function Sites() {
             <div id={PANEL_ID} className="sites-panel" role="tabpanel" aria-labelledby={`sites-tab-${current.kind}`}>
               <p className="programs-lead">{current.lead}</p>
               {current.kind === "blocked" ? (
-                <p className="sites-limit">{`${items.length} из ${data.blockedMax}`}</p>
+                <p className="sites-limit">{`Сайтов: ${items.length} из ${data.blockedMax}`}</p>
               ) : null}
 
               <form
@@ -323,7 +341,7 @@ export default function Sites() {
                   spellCheck={false}
                   value={draft}
                   aria-invalid={fieldError ? "true" : undefined}
-                  aria-describedby={fieldError ? errorId : hintId}
+                  aria-describedby={fieldError ? `${errorId} ${hintId}` : hintId}
                   onChange={(e) => {
                     setDraft(e.target.value);
                     if (fieldError) setFieldError("");
@@ -332,15 +350,15 @@ export default function Sites() {
                 <button type="submit" className="btn btn-primary sites-add-button" aria-disabled={busy !== null || undefined}>
                   {busy?.kind === "add" ? "Сохраняю…" : "Добавить"}
                 </button>
+                {/* Ошибка у поля и подсказка с примером под ней: подсказка не пропадает при ошибке. */}
                 {fieldError ? (
                   <p id={errorId} className="field-error sites-add-note" role="alert">
                     {fieldError}
                   </p>
-                ) : (
-                  <p id={hintId} className="field-hint sites-add-note">
-                    Можно вставить адрес страницы целиком: программа возьмёт из него только сайт
-                  </p>
-                )}
+                ) : null}
+                <p id={hintId} className="field-hint sites-add-note">
+                  {SITE_HINT_TEXT}
+                </p>
               </form>
 
               {message("list")}

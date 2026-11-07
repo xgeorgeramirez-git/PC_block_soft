@@ -57,6 +57,9 @@ const field = () => screen.getByRole("textbox", { name: "Добавить сай
 const checkbox = (name: string) =>
   within(screen.getByRole("group", { name: "Блокировать сайты 18+" })).getByRole("checkbox", { name }) as HTMLInputElement;
 const addCalls = () => mock.calls.filter((c) => c.command === "AddSite").map((c) => c.payload);
+/** Живая область сообщений списка: всегда в панели вкладки, меняется только её текст. */
+const listStatus = () => within(screen.getByRole("tabpanel")).getByRole("status");
+const HINT = "Можно вставить адрес страницы целиком: программа возьмёт из него только сайт. Например: youtube.com";
 
 beforeEach(() => {
   vi.useFakeTimers({ shouldAdvanceTime: true, now: NOW });
@@ -75,9 +78,9 @@ describe("Сайты: вид", () => {
     const group = await screen.findByRole("group", { name: "Блокировать сайты 18+" });
     expect(checkbox("Миша").checked).toBe(true);
     expect(checkbox("Даша").checked).toBe(false);
-    const source = screen.getByText("Список сайтов для взрослых: UT1, Университет Тулуза Капитоль, лицензия CC BY-SA 4.0");
-    // «4.0» не переносится одна: неразрывные пробелы в разметке (текст службы прежний).
-    expect(source.textContent).toContain("лицензия\u00a0CC\u00a0BY-SA\u00a04.0");
+    const source = screen.getByText("Список сайтов для взрослых: UT1, Университет Тулуза Капитоль, лицензия CC BY\u2011SA 4.0");
+    // «CC BY-SA 4.0» не рвётся: неразрывные пробелы и неразрывный дефис в разметке (текст службы прежний).
+    expect(source.textContent).toContain("лицензия\u00a0CC\u00a0BY\u2011SA\u00a04.0");
     expect(group.compareDocumentPosition(source) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     const tablist = screen.getByRole("tablist", { name: "Списки сайтов" });
     expect(group.compareDocumentPosition(tablist) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
@@ -86,7 +89,7 @@ describe("Сайты: вид", () => {
     expect(screen.getByRole("tabpanel").contains(group)).toBe(false);
   });
 
-  it("вкладки со счётчиками, по умолчанию «Запрещённые» с «N из 1000»", async () => {
+  it("вкладки со счётчиками, по умолчанию «Запрещённые» с «Сайтов: N из 1000»", async () => {
     const user = setup();
     await screen.findByRole("tablist", { name: "Списки сайтов" });
     expect(tabTexts()).toEqual(["Запрещённые 1", "Учёба 1", "Видео и соцсети 1"]);
@@ -94,7 +97,7 @@ describe("Сайты: вид", () => {
     expect(tab("Учёба 1").getAttribute("aria-selected")).toBe("false");
     const panel = screen.getByRole("tabpanel");
     expect(panel.getAttribute("aria-labelledby")).toBe(tab("Запрещённые 1").id);
-    expect(screen.getByText("1 из 1000")).toBeTruthy();
+    expect(screen.getByText("Сайтов: 1 из 1000")).toBeTruthy();
     expect(
       screen.getByText("Эти сайты закрываются в Brave у всех детей. Сайт закрывается вместе со всеми его поддоменами"),
     ).toBeTruthy();
@@ -157,9 +160,10 @@ describe("Сайты: добавление", () => {
     const user = setup();
     await screen.findByRole("tablist", { name: "Списки сайтов" });
     await user.type(field(), "https://www.Example.org/page{Enter}");
-    expect((await screen.findByRole("status")).textContent).toBe("Добавлено: example.org");
+    expect(await within(listStatus()).findByText("Добавлено: example.org")).toBeTruthy();
+    expect(listStatus().textContent).toBe("Добавлено: example.org");
     expect(tabTexts()).toEqual(["Запрещённые 2", "Учёба 1", "Видео и соцсети 1"]);
-    expect(screen.getByText("2 из 1000")).toBeTruthy();
+    expect(screen.getByText("Сайтов: 2 из 1000")).toBeTruthy();
     expect(domains("Запрещённые: сайты")).toEqual(["example.com", "example.org"]);
     expect(field().value).toBe("");
     expect(document.activeElement).toBe(field());
@@ -177,6 +181,14 @@ describe("Сайты: добавление", () => {
     expect(document.activeElement).toBe(field());
   });
 
+  it("подсказка с примером под полем, поле ссылается на неё", async () => {
+    setup();
+    await screen.findByRole("tablist", { name: "Списки сайтов" });
+    const hint = screen.getByText(HINT);
+    expect(field().getAttribute("aria-describedby")).toBe(hint.id);
+    expect(hint.id).not.toBe("");
+  });
+
   it("отказы службы — у поля: не домен и повтор; поле не очищается; ввод снимает ошибку", async () => {
     const user = setup();
     await screen.findByRole("tablist", { name: "Списки сайтов" });
@@ -185,6 +197,11 @@ describe("Сайты: добавление", () => {
     expect(field().getAttribute("aria-invalid")).toBe("true");
     expect(field().value).toBe("просто текст");
     expect(document.activeElement).toBe(field());
+    // Ловит: подсказка-пример пропадает, когда появилась ошибка; диктор читает только ошибку.
+    const error = screen.getByRole("alert");
+    const hint = screen.getByText(HINT);
+    expect(field().getAttribute("aria-describedby")).toBe(`${error.id} ${hint.id}`);
+    expect(error.compareDocumentPosition(hint) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 
     await user.clear(field());
     expect(screen.queryByText("Это не похоже на адрес сайта")).toBeNull();
@@ -340,6 +357,61 @@ describe("Сайты: удаление и «Отменить»", () => {
     expect(document.activeElement).toBe(screen.getByRole("button", { name: "Удалить a.test" }));
   });
 
+  // Ловит: живая область появляется вместе с сообщением, и диктор пропускает «Удалён …».
+  it("живые области сообщений есть до действия, сообщение меняет только их текст", async () => {
+    const user = setup();
+    await screen.findByRole("tablist", { name: "Списки сайтов" });
+    const list = listStatus();
+    expect(list.textContent).toBe("");
+    const adult = within(screen.getByRole("region", { name: "Блокировать сайты 18+" })).getByRole("status");
+    expect(adult.textContent).toBe("");
+    await user.click(screen.getByRole("button", { name: "Удалить example.com" }));
+    expect(await within(list).findByText("Удалён example.com")).toBeTruthy();
+    expect(listStatus()).toBe(list);
+    expect(within(list).getByRole("button", { name: "Отменить" })).toBeTruthy();
+    // Внутри живой области нет второй: одна область на место сообщения.
+    expect(list.querySelectorAll('[role="status"], [role="alert"]')).toHaveLength(0);
+    await user.click(checkbox("Миша"));
+    expect(await within(adult).findByText("Миша: сайты 18+ не блокируются")).toBeTruthy();
+    expect(within(screen.getByRole("region", { name: "Блокировать сайты 18+" })).getByRole("status")).toBe(adult);
+  });
+
+  // Ловит: вкладка переключается, пока служба удаляет сайт, и «Удалён …» показывается не на своей вкладке.
+  it("пока идёт запрос, вкладки не переключаются ни мышью, ни стрелками", async () => {
+    const user = setup();
+    await screen.findByRole("tablist", { name: "Списки сайтов" });
+    const g = gate("RemoveSite");
+    await user.click(screen.getByRole("button", { name: "Удалить example.com" }));
+    await user.click(tab("Учёба 1"));
+    expect(tab("Запрещённые 1").getAttribute("aria-selected")).toBe("true");
+    expect(tab("Учёба 1").getAttribute("aria-selected")).toBe("false");
+    act(() => tab("Запрещённые 1").focus());
+    await user.keyboard("{ArrowRight}");
+    expect(tab("Запрещённые 1").getAttribute("aria-selected")).toBe("true");
+    expect(document.activeElement).toBe(tab("Запрещённые 1"));
+    await g.open();
+    expect(await within(listStatus()).findByText("Удалён example.com")).toBeTruthy();
+    expect(tab("Запрещённые 0").getAttribute("aria-selected")).toBe("true");
+    // После ответа вкладки снова переключаются.
+    await user.click(tab("Учёба 1"));
+    expect(tab("Учёба 1").getAttribute("aria-selected")).toBe("true");
+  });
+
+  // Ловит: набранный во «Запрещённых» адрес уходит в «Учёбу», потому что поле не очистилось.
+  it("смена вкладки очищает поле «Добавить сайт»", async () => {
+    const user = setup();
+    await screen.findByRole("tablist", { name: "Списки сайтов" });
+    await user.type(field(), "vk.com");
+    await user.click(tab("Учёба 1"));
+    expect(field().value).toBe("");
+    await user.type(field(), "uchi.ru");
+    act(() => tab("Учёба 1").focus());
+    await user.keyboard("{ArrowRight}");
+    expect(tab("Видео и соцсети 1").getAttribute("aria-selected")).toBe("true");
+    expect(field().value).toBe("");
+    expect(addCalls()).toEqual([]);
+  });
+
   it("смена вкладки убирает сообщение списка, ошибку поля и поиск", async () => {
     const user = setup();
     await screen.findByRole("tablist", { name: "Списки сайтов" });
@@ -445,6 +517,6 @@ describe("Сайты: загрузка и ошибки", () => {
     render(<Sites />);
     expect(await screen.findByText("Запрещённых сайтов пока нет")).toBeTruthy();
     expect(tabTexts()).toEqual(["Запрещённые 0", "Учёба 0", "Видео и соцсети 0"]);
-    expect(screen.getByText("0 из 1000")).toBeTruthy();
+    expect(screen.getByText("Сайтов: 0 из 1000")).toBeTruthy();
   });
 });

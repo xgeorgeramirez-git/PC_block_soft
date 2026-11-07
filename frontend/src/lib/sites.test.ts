@@ -6,6 +6,7 @@ import {
   DEFAULT_VIDEO_SITES,
   DUPLICATE_TEXT,
   NOT_DOMAIN_TEXT,
+  SITE_HINT_TEXT,
   SITE_LISTS,
   cleanDomain,
   filterSites,
@@ -93,10 +94,14 @@ describe("списки и поиск", () => {
 });
 
 describe("подпись источника «18+» для показа", () => {
-  // Ловит: в окне 960 px «4.0» уходит одна на новую строку.
-  it("«лицензия CC BY-SA 4.0» через неразрывные пробелы, остальной текст тот же", () => {
+  // Ловит: в окне 960 px «4.0» уходит одна на новую строку или «BY-SA» рвётся на дефисе.
+  it("«лицензия CC BY-SA 4.0» через неразрывные пробелы и неразрывный дефис, остальной текст тот же", () => {
     const shown = sourceDisplay(ADULT_SOURCE_TEXT);
-    expect(shown).toContain("лицензия\u00a0CC\u00a0BY-SA\u00a04.0");
-    expect(shown.replace(/\u00a0/g, " ")).toBe(ADULT_SOURCE_TEXT);
+    expect(shown).toContain("лицензия\u00a0CC\u00a0BY\u2011SA\u00a04.0");
+    expect(shown).not.toContain("BY-SA");
+    expect(shown.replace(/\u00a0/g, " ").replace(/\u2011/g, "-")).toBe(ADULT_SOURCE_TEXT);
+  });
+  it("подсказка поля «Добавить сайт» с примером", () => {
+    expect(SITE_HINT_TEXT).toBe("Можно вставить адрес страницы целиком: программа возьмёт из него только сайт. Например: youtube.com");
   });
 });
