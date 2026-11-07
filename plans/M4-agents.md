@@ -49,4 +49,6 @@
 | T10b возврат №1 (S46) | ab027f8ad700f5cf2 | writer | done | c9cef7c: считать только тестовые пакеты, настоящий Edge — notice | 1 |
 | windows.yml S46,S33,FB1,FB5,S27,S12,S14,S15 | — | orchestrator | done | 42350057841 PASS все 8; тесты Go на Windows зелёные (B-20 на P2b); настоящий Edge раннера — одна строка с ключом без версии | — |
 | ревью фронта, приёмки, CI | abaea4d108c494e33 | reviewer | done | With fixes: 2 Important (S17 (в) не доказывает закрытие настоящей вкладки; фокус после «Убрать» в мастере), 12 Minor → пакет F2 вместе с визуальной приёмкой | — |
-| F1 фиксы по ревью Go | a92e480685975a168 | writer | running | — | — |
+| F1 фиксы по ревью Go | a92e480685975a168 | writer | done | 9b8919e…5de80ca + возврат №1 d146661 (установщик обновления Brave); 8 пунктов TDD, мутации; WebView2 в папке Edge — «система»; Temp\setup.exe Chromium — до F1 тоже «незнакомая» → бэклог M5 | 1 |
+| windows.yml PROBE,S16,S17,S18 (после F1) | — | orchestrator | done | 42351831545 PASS; закрытие вкладки 1,0 с; процессор Brave 60 с — 531 мс у теста | — |
+| F2 фиксы интерфейса и приёмки | a2df8eb9f7770bb0a | writer | running | — | — |
