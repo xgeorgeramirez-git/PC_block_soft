@@ -433,7 +433,7 @@ func (c *Controller) runCloses(cmds Commands, now time.Time) {
 	var look TabLook
 	safely(func() { look = actor.Look() })
 	if domSet && test && look.Brave {
-		look.Domain, look.Unread = domText, false
+		look.Domain, look.Unread, look.NoAddress = domText, false, false
 	}
 	way, next := nextClose(ladder, cmds.CloseTab, cmds.CloseWindow, look, now)
 	if way == "" {

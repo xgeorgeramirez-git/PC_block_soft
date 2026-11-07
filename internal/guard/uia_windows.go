@@ -687,7 +687,8 @@ func (r *braveReader) ensure(u uia, hwnd windows.HWND) error {
 // Read читает окно Brave hwnd (braveRead): текст поля адреса и его фокус клавиатуры, адрес
 // документа активной вкладки (ревью M4 F1-4: основной источник домена) и RuntimeId выбранной
 // вкладки. У окна без поля адреса (сайт-приложение, всплывающее окно) — только адрес документа.
-// Ошибка поля адреса — кэш сброшен, итог пустой (PL-9); документ или вкладка не нашлись — их поля
+// Ни поля адреса, ни Document (или у них нет ValuePattern) — errNoAddress; другая ошибка — сбой
+// UIA. Ошибка поля адреса — кэш сброшен, итог пустой (PL-9); документ или вкладка не нашлись — их поля
 // «» (поле адреса остаётся запасным путём). Итог задача пишет в свою переменную res: после
 // errUIATimeout вызывающий её не читает, а поздняя задача не трогает его переменные.
 func (r *braveReader) Read(hwnd windows.HWND) (braveRead, error) {
@@ -714,6 +715,9 @@ func (r *braveReader) Read(hwnd windows.HWND) (braveRead, error) {
 		res.Document, res.Tab = activeTabAddress(u, hwnd)
 		return nil
 	})
+	if errors.Is(err, errUIANotFound) || errors.Is(err, errUIANoPattern) {
+		return braveRead{}, errNoAddress // дерево прочитано, адреса в нём нет: не сбой UIA (PL-9)
+	}
 	if err != nil {
 		return braveRead{}, err
 	}

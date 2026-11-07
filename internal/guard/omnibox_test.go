@@ -88,7 +88,7 @@ func TestDomainMemoRead(t *testing.T) {
 		{4, omni("x.ru", true), nil, "", false},
 	}
 	for i, s := range steps {
-		got, unread := m.Read(s.hwnd, s.rd, s.err)
+		got, unread, _ := m.Read(s.hwnd, s.rd, s.err)
 		if got != s.want || unread != s.wantUnread {
 			t.Errorf("шаг %d: Read(%d, %+v, %v) = (%q, %v), want (%q, %v)",
 				i, s.hwnd, s.rd, s.err, got, unread, s.want, s.wantUnread)
@@ -116,7 +116,7 @@ func TestDomainMemoPrefersDocument(t *testing.T) {
 		{braveRead{Omnibox: "evil.ru", HasOmnibox: true, Focused: true}, "c.ru"}, // вкладка не прочитана — не смена
 	}
 	for i, s := range steps {
-		if got, unread := m.Read(1, s.rd, nil); got != s.want || unread {
+		if got, unread, _ := m.Read(1, s.rd, nil); got != s.want || unread {
 			t.Errorf("шаг %d: Read(%+v) = (%q, %v), want (%q, false)", i, s.rd, got, unread, s.want)
 		}
 	}
@@ -175,8 +175,33 @@ func TestFallbackDomain(t *testing.T) {
 		{braveRead{Document: "https://app.example/"}, "app.example", false},
 	}
 	for i, s := range steps {
-		if got, unread := m.Read(5, s.rd, nil); got != s.want || unread != s.wantUnread {
+		if got, unread, _ := m.Read(5, s.rd, nil); got != s.want || unread != s.wantUnread {
 			t.Errorf("шаг %d: Read(%+v) = (%q, %v), want (%q, %v)", i, s.rd, got, unread, s.want, s.wantUnread)
+		}
+	}
+}
+
+// Ловит (ревью M4 F1-7, PL-9): «у окна нет адреса» (поле адреса и Document не нашлись, у Document
+// пустой адрес) и сбой UIA (ошибка, нет ответа) неразличимы для закрытия окна.
+func TestDomainMemoNoAddress(t *testing.T) {
+	var m domainMemo
+	steps := []struct {
+		rd         braveRead
+		err        error
+		want       string
+		wantUnread bool
+		wantNoAddr bool
+	}{
+		{braveRead{}, errNoAddress, "", true, true},
+		{braveRead{}, errors.New("UIA: нет ответа"), "", true, false},
+		{braveRead{Document: " "}, nil, "", true, true},
+		{braveRead{Document: "https://a.ru/"}, nil, "a.ru", false, false},
+		{braveRead{Omnibox: "", HasOmnibox: true}, nil, "", false, false},
+	}
+	for i, s := range steps {
+		got, unread, noAddr := m.Read(1, s.rd, s.err)
+		if got != s.want || unread != s.wantUnread || noAddr != s.wantNoAddr {
+			t.Errorf("шаг %d: Read(%+v, %v) = (%q, %v, %v), want (%q, %v, %v)", i, s.rd, s.err, got, unread, noAddr, s.want, s.wantUnread, s.wantNoAddr)
 		}
 	}
 }

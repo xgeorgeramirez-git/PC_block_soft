@@ -64,7 +64,7 @@ func readRaw() RawSensors {
 	locked, known := sessionLocked()
 	raw := RawSensors{IdleMs: idleMs(), Fullscreen: windowIsFullscreen(fg), Locked: locked, LockUnknown: !known, ForegroundPath: foregroundPath(fg)}
 	if isBravePath(raw.ForegroundPath) {
-		raw.ForegroundDomain, raw.DomainUnread = braveDomain(windows.HWND(fg))
+		raw.ForegroundDomain, raw.DomainUnread, _ = braveDomain(windows.HWND(fg))
 	}
 	return raw
 }
@@ -78,8 +78,9 @@ var (
 
 // braveDomain — домен активной вкладки окна Brave fg и признак «адрес не прочитан». Адрес документа
 // и текст поля адреса живут только здесь и сразу превращаются в домен (R23). Основной источник —
-// адрес документа; поле в фокусе без него — прежний домен вкладки; ошибка UIA и окно без адреса — («», true) (PL-9, domainMemo.Read).
-func braveDomain(fg windows.HWND) (domain string, unread bool) {
+// адрес документа; поле в фокусе без него — прежний домен вкладки; ошибка UIA и окно без адреса —
+// («», true), у окна без адреса ещё noAddress: только его можно закрыть (PL-9, domainMemo.Read).
+func braveDomain(fg windows.HWND) (domain string, unread, noAddress bool) {
 	braveMu.Lock()
 	defer braveMu.Unlock()
 	if braveRd == nil {

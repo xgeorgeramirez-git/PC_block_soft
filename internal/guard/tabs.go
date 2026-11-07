@@ -18,7 +18,10 @@ type TabLook struct {
 	Brave  bool    // настоящий путь окна — brave.exe (isBravePath), не подмена TestForeground
 	Domain string  // домен активной вкладки (после подмены TestDomain в тестовом режиме)
 	Unread bool    // адрес не прочитан (domainMemo.Read)
-	Tabs   int     // вкладок в окне (UIA TabItem вне Document); 0 — не посчитаны
+	// NoAddress — адрес не прочитан, потому что у окна его нет (поле адреса и Document не нашлись,
+	// адрес документа пуст), а не из-за сбоя UIA. Только такое окно закрывается WM_CLOSE (PL-9).
+	NoAddress bool
+	Tabs      int // вкладок в окне (UIA TabItem вне Document); 0 — не посчитаны
 }
 
 // TabActor читает настоящий передний план и закрывает вкладку или окно Brave.
@@ -57,12 +60,13 @@ var ladderWays = [...]string{1: ipc.CloseTabCtrlW, 2: ipc.CloseTabInvoke, 3: ipc
 // Вкладка закрывается, только если на переднем плане Brave, адрес прочитан и домен вкладки тот же.
 // Шаг повышается, только если прошло tabRetryAfter, а вкладок не стало меньше (не посчитаны —
 // не стало); стало меньше — прошлое действие удалось, следующая вкладка того же сайта снова
-// закрывается Ctrl+W. Окно без адреса закрывается WM_CLOSE не чаще раза в tabRetryAfter.
+// закрывается Ctrl+W. Окно без адреса (NoAddress, не сбой UIA) закрывается WM_CLOSE не чаще раза в
+// tabRetryAfter.
 func nextClose(l tabLadder, domain string, closeWin bool, look TabLook, now time.Time) (way string, next tabLadder) {
 	if look.Window == 0 || !look.Brave {
 		return "", l
 	}
-	if closeWin && look.Unread {
+	if closeWin && look.Unread && look.NoAddress { // сбой UIA — ничего не закрывать (PL-9)
 		if l.step > 0 && l.domain == "" && l.window == look.Window && now.Sub(l.at) < tabRetryAfter {
 			return "", l
 		}

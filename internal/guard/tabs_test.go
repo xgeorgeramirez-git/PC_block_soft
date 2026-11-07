@@ -102,7 +102,7 @@ func TestNextCloseResetsWhenTabsDecreased(t *testing.T) {
 // Ловит (RM4-1, T7-6): окно Brave без адреса закрывалось бы, когда адрес уже прочитан, чаще раза в
 // 2 с или не в Brave.
 func TestNextCloseBraveWindow(t *testing.T) {
-	look := TabLook{Window: 7, Brave: true, Unread: true}
+	look := TabLook{Window: 7, Brave: true, Unread: true, NoAddress: true}
 	steps := []struct {
 		look    TabLook
 		at      time.Time
@@ -114,7 +114,7 @@ func TestNextCloseBraveWindow(t *testing.T) {
 		{TabLook{Window: 7, Brave: true, Unread: false}, at(5 * time.Second), ""},
 		{TabLook{Window: 7, Brave: false, Unread: true}, at(5 * time.Second), ""},
 		{TabLook{Window: 0, Brave: true, Unread: true}, at(5 * time.Second), ""},
-		{TabLook{Window: 9, Brave: true, Unread: true}, at(2500 * time.Millisecond), "wmClose"},
+		{TabLook{Window: 9, Brave: true, Unread: true, NoAddress: true}, at(2500 * time.Millisecond), "wmClose"},
 	}
 	var l tabLadder
 	for i, s := range steps {
@@ -305,7 +305,7 @@ func TestCloseTabRechecksForeground(t *testing.T) {
 // Ловит (RM4-1, T7-6): окно Brave без адреса не закрывается по closeBraveWindow или закрывается,
 // когда адрес уже прочитан.
 func TestCloseBraveWindowCommand(t *testing.T) {
-	r, f := tabRig(true, TabLook{Window: 7, Brave: true, Unread: true})
+	r, f := tabRig(true, TabLook{Window: 7, Brave: true, Unread: true, NoAddress: true})
 	r.svc.cmds = []ipc.GuardCommand{{Kind: ipc.GuardCmdCloseBraveWindow}}
 	r.ctl.PollOnce()
 	r.ctl.PushState()
@@ -441,5 +441,29 @@ func TestCloseTabForegroundChangedNotCounted(t *testing.T) {
 	r.ctl.PollOnce()
 	if got := f.got(); !sameCalls(got, "ctrlW 7", "ctrlW 7") {
 		t.Fatalf("вызовы %q; ждали два ctrlW 7 (первый шаг не засчитан)", got)
+	}
+}
+
+// Ловит (ревью M4 F1-7, PL-9): сбой UIA (ошибка, нет ответа, занят) неотличим от окна без адреса —
+// при исчерпанном видео окно Brave со страницами закрывается WM_CLOSE целиком, хотя адрес просто
+// не прочитан. Окно, у которого адреса нет, закрывается как раньше.
+func TestCloseBraveWindowOnlyWithoutAddress(t *testing.T) {
+	r, f := tabRig(true, TabLook{Window: 7, Brave: true, Unread: true})
+	for i := 0; i < 5; i++ {
+		r.clk.Advance(time.Second)
+		r.svc.cmds = []ipc.GuardCommand{{Kind: ipc.GuardCmdCloseBraveWindow}}
+		r.ctl.PollOnce()
+	}
+	if got := f.got(); len(got) != 0 {
+		t.Fatalf("5 с сбоев UIA: вызовы %q, want нет", got)
+	}
+	f.mu.Lock()
+	f.look = TabLook{Window: 7, Brave: true, Unread: true, NoAddress: true}
+	f.mu.Unlock()
+	r.clk.Advance(time.Second)
+	r.svc.cmds = []ipc.GuardCommand{{Kind: ipc.GuardCmdCloseBraveWindow}}
+	r.ctl.PollOnce()
+	if got := f.got(); !sameCalls(got, "wmClose 7") {
+		t.Fatalf("окно без адреса: вызовы %q, want wmClose 7", got)
 	}
 }

@@ -1,6 +1,7 @@
 package guard
 
 import (
+	"errors"
 	"strings"
 
 	"pcblock/internal/sites"
@@ -59,6 +60,11 @@ const omniboxClassSuffix = "OmniboxViewViews"
 // OmniboxViewViews, регистр важен: так пишет Chromium).
 func isOmniboxClass(class string) bool { return strings.HasSuffix(class, omniboxClassSuffix) }
 
+// errNoAddress — у окна Brave нет адреса: дерево доступности прочитано, а ни поля адреса, ни
+// Document в нём нет (окно «Картинка в картинке», свежее окно с холодным деревом). Это не сбой UIA
+// (ошибка, нет ответа, занят): только такое окно можно закрыть WM_CLOSE (ревью M4 F1-7, PL-9).
+var errNoAddress = errors.New("у окна Brave нет адреса")
+
 // braveRead — одно чтение окна Brave (braveReader.Read). Тексты живут только до domainMemo.Read и
 // дальше не идут (R23).
 type braveRead struct {
@@ -72,35 +78,36 @@ type braveRead struct {
 	Tab           string // RuntimeId выбранной вкладки; «» — не прочитан
 }
 
-// Read — домен окна hwnd по одному чтению braveReader.Read и признак «адрес не прочитан» (RM4-1,
-// RK5, ревью M4 F1-4). Ошибка UIA — («», true) и память окна забыта. Основной источник — адрес
-// документа активной вкладки (http:// или https://): текст поля адреса ребёнок может набрать и не
-// открыть. Нет такого адреса — поле адреса (в фокусе — прошлый домен этой вкладки, Next); смена
-// выбранной вкладки (RuntimeId) забывает прошлый домен окна; у окна нет поля адреса, а адрес
-// документа пуст — («», true). Запасные источники (OmniboxByEdit, Document без поля адреса) дают
-// домен только из http:// и https:// (webOnly, ревью M4 F1-6). Служебная страница, поисковая
-// фраза, file: дают («», false) — адрес прочитан, сайта нет. Тексты дальше этой функции не идут
+// Read — домен окна hwnd по одному чтению braveReader.Read, признак «адрес не прочитан» и признак
+// «у окна нет адреса» (RM4-1, RK5, ревью M4 F1-4, F1-6, F1-7). Основной источник — адрес документа
+// активной вкладки (http:// или https://): текст поля адреса ребёнок может набрать и не открыть.
+// Нет такого адреса — поле адреса (в фокусе — прошлый домен этой вкладки, Next); смена выбранной
+// вкладки (RuntimeId) забывает прошлый домен окна. Запасные источники (OmniboxByEdit, Document без
+// поля адреса) дают домен только из http:// и https:// (webOnly). Ошибка errNoAddress и окно без
+// поля адреса с пустым адресом документа — («», true, true): адреса нет; другая ошибка (сбой UIA)
+// — («», true, false); при ошибке память окна забыта (PL-9). Служебная страница, поисковая фраза,
+// file: дают («», false, false) — адрес прочитан, сайта нет. Тексты дальше этой функции не идут
 // (R23).
-func (m *domainMemo) Read(hwnd uintptr, rd braveRead, err error) (domain string, unread bool) {
+func (m *domainMemo) Read(hwnd uintptr, rd braveRead, err error) (domain string, unread, noAddress bool) {
 	if err != nil {
 		m.Next(hwnd, "", false, err)
-		return "", true
+		return "", true, errors.Is(err, errNoAddress)
 	}
 	m.switchTab(hwnd, rd.Tab)
 	if isWebAddress(rd.Document) {
-		return m.Next(hwnd, rd.Document, false, nil), false // адрес страницы, а не набранный текст
+		return m.Next(hwnd, rd.Document, false, nil), false, false // адрес страницы, а не набранный текст
 	}
 	if rd.HasOmnibox {
 		text := rd.Omnibox
 		if rd.OmniboxByEdit {
 			text = webOnly(text)
 		}
-		return m.Next(hwnd, text, rd.Focused, nil), false
+		return m.Next(hwnd, text, rd.Focused, nil), false, false
 	}
 	if strings.TrimSpace(rd.Document) == "" {
-		return "", true
+		return "", true, true
 	}
-	return m.Next(hwnd, webOnly(rd.Document), false, nil), false
+	return m.Next(hwnd, webOnly(rd.Document), false, nil), false, false
 }
 
 // switchTab забывает домен окна hwnd, если выбрана другая вкладка (RuntimeId tab; «» — не прочитан,

@@ -23,7 +23,7 @@ func (winTabs) Look() TabLook {
 		return look
 	}
 	look.Brave = true
-	look.Domain, look.Unread = braveDomain(windows.HWND(fg))
+	look.Domain, look.Unread, look.NoAddress = braveDomain(windows.HWND(fg))
 	if !look.Unread {
 		look.Tabs = braveTabCount(windows.HWND(fg))
 	}
