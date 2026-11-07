@@ -11,6 +11,9 @@
 # (б) Учёба: 10 мин на study-site.test не тратят общий лимит (R3), идут в учёбу строкой сайта (RM4-7), не закрыты.
 # (в) Запасная ветка подмены домена (PL-41, T10-8): на настоящей вкладке probe-two.test подмена TestGuard domain
 #     даёт forbidden-site.test, служба просит закрыть, страж закрывает настоящую активную вкладку; подмена сразу снята.
+#     Что закрыта именно настоящая вкладка, доказывает то, что после снятия подмены: окно Brave на месте, активна
+#     вкладка, которая была активной до открытия probe-two.test (study-site.test из (б): соседняя слева), способ
+#     закрытия ctrlW или invoke (как в Wait-TabClosed; wmClose закрыл бы окно целиком).
 # Снимок: s17-site-plate.png.
 $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "common.ps1")
@@ -112,6 +115,9 @@ Invoke-Scenario "S17" "Поддомен запрещённого сайта за
   }
 
   Step "(в) Подмена домена: настоящая вкладка probe-two.test закрыта как forbidden-site.test" {
+    # Вкладка, которая станет активной, когда закроется probe-two.test (последняя вкладка окна, соседняя слева).
+    $before = [string](Get-GuardState).foregroundDomain
+    Assert-That ($before -ne "" -and $before -ne "probe-two.test") "До открытия probe-two.test активная вкладка «$before», ждали домен вкладки из (б)"
     $sw = Open-Brave "http://probe-two.test/"
     [void](Wait-BraveDomain "probe-two.test" 15)
     $g0 = Get-GuardState
@@ -132,7 +138,21 @@ Invoke-Scenario "S17" "Поддомен запрещённого сайта за
       Invoke-TestGuard "domain"
     }
     if ([string]$g.closedTab -ne $script:F) { throw "За 6 с подмены домена $($script:F) вкладка не закрыта; $(Get-SiteDiag $g)" }
-    Write-Log ("Подмена домена: вкладка закрыта за {0} мс от подмены, способ {1}" -f $closeMs, $g.closedTabWay)
+    $way = [string]$g.closedTabWay
+    Write-Log ("Подмена домена: вкладка закрыта за {0} мс от подмены, способ {1}" -f $closeMs, $way)
+    # Закрыта настоящая вкладка: после снятия подмены страж видит прежнюю вкладку, окно Brave на месте.
+    try {
+      [void](Wait-BraveDomain $before 5)
+    } catch {
+      throw "(в) После подмены и её снятия активной не стала вкладка $before, которая была активной до probe-two.test (закрыто окно или не та вкладка); $($_.Exception.Message)"
+    }
+    $win = Get-BraveWindow
+    if ($null -eq $win) { throw "(в) После закрытия вкладки по подмене домена окна Brave нет (закрыто окно целиком, способ «$way»); $(Get-SiteDiag)" }
+    if ($way -ne "ctrlW" -and $way -ne "invoke") { throw "(в) Вкладка по подмене домена закрыта способом «$way», ждали ctrlW или invoke (wmClose закрывает окно целиком); $(Get-SiteDiag)" }
+    if ($way -eq "invoke") {
+      Write-Host "::warning title=Ctrl+W от SYSTEM::вкладка probe-two.test (подмена $($script:F)) закрыта кнопкой вкладки (invoke), Ctrl+W не сработал (Open T7)"
+    }
+    Write-Log "Подмена домена: после снятия активна $before, окно Brave: $win"
     $want = $script:TryPrefix + $script:F
     $sw = [Diagnostics.Stopwatch]::StartNew()
     $tries = @(Get-SiteEvents $script:TryKind $want)
