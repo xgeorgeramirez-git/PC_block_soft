@@ -44,9 +44,36 @@ function New-EdgeVersion([string]$Version) {
   return $exe
 }
 
-# Строки «Программ» и «Ждут решения» про msedge_proxy из папок Edge (версии и ключ).
+# Строка про msedge_proxy из папки пакета Edge (папка версии или ключ «имя__издатель»), где бы она ни лежала.
+function Test-EdgePath([string]$Path) {
+  return ($Path.Contains("\microsoft.microsoftedge.stable_") -and $Path.EndsWith("\msedge_proxy.exe"))
+}
+
+# Строки «Программ» и «Ждут решения» про msedge_proxy только из тестовых пакетов (TestMode\StoreRoot): на
+# раннере стоит настоящий Edge в Program Files\WindowsApps, снимок служба делает и по нему (прогон 42349120166),
+# его строка в подсчёт сценария не входит (Get-RealEdgeRows).
 function Select-EdgeRows($Rows) {
-  return @(@(List $Rows) | Where-Object { $p = ([string]$_.path); $p.Contains("\microsoft.microsoftedge.stable_") -and $p.EndsWith("\msedge_proxy.exe") })
+  $pre = $script:Store.ToLowerInvariant() + "\"
+  return @(@(List $Rows) | Where-Object { $p = ([string]$_.path); $p.StartsWith($pre) -and (Test-EdgePath $p) })
+}
+
+# Строки msedge_proxy вне тестовых пакетов: настоящий Edge раннера.
+function Get-RealEdgeRows($Rows) {
+  $pre = $script:Store.ToLowerInvariant() + "\"
+  return @(@(List $Rows) | Where-Object { $p = ([string]$_.path); -not $p.StartsWith($pre) -and (Test-EdgePath $p) })
+}
+
+# Настоящий Edge раннера — только в журнал и мягкой пометкой: если он в «Программах», строка одна и её путь без
+# версии (ключ «…\microsoft.microsoftedge.stable__8wekyb3d8bbwe\msedge_proxy.exe», programs_merge.go). Сценарий не роняет.
+function Write-RealEdge($List, [string]$When) {
+  $real = @(Get-RealEdgeRows $List.programs)
+  $realPend = @(Get-RealEdgeRows $List.pending)
+  Write-Log "${When}: настоящий Edge раннера (вне StoreRoot, в подсчёт не входит): программы $(Format-Rows $real); ждут решения $(Format-Rows $realPend)"
+  if ($real.Count -eq 0) { return }
+  $tail = "\$($script:EdgePkg.ToLowerInvariant())__$($script:EdgePub)\msedge_proxy.exe"
+  $ok = ($real.Count -eq 1 -and ([string]$real[0].path).EndsWith($tail))
+  $how = if ($ok) { "одна строка с ключом без версии" } else { "НЕ одна строка с ключом без версии" }
+  Write-Host "::notice title=S46 настоящий Edge раннера::${When}: $how ($(Format-Rows $real))"
 }
 
 function Format-Rows($Rows) {
@@ -89,8 +116,9 @@ Invoke-Scenario "S46" "Приложение магазина: одна стро�
     Assert-That ($bad -notmatch 'StoreRoot должен быть') "Служба не приняла StoreRoot: $bad"
     Write-Log "Журнал работы про тестовый режим: $bad"
     $list = Get-ProgramsList
+    Write-RealEdge $list "После настройки"
     $edge = @(Select-EdgeRows $list.programs) + @(Select-EdgeRows $list.pending)
-    Assert-That ($edge.Count -eq 0) "Снимок при настройке сам добавил строки msedge_proxy (манифесты без <Applications>): $(Format-Rows $edge)"
+    Assert-That ($edge.Count -eq 0) "Снимок при настройке сам добавил строки msedge_proxy тестовых пакетов StoreRoot (манифесты без <Applications>): $(Format-Rows $edge)"
     $script:ChildId = Use-Parent { Get-ChildId }
   }
 
@@ -134,6 +162,7 @@ Invoke-Scenario "S46" "Приложение магазина: одна стро�
     $rows = @(Select-EdgeRows $list.programs)
     $pend = @(Select-EdgeRows $list.pending)
     Write-Log "После слияния: программы $(Format-Rows $rows); ждут решения $(Format-Rows $pend)"
+    Write-RealEdge $list "После слияния"
     Assert-That ($rows.Count -eq 1) "Строк msedge_proxy после слияния: $($rows.Count), ждали 1: $(Format-Rows $rows)"
     $r = $rows[0]
     Assert-That ([string]$r.path -eq $script:EdgeKey) "Путь строки «$($r.path)», ждали ключ без версии «$($script:EdgeKey)»"
