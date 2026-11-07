@@ -6,8 +6,10 @@
 # Дано: общий лимит 60 мин, видео и соцсети 20 мин; youtube.com в стартовом наборе «Видео и соцсетей» (R14, из
 # ответа программы). Когда: 20 мин youtube.com на переднем плане. Тогда: предупреждения видео 15, 5, 1 (30 при
 # лимите ровно 20 мин не взводится, PL-14; общих порогов нет: общего остаётся 40 мин), звук на каждом; в 0 видео
-# вкладка youtube.com закрыта не позже 2 с (допуск раннера 3 с), активна probe-site.test, плашка «Время на видео и
-# соцсети на сегодня закончилось. Общего времени осталось 40 мин» (±1 мин часов ядра), экрана блокировки нет;
+# вкладка youtube.com закрыта не позже 2 с (допуск раннера 3 с) от момента записи журнала «закрыт сайт youtube.com: …»
+# (решение службы закрыть, поле atMs события, а не момент, когда сценарий заметил closeVideo), активна
+# probe-site.test, плашка «Время на видео и соцсети на сегодня закончилось. Общего времени осталось 40 мин»
+# (±1 мин часов ядра), экрана блокировки нет;
 # другие сайты открываются; повторное открытие youtube.com снова закрыто с той же плашкой; в журнале «закрыт сайт
 # youtube.com: время на видео и соцсети закончилось», без нарушений и обхода.
 # Снимки: s18-video-board.png (табло на пороге 15: заголовок «ОСТАЛОСЬ НА ВИДЕО:», разбирает visual-reviewer),
@@ -83,8 +85,23 @@ Invoke-Scenario "S18" "Видео и соцсети 20 мин из 60: пред�
   Step "2. Видео кончилось: вкладка youtube.com закрыта, плашка, экрана нет, остатки" {
     $st = Wait-Status { param($st) $st.closeVideo } 60 "видео закрыто (closeVideo)"
     $since = [Diagnostics.Stopwatch]::StartNew()
-    Suspend-Clock
-    Write-Log "Видео закрыто: остаток видео $($st.videoRemainingS) с, общий $($st.remainingS) с; часы остановлены"
+    # Часы ядра на паузу; nowMs ответа — часы ядра в момент паузы, pauseMs — настоящее время до команды (мс от
+    # $since): по ним момент события журнала (часы ядра) переводится в настоящее время.
+    $pauseMs = [int64]$since.ElapsedMilliseconds
+    $script:ClockPausedByUs = $true
+    $clk = Set-ClockPaused $true
+    $pauseCoreMs = [int64]$clk.nowMs
+    $speed = [int]$clk.speed
+    Write-Log "Видео закрыто: остаток видео $($st.videoRemainingS) с, общий $($st.remainingS) с; часы остановлены ($pauseMs мс после closeVideo, часы ядра $pauseCoreMs, скорость $speed)"
+    # Момент, когда страж впервые показал закрытую вкладку youtube.com (мс от $since).
+    $closedMs = [int64]-1
+    $g = $null
+    while ($since.Elapsed.TotalSeconds -lt 8) {
+      $g = Get-GuardState
+      if ([string]$g.closedTab -eq $script:Video) { $closedMs = [int64]$since.ElapsedMilliseconds; break }
+      Start-Sleep -Milliseconds 50
+    }
+    if ($closedMs -lt 0) { throw "Вкладка $($script:Video) не закрыта за 8 с после closeVideo; $(Get-SiteDiag $g)" }
     [void](Wait-TabClosed $script:Video $since)
     $g = Wait-SitePlate $script:VideoOverRe "videoOver" 5 -Regex
     Assert-That (-not $g.lockShown) "Экран блокировки показан, ждали только плашку: $(Format-GuardState $g)"
@@ -100,6 +117,17 @@ Invoke-Scenario "S18" "Видео и соцсети 20 мин из 60: пред�
     $rows = @(@(List $m.programs) | Where-Object { [string]$_.kind -eq "site" -and [string]$_.path -eq $script:Video -and [string]$_.category -eq "video_social" })
     $shown = (@(List $m.programs) | ForEach-Object { "$($_.kind):$($_.path):$($_.category)=$($_.seconds)" }) -join ' | '
     Assert-That ($rows.Count -eq 1) "Строка сайта youtube.com в «Видео и соцсетях» (kind site): $($rows.Count), ждали 1; строки: $shown"
+    # NFR-6 от события: журнал читается после плашки и снимка (родительская сессия прячет плашки, Ruling 19).
+    $ev = @(Get-SiteEvents "site_closed_video" $script:ClosedText | Sort-Object { [int64]$_.atMs })
+    if ($ev.Count -lt 1) { throw "В журнале нет «$($script:ClosedText)»: замерить закрытие от события нечем; $(Get-SiteDiag)" }
+    $evCoreMs = [int64]$ev[0].atMs
+    # Событие до паузы: на (часы ядра в паузе − момент события) / скорость раньше паузы. Событие в паузе (часы
+    # стоят, atMs = моменту паузы) — не раньше паузы: отсчёт от паузы (замер не меньше настоящего).
+    $lagMs = [Math]::Max([int64]0, $pauseCoreMs - $evCoreMs) / [Math]::Max(1, $speed)
+    $eventMs = $pauseMs - $lagMs
+    $fromEvent = [int64][Math]::Ceiling($closedMs - $eventMs)
+    Write-Log ("NFR-6: вкладка {0} закрыта через {1} мс после события журнала (событие {2:N0} мс от closeVideo: часы ядра события {3}, паузы {4}, скорость {5}; закрытие замечено через {6} мс от closeVideo)" -f $script:Video, $fromEvent, $eventMs, $evCoreMs, $pauseCoreMs, $speed, $closedMs)
+    Assert-That ($fromEvent -le $script:TabToleranceMs) ("Вкладка {0} закрыта через {1} мс после события журнала «{2}», допуск раннера {3} мс (NFR-6: 2000 мс); событие {4:N0} мс от closeVideo (часы ядра события {5}, паузы {6}, скорость {7}), закрытие замечено через {8} мс" -f $script:Video, $fromEvent, $script:ClosedText, $script:TabToleranceMs, $eventMs, $evCoreMs, $pauseCoreMs, $speed, $closedMs)
   }
 
   Step "3. Другие сайты открываются; youtube.com снова закрыт с той же плашкой" {
