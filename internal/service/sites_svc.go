@@ -211,6 +211,9 @@ func (s *Service) siteGuard(cs *childState, ss *sessState, session uint32, sm ip
 		return
 	}
 	if sm.DomainUnread {
+		if cs.unreadSince.IsZero() {
+			cs.unreadSince = real
+		}
 		s.noteUnread(cs, session, real)
 	}
 	d := cs.eng.Current()
@@ -246,9 +249,6 @@ func (s *Service) siteGuard(cs *childState, ss *sessState, session uint32, sm ip
 		}
 	case cls == siteNone && sm.DomainUnread && (d.StudyOnly || d.CloseVideo):
 		// Окно без адреса (S-3): закрыть, только если адрес не читается подряд unreadCloseAfter.
-		if cs.unreadSince.IsZero() {
-			cs.unreadSince = real
-		}
 		if real.Sub(cs.unreadSince) >= unreadCloseAfter {
 			s.guardCmd[session] = append(s.guardCmd[session], ipc.GuardCommand{Kind: ipc.GuardCmdCloseBraveWindow})
 		}
@@ -278,9 +278,11 @@ func (s *Service) sitePlate(session uint32, childID int64, key string, plate ipc
 }
 
 // noteUnread записывает, что адрес вкладки Brave не читается (RM4-1, RK5): в журнал родителя раз в
-// день учёта на ребёнка (память только в службе), в журнал работы раз в unreadLogEvery на сеанс.
+// день учёта на ребёнка (память только в службе) и только если адрес не читается подряд не меньше
+// unreadCloseAfter (свежее окно строит дерево доступности до 3,5 с — это не сбой), в журнал работы
+// раз в unreadLogEvery на сеанс. cs.unreadSince уже поставлен. Под s.mu.
 func (s *Service) noteUnread(cs *childState, session uint32, real time.Time) {
-	if day := s.today(); s.unreadDay[cs.child.ID] != day {
+	if day := s.today(); s.unreadDay[cs.child.ID] != day && real.Sub(cs.unreadSince) >= unreadCloseAfter {
 		if s.unreadDay == nil {
 			s.unreadDay = map[int64]string{}
 		}

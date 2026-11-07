@@ -556,3 +556,29 @@ func TestSiteGuardAndWatchConcurrent(t *testing.T) {
 	}
 	<-done
 }
+
+// Ловит (ревью M4 F1-5): «не удалось прочитать адрес сайта в Brave» в журнале родителя после
+// короткого перерыва чтения (свежее окно строит дерево доступности до 3,5 с), а не только когда
+// адрес не читается подряд 5 с.
+func TestBraveUnreadJournalOnlyAfterCloseDelay(t *testing.T) {
+	h := siteHarness(t)
+	unread := braveSample("")
+	unread.DomainUnread = true
+	h.run(3, unread)
+	h.step(braveSample("school.example"))
+	if got := h.eventTexts("site_unread"); len(got) != 0 {
+		t.Fatalf("3 с без адреса, затем адрес прочитан: журнал родителя %q, want пусто", got)
+	}
+	h.run(5, unread)
+	if got := h.eventTexts("site_unread"); len(got) != 0 {
+		t.Fatalf("5 опросов (4 с подряд) без адреса: журнал родителя %q, want пусто", got)
+	}
+	h.step(unread)
+	if got := h.eventTexts("site_unread"); jsonOf(t, got) != jsonOf(t, []string{"Миша: не удалось прочитать адрес сайта в Brave"}) {
+		t.Errorf("6 опросов (5 с подряд) без адреса: журнал родителя %q, want одна запись", got)
+	}
+	h.run(10, unread)
+	if n := len(h.eventTexts("site_unread")); n != 1 {
+		t.Errorf("ещё 10 с без адреса: записей %d, want 1 (раз в день)", n)
+	}
+}
