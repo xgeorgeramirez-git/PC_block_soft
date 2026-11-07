@@ -47,3 +47,6 @@
 | ревью Go-диффа | a69cf7729d5c74a1e | reviewer | done | With fixes: 0 Critical, 5 Important (запрет каталога на папку издателя, «система» в папке Brave, Ctrl+W без сверки окна, домен из набранного текста, ложная запись «адрес не прочитан»), 5 Minor → пакет F1 | — |
 | windows.yml only=S46 | — | orchestrator | failed | 42349120166: проверка «нет строк msedge_proxy» задела настоящий Edge раннера (дефект скрипта) | — |
 | T10b возврат №1 (S46) | ab027f8ad700f5cf2 | writer | done | c9cef7c: считать только тестовые пакеты, настоящий Edge — notice | 1 |
+| windows.yml S46,S33,FB1,FB5,S27,S12,S14,S15 | — | orchestrator | done | 42350057841 PASS все 8; тесты Go на Windows зелёные (B-20 на P2b); настоящий Edge раннера — одна строка с ключом без версии | — |
+| ревью фронта, приёмки, CI | abaea4d108c494e33 | reviewer | done | With fixes: 2 Important (S17 (в) не доказывает закрытие настоящей вкладки; фокус после «Убрать» в мастере), 12 Minor → пакет F2 вместе с визуальной приёмкой | — |
+| F1 фиксы по ревью Go | a92e480685975a168 | writer | running | — | — |
