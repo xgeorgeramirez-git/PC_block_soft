@@ -274,7 +274,7 @@ func (s *Service) reloadPrograms() bool {
 	}
 	entries := make([]programs.Entry, 0, len(list))
 	for _, p := range list {
-		entries = append(entries, programs.Entry{Path: p.Path, Name: p.Name, CustomName: p.CustomName, Category: p.Category, Fingerprint: p.Fingerprint, Publisher: p.Publisher, Hidden: p.Hidden})
+		entries = append(entries, programs.Entry{Path: p.Path, Name: p.Name, CustomName: p.CustomName, Category: p.Category, Fingerprint: p.Fingerprint, Publisher: p.Publisher, Hidden: p.Hidden, Parent: p.Source == ProgramSourceParent})
 	}
 	s.classifier.Reload(entries)
 	return true

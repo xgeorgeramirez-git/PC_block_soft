@@ -155,3 +155,39 @@ func TestBrowserCatalog(t *testing.T) {
 		}
 	}
 }
+
+// Ловит (ревью M4 F1-1, PL-18): запрет браузера из каталога (а не от родителя) расползся на
+// папку издателя: chrome «запрещено» по каталогу → корень «c:\program files\google» → новая
+// версия Google Диска запрещена; msedge «запрещено» → WebView2 в папке Edge запрещён. Решение
+// родителя наследуется корнем как раньше.
+func TestCatalogBrowserBlockNotInherited(t *testing.T) {
+	chrome := `c:\program files\google\chrome\application\chrome.exe`
+	drive90 := `c:\program files\google\drive file stream\90.0\googledrivefs.exe`
+	drive91 := `c:\program files\google\drive file stream\91.0\googledrivefs.exe`
+	edge := `c:\program files (x86)\microsoft\edge\application\msedge.exe`
+	c := NewClassifier(testRoots, DefaultCatalog)
+	c.Reload([]Entry{
+		{Path: chrome, Category: "blocked"},
+		{Path: drive90, Category: "other"},
+		{Path: edge, Category: "blocked"},
+	})
+	if got, want := c.Classify(drive91, "", ""), (Result{Verdict: VerdictAllow, Category: "other", Name: "googledrivefs"}); got != want {
+		t.Errorf("Google Диск 91 рядом с запрещённым по каталогу chrome: %+v, want %+v", got, want)
+	}
+	if got, want := c.Classify(chrome, "", ""), (Result{Verdict: VerdictForbidden, Category: "blocked", Known: true, Name: "chrome"}); got != want {
+		t.Errorf("сам chrome: %+v, want %+v", got, want)
+	}
+	for _, p := range []string{
+		`c:\program files (x86)\microsoft\edgewebview\application\130.0.2849.80\msedgewebview2.exe`,
+		`c:\program files (x86)\microsoft\edge\application\130.0.2849.80\msedgewebview2.exe`,
+	} {
+		if got, want := c.Classify(p, "", ""), (Result{Verdict: VerdictSystem, Name: "msedgewebview2"}); got != want {
+			t.Errorf("WebView2 %q при запрещённом по каталогу msedge: %+v, want %+v", p, got, want)
+		}
+	}
+	// Решение родителя «Запрещено» у chrome наследуется корнем, как у любой программы.
+	c.Reload([]Entry{{Path: chrome, Category: "blocked", Parent: true}, {Path: drive90, Category: "other"}})
+	if got, want := c.Classify(drive91, "", ""), (Result{Verdict: VerdictForbidden, Category: "blocked", Name: "googledrivefs"}); got != want {
+		t.Errorf("Google Диск 91 рядом с запрещённым родителем chrome: %+v, want %+v", got, want)
+	}
+}

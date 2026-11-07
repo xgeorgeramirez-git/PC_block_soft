@@ -140,3 +140,24 @@ func TestStudyOnlyKeepsBraveHelpers(t *testing.T) {
 		t.Errorf("обновлятор Brave в профиле: %v, want система", got)
 	}
 }
+
+// Ловит (ревью M4 F1-1): служба не передаёт классификатору, что категорию поставил родитель:
+// запрет chrome родителем перестаёт переходить на папку издателя, или запрет chrome из каталога
+// переходит на новую программу Google.
+func TestBrowserBlockInheritOnlyFromParent(t *testing.T) {
+	w := newWatcher()
+	h := watchHarness(t, w)
+	drive := `c:\program files\google\drive file stream\91.0\googledrivefs.exe`
+	classify := func() programs.Verdict {
+		h.svc.mu.Lock()
+		defer h.svc.mu.Unlock()
+		return h.svc.classifier.Classify(drive, "", "").Verdict
+	}
+	if got := classify(); got != programs.VerdictUnknown {
+		t.Errorf("Google Диск при запрете chrome из каталога: %v, want незнакомая", got)
+	}
+	h.setCategory(pathChrome, "blocked")
+	if got := classify(); got != programs.VerdictForbidden {
+		t.Errorf("Google Диск при запрете chrome родителем: %v, want запрещена", got)
+	}
+}

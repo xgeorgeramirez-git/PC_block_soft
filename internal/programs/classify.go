@@ -42,6 +42,10 @@ type Entry struct {
 	Fingerprint string // «размер:время изменения» (RM3-12); пусто — сверять не нужно
 	Publisher   string // издатель (CompanyName) решения в профиле: по нему решение переходит на новые версии (RM3-13)
 	Hidden      bool   // скрыта родителем (D-57): не закрывается и ничего не передаёт корню и профилю (RF9-2)
+	// Parent — категорию поставил родитель (source parent). Запрет браузера из каталога (не от
+	// родителя) корню приложения не передаётся: иначе «Запрещено» у chrome.exe досталось бы всем
+	// программам папки издателя (Google Диск, WebView2 рядом с Edge).
+	Parent bool
 }
 
 // Result — итог классификации.
@@ -129,7 +133,9 @@ func (e Entry) hidden() bool { return e.Hidden && e.Category != CatBlocked }
 
 // Reload заменяет список программ (после снимка и решений родителя). Пустой и непригодный путь
 // пропускается. Корень приложения считается по корням классификатора, а не берётся из базы:
-// наследование возможно только внутри Program Files. Скрытая программа (D-57) известна по
+// наследование возможно только внутри Program Files. Браузер из каталога (R15) без решения
+// родителя корню ничего не передаёт: chrome.exe «Запрещено» не делает запрещённым Google Диск.
+// Скрытая программа (D-57) известна по
 // точному пути, но не передаёт категорию корню приложения и профилю (RF9-2): иначе скрытие
 // запускалки решало бы судьбу соседних exe, в том числе самой игры.
 func (c *Classifier) Reload(entries []Entry) {
@@ -152,6 +158,9 @@ func (c *Classifier) Reload(entries []Entry) {
 				profile[key] = append(profile[key], profileRule{publisher: pub, category: e.Category})
 			}
 			continue
+		}
+		if _, browser := c.cat.ForbiddenBrowser(p); browser && !e.Parent {
+			continue // запрет браузера из каталога — только самому браузеру, не папке издателя
 		}
 		root := c.roots.AppRoot(p)
 		if r := inheritRank[e.Category]; root != "" && r > rank[root] {

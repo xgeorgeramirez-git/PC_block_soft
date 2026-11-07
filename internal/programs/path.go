@@ -106,11 +106,11 @@ func (r Roots) IsTrusted(path string) bool {
 }
 
 // IsSystem сообщает, что программа из класса «система» (RM3-1 п.1): папка Windows (в том числе
-// SystemApps оболочки), каталог установки PC Block, WebView2 и обновлятор Brave
-// («bravesoftware\update») внутри Program Files и пакеты
-// компонентов Windows в WindowsApps (издатель windowsPackagePublisher). Остальные приложения
-// Microsoft Store — не система (Д-3): ребёнок ставит их сам. Такие процессы наблюдатель не
-// трогает никогда, их секунды идут как «Прочее».
+// SystemApps оболочки), каталог установки PC Block, WebView2 (и msedgewebview2.exe в папке Edge),
+// обновлятор Brave («bravesoftware\update») внутри Program Files и пакеты компонентов Windows в
+// WindowsApps (издатель windowsPackagePublisher). Остальные приложения Microsoft Store — не система
+// (Д-3): ребёнок ставит их сам. Такие процессы наблюдатель не трогает никогда, их секунды идут как
+// «Прочее».
 func (r Roots) IsSystem(path string) bool {
 	p := Normalize(path)
 	if under(p, r.SystemRoot) || under(p, r.InstallDir) {
@@ -123,6 +123,10 @@ func (r Roots) IsSystem(path string) bool {
 		// Служебные части Brave в Program Files (T6-4): обновлятор и обработчик сбоев системного
 		// Brave; ребёнок туда писать не может.
 		if under(p, pf+`\microsoft\edgewebview`) || under(p, pf+`\`+braveDir+`\update`) {
+			return true
+		}
+		// WebView2 в папке версии Edge (PL-18): им пользуются чужие программы, он не браузер.
+		if under(p, pf+`\microsoft\edge\application`) && strings.HasSuffix(p, `\`+webView2Exe) {
 			return true
 		}
 	}
@@ -139,6 +143,9 @@ func (r Roots) IsSystem(path string) bool {
 	}
 	return false
 }
+
+// webView2Exe — имя файла WebView2: никогда не браузер и не запрещается (PL-18).
+const webView2Exe = "msedgewebview2.exe"
 
 // defenderDirs — папки Защитника Windows внутри %ProgramData% (RM3-13): его платформа обновляется
 // в папки версий, ребёнок туда писать не может.
