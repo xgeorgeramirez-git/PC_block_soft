@@ -522,6 +522,8 @@ describe("Wizard: шаг 5, сайты (FR-2, 8.3.1 п.5–7)", () => {
   const videoList = () => screen.getByRole("list", { name: "Видео и соцсети: сайты" });
   const domains = () => within(videoList()).getAllByRole("listitem").map((li) => li.querySelector(".sites-domain")?.textContent);
   const adult = () => screen.getByRole("group", { name: "Блокировать сайты 18+" });
+  const SITE_HINT = "Можно вставить адрес страницы целиком: программа возьмёт из него только сайт. Например: youtube.com";
+  const NOT_ADDED = "Сайт не добавлен: нажмите «Добавить» или очистите поле";
 
   async function toStep5(user: ReturnType<typeof userEvent.setup>, ...names: string[]) {
     await passStep1(user);
@@ -560,11 +562,11 @@ describe("Wizard: шаг 5, сайты (FR-2, 8.3.1 п.5–7)", () => {
     expect(domains()).toEqual(["youtube.com", "vk.com", "tiktok.com", "rutube.ru", "ok.ru", "telegram.org", "web.telegram.org", "discord.com", "twitch.tv"]);
   });
 
-  // Ловит: «Убрать» убирает не ту строку; новый сайт не по cleanDomain; поле не очищается.
-  it("убрать и добавить сайт: домен из адреса в конец списка, поле пусто, фокус в поле", async () => {
+  // Ловит: «Удалить» удаляет не ту строку; новый сайт не по cleanDomain; поле не очищается.
+  it("удалить и добавить сайт: домен из адреса в конец списка, поле пусто, фокус в поле", async () => {
     const user = setup();
     await toStep5(user);
-    await user.click(screen.getByRole("button", { name: "Убрать tiktok.com" }));
+    await user.click(screen.getByRole("button", { name: "Удалить tiktok.com" }));
     expect(domains()).toEqual(["youtube.com", "vk.com", "rutube.ru", "ok.ru", "telegram.org", "web.telegram.org", "discord.com", "twitch.tv"]);
     await user.type(siteField(), "https://Kids.Example/video");
     await user.click(screen.getByRole("button", { name: "Добавить" }));
@@ -574,6 +576,60 @@ describe("Wizard: шаг 5, сайты (FR-2, 8.3.1 п.5–7)", () => {
     expect(document.activeElement).toBe(siteField());
   });
 
+  // Ловит (ревью M4): после «Удалить» фокус теряется на странице, диктор не знает, где он.
+  it("фокус после «Удалить»: на «Удалить» следующей строки, у последней на предыдущей, без строк в поле", async () => {
+    const user = setup();
+    await toStep5(user);
+    await user.click(screen.getByRole("button", { name: "Удалить tiktok.com" }));
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Удалить rutube.ru" }));
+    await user.click(screen.getByRole("button", { name: "Удалить twitch.tv" }));
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Удалить discord.com" }));
+    for (const d of ["youtube.com", "vk.com", "rutube.ru", "ok.ru", "telegram.org", "web.telegram.org", "discord.com"]) {
+      await user.click(screen.getByRole("button", { name: `Удалить ${d}` }));
+    }
+    expect(screen.getByText("В этом списке пока нет сайтов")).toBeTruthy();
+    expect(document.activeElement).toBe(siteField());
+  });
+
+  it("подсказка с примером под полем «Добавить сайт», поле ссылается на неё", async () => {
+    const user = setup();
+    await toStep5(user);
+    const hint = screen.getByText(SITE_HINT);
+    expect(hint.id).not.toBe("");
+    expect(siteField().getAttribute("aria-describedby")).toBe(hint.id);
+  });
+
+  // Ловит (ревью M4): «Готово» молча выбрасывает набранный, но не добавленный сайт.
+  it("«Готово» с недобавленным сайтом в поле: ошибка у поля, шаг не завершается", async () => {
+    const user = setup();
+    await toStep5(user);
+    await user.type(siteField(), "kids.example");
+    await user.click(done());
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toBe(NOT_ADDED);
+    expect(siteField().getAttribute("aria-invalid")).toBe("true");
+    expect(siteField().getAttribute("aria-describedby")).toBe(`${alert.id} ${screen.getByText(SITE_HINT).id}`);
+    expect(document.activeElement).toBe(siteField());
+    expect(screen.getByText("Шаг 5 из 5")).toBeTruthy();
+    expect(mock.count("Setup")).toBe(0);
+    expect(siteField().value).toBe("kids.example");
+    // Очистил поле: «Готово» проходит, недобавленного сайта в списке нет.
+    await user.clear(siteField());
+    expect(screen.queryByText(NOT_ADDED)).toBeNull();
+    await user.click(done());
+    expect(await screen.findByText("Готово. Правила начнут действовать при следующем входе детей")).toBeTruthy();
+    expect(mock.calls.find((c) => c.command === "Setup")?.payload.sites.video).not.toContain("kids.example");
+  });
+
+  it("«Настрою позже» с недобавленным сайтом: поле не проверяется, sites не уходят", async () => {
+    const user = setup();
+    await toStep5(user);
+    await user.type(siteField(), "kids.example");
+    await user.click(later());
+    expect(await screen.findByText("Готово. Правила начнут действовать при следующем входе детей")).toBeTruthy();
+    expect(mock.calls.find((c) => c.command === "Setup")?.payload.sites).toBeUndefined();
+  });
+
   it("не домен и повтор: ошибка у поля, список прежний; Enter добавляет", async () => {
     const user = setup();
     await toStep5(user);
@@ -581,7 +637,8 @@ describe("Wizard: шаг 5, сайты (FR-2, 8.3.1 п.5–7)", () => {
     const alert = await screen.findByRole("alert");
     expect(alert.textContent).toBe("Это не похоже на адрес сайта");
     expect(siteField().getAttribute("aria-invalid")).toBe("true");
-    expect(siteField().getAttribute("aria-describedby")).toBe(alert.id);
+    // Подсказка с примером остаётся под ошибкой, поле ссылается на обе.
+    expect(siteField().getAttribute("aria-describedby")).toBe(`${alert.id} ${screen.getByText(SITE_HINT).id}`);
     expect(domains()).toHaveLength(9);
     await user.clear(siteField());
     expect(screen.queryByRole("alert")).toBeNull();
@@ -606,7 +663,7 @@ describe("Wizard: шаг 5, сайты (FR-2, 8.3.1 п.5–7)", () => {
     await toSites(user);
     expect(within(adult()).getAllByRole("checkbox")).toHaveLength(1);
     await user.click(within(adult()).getByRole("checkbox", { name: "Миша" }));
-    await user.click(screen.getByRole("button", { name: "Убрать tiktok.com" }));
+    await user.click(screen.getByRole("button", { name: "Удалить tiktok.com" }));
     await user.type(siteField(), "https://Kids.Example/video{Enter}");
     await user.click(done());
     expect(await screen.findByText("Готово. Правила начнут действовать при следующем входе детей")).toBeTruthy();
@@ -636,12 +693,31 @@ describe("Wizard: шаг 5, сайты (FR-2, 8.3.1 п.5–7)", () => {
     await passStep3(user);
     await user.selectOptions(screen.getByRole("combobox", { name: "Что это: Brave" }), "study");
     await toSites(user);
-    await user.click(screen.getByRole("button", { name: "Убрать youtube.com" }));
+    await user.click(screen.getByRole("button", { name: "Удалить youtube.com" }));
     await user.click(later());
     await screen.findByText("Готово. Правила начнут действовать при следующем входе детей");
     const sent = mock.calls.find((c) => c.command === "Setup")?.payload;
     expect(sent.sites).toBeUndefined();
     expect(sent.programs).toEqual([{ path: "c:\\program files\\bravesoftware\\brave-browser\\application\\brave.exe", category: "study" }]);
+  });
+
+  it("«Готово» с пробелами в поле проходит", async () => {
+    const user = setup();
+    await toStep5(user);
+    await user.type(siteField(), "   ");
+    await user.click(done());
+    expect(await screen.findByText("Готово. Правила начнут действовать при следующем входе детей")).toBeTruthy();
+  });
+
+  // Ловит (ревью M4): ошибка службы по видео дня уводит на шаг «Время», где поля видео нет, и теряется.
+  it("отказ службы по видео дня: ошибка остаётся на шаге 5", async () => {
+    const user = setup();
+    await toStep5(user);
+    mock.override("Setup", { ok: false, error: "Не больше 24 ч", field: "video.2" }, 1);
+    await user.click(done());
+    expect((await screen.findByRole("alert")).textContent).toBe("Не больше 24 ч");
+    expect(screen.getByText("Шаг 5 из 5")).toBeTruthy();
+    expect(mock.state.configured).toBe(false);
   });
 
   it("отказ службы по домену: снова шаг 5, ошибка у поля «Добавить сайт»", async () => {
@@ -660,7 +736,7 @@ describe("Wizard: шаг 5, сайты (FR-2, 8.3.1 п.5–7)", () => {
     const user = setup();
     await toStep5(user);
     await user.click(within(adult()).getByRole("checkbox", { name: "Миша" }));
-    await user.click(screen.getByRole("button", { name: "Убрать vk.com" }));
+    await user.click(screen.getByRole("button", { name: "Удалить vk.com" }));
     await user.type(siteField(), "kids.example{Enter}");
     await user.click(screen.getByRole("button", { name: "Назад" }));
     expect(await screen.findByText("Шаг 4 из 5")).toBeTruthy();

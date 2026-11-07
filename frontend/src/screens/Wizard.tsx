@@ -1,12 +1,20 @@
-import { useCallback, useEffect, useId, useRef, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type FormEvent } from "react";
 import { listAccounts, scanPrograms, setup } from "../api";
 import LimitsTable from "../components/LimitsTable";
 import Notice from "../components/Notice";
 import TextField from "../components/TextField";
 import { CallError, errorText } from "../lib/errors";
-import { limitErrorKey, templateLimits, validateLimits, wireLimits, type LimitColumn } from "../lib/limits";
+import { limitErrorKey, limitField, templateLimits, validateLimits, wireLimits, type LimitColumn } from "../lib/limits";
 import { validatePasswordPair, type PasswordPairErrors } from "../lib/password";
-import { ADULT_SOURCE_TEXT, DEFAULT_VIDEO_SITES, DUPLICATE_TEXT, NOT_DOMAIN_TEXT, cleanDomain, sourceDisplay } from "../lib/sites";
+import {
+  ADULT_SOURCE_TEXT,
+  DEFAULT_VIDEO_SITES,
+  DUPLICATE_TEXT,
+  NOT_DOMAIN_TEXT,
+  SITE_HINT_TEXT,
+  cleanDomain,
+  sourceDisplay,
+} from "../lib/sites";
 import type { Account, ProgramCategory, ScanProgramDTO, SetupProgram, SetupSites, WeekdayLimit } from "../types";
 
 interface Props {
@@ -51,6 +59,16 @@ export const SITES_NOTE =
   "Программа следит за сайтами в Brave. Другие браузеры у детей закрываются. Лимит на видео и соцсети можно задать позже в разделе «Дети», вкладка «Лимиты»";
 const VIDEO_NOTE = "Время на этих сайтах можно ограничить отдельно. Список можно изменить позже в разделе «Сайты»";
 const VIDEO_EMPTY = "В этом списке пока нет сайтов";
+/** «Готово», а в поле набран сайт, который не добавили: не выбрасывать его молча. */
+export const SITE_NOT_ADDED = "Сайт не добавлен: нажмите «Добавить» или очистите поле";
+
+/** Ошибка службы по полю дня, которое мастер показывает на шаге «Время» (видео там нет, T9-2). */
+function wizardLimitField(field: string): boolean {
+  const day = limitErrorKey(field);
+  if (!day) return false;
+  const weekday = Number(day.slice(day.indexOf(".") + 1));
+  return WIZARD_COLUMNS.some((c) => limitField(c, weekday) === day);
+}
 
 /** Что отправить службе с шага «Сайты» (FR-2): SID детей с выключенным «18+» и список видео целиком. */
 export function wizardSites(chosen: Account[], adultOn: Record<string, boolean>, video: string[]): SetupSites {
@@ -88,6 +106,10 @@ export default function Wizard({ onOpenSettings }: Props) {
   const siteInput = useRef<HTMLInputElement>(null);
   const siteInputId = useId();
   const siteNoteId = useId();
+  const siteHintId = useId();
+  const siteList = useRef<HTMLUListElement>(null);
+  /** После «Удалить»: номер строки, на «Удалить» которой встать (строк нет - в поле). */
+  const focusRow = useRef<number | null>(null);
 
   const heading = useRef<HTMLHeadingElement>(null);
   const firstStep = useRef(true);
@@ -211,6 +233,20 @@ export default function Wizard({ onOpenSettings }: Props) {
     siteInput.current?.focus();
   };
 
+  /** «Удалить» в строке: фокус на «Удалить» следующей строки, у последней - предыдущей, без строк - в поле. */
+  const removeVideoSite = (index: number) => {
+    focusRow.current = index;
+    setVideoSites((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  useLayoutEffect(() => {
+    const index = focusRow.current;
+    if (index === null) return;
+    focusRow.current = null;
+    const buttons = Array.from(siteList.current?.querySelectorAll<HTMLButtonElement>(".sites-row button") ?? []);
+    (buttons[Math.min(index, buttons.length - 1)] ?? siteInput.current)?.focus();
+  }, [videoSites]);
+
   /**
    * «Готово» отправляет изменённые отметки программ (если их не пропустили) и выбор шага «Сайты»;
    * «Настрою позже» на шаге «Сайты» - без sites: служба оставит «18+» всем и стартовый набор (FR-2).
@@ -218,6 +254,11 @@ export default function Wizard({ onOpenSettings }: Props) {
   const finish = async (withSites: boolean) => {
     if (!limitsValid()) {
       setStep(3);
+      return;
+    }
+    if (withSites && siteDraft.trim() !== "") {
+      setSiteError(SITE_NOT_ADDED);
+      siteInput.current?.focus();
       return;
     }
     setBusy(true);
@@ -233,7 +274,7 @@ export default function Wizard({ onOpenSettings }: Props) {
     } catch (e) {
       const field = e instanceof CallError ? (e.field ?? "") : "";
       const text = errorText(e);
-      const day = limitErrorKey(field);
+      const day = wizardLimitField(field) ? limitErrorKey(field) : null;
       if (field === "password") {
         setPwErrors({ password: text });
         setStep(1);
@@ -250,6 +291,7 @@ export default function Wizard({ onOpenSettings }: Props) {
         setFormError(text);
         setStep(4);
       } else {
+        // В том числе «video.N»: поля видео в мастере нет, ошибка остаётся на этом шаге.
         setFormError(text);
       }
     } finally {
@@ -516,7 +558,7 @@ export default function Wizard({ onOpenSettings }: Props) {
                 value={siteDraft}
                 disabled={busy}
                 aria-invalid={siteError ? "true" : undefined}
-                aria-describedby={siteError ? siteNoteId : undefined}
+                aria-describedby={siteError ? `${siteNoteId} ${siteHintId}` : siteHintId}
                 onChange={(e) => {
                   setSiteDraft(e.target.value);
                   if (siteError) setSiteError("");
@@ -531,22 +573,26 @@ export default function Wizard({ onOpenSettings }: Props) {
                   {siteError}
                 </p>
               ) : null}
+              <p id={siteHintId} className="field-hint sites-add-note">
+                {SITE_HINT_TEXT}
+              </p>
             </form>
             {videoSites.length === 0 ? (
               <p className="panel-text">{VIDEO_EMPTY}</p>
             ) : (
-              <ul className="sites-list wizard-sites-list" aria-label="Видео и соцсети: сайты">
-                {videoSites.map((domain) => (
+              <ul ref={siteList} className="sites-list wizard-sites-list" aria-label="Видео и соцсети: сайты">
+                {videoSites.map((domain, i) => (
                   <li key={domain} className="sites-row">
                     <span className="sites-domain">{domain}</span>
+                    {/* «Удалить», как на экране «Сайты»: одно слово для одного действия. */}
                     <button
                       type="button"
                       className="btn btn-small"
-                      aria-label={`Убрать ${domain}`}
+                      aria-label={`Удалить ${domain}`}
                       disabled={busy}
-                      onClick={() => setVideoSites((prev) => prev.filter((d) => d !== domain))}
+                      onClick={() => removeVideoSite(i)}
                     >
-                      Убрать
+                      Удалить
                     </button>
                   </li>
                 ))}
