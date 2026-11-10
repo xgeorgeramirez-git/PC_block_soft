@@ -744,6 +744,33 @@ func TestTestGuardAcceptsForeground(t *testing.T) {
 	}
 }
 
+// Ловит (RM4-12, PL-41, S16…S18): подмена домена вкладки Brave (TestDomain) не доходит до стража:
+// служба отвергает её как незнакомое действие; снятие подмены (пустой текст) теряется; вне
+// тестового режима подмена принимается.
+func TestTestGuardAcceptsDomain(t *testing.T) {
+	h := newHarness(t, withChild(childSID, "Миша", 120), withTestMode(TestMode{ClockSpeed: 60}))
+	h.start()
+	h.childLogsIn()
+	h.ok(adminPeer(), "", ipc.CmdTestGuard, ipc.TestGuardRequest{Action: ipc.TestGuardAction{Action: ipc.TestDomain, Text: "youtube.com"}}, nil)
+	h.ok(adminPeer(), "", ipc.CmdTestGuard, ipc.TestGuardRequest{Action: ipc.TestGuardAction{Action: ipc.TestDomain}}, nil)
+	rep := h.poll(activeSample)
+	want := []ipc.GuardCommand{
+		{Kind: ipc.GuardCmdTest, Test: &ipc.TestGuardAction{Action: "domain", Text: "youtube.com"}},
+		{Kind: ipc.GuardCmdTest, Test: &ipc.TestGuardAction{Action: "domain"}},
+	}
+	if jsonOf(t, rep.Commands) != jsonOf(t, want) {
+		t.Fatalf("команды стражу: %s; want %s", jsonOf(t, rep.Commands), jsonOf(t, want))
+	}
+
+	off := newHarness(t, withChild(childSID, "Миша", 120))
+	off.start()
+	off.childLogsIn()
+	off.fail(adminPeer(), "", ipc.CmdTestGuard, ipc.TestGuardRequest{Action: ipc.TestGuardAction{Action: ipc.TestDomain, Text: "youtube.com"}})
+	if rep := off.poll(activeSample); len(rep.Commands) != 0 {
+		t.Fatalf("вне тестового режима стражу ушло: %s", jsonOf(t, rep.Commands))
+	}
+}
+
 // Ловит: при нескольких стражах команда без сеанса уходит наугад; без стража принимается молча.
 func TestTestGuardSessionAmbiguity(t *testing.T) {
 	h := newHarness(t, withChild(childSID, "Миша", 120), withChild(child2SID, "Коля", 120), withTestMode(TestMode{ClockSpeed: 1}))

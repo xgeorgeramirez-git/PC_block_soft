@@ -365,8 +365,7 @@ func TestHideBlockedRefused(t *testing.T) {
 }
 
 // Ловит (ревью 0.3.1): операция, которая ничего не изменила (всё уже скрыто или показано, то же
-// название), выдаёт «Отменить» и «Скрыто программ: 0»; отмена пустой операции пишет в журнал
-// «решение по программам отменено».
+// название, та же категория), выдаёт «Отменить» и «Скрыто программ: 0» или пишет журнал.
 func TestNoChangeNoUndo(t *testing.T) {
 	h := newHarness(t, configured(), withChild(childSID, "Миша", 120), withPrograms(typicalScan()), withStalker())
 	h.start()
@@ -398,13 +397,14 @@ func TestNoChangeNoUndo(t *testing.T) {
 		t.Errorf("записей о скрытии %d, want 1", n)
 	}
 
-	// Пустая смена категории (уже «Игры» решением родителя): отмена не пишет журнал.
+	// Пустая смена категории (уже «Игры» решением родителя, B-41): без «Отменить» и без журнала.
 	var cat ipc.DecideProgramReply
 	h.ok(adminPeer(), tok, ipc.CmdSetProgramsCategory, ipc.SetProgramsCategoryRequest{Paths: []string{pathLauncher}, Category: "games"}, &cat)
-	var undo ipc.UndoProgramReply
-	h.ok(adminPeer(), tok, ipc.CmdUndoProgram, ipc.UndoProgramRequest{UndoID: cat.UndoID}, &undo)
-	if got := journalTexts(h, tok, "program_undone"); len(got) != 0 {
-		t.Errorf("отмена пустой операции записана: %q", got)
+	if cat.Message != "Категория не изменилась" || cat.UndoID != "" || cat.UndoUntilMs != 0 {
+		t.Errorf("пустая смена категории: %+v, want «Категория не изменилась» без «Отменить»", cat)
+	}
+	if got := journalTexts(h, tok, "program_decided", "program_undone"); len(got) != 0 {
+		t.Errorf("пустая смена категории записана: %q", got)
 	}
 }
 

@@ -155,7 +155,7 @@ func (s *Service) hDecideProgram(c *callCtx) ipc.Reply {
 	if !parentCategories[req.Category] {
 		return ipc.FailField(textCategoryBad, fieldCategory)
 	}
-	path := programs.Normalize(req.Path)
+	path := s.programKey(req.Path)
 	if path == "" {
 		return ipc.Fail(textNoProgram)
 	}
@@ -208,6 +208,9 @@ func (s *Service) hDecideProgram(c *callCtx) ipc.Reply {
 		if err != nil {
 			s.logRate("decide", "решение по программе не записано: %v", err)
 			return ipc.Fail(textSaveFailed)
+		}
+		if len(changed) == 0 {
+			return s.categoryUnchanged()
 		}
 		rec.programs = changed
 		name = displayName(prev)
@@ -316,6 +319,14 @@ func (s *Service) rememberProgramsUndo(rec *progUndoRec, c *callCtx) {
 	s.progUndo = rec
 }
 
+// categoryUnchanged — ответ на смену категории, которая ничего не изменила (у всех программ уже
+// эта категория решением родителя, B-41): без «Отменить» и без записи журнала, как «Название не
+// изменилось»; прошлая отменяемая операция остаётся отменяемой.
+func (s *Service) categoryUnchanged() ipc.Reply {
+	view, _ := s.programsView()
+	return ipc.OK(ipc.DecideProgramReply{Message: textCategoryUnchanged, Programs: view})
+}
+
 func (s *Service) hSetProgramsCategory(c *callCtx) ipc.Reply {
 	var req ipc.SetProgramsCategoryRequest
 	if c.msg.Into(&req) != nil {
@@ -331,7 +342,7 @@ func (s *Service) hSetProgramsCategory(c *callCtx) ipc.Reply {
 	seen := map[string]bool{}
 	known := 0
 	for _, raw := range req.Paths {
-		p := programs.Normalize(raw)
+		p := s.programKey(raw)
 		if p == "" || seen[p] {
 			continue
 		}
@@ -354,14 +365,15 @@ func (s *Service) hSetProgramsCategory(c *callCtx) ipc.Reply {
 		s.logRate("decide", "смена категории программ не записана: %v", err)
 		return ipc.Fail(textSaveFailed)
 	}
-	s.reloadPrograms()
-	if len(changed) > 0 {
-		d := map[string]any{"category": req.Category, "count": len(changed)}
-		if len(changed) == 1 {
-			d["name"], d["path"] = displayName(changed[0]), changed[0].Path
-		}
-		s.journal.Write(0, evProgramDecided, d)
+	if len(changed) == 0 {
+		return s.categoryUnchanged()
 	}
+	s.reloadPrograms()
+	d := map[string]any{"category": req.Category, "count": len(changed)}
+	if len(changed) == 1 {
+		d["name"], d["path"] = displayName(changed[0]), changed[0].Path
+	}
+	s.journal.Write(0, evProgramDecided, d)
 	rec := &progUndoRec{programs: changed}
 	s.rememberProgramsUndo(rec, c)
 	view, _ := s.programsView()
@@ -388,7 +400,7 @@ func (s *Service) hSetProgramsHidden(c *callCtx) ipc.Reply {
 	seen := map[string]bool{}
 	blocked := 0
 	for _, raw := range req.Paths {
-		p := programs.Normalize(raw)
+		p := s.programKey(raw)
 		if p == "" || seen[p] {
 			continue
 		}
@@ -494,7 +506,7 @@ func (s *Service) hRenameProgram(c *callCtx) ipc.Reply {
 	if !ok {
 		return ipc.FailField(textNameTooLong, ipc.FieldName)
 	}
-	path := programs.Normalize(req.Path)
+	path := s.programKey(req.Path)
 	if path == "" {
 		return ipc.Fail(textNoProgram)
 	}
@@ -652,7 +664,7 @@ func (s *Service) setupPrograms(list []ipc.SetupProgram, at int64) ([]Program, s
 		if !parentCategories[sp.Category] {
 			return nil, textCategoryBad
 		}
-		p := programs.Normalize(sp.Path)
+		p := roots.StableKey(sp.Path)
 		if p == "" || seen[p] || roots.IsSystem(p) {
 			continue
 		}

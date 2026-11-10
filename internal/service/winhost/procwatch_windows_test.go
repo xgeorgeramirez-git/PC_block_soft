@@ -512,7 +512,7 @@ func TestWatcherDryRun(t *testing.T) {
 	}
 	// Тест даёт сканеру 90 с, чтобы увидеть настоящее время, и отдельно сверяет его с бюджетом
 	// службы (первый этап 45 с).
-	sc := newWinScanner(folders)
+	sc := newWinScanner(folders, roots.StoreDir(), winMeta(roots.StoreDir()))
 	sc.phase1, sc.timeout = 90*time.Second, 90*time.Second
 	found, stats, err := sc.scan()
 	if err != nil {

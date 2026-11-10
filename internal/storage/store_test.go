@@ -10,6 +10,7 @@ import (
 	"reflect"
 	"sort"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -136,6 +137,10 @@ func TestSchemaConstraints(t *testing.T) {
 		{"попытка несуществующего ребёнка", `INSERT INTO pending_attempts (exe_path, child_id, attempts, last_attempt_at) VALUES ('c:\p.exe', 999, 1, 1)`},
 		{"повтор попытки ребёнка", `INSERT INTO pending_attempts (exe_path, child_id, attempts, last_attempt_at) VALUES ('c:\p.exe', ` + itoa(id) + `, 1, 1)`},
 		{"учёт «Системного»", `INSERT INTO usage_daily (child_id, day, category, subject_kind, subject, seconds) VALUES (` + itoa(id) + `, '2026-10-19', 'system', 'program', 'c:\a.exe', 1)`},
+		{"повтор домена в другом списке", `INSERT INTO site_rules (domain, kind) VALUES ('youtube.com', 'blocked')`},
+		{"пустой домен", `INSERT INTO site_rules (domain, kind) VALUES ('', 'study')`},
+		{"домен длиннее 253", `INSERT INTO site_rules (domain, kind) VALUES ('` + strings.Repeat("a", 250) + `.com', 'study')`},
+		{"список вне перечня", `INSERT INTO site_rules (domain, kind) VALUES ('a.com', 'video')`},
 	}
 	if _, err := s.db.Exec(`INSERT INTO pending_programs (exe_path, display_name, first_attempt_at) VALUES ('c:\p.exe', 'p', 1)`); err != nil {
 		t.Fatal(err)
@@ -206,16 +211,16 @@ func TestOpenTwiceKeepsDataAndMigrationOnce(t *testing.T) {
 		t.Fatalf("второе Open: %v", err)
 	}
 	defer s2.Close()
-	if n := rawNull(t, s2, `SELECT count(*) FROM schema_migrations`); n.Int64 != 8 {
-		t.Errorf("строк schema_migrations = %d, want 8", n.Int64)
+	if n := rawNull(t, s2, `SELECT count(*) FROM schema_migrations`); n.Int64 != 9 {
+		t.Errorf("строк schema_migrations = %d, want 9", n.Int64)
 	}
-	if v := rawNull(t, s2, `SELECT max(version) FROM schema_migrations`); v.Int64 != 8 {
-		t.Errorf("последняя миграция = %d, want 8", v.Int64)
+	if v := rawNull(t, s2, `SELECT max(version) FROM schema_migrations`); v.Int64 != 9 {
+		t.Errorf("последняя миграция = %d, want 9", v.Int64)
 	}
 	if at := rawNull(t, s2, `SELECT applied_at FROM schema_migrations WHERE version = 1`); at.Int64 != 1_000 {
 		t.Errorf("applied_at миграции 1 = %d, want 1000 (момент первого применения)", at.Int64)
 	}
-	for _, v := range []int{2, 3, 4, 5, 6, 7, 8} {
+	for _, v := range []int{2, 3, 4, 5, 6, 7, 8, 9} {
 		if at := rawNull(t, s2, `SELECT applied_at FROM schema_migrations WHERE version = ?`, v); at.Int64 != 1_000 {
 			t.Errorf("applied_at миграции %d = %d, want 1000 (все применяются при первом открытии, не повторно)", v, at.Int64)
 		}
@@ -224,7 +229,7 @@ func TestOpenTwiceKeepsDataAndMigrationOnce(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []Child{{ID: id, SID: "S-1-5-21-1", Name: "Миша", EndMode: "lock", CreatedAtMs: 1_000}}
+	want := []Child{{ID: id, SID: "S-1-5-21-1", Name: "Миша", EndMode: "lock", AdultFilter: true, CreatedAtMs: 1_000}}
 	if !reflect.DeepEqual(kids, want) {
 		t.Fatalf("ListChildren после перезапуска = %+v, want %+v", kids, want)
 	}
@@ -398,6 +403,13 @@ func TestMethodsReturnErrorsWhenStoreClosed(t *testing.T) {
 		"SetSetting":   func() error { return s.SetSetting("k", "v") },
 		"SetEndMode":   func() error { return s.SetEndMode(id, "lock") },
 		"GetEndMode":   func() error { _, err := s.GetEndMode(id); return err },
+
+		"SetAdultFilter":   func() error { return s.SetAdultFilter(id, false) },
+		"ListSiteRules":    func() error { _, err := s.ListSiteRules(); return err },
+		"AddSiteRule":      func() error { _, _, err := s.AddSiteRule("example.com", SiteBlocked); return err },
+		"RemoveSiteRule":   func() error { _, _, err := s.RemoveSiteRule("youtube.com"); return err },
+		"CountSiteRules":   func() error { _, err := s.CountSiteRules(SiteBlocked); return err },
+		"ReplaceSiteRules": func() error { return s.ReplaceSiteRules(SiteVideoSocial, []string{"youtube.com"}) },
 	}
 	for name, call := range calls {
 		if err := call(); err == nil {

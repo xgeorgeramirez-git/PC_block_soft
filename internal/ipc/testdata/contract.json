@@ -37,6 +37,10 @@
             "endMode": "lock",
             "closeGames": false,
             "studyOnly": false,
+            "videoRemainingS": 0,
+            "videoLimitS": 0,
+            "videoUnlimited": false,
+            "closeVideo": false,
             "restUntilMs": 0,
             "restLeftS": 0,
             "restMessage": ""
@@ -46,7 +50,8 @@
           "canClearBlock": false,
           "noForbiddenToday": false,
           "gamesText": "Игры 40 мин из 1 ч",
-          "pendingPrograms": 0
+          "pendingPrograms": 0,
+          "videoText": ""
         },
         "message": "Добавлено 30 минут",
         "extraId": "e-17",
@@ -63,6 +68,127 @@
       "ok": false,
       "error": "Можно добавить от 1 до 240 минут",
       "field": "minutes"
+    }
+  },
+  "AddSite": {
+    "request": {
+      "domain": "https://www.Example.com/page?x=1",
+      "kind": "blocked"
+    },
+    "reply": {
+      "ok": true,
+      "payload": {
+        "message": "Добавлено: example.com",
+        "domain": "example.com",
+        "moved": false,
+        "sites": {
+          "sites": [
+            {
+              "domain": "example.com",
+              "kind": "blocked"
+            },
+            {
+              "domain": "school.example",
+              "kind": "study"
+            },
+            {
+              "domain": "youtube.com",
+              "kind": "video_social"
+            }
+          ],
+          "children": [
+            {
+              "childId": 1,
+              "name": "Миша",
+              "on": true
+            },
+            {
+              "childId": 2,
+              "name": "Даша",
+              "on": false
+            }
+          ],
+          "blockedMax": 1000,
+          "adultSource": "Список сайтов для взрослых: UT1, Университет Тулуза Капитоль, лицензия CC BY-SA 4.0"
+        }
+      }
+    }
+  },
+  "AddSite#dup": {
+    "request": {
+      "domain": "example.com",
+      "kind": "blocked"
+    },
+    "reply": {
+      "ok": false,
+      "error": "Этот сайт уже в списке",
+      "field": "domain"
+    }
+  },
+  "AddSite#full": {
+    "request": {
+      "domain": "example.org",
+      "kind": "blocked"
+    },
+    "reply": {
+      "ok": false,
+      "error": "В списке запрещённых уже 1000 сайтов. Удалите ненужные",
+      "field": "domain"
+    }
+  },
+  "AddSite#invalid": {
+    "request": {
+      "domain": "просто текст",
+      "kind": "blocked"
+    },
+    "reply": {
+      "ok": false,
+      "error": "Это не похоже на адрес сайта",
+      "field": "domain"
+    }
+  },
+  "AddSite#moved": {
+    "request": {
+      "domain": "youtube.com",
+      "kind": "study"
+    },
+    "reply": {
+      "ok": true,
+      "payload": {
+        "message": "Сайт перенесён в «Учёбу»",
+        "domain": "youtube.com",
+        "moved": true,
+        "sites": {
+          "sites": [
+            {
+              "domain": "example.com",
+              "kind": "blocked"
+            },
+            {
+              "domain": "school.example",
+              "kind": "study"
+            },
+            {
+              "domain": "youtube.com",
+              "kind": "video_social"
+            }
+          ],
+          "children": [
+            {
+              "childId": 1,
+              "name": "Миша",
+              "on": true
+            },
+            {
+              "childId": 2,
+              "name": "Даша",
+              "on": false
+            }
+          ],
+          "blockedMax": 1000,
+          "adultSource": "Список сайтов для взрослых: UT1, Университет Тулуза Капитоль, лицензия CC BY-SA 4.0"
+        }
+      }
     }
   },
   "AskMore": {
@@ -104,6 +230,10 @@
             "endMode": "lock",
             "closeGames": false,
             "studyOnly": false,
+            "videoRemainingS": 0,
+            "videoLimitS": 0,
+            "videoUnlimited": false,
+            "closeVideo": false,
             "restUntilMs": 0,
             "restLeftS": 0,
             "restMessage": ""
@@ -113,7 +243,8 @@
           "canClearBlock": false,
           "noForbiddenToday": false,
           "gamesText": "Игры 40 мин из 1 ч",
-          "pendingPrograms": 0
+          "pendingPrograms": 0,
+          "videoText": ""
         },
         "message": "Добавлено 30 минут"
       }
@@ -182,6 +313,10 @@
             "endMode": "lock",
             "closeGames": false,
             "studyOnly": false,
+            "videoRemainingS": 0,
+            "videoLimitS": 0,
+            "videoUnlimited": false,
+            "closeVideo": false,
             "restUntilMs": 0,
             "restLeftS": 0,
             "restMessage": ""
@@ -191,7 +326,8 @@
           "canClearBlock": false,
           "noForbiddenToday": false,
           "gamesText": "Игры 40 мин из 1 ч",
-          "pendingPrograms": 0
+          "pendingPrograms": 0,
+          "videoText": ""
         },
         "message": "Блокировка снята"
       }
@@ -246,6 +382,10 @@
             "endMode": "lock",
             "closeGames": false,
             "studyOnly": false,
+            "videoRemainingS": 0,
+            "videoLimitS": 0,
+            "videoUnlimited": false,
+            "closeVideo": false,
             "restUntilMs": 0,
             "restLeftS": 0,
             "restMessage": ""
@@ -255,7 +395,8 @@
           "canClearBlock": false,
           "noForbiddenToday": false,
           "gamesText": "Игры 40 мин из 1 ч",
-          "pendingPrograms": 0
+          "pendingPrograms": 0,
+          "videoText": ""
         },
         "message": "Доп. время убрано",
         "extraId": "e-19",
@@ -277,49 +418,63 @@
             "totalMin": 120,
             "unlimited": false,
             "gamesMin": 60,
-            "gamesUnlimited": false
+            "gamesUnlimited": false,
+            "videoMin": 60,
+            "videoUnlimited": false
           },
           {
             "weekday": 2,
             "totalMin": 120,
             "unlimited": false,
             "gamesMin": 0,
-            "gamesUnlimited": true
+            "gamesUnlimited": true,
+            "videoMin": 0,
+            "videoUnlimited": true
           },
           {
             "weekday": 3,
             "totalMin": 90,
             "unlimited": false,
             "gamesMin": 0,
-            "gamesUnlimited": false
+            "gamesUnlimited": false,
+            "videoMin": 0,
+            "videoUnlimited": false
           },
           {
             "weekday": 4,
             "totalMin": 120,
             "unlimited": false,
             "gamesMin": 0,
-            "gamesUnlimited": true
+            "gamesUnlimited": true,
+            "videoMin": 0,
+            "videoUnlimited": true
           },
           {
             "weekday": 5,
             "totalMin": 120,
             "unlimited": false,
             "gamesMin": 0,
-            "gamesUnlimited": true
+            "gamesUnlimited": true,
+            "videoMin": 0,
+            "videoUnlimited": true
           },
           {
             "weekday": 6,
             "totalMin": 240,
             "unlimited": false,
             "gamesMin": 120,
-            "gamesUnlimited": false
+            "gamesUnlimited": false,
+            "videoMin": 0,
+            "videoUnlimited": true
           },
           {
             "weekday": 7,
             "totalMin": 0,
             "unlimited": true,
             "gamesMin": 0,
-            "gamesUnlimited": true
+            "gamesUnlimited": true,
+            "videoMin": 0,
+            "videoUnlimited": true
           }
         ],
         "intervals": [
@@ -510,6 +665,10 @@
             "endMode": "lock",
             "closeGames": false,
             "studyOnly": false,
+            "videoRemainingS": 0,
+            "videoLimitS": 0,
+            "videoUnlimited": false,
+            "closeVideo": false,
             "restUntilMs": 0,
             "restLeftS": 0,
             "restMessage": ""
@@ -519,7 +678,8 @@
           "canClearBlock": false,
           "noForbiddenToday": false,
           "gamesText": "Игры 40 мин из 1 ч",
-          "pendingPrograms": 0
+          "pendingPrograms": 0,
+          "videoText": ""
         },
         "message": "Перерыв закончен"
       }
@@ -615,49 +775,63 @@
             "totalMin": 120,
             "unlimited": false,
             "gamesMin": 60,
-            "gamesUnlimited": false
+            "gamesUnlimited": false,
+            "videoMin": 60,
+            "videoUnlimited": false
           },
           {
             "weekday": 2,
             "totalMin": 120,
             "unlimited": false,
             "gamesMin": 0,
-            "gamesUnlimited": true
+            "gamesUnlimited": true,
+            "videoMin": 0,
+            "videoUnlimited": true
           },
           {
             "weekday": 3,
             "totalMin": 90,
             "unlimited": false,
             "gamesMin": 0,
-            "gamesUnlimited": false
+            "gamesUnlimited": false,
+            "videoMin": 0,
+            "videoUnlimited": false
           },
           {
             "weekday": 4,
             "totalMin": 120,
             "unlimited": false,
             "gamesMin": 0,
-            "gamesUnlimited": true
+            "gamesUnlimited": true,
+            "videoMin": 0,
+            "videoUnlimited": true
           },
           {
             "weekday": 5,
             "totalMin": 120,
             "unlimited": false,
             "gamesMin": 0,
-            "gamesUnlimited": true
+            "gamesUnlimited": true,
+            "videoMin": 0,
+            "videoUnlimited": true
           },
           {
             "weekday": 6,
             "totalMin": 240,
             "unlimited": false,
             "gamesMin": 120,
-            "gamesUnlimited": false
+            "gamesUnlimited": false,
+            "videoMin": 0,
+            "videoUnlimited": true
           },
           {
             "weekday": 7,
             "totalMin": 0,
             "unlimited": true,
             "gamesMin": 0,
-            "gamesUnlimited": true
+            "gamesUnlimited": true,
+            "videoMin": 0,
+            "videoUnlimited": true
           }
         ],
         "endMode": "lock",
@@ -702,6 +876,10 @@
         "endMode": "lock",
         "closeGames": false,
         "studyOnly": false,
+        "videoRemainingS": 0,
+        "videoLimitS": 0,
+        "videoUnlimited": false,
+        "closeVideo": false,
         "restUntilMs": 0,
         "restLeftS": 0,
         "restMessage": ""
@@ -737,6 +915,10 @@
         "endMode": "lock",
         "closeGames": false,
         "studyOnly": false,
+        "videoRemainingS": 0,
+        "videoLimitS": 0,
+        "videoUnlimited": true,
+        "closeVideo": false,
         "restUntilMs": 0,
         "restLeftS": 0,
         "restMessage": ""
@@ -772,6 +954,10 @@
         "endMode": "lock",
         "closeGames": false,
         "studyOnly": false,
+        "videoRemainingS": 0,
+        "videoLimitS": 0,
+        "videoUnlimited": false,
+        "closeVideo": false,
         "restUntilMs": 1760000900000,
         "restLeftS": 900,
         "restMessage": "Пойди погуляй с собакой"
@@ -807,6 +993,10 @@
         "endMode": "study_only",
         "closeGames": false,
         "studyOnly": true,
+        "videoRemainingS": 0,
+        "videoLimitS": 0,
+        "videoUnlimited": false,
+        "closeVideo": false,
         "restUntilMs": 0,
         "restLeftS": 0,
         "restMessage": ""
@@ -888,6 +1078,10 @@
               "endMode": "lock",
               "closeGames": false,
               "studyOnly": false,
+              "videoRemainingS": 0,
+              "videoLimitS": 0,
+              "videoUnlimited": false,
+              "closeVideo": false,
               "restUntilMs": 0,
               "restLeftS": 0,
               "restMessage": ""
@@ -897,7 +1091,8 @@
             "canClearBlock": false,
             "noForbiddenToday": false,
             "gamesText": "Игры 40 мин из 1 ч",
-            "pendingPrograms": 2
+            "pendingPrograms": 2,
+            "videoText": ""
           },
           {
             "childId": 1,
@@ -929,6 +1124,10 @@
               "endMode": "lock",
               "closeGames": false,
               "studyOnly": false,
+              "videoRemainingS": 0,
+              "videoLimitS": 0,
+              "videoUnlimited": false,
+              "closeVideo": false,
               "restUntilMs": 0,
               "restLeftS": 0,
               "restMessage": ""
@@ -938,7 +1137,8 @@
             "canClearBlock": true,
             "noForbiddenToday": false,
             "gamesText": "",
-            "pendingPrograms": 2
+            "pendingPrograms": 2,
+            "videoText": ""
           }
         ],
         "notices": []
@@ -989,6 +1189,10 @@
               "endMode": "lock",
               "closeGames": false,
               "studyOnly": false,
+              "videoRemainingS": 0,
+              "videoLimitS": 0,
+              "videoUnlimited": false,
+              "closeVideo": false,
               "restUntilMs": 0,
               "restLeftS": 0,
               "restMessage": ""
@@ -998,7 +1202,8 @@
             "canClearBlock": false,
             "noForbiddenToday": false,
             "gamesText": "",
-            "pendingPrograms": 0
+            "pendingPrograms": 0,
+            "videoText": ""
           }
         ],
         "notices": [
@@ -1056,7 +1261,10 @@
         "lastInputAgoMs": 1200,
         "fullscreen": true,
         "foreground": "games",
-        "foregroundPath": ""
+        "foregroundPath": "",
+        "foregroundDomain": "",
+        "domainUnread": false,
+        "lockUnknown": false
       },
       "events": [
         {
@@ -1111,6 +1319,10 @@
           "endMode": "lock",
           "closeGames": false,
           "studyOnly": false,
+          "videoRemainingS": 0,
+          "videoLimitS": 0,
+          "videoUnlimited": false,
+          "closeVideo": false,
           "restUntilMs": 0,
           "restLeftS": 0,
           "restMessage": ""
@@ -1160,7 +1372,10 @@
         "lastInputAgoMs": 0,
         "fullscreen": false,
         "foreground": "games",
-        "foregroundPath": "c:\\users\\миша\\downloads\\supergame.exe"
+        "foregroundPath": "c:\\users\\миша\\downloads\\supergame.exe",
+        "foregroundDomain": "",
+        "domainUnread": false,
+        "lockUnknown": false
       },
       "events": []
     },
@@ -1193,6 +1408,10 @@
           "endMode": "lock",
           "closeGames": false,
           "studyOnly": false,
+          "videoRemainingS": 0,
+          "videoLimitS": 0,
+          "videoUnlimited": false,
+          "closeVideo": false,
           "restUntilMs": 0,
           "restLeftS": 0,
           "restMessage": ""
@@ -1221,16 +1440,19 @@
       }
     }
   },
-  "GuardPoll#empty": {
+  "GuardPoll#closeTab": {
     "request": {
       "sample": {
         "atMs": 1760000000000,
         "tzOffsetMin": 0,
-        "sessionActive": false,
+        "sessionActive": true,
         "lastInputAgoMs": 0,
         "fullscreen": false,
-        "foreground": "other",
-        "foregroundPath": ""
+        "foreground": "videoSocial",
+        "foregroundPath": "c:\\program files\\bravesoftware\\brave-browser\\application\\brave.exe",
+        "foregroundDomain": "youtube.com",
+        "domainUnread": false,
+        "lockUnknown": false
       },
       "events": []
     },
@@ -1263,6 +1485,153 @@
           "endMode": "lock",
           "closeGames": false,
           "studyOnly": false,
+          "videoRemainingS": 0,
+          "videoLimitS": 0,
+          "videoUnlimited": false,
+          "closeVideo": false,
+          "restUntilMs": 0,
+          "restLeftS": 0,
+          "restMessage": ""
+        },
+        "warnings": [
+          {
+            "threshold": 5,
+            "text": "Через 5 минут время на видео и соцсети закончится",
+            "sound": true,
+            "event": "video",
+            "eventS": 300
+          }
+        ],
+        "commands": [
+          {
+            "kind": "closeTab",
+            "domain": "youtube.com"
+          },
+          {
+            "kind": "blocked",
+            "plate": {
+              "kind": "videoOver",
+              "text": "Время на видео и соцсети на сегодня закончилось. Общего времени осталось 40 мин",
+              "showS": 0,
+              "path": "",
+              "canAsk": false
+            }
+          }
+        ]
+      }
+    }
+  },
+  "GuardPoll#closeWindow": {
+    "request": {
+      "sample": {
+        "atMs": 1760000000000,
+        "tzOffsetMin": 0,
+        "sessionActive": true,
+        "lastInputAgoMs": 0,
+        "fullscreen": false,
+        "foreground": "other",
+        "foregroundPath": "c:\\program files\\bravesoftware\\brave-browser\\application\\brave.exe",
+        "foregroundDomain": "",
+        "domainUnread": true,
+        "lockUnknown": false
+      },
+      "events": []
+    },
+    "reply": {
+      "ok": true,
+      "payload": {
+        "status": {
+          "name": "Миша",
+          "status": "ok",
+          "statusText": "Можно",
+          "label": "85",
+          "tooltip": "Осталось 1 ч 25 мин\nИгры: 20 мин",
+          "summary": "Сегодня осталось 1 ч 25 мин из 2 ч",
+          "day": "2026-10-19",
+          "remainingS": 5100,
+          "limitS": 7200,
+          "usedS": 2100,
+          "unlimited": false,
+          "lock": "none",
+          "reason": "",
+          "detail": "",
+          "until": "",
+          "pauseUntil": "",
+          "used": "Сегодня: 35 мин из 2 ч",
+          "bonusBalance": 0,
+          "forbiddenNote": "",
+          "gamesRemainingS": 1200,
+          "gamesLimitS": 3600,
+          "gamesUnlimited": false,
+          "endMode": "lock",
+          "closeGames": false,
+          "studyOnly": false,
+          "videoRemainingS": 0,
+          "videoLimitS": 0,
+          "videoUnlimited": false,
+          "closeVideo": false,
+          "restUntilMs": 0,
+          "restLeftS": 0,
+          "restMessage": ""
+        },
+        "warnings": [],
+        "commands": [
+          {
+            "kind": "closeBraveWindow"
+          }
+        ]
+      }
+    }
+  },
+  "GuardPoll#empty": {
+    "request": {
+      "sample": {
+        "atMs": 1760000000000,
+        "tzOffsetMin": 0,
+        "sessionActive": false,
+        "lastInputAgoMs": 0,
+        "fullscreen": false,
+        "foreground": "other",
+        "foregroundPath": "",
+        "foregroundDomain": "",
+        "domainUnread": false,
+        "lockUnknown": false
+      },
+      "events": []
+    },
+    "reply": {
+      "ok": true,
+      "payload": {
+        "status": {
+          "name": "Миша",
+          "status": "ok",
+          "statusText": "Можно",
+          "label": "85",
+          "tooltip": "Осталось 1 ч 25 мин\nИгры: 20 мин",
+          "summary": "Сегодня осталось 1 ч 25 мин из 2 ч",
+          "day": "2026-10-19",
+          "remainingS": 5100,
+          "limitS": 7200,
+          "usedS": 2100,
+          "unlimited": false,
+          "lock": "none",
+          "reason": "",
+          "detail": "",
+          "until": "",
+          "pauseUntil": "",
+          "used": "Сегодня: 35 мин из 2 ч",
+          "bonusBalance": 0,
+          "forbiddenNote": "",
+          "gamesRemainingS": 1200,
+          "gamesLimitS": 3600,
+          "gamesUnlimited": false,
+          "endMode": "lock",
+          "closeGames": false,
+          "studyOnly": false,
+          "videoRemainingS": 0,
+          "videoLimitS": 0,
+          "videoUnlimited": false,
+          "closeVideo": false,
           "restUntilMs": 0,
           "restLeftS": 0,
           "restMessage": ""
@@ -1322,7 +1691,10 @@
         "exits": [
           "switchUser"
         ],
-        "foregroundPath": ""
+        "foregroundPath": "",
+        "foregroundDomain": "",
+        "closedTab": "",
+        "closedTabWay": ""
       }
     }
   },
@@ -1349,7 +1721,66 @@
         "restTimer": "",
         "restMessage": "",
         "exits": [],
-        "foregroundPath": "c:\\users\\миша\\downloads\\supergame.exe"
+        "foregroundPath": "c:\\users\\миша\\downloads\\supergame.exe",
+        "foregroundDomain": "",
+        "closedTab": "",
+        "closedTabWay": ""
+      }
+    }
+  },
+  "GuardState#brave": {
+    "reply": {
+      "ok": true,
+      "payload": {
+        "warnings": [],
+        "sounds": [],
+        "ui": {
+          "tickMs": 0,
+          "ticks": 0,
+          "panic": ""
+        },
+        "lockShown": false,
+        "lockKind": "",
+        "plate": "",
+        "plateKind": "",
+        "buttons": [],
+        "fields": [],
+        "restTimer": "",
+        "restMessage": "",
+        "exits": [],
+        "foregroundPath": "c:\\program files\\bravesoftware\\brave-browser\\application\\brave.exe",
+        "foregroundDomain": "probe-site.test",
+        "closedTab": "",
+        "closedTabWay": ""
+      }
+    }
+  },
+  "GuardState#closeTab": {
+    "reply": {
+      "ok": true,
+      "payload": {
+        "warnings": [],
+        "sounds": [],
+        "ui": {
+          "tickMs": 0,
+          "ticks": 0,
+          "panic": ""
+        },
+        "lockShown": false,
+        "lockKind": "",
+        "plate": "Время на видео и соцсети на сегодня закончилось. Общего времени осталось 40 мин",
+        "plateKind": "videoOver",
+        "buttons": [
+          "plateClose"
+        ],
+        "fields": [],
+        "restTimer": "",
+        "restMessage": "",
+        "exits": [],
+        "foregroundPath": "c:\\program files\\bravesoftware\\brave-browser\\application\\brave.exe",
+        "foregroundDomain": "youtube.com",
+        "closedTab": "youtube.com",
+        "closedTabWay": "ctrlW"
       }
     }
   },
@@ -1373,7 +1804,10 @@
         "restTimer": "",
         "restMessage": "",
         "exits": [],
-        "foregroundPath": ""
+        "foregroundPath": "",
+        "foregroundDomain": "",
+        "closedTab": "",
+        "closedTabWay": ""
       }
     }
   },
@@ -1402,7 +1836,10 @@
         "restTimer": "00:14:59",
         "restMessage": "Пойди погуляй с собакой",
         "exits": [],
-        "foregroundPath": ""
+        "foregroundPath": "",
+        "foregroundDomain": "",
+        "closedTab": "",
+        "closedTabWay": ""
       }
     }
   },
@@ -1636,6 +2073,52 @@
       }
     }
   },
+  "ListSites": {
+    "reply": {
+      "ok": true,
+      "payload": {
+        "sites": [
+          {
+            "domain": "example.com",
+            "kind": "blocked"
+          },
+          {
+            "domain": "school.example",
+            "kind": "study"
+          },
+          {
+            "domain": "youtube.com",
+            "kind": "video_social"
+          }
+        ],
+        "children": [
+          {
+            "childId": 1,
+            "name": "Миша",
+            "on": true
+          },
+          {
+            "childId": 2,
+            "name": "Даша",
+            "on": false
+          }
+        ],
+        "blockedMax": 1000,
+        "adultSource": "Список сайтов для взрослых: UT1, Университет Тулуза Капитоль, лицензия CC BY-SA 4.0"
+      }
+    }
+  },
+  "ListSites#empty": {
+    "reply": {
+      "ok": true,
+      "payload": {
+        "sites": [],
+        "children": [],
+        "blockedMax": 1000,
+        "adultSource": "Список сайтов для взрослых: UT1, Университет Тулуза Капитоль, лицензия CC BY-SA 4.0"
+      }
+    }
+  },
   "Login": {
     "request": {
       "password": "секрет-123"
@@ -1716,6 +2199,10 @@
           "endMode": "lock",
           "closeGames": false,
           "studyOnly": false,
+          "videoRemainingS": 0,
+          "videoLimitS": 0,
+          "videoUnlimited": false,
+          "closeVideo": false,
           "restUntilMs": 0,
           "restLeftS": 0,
           "restMessage": ""
@@ -1775,7 +2262,8 @@
         "usedS": 2100,
         "gamesS": 900,
         "studyS": 180,
-        "otherS": 1200,
+        "videoS": 600,
+        "otherS": 600,
         "allS": 2280,
         "extraMin": 0,
         "bonusSpentMin": 0,
@@ -1784,31 +2272,43 @@
             "path": "c:\\games\\game.exe",
             "name": "game",
             "category": "games",
-            "seconds": 600
+            "seconds": 600,
+            "kind": "program"
           },
           {
             "path": "c:\\games\\game2.exe",
             "name": "game2",
             "category": "games",
-            "seconds": 300
+            "seconds": 300,
+            "kind": "program"
           },
           {
             "path": "c:\\school\\study.exe",
             "name": "study",
             "category": "study",
-            "seconds": 180
+            "seconds": 180,
+            "kind": "program"
           },
           {
-            "path": "c:\\program files\\brave software\\brave-browser\\application\\brave.exe",
+            "path": "youtube.com",
+            "name": "youtube.com",
+            "category": "video_social",
+            "seconds": 600,
+            "kind": "site"
+          },
+          {
+            "path": "c:\\program files\\bravesoftware\\brave-browser\\application\\brave.exe",
             "name": "Brave",
             "category": "other",
-            "seconds": 900
+            "seconds": 300,
+            "kind": "program"
           },
           {
             "path": "",
             "name": "Остальное время",
             "category": "other",
-            "seconds": 300
+            "seconds": 300,
+            "kind": ""
           }
         ]
       }
@@ -1847,6 +2347,10 @@
           "endMode": "lock",
           "closeGames": false,
           "studyOnly": false,
+          "videoRemainingS": 0,
+          "videoLimitS": 0,
+          "videoUnlimited": true,
+          "closeVideo": false,
           "restUntilMs": 0,
           "restLeftS": 0,
           "restMessage": ""
@@ -1857,6 +2361,7 @@
         "usedS": 0,
         "gamesS": 0,
         "studyS": 0,
+        "videoS": 0,
         "otherS": 0,
         "allS": 0,
         "extraMin": 0,
@@ -1898,6 +2403,10 @@
           "endMode": "lock",
           "closeGames": false,
           "studyOnly": false,
+          "videoRemainingS": 0,
+          "videoLimitS": 0,
+          "videoUnlimited": false,
+          "closeVideo": false,
           "restUntilMs": 0,
           "restLeftS": 0,
           "restMessage": ""
@@ -1957,6 +2466,7 @@
         "usedS": 2400,
         "gamesS": 2400,
         "studyS": 0,
+        "videoS": 0,
         "otherS": 0,
         "allS": 2400,
         "extraMin": 30,
@@ -1966,7 +2476,8 @@
             "path": "c:\\games\\game.exe",
             "name": "game",
             "category": "games",
-            "seconds": 2400
+            "seconds": 2400,
+            "kind": "program"
           }
         ]
       }
@@ -2049,6 +2560,10 @@
           "endMode": "lock",
           "closeGames": false,
           "studyOnly": false,
+          "videoRemainingS": 0,
+          "videoLimitS": 0,
+          "videoUnlimited": false,
+          "closeVideo": false,
           "restUntilMs": 0,
           "restLeftS": 0,
           "restMessage": ""
@@ -2108,6 +2623,7 @@
         "usedS": 2100,
         "gamesS": 900,
         "studyS": 180,
+        "videoS": 0,
         "otherS": 1200,
         "allS": 2280,
         "extraMin": 0,
@@ -2117,31 +2633,36 @@
             "path": "c:\\games\\game.exe",
             "name": "game",
             "category": "games",
-            "seconds": 600
+            "seconds": 600,
+            "kind": "program"
           },
           {
             "path": "c:\\games\\game2.exe",
             "name": "game2",
             "category": "games",
-            "seconds": 300
+            "seconds": 300,
+            "kind": "program"
           },
           {
             "path": "c:\\school\\study.exe",
             "name": "study",
             "category": "study",
-            "seconds": 180
+            "seconds": 180,
+            "kind": "program"
           },
           {
             "path": "c:\\program files\\brave software\\brave-browser\\application\\brave.exe",
             "name": "Brave",
             "category": "other",
-            "seconds": 900
+            "seconds": 900,
+            "kind": "program"
           },
           {
             "path": "",
             "name": "Остальное время",
             "category": "other",
-            "seconds": 300
+            "seconds": 300,
+            "kind": ""
           }
         ]
       }
@@ -2181,6 +2702,10 @@
           "endMode": "lock",
           "closeGames": false,
           "studyOnly": false,
+          "videoRemainingS": 0,
+          "videoLimitS": 0,
+          "videoUnlimited": false,
+          "closeVideo": false,
           "restUntilMs": 0,
           "restLeftS": 0,
           "restMessage": ""
@@ -2240,6 +2765,7 @@
         "usedS": 3600,
         "gamesS": 3600,
         "studyS": 2400,
+        "videoS": 0,
         "otherS": 0,
         "allS": 6000,
         "extraMin": 0,
@@ -2249,13 +2775,15 @@
             "path": "c:\\games\\game.exe",
             "name": "game",
             "category": "games",
-            "seconds": 3600
+            "seconds": 3600,
+            "kind": "program"
           },
           {
             "path": "c:\\school\\study.exe",
             "name": "study",
             "category": "study",
-            "seconds": 2400
+            "seconds": 2400,
+            "kind": "program"
           }
         ]
       }
@@ -2299,6 +2827,10 @@
             "endMode": "lock",
             "closeGames": false,
             "studyOnly": false,
+            "videoRemainingS": 0,
+            "videoLimitS": 0,
+            "videoUnlimited": false,
+            "closeVideo": false,
             "restUntilMs": 0,
             "restLeftS": 0,
             "restMessage": ""
@@ -2308,7 +2840,8 @@
           "canClearBlock": false,
           "noForbiddenToday": false,
           "gamesText": "Игры 40 мин из 1 ч",
-          "pendingPrograms": 0
+          "pendingPrograms": 0,
+          "videoText": ""
         },
         "message": "Пауза до 18:30"
       }
@@ -2352,6 +2885,10 @@
               "endMode": "lock",
               "closeGames": false,
               "studyOnly": false,
+              "videoRemainingS": 0,
+              "videoLimitS": 0,
+              "videoUnlimited": false,
+              "closeVideo": false,
               "restUntilMs": 0,
               "restLeftS": 0,
               "restMessage": ""
@@ -2361,7 +2898,8 @@
             "canClearBlock": false,
             "noForbiddenToday": false,
             "gamesText": "Игры 40 мин из 1 ч",
-            "pendingPrograms": 0
+            "pendingPrograms": 0,
+            "videoText": ""
           }
         ],
         "message": "Пауза для всех детей на 1 ч"
@@ -2418,6 +2956,10 @@
             "endMode": "lock",
             "closeGames": false,
             "studyOnly": false,
+            "videoRemainingS": 0,
+            "videoLimitS": 0,
+            "videoUnlimited": false,
+            "closeVideo": false,
             "restUntilMs": 0,
             "restLeftS": 0,
             "restMessage": ""
@@ -2427,7 +2969,8 @@
           "canClearBlock": false,
           "noForbiddenToday": false,
           "gamesText": "Игры 40 мин из 1 ч",
-          "pendingPrograms": 0
+          "pendingPrograms": 0,
+          "videoText": ""
         },
         "addedMin": 30,
         "message": "Добавлено 30 минут"
@@ -2496,6 +3039,10 @@
             "endMode": "lock",
             "closeGames": false,
             "studyOnly": false,
+            "videoRemainingS": 0,
+            "videoLimitS": 0,
+            "videoUnlimited": false,
+            "closeVideo": false,
             "restUntilMs": 0,
             "restLeftS": 0,
             "restMessage": ""
@@ -2505,7 +3052,8 @@
           "canClearBlock": false,
           "noForbiddenToday": false,
           "gamesText": "Игры 40 мин из 1 ч",
-          "pendingPrograms": 0
+          "pendingPrograms": 0,
+          "videoText": ""
         },
         "message": "Убрано 30 минут",
         "extraId": "e-18",
@@ -2522,6 +3070,50 @@
       "ok": false,
       "error": "Можно убрать от 1 до 240 минут",
       "field": "minutes"
+    }
+  },
+  "RemoveSite": {
+    "request": {
+      "domain": "example.com"
+    },
+    "reply": {
+      "ok": true,
+      "payload": {
+        "message": "Удалён example.com",
+        "domain": "example.com",
+        "kind": "blocked",
+        "undoUntilMs": 1760000010000,
+        "sites": {
+          "sites": [
+            {
+              "domain": "example.com",
+              "kind": "blocked"
+            },
+            {
+              "domain": "school.example",
+              "kind": "study"
+            },
+            {
+              "domain": "youtube.com",
+              "kind": "video_social"
+            }
+          ],
+          "children": [
+            {
+              "childId": 1,
+              "name": "Миша",
+              "on": true
+            },
+            {
+              "childId": 2,
+              "name": "Даша",
+              "on": false
+            }
+          ],
+          "blockedMax": 1000,
+          "adultSource": "Список сайтов для взрослых: UT1, Университет Тулуза Капитоль, лицензия CC BY-SA 4.0"
+        }
+      }
     }
   },
   "RenameProgram": {
@@ -2644,49 +3236,63 @@
           "totalMin": 120,
           "unlimited": false,
           "gamesMin": 60,
-          "gamesUnlimited": false
+          "gamesUnlimited": false,
+          "videoMin": 60,
+          "videoUnlimited": false
         },
         {
           "weekday": 2,
           "totalMin": 120,
           "unlimited": false,
           "gamesMin": 0,
-          "gamesUnlimited": true
+          "gamesUnlimited": true,
+          "videoMin": 0,
+          "videoUnlimited": true
         },
         {
           "weekday": 3,
           "totalMin": 90,
           "unlimited": false,
           "gamesMin": 0,
-          "gamesUnlimited": false
+          "gamesUnlimited": false,
+          "videoMin": 0,
+          "videoUnlimited": false
         },
         {
           "weekday": 4,
           "totalMin": 120,
           "unlimited": false,
           "gamesMin": 0,
-          "gamesUnlimited": true
+          "gamesUnlimited": true,
+          "videoMin": 0,
+          "videoUnlimited": true
         },
         {
           "weekday": 5,
           "totalMin": 120,
           "unlimited": false,
           "gamesMin": 0,
-          "gamesUnlimited": true
+          "gamesUnlimited": true,
+          "videoMin": 0,
+          "videoUnlimited": true
         },
         {
           "weekday": 6,
           "totalMin": 240,
           "unlimited": false,
           "gamesMin": 120,
-          "gamesUnlimited": false
+          "gamesUnlimited": false,
+          "videoMin": 0,
+          "videoUnlimited": true
         },
         {
           "weekday": 7,
           "totalMin": 0,
           "unlimited": true,
           "gamesMin": 0,
-          "gamesUnlimited": true
+          "gamesUnlimited": true,
+          "videoMin": 0,
+          "videoUnlimited": true
         }
       ],
       "endMode": "lock"
@@ -2703,49 +3309,63 @@
               "totalMin": 120,
               "unlimited": false,
               "gamesMin": 60,
-              "gamesUnlimited": false
+              "gamesUnlimited": false,
+              "videoMin": 60,
+              "videoUnlimited": false
             },
             {
               "weekday": 2,
               "totalMin": 120,
               "unlimited": false,
               "gamesMin": 0,
-              "gamesUnlimited": true
+              "gamesUnlimited": true,
+              "videoMin": 0,
+              "videoUnlimited": true
             },
             {
               "weekday": 3,
               "totalMin": 90,
               "unlimited": false,
               "gamesMin": 0,
-              "gamesUnlimited": false
+              "gamesUnlimited": false,
+              "videoMin": 0,
+              "videoUnlimited": false
             },
             {
               "weekday": 4,
               "totalMin": 120,
               "unlimited": false,
               "gamesMin": 0,
-              "gamesUnlimited": true
+              "gamesUnlimited": true,
+              "videoMin": 0,
+              "videoUnlimited": true
             },
             {
               "weekday": 5,
               "totalMin": 120,
               "unlimited": false,
               "gamesMin": 0,
-              "gamesUnlimited": true
+              "gamesUnlimited": true,
+              "videoMin": 0,
+              "videoUnlimited": true
             },
             {
               "weekday": 6,
               "totalMin": 240,
               "unlimited": false,
               "gamesMin": 120,
-              "gamesUnlimited": false
+              "gamesUnlimited": false,
+              "videoMin": 0,
+              "videoUnlimited": true
             },
             {
               "weekday": 7,
               "totalMin": 0,
               "unlimited": true,
               "gamesMin": 0,
-              "gamesUnlimited": true
+              "gamesUnlimited": true,
+              "videoMin": 0,
+              "videoUnlimited": true
             }
           ],
           "endMode": "lock",
@@ -2789,6 +3409,10 @@
             "endMode": "lock",
             "closeGames": false,
             "studyOnly": false,
+            "videoRemainingS": 0,
+            "videoLimitS": 0,
+            "videoUnlimited": false,
+            "closeVideo": false,
             "restUntilMs": 0,
             "restLeftS": 0,
             "restMessage": ""
@@ -2798,7 +3422,8 @@
           "canClearBlock": false,
           "noForbiddenToday": false,
           "gamesText": "Игры 40 мин из 1 ч",
-          "pendingPrograms": 0
+          "pendingPrograms": 0,
+          "videoText": ""
         },
         "message": "Сохранено. Новые правила уже действуют"
       }
@@ -2830,49 +3455,63 @@
               "totalMin": 120,
               "unlimited": false,
               "gamesMin": 60,
-              "gamesUnlimited": false
+              "gamesUnlimited": false,
+              "videoMin": 60,
+              "videoUnlimited": false
             },
             {
               "weekday": 2,
               "totalMin": 120,
               "unlimited": false,
               "gamesMin": 0,
-              "gamesUnlimited": true
+              "gamesUnlimited": true,
+              "videoMin": 0,
+              "videoUnlimited": true
             },
             {
               "weekday": 3,
               "totalMin": 90,
               "unlimited": false,
               "gamesMin": 0,
-              "gamesUnlimited": false
+              "gamesUnlimited": false,
+              "videoMin": 0,
+              "videoUnlimited": false
             },
             {
               "weekday": 4,
               "totalMin": 120,
               "unlimited": false,
               "gamesMin": 0,
-              "gamesUnlimited": true
+              "gamesUnlimited": true,
+              "videoMin": 0,
+              "videoUnlimited": true
             },
             {
               "weekday": 5,
               "totalMin": 120,
               "unlimited": false,
               "gamesMin": 0,
-              "gamesUnlimited": true
+              "gamesUnlimited": true,
+              "videoMin": 0,
+              "videoUnlimited": true
             },
             {
               "weekday": 6,
               "totalMin": 240,
               "unlimited": false,
               "gamesMin": 120,
-              "gamesUnlimited": false
+              "gamesUnlimited": false,
+              "videoMin": 0,
+              "videoUnlimited": true
             },
             {
               "weekday": 7,
               "totalMin": 0,
               "unlimited": true,
               "gamesMin": 0,
-              "gamesUnlimited": true
+              "gamesUnlimited": true,
+              "videoMin": 0,
+              "videoUnlimited": true
             }
           ],
           "endMode": "lock",
@@ -2916,6 +3555,10 @@
             "endMode": "lock",
             "closeGames": false,
             "studyOnly": false,
+            "videoRemainingS": 0,
+            "videoLimitS": 0,
+            "videoUnlimited": false,
+            "closeVideo": false,
             "restUntilMs": 0,
             "restLeftS": 0,
             "restMessage": ""
@@ -2925,7 +3568,8 @@
           "canClearBlock": false,
           "noForbiddenToday": false,
           "gamesText": "Игры 40 мин из 1 ч",
-          "pendingPrograms": 0
+          "pendingPrograms": 0,
+          "videoText": ""
         },
         "message": "Сохранено. Новые правила уже действуют"
       }
@@ -2969,49 +3613,63 @@
               "totalMin": 120,
               "unlimited": false,
               "gamesMin": 60,
-              "gamesUnlimited": false
+              "gamesUnlimited": false,
+              "videoMin": 60,
+              "videoUnlimited": false
             },
             {
               "weekday": 2,
               "totalMin": 120,
               "unlimited": false,
               "gamesMin": 0,
-              "gamesUnlimited": true
+              "gamesUnlimited": true,
+              "videoMin": 0,
+              "videoUnlimited": true
             },
             {
               "weekday": 3,
               "totalMin": 90,
               "unlimited": false,
               "gamesMin": 0,
-              "gamesUnlimited": false
+              "gamesUnlimited": false,
+              "videoMin": 0,
+              "videoUnlimited": false
             },
             {
               "weekday": 4,
               "totalMin": 120,
               "unlimited": false,
               "gamesMin": 0,
-              "gamesUnlimited": true
+              "gamesUnlimited": true,
+              "videoMin": 0,
+              "videoUnlimited": true
             },
             {
               "weekday": 5,
               "totalMin": 120,
               "unlimited": false,
               "gamesMin": 0,
-              "gamesUnlimited": true
+              "gamesUnlimited": true,
+              "videoMin": 0,
+              "videoUnlimited": true
             },
             {
               "weekday": 6,
               "totalMin": 240,
               "unlimited": false,
               "gamesMin": 120,
-              "gamesUnlimited": false
+              "gamesUnlimited": false,
+              "videoMin": 0,
+              "videoUnlimited": true
             },
             {
               "weekday": 7,
               "totalMin": 0,
               "unlimited": true,
               "gamesMin": 0,
-              "gamesUnlimited": true
+              "gamesUnlimited": true,
+              "videoMin": 0,
+              "videoUnlimited": true
             }
           ],
           "endMode": "study_only",
@@ -3055,6 +3713,10 @@
             "endMode": "lock",
             "closeGames": false,
             "studyOnly": false,
+            "videoRemainingS": 0,
+            "videoLimitS": 0,
+            "videoUnlimited": false,
+            "closeVideo": false,
             "restUntilMs": 0,
             "restLeftS": 0,
             "restMessage": ""
@@ -3064,7 +3726,8 @@
           "canClearBlock": false,
           "noForbiddenToday": false,
           "gamesText": "Игры 40 мин из 1 ч",
-          "pendingPrograms": 0
+          "pendingPrograms": 0,
+          "videoText": ""
         },
         "message": "Сохранено. Новые правила уже действуют"
       }
@@ -3079,7 +3742,9 @@
           "totalMin": 2000,
           "unlimited": false,
           "gamesMin": 0,
-          "gamesUnlimited": false
+          "gamesUnlimited": false,
+          "videoMin": 0,
+          "videoUnlimited": false
         }
       ]
     },
@@ -3140,6 +3805,10 @@
             "endMode": "lock",
             "closeGames": false,
             "studyOnly": false,
+            "videoRemainingS": 0,
+            "videoLimitS": 0,
+            "videoUnlimited": false,
+            "closeVideo": false,
             "restUntilMs": 0,
             "restLeftS": 0,
             "restMessage": ""
@@ -3149,7 +3818,8 @@
           "canClearBlock": false,
           "noForbiddenToday": false,
           "gamesText": "Игры 40 мин из 1 ч",
-          "pendingPrograms": 0
+          "pendingPrograms": 0,
+          "videoText": ""
         },
         "message": "Сохранено. Новые правила уже действуют"
       }
@@ -3208,6 +3878,48 @@
         "active": true,
         "expiresMs": 1760000540000,
         "remainingS": 540
+      }
+    }
+  },
+  "SetAdultFilter": {
+    "request": {
+      "childId": 2,
+      "on": false
+    },
+    "reply": {
+      "ok": true,
+      "payload": {
+        "message": "Даша: сайты 18+ не блокируются",
+        "sites": {
+          "sites": [
+            {
+              "domain": "example.com",
+              "kind": "blocked"
+            },
+            {
+              "domain": "school.example",
+              "kind": "study"
+            },
+            {
+              "domain": "youtube.com",
+              "kind": "video_social"
+            }
+          ],
+          "children": [
+            {
+              "childId": 1,
+              "name": "Миша",
+              "on": true
+            },
+            {
+              "childId": 2,
+              "name": "Даша",
+              "on": false
+            }
+          ],
+          "blockedMax": 1000,
+          "adultSource": "Список сайтов для взрослых: UT1, Университет Тулуза Капитоль, лицензия CC BY-SA 4.0"
+        }
       }
     }
   },
@@ -3321,6 +4033,10 @@
             "endMode": "lock",
             "closeGames": false,
             "studyOnly": false,
+            "videoRemainingS": 0,
+            "videoLimitS": 0,
+            "videoUnlimited": false,
+            "closeVideo": false,
             "restUntilMs": 0,
             "restLeftS": 0,
             "restMessage": ""
@@ -3330,7 +4046,8 @@
           "canClearBlock": false,
           "noForbiddenToday": false,
           "gamesText": "Игры 40 мин из 1 ч",
-          "pendingPrograms": 0
+          "pendingPrograms": 0,
+          "videoText": ""
         },
         "message": "Сегодня запретные часы не действуют"
       }
@@ -3535,49 +4252,63 @@
               "totalMin": 120,
               "unlimited": false,
               "gamesMin": 60,
-              "gamesUnlimited": false
+              "gamesUnlimited": false,
+              "videoMin": 60,
+              "videoUnlimited": false
             },
             {
               "weekday": 2,
               "totalMin": 120,
               "unlimited": false,
               "gamesMin": 0,
-              "gamesUnlimited": true
+              "gamesUnlimited": true,
+              "videoMin": 0,
+              "videoUnlimited": true
             },
             {
               "weekday": 3,
               "totalMin": 90,
               "unlimited": false,
               "gamesMin": 0,
-              "gamesUnlimited": false
+              "gamesUnlimited": false,
+              "videoMin": 0,
+              "videoUnlimited": false
             },
             {
               "weekday": 4,
               "totalMin": 120,
               "unlimited": false,
               "gamesMin": 0,
-              "gamesUnlimited": true
+              "gamesUnlimited": true,
+              "videoMin": 0,
+              "videoUnlimited": true
             },
             {
               "weekday": 5,
               "totalMin": 120,
               "unlimited": false,
               "gamesMin": 0,
-              "gamesUnlimited": true
+              "gamesUnlimited": true,
+              "videoMin": 0,
+              "videoUnlimited": true
             },
             {
               "weekday": 6,
               "totalMin": 240,
               "unlimited": false,
               "gamesMin": 120,
-              "gamesUnlimited": false
+              "gamesUnlimited": false,
+              "videoMin": 0,
+              "videoUnlimited": true
             },
             {
               "weekday": 7,
               "totalMin": 0,
               "unlimited": true,
               "gamesMin": 0,
-              "gamesUnlimited": true
+              "gamesUnlimited": true,
+              "videoMin": 0,
+              "videoUnlimited": true
             }
           ]
         }
@@ -3603,6 +4334,102 @@
       "ok": false,
       "error": "Не меньше 6 символов",
       "field": "password"
+    }
+  },
+  "Setup#sites": {
+    "request": {
+      "password": "секрет-123",
+      "children": [
+        {
+          "sid": "S-1-5-21-111-222-333-1001",
+          "name": "Миша",
+          "limits": [
+            {
+              "weekday": 1,
+              "totalMin": 120,
+              "unlimited": false,
+              "gamesMin": 60,
+              "gamesUnlimited": false,
+              "videoMin": 60,
+              "videoUnlimited": false
+            },
+            {
+              "weekday": 2,
+              "totalMin": 120,
+              "unlimited": false,
+              "gamesMin": 0,
+              "gamesUnlimited": true,
+              "videoMin": 0,
+              "videoUnlimited": true
+            },
+            {
+              "weekday": 3,
+              "totalMin": 90,
+              "unlimited": false,
+              "gamesMin": 0,
+              "gamesUnlimited": false,
+              "videoMin": 0,
+              "videoUnlimited": false
+            },
+            {
+              "weekday": 4,
+              "totalMin": 120,
+              "unlimited": false,
+              "gamesMin": 0,
+              "gamesUnlimited": true,
+              "videoMin": 0,
+              "videoUnlimited": true
+            },
+            {
+              "weekday": 5,
+              "totalMin": 120,
+              "unlimited": false,
+              "gamesMin": 0,
+              "gamesUnlimited": true,
+              "videoMin": 0,
+              "videoUnlimited": true
+            },
+            {
+              "weekday": 6,
+              "totalMin": 240,
+              "unlimited": false,
+              "gamesMin": 120,
+              "gamesUnlimited": false,
+              "videoMin": 0,
+              "videoUnlimited": true
+            },
+            {
+              "weekday": 7,
+              "totalMin": 0,
+              "unlimited": true,
+              "gamesMin": 0,
+              "gamesUnlimited": true,
+              "videoMin": 0,
+              "videoUnlimited": true
+            }
+          ]
+        }
+      ],
+      "programs": [
+        {
+          "path": "c:\\program files\\minecraft launcher\\minecraftlauncher.exe",
+          "category": "games"
+        }
+      ],
+      "sites": {
+        "adultOff": [
+          "S-1-5-21-111-222-333-1002"
+        ],
+        "video": [
+          "youtube.com",
+          "vk.com",
+          "kids.example"
+        ]
+      }
+    },
+    "reply": {
+      "ok": true,
+      "payload": {}
     }
   },
   "SpendBonus": {
@@ -3643,6 +4470,10 @@
             "endMode": "lock",
             "closeGames": false,
             "studyOnly": false,
+            "videoRemainingS": 0,
+            "videoLimitS": 0,
+            "videoUnlimited": false,
+            "closeVideo": false,
             "restUntilMs": 0,
             "restLeftS": 0,
             "restMessage": ""
@@ -3652,7 +4483,8 @@
           "canClearBlock": false,
           "noForbiddenToday": false,
           "gamesText": "Игры 40 мин из 1 ч",
-          "pendingPrograms": 0
+          "pendingPrograms": 0,
+          "videoText": ""
         },
         "message": "Взято из копилки 30 мин",
         "balanceAfter": 15
@@ -3696,6 +4528,18 @@
       "payload": {}
     }
   },
+  "TestGuard#domain": {
+    "request": {
+      "action": {
+        "action": "domain",
+        "text": "youtube.com"
+      }
+    },
+    "reply": {
+      "ok": true,
+      "payload": {}
+    }
+  },
   "TestGuard#foreground": {
     "request": {
       "action": {
@@ -3720,6 +4564,55 @@
           "path": "c:\\games\\game.exe",
           "category": "games",
           "seconds": 1800
+        }
+      ]
+    },
+    "reply": {
+      "ok": true,
+      "payload": {}
+    }
+  },
+  "TestSeedPrograms": {
+    "request": {
+      "programs": [
+        {
+          "path": "c:\\program files\\windowsapps\\microsoft.microsoftedge.stable_130.0.2849.80_neutral__8wekyb3d8bbwe\\msedge_proxy.exe",
+          "name": "msedge_proxy",
+          "publisher": "Microsoft Corporation",
+          "category": "other",
+          "source": "parent",
+          "hidden": true,
+          "customName": "",
+          "decidedAt": 1759913600000
+        },
+        {
+          "path": "c:\\program files\\windowsapps\\microsoft.microsoftedge.stable_131.0.2903.51_neutral__8wekyb3d8bbwe\\msedge_proxy.exe",
+          "name": "msedge_proxy",
+          "publisher": "Microsoft Corporation",
+          "category": "blocked",
+          "source": "parent",
+          "hidden": false,
+          "customName": "Edge",
+          "decidedAt": 1760000000000
+        }
+      ],
+      "usage": [
+        {
+          "childId": 1,
+          "day": "2026-11-03",
+          "path": "c:\\program files\\windowsapps\\microsoft.microsoftedge.stable_130.0.2849.80_neutral__8wekyb3d8bbwe\\msedge_proxy.exe",
+          "category": "other",
+          "seconds": 120
+        }
+      ],
+      "pending": [
+        {
+          "path": "c:\\program files\\windowsapps\\microsoft.microsoftedge.stable_132.0.2957.55_neutral__8wekyb3d8bbwe\\msedge_proxy.exe",
+          "name": "msedge_proxy",
+          "publisher": "Microsoft Corporation",
+          "childId": 1,
+          "attempts": 2,
+          "lastAttemptAt": 1760000000000
         }
       ]
     },
@@ -3796,6 +4689,10 @@
             "endMode": "lock",
             "closeGames": false,
             "studyOnly": false,
+            "videoRemainingS": 0,
+            "videoLimitS": 0,
+            "videoUnlimited": false,
+            "closeVideo": false,
             "restUntilMs": 0,
             "restLeftS": 0,
             "restMessage": ""
@@ -3805,7 +4702,8 @@
           "canClearBlock": false,
           "noForbiddenToday": false,
           "gamesText": "Игры 40 мин из 1 ч",
-          "pendingPrograms": 0
+          "pendingPrograms": 0,
+          "videoText": ""
         },
         "message": "Добавленное время отменено"
       }

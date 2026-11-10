@@ -70,7 +70,7 @@ const (
 	scanTimeout       = 60 * time.Second // бюджет всего сканирования (второй этап — остаток)
 	scanGrace         = 2 * time.Second  // сверх бюджета на зависшее чтение папки
 	scanWorkers       = 8                // горутин обхода корней приложений
-	scanMaxEntries    = 400              // записей в снимке
+	scanMaxEntries    = 1000             // записей в снимке (B-36: запас под кадр канала, TestListProgramsFitsFrame)
 	scanMaxFiles      = 5000             // файлов второго этапа, после которых поиск по каталогу останавливается
 	scanMainDepth     = 2                // уровней вглубь корня приложения для главного exe
 	scanCatalogDepth  = 3                // уровней вглубь корня приложения для каталога игр
@@ -117,6 +117,7 @@ type programScanner struct {
 	workers      int
 	maxEntries   int
 	maxFiles     int
+	logf         func(string, ...any) // журнал работы (обрезка снимка, B-36); nil — без записи
 }
 
 // newProgramScanner — сканер с бюджетами и пределами программы.
@@ -144,6 +145,7 @@ type scanStats struct {
 	AppRoots, StorePkgs    int // корней приложений к обходу, пакетов Store с приложениями
 	Dirs, Files            int // прочитано папок и файлов в них
 	Found                  int // записей в снимке
+	Dropped                int // уникальных путей сверх предела maxEntries (B-36)
 	SlowestDir             string
 	Slowest                time.Duration
 }
@@ -156,9 +158,9 @@ func (st scanStats) String() string {
 		}
 		return "не закончен"
 	}
-	return fmt.Sprintf("этап 1 %s за %.1f с, этап 2 %s за %.1f с; корней приложений %d, пакетов Store %d, папок %d, файлов %d, найдено %d; самая долгая папка %s за %d мс",
+	return fmt.Sprintf("этап 1 %s за %.1f с, этап 2 %s за %.1f с; корней приложений %d, пакетов Store %d, папок %d, файлов %d, найдено %d, не вошло %d; самая долгая папка %s за %d мс",
 		state(st.Phase1Done), st.Phase1.Seconds(), state(st.Phase2Done), st.Phase2.Seconds(),
-		st.AppRoots, st.StorePkgs, st.Dirs, st.Files, st.Found, st.SlowestDir, st.Slowest.Milliseconds())
+		st.AppRoots, st.StorePkgs, st.Dirs, st.Files, st.Found, st.Dropped, st.SlowestDir, st.Slowest.Milliseconds())
 }
 
 // scanState — то, что обход успел найти, и статистика; общий для горутин обхода и Scan (обход
@@ -200,8 +202,13 @@ func (st *scanState) phase1Done() bool {
 }
 
 // Scan обходит корни и возвращает снимок, отсортированный по пути; ошибка содержит статистику.
+// Обрезка по пределу — строка в журнал работы (B-36): не вошедшие программы из Program Files
+// будут «незнакомыми» и ждать решения родителя.
 func (s *programScanner) Scan() ([]service.FoundProgram, error) {
-	found, _, err := s.scan()
+	found, st, err := s.scan()
+	if err == nil && st.Dropped > 0 && s.logf != nil {
+		s.logf("Снимок программ обрезан по пределу %d: не вошло программ %d, они будут ждать решения родителя", s.maxEntries, st.Dropped)
+	}
 	return found, err
 }
 
@@ -242,7 +249,8 @@ wait:
 }
 
 // result собирает снимок: главные exe, затем пакеты Store, затем каталог (каждая группа по
-// порядку пути); без повторов, не больше max записей, по порядку нормализованного пути.
+// порядку пути); без повторов, не больше max записей, по порядку нормализованного пути. Уникальные
+// пути сверх предела считаются в stats.Dropped.
 func (st *scanState) result(max int, phase1 time.Duration) ([]string, scanStats, error) {
 	st.mu.Lock()
 	defer st.mu.Unlock()
@@ -277,10 +285,14 @@ func (st *scanState) result(max int, phase1 time.Duration) ([]string, scanStats,
 		}
 		sort.Slice(g, func(i, j int) bool { return g[i].norm < g[j].norm })
 		for _, it := range g {
-			if it.norm == "" || seen[it.norm] || len(items) >= max {
+			if it.norm == "" || seen[it.norm] {
 				continue
 			}
 			seen[it.norm] = true
+			if len(items) >= max {
+				stats.Dropped++
+				continue
+			}
 			items = append(items, it)
 		}
 	}
@@ -649,8 +661,9 @@ func skipStorePackage(dir string) bool {
 // appxManifest — нужная часть AppxManifest.xml (пространства имён не важны).
 type appxManifest struct {
 	Properties struct {
-		Framework       bool `xml:"Framework"`
-		ResourcePackage bool `xml:"ResourcePackage"`
+		Framework            bool   `xml:"Framework"`
+		ResourcePackage      bool   `xml:"ResourcePackage"`
+		PublisherDisplayName string `xml:"PublisherDisplayName"` // издатель для людей (RM4-11)
 	} `xml:"Properties"`
 	Applications []struct {
 		Executable string `xml:"Executable,attr"`

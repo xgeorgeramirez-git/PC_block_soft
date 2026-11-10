@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as api from "../api";
+import { ADULT_SOURCE_TEXT } from "../lib/sites";
 import { DEFAULT_PASSWORD, installBackend, mockChild, statusOf, uninstallBackend } from "./backend";
+import type { ProgramDTO } from "../types";
 
 // Подмена программы сама должна вести себя как служба, иначе тесты экранов проверяют выдумку.
 
@@ -138,6 +140,41 @@ describe("мастер", () => {
     await expect(api.setup("123456", mini)).rejects.toMatchObject({ message: "Программа уже настроена" });
   });
 
+  // Ловит: подмена принимает шаг «Сайты» не как служба (тесты мастера зелёные на выдумке, PL-9).
+  it("Setup с sites: «18+» выключен у названных детей, видео заменяет набор; не домен - отказ у поля", async () => {
+    const mock = installBackend({ configured: false, sites: [{ domain: "example.com", kind: "blocked" }, { domain: "youtube.com", kind: "video_social" }] });
+    const limits = [1, 2, 3, 4, 5, 6, 7].map((weekday) => ({ weekday, totalMin: 120, unlimited: false }));
+    const kids = [
+      { sid: "S-1", name: "Миша", limits },
+      { sid: "S-2", name: "Даша", limits },
+    ];
+    await expect(api.setup("123456", kids, undefined, { adultOff: [], video: ["котики видео"] })).rejects.toMatchObject({
+      message: "Это не похоже на адрес сайта",
+      field: "domain",
+    });
+    expect(mock.state.configured).toBe(false);
+    await api.setup("123456", kids, undefined, { adultOff: ["S-2"], video: ["vk.com", "https://VK.com/feed", "kids.example"] });
+    expect(mock.state.children.map((c) => [c.name, c.adultFilter])).toEqual([
+      ["Миша", undefined],
+      ["Даша", false],
+    ]);
+    expect(mock.state.sites).toEqual([
+      { domain: "example.com", kind: "blocked" },
+      { domain: "vk.com", kind: "video_social" },
+      { domain: "kids.example", kind: "video_social" },
+    ]);
+  });
+
+  // Ловит: подмена теряет лимит видео при сохранении (тесты «Сохранить» зелёные на данных без видео, PL-9).
+  it("SaveLimits хранит видео; больше суток - отказ у поля video.N", async () => {
+    installBackend({ sessionActive: true });
+    const limits = (await api.getChildRules(1)).limits.map((l) => (l.weekday === 1 ? { ...l, videoMin: 20, videoUnlimited: false } : l));
+    await api.saveLimits(1, limits);
+    expect((await api.getChildRules(1)).limits[0]).toMatchObject({ videoMin: 20, videoUnlimited: false });
+    const tooMuch = limits.map((l) => (l.weekday === 2 ? { ...l, videoMin: 1500, videoUnlimited: false } : l));
+    await expect(api.saveLimits(1, tooMuch)).rejects.toMatchObject({ message: "Не больше 24 ч", field: "video.2" });
+  });
+
   it("учётки: у уже добавленного ребёнка стоит отметка", async () => {
     installBackend();
     const accounts = await api.listAccounts();
@@ -271,9 +308,28 @@ describe("ребёнок о себе: MyToday, FirstRunSeen, Finish", () => {
       ["сб", "4 ч"],
       ["вс", "Без лимита"],
       ["", "Игры: пн до 1 ч, ср нельзя, сб до 2 ч"],
+      ["", "Видео и соцсети: пн до 1 ч, ср нельзя"],
       ["", "Когда время вышло: экран блокировки"],
     ]);
-    expect(mine.rules.map((r) => r.weekday)).toEqual([1, 2, 3, 4, 5, 6, 7, 0, 0]);
+    expect(mine.rules.map((r) => r.weekday)).toEqual([1, 2, 3, 4, 5, 6, 7, 0, 0, 0]);
+  });
+
+  // Ловит: подмена считает видео не как служба (остаток, закрытие, подсказка значка, строка карточки).
+  it("видео: остаток с доп. временем, закрытие при нуле, подсказка и строка карточки", () => {
+    const st = statusOf(mockChild({ videoUsedS: 600, extraMin: 10, gamesUsedS: 0 }), Date.now());
+    expect(st).toMatchObject({ videoUnlimited: false, videoLimitS: 4200, videoRemainingS: 3600, closeVideo: false });
+    expect(st.tooltip).toBe("Осталось 1 ч 35 мин\nИгры: 1 ч 10 мин\nВидео: 1 ч 00 мин");
+    const used = statusOf(mockChild({ videoUsedS: 3600 }), Date.now());
+    expect(used).toMatchObject({ videoRemainingS: 0, closeVideo: true });
+    const free = statusOf(mockChild({ limits: [{ weekday: 1, totalMin: 120, unlimited: false }] }), Date.now());
+    expect(free).toMatchObject({ videoUnlimited: true, videoLimitS: 0, closeVideo: false });
+    expect(free.tooltip).toBe("Осталось 1 ч 25 мин");
+    expect(statusOf(mockChild({ admin: true }), Date.now())).toMatchObject({ videoUnlimited: true, closeVideo: false });
+  });
+
+  it("GetToday: строка видео как ipc.VideoCardText", async () => {
+    installBackend({ sessionActive: true, children: [mockChild({ videoUsedS: 600 })] });
+    expect((await api.getToday()).children[0].videoText).toBe("Видео 10 мин из 1 ч");
   });
 
   it("MyToday: другой ребёнок видит только себя", async () => {
@@ -316,6 +372,21 @@ describe("ребёнок о себе: MyToday, FirstRunSeen, Finish", () => {
       { path: "", name: "Остальное время", category: "study", seconds: 180 },
       { path: "", name: "Остальное время", category: "other", seconds: 300 },
     ]);
+  });
+
+  // Ловит: подмена оставляет видео в «Прочем» (плитка «Прочее» больше на видео) или теряет «Остальное время» видео.
+  it("MyToday: видео за период и «Прочее» без видео, как у службы", async () => {
+    const programsToday = [{ path: "youtube.com", name: "youtube.com", category: "video_social" as const, seconds: 600, kind: "site" as const }];
+    const history = [{ day: "2026-10-12", totalS: 600, videoS: 300 }];
+    installBackend({ children: [mockChild({ usedS: 2100, gamesUsedS: 600, videoUsedS: 900, studyUsedS: 300, programsToday, history })] });
+    const today = await api.myToday();
+    expect([today.gamesS, today.videoS, today.studyS, today.otherS, today.allS]).toEqual([600, 900, 300, 600, 2400]);
+    expect(today.programs.filter((p) => p.category === "video_social")).toEqual([
+      ...programsToday,
+      { path: "", name: "Остальное время", category: "video_social", seconds: 300 },
+    ]);
+    const all = await api.myToday("all");
+    expect([all.videoS, all.otherS]).toEqual([1200, 900]);
   });
 
   it("FirstRunSeen запоминается, Finish отдаёт код окну", async () => {
@@ -393,5 +464,126 @@ describe("команды окна ребёнка", () => {
     await expect(api.openWindow("parent")).resolves.toEqual({ opened: true });
     expect(mock.state.openedWindows).toEqual(["parent"]);
     await expect(api.openWindow("нет такого" as never)).rejects.toBeTruthy();
+  });
+});
+
+// T8-7: «Сайты» отвечают как служба (handlers_m4.go), а не примером контракта: иначе тест экрана
+// «удалить» зелёный там, где домен не удаляется (PL-9).
+describe("сайты (FR-21)", () => {
+  const thousand = () => Array.from({ length: 1000 }, (_, i) => ({ domain: `s${i}.test`, kind: "blocked" as const }));
+
+  it("ListSites без опций: сайты примера, «18+» детей, предел и подпись источника", async () => {
+    installBackend({ sessionActive: true });
+    const r = await api.listSites();
+    expect(r.sites).toEqual([
+      { domain: "example.com", kind: "blocked" },
+      { domain: "school.example", kind: "study" },
+      { domain: "youtube.com", kind: "video_social" },
+    ]);
+    expect(r.children).toEqual([{ childId: 1, name: "Миша", on: true }]);
+    expect(r.blockedMax).toBe(1000);
+    expect(r.adultSource).toBe(ADULT_SOURCE_TEXT);
+  });
+
+  it("без сессии: «Сессия закончилась. Введите пароль»", async () => {
+    installBackend();
+    await expect(api.listSites()).rejects.toMatchObject({ message: "Сессия закончилась. Введите пароль" });
+  });
+
+  it("AddSite: домен из адреса, повтор и не домен — отказ у поля", async () => {
+    installBackend({ sessionActive: true });
+    const r = await api.addSite("https://www.Example.org/a", "blocked");
+    expect(r).toMatchObject({ message: "Добавлено: example.org", domain: "example.org", moved: false });
+    expect(r.sites.sites).toContainEqual({ domain: "example.org", kind: "blocked" });
+    await expect(api.addSite("example.org", "blocked")).rejects.toMatchObject({ message: "Этот сайт уже в списке", field: "domain" });
+    await expect(api.addSite("просто текст", "blocked")).rejects.toMatchObject({ message: "Это не похоже на адрес сайта", field: "domain" });
+    await expect(api.addSite("a.ru", "games" as never)).rejects.toMatchObject({ message: "Не удалось разобрать запрос. Попробуйте ещё раз" });
+  });
+
+  it("AddSite: домен из другого списка переносится, запись одна", async () => {
+    installBackend({ sessionActive: true });
+    const r = await api.addSite("youtube.com", "study");
+    expect(r).toMatchObject({ message: "Сайт перенесён в «Учёбу»", domain: "youtube.com", moved: true });
+    expect(r.sites.sites.filter((s) => s.domain === "youtube.com")).toEqual([{ domain: "youtube.com", kind: "study" }]);
+  });
+
+  it("AddSite: сайты в ответе по списку, затем по домену", async () => {
+    installBackend({ sessionActive: true });
+    const r = await api.addSite("aaa.test", "video_social");
+    expect(r.sites.sites.map((s) => s.domain)).toEqual(["example.com", "school.example", "aaa.test", "youtube.com"]);
+  });
+
+  it("AddSite: в «Запрещённых» 1000 — новый не добавляется, отказ у поля", async () => {
+    installBackend({ sessionActive: true, sites: thousand() });
+    await expect(api.addSite("new.test", "blocked")).rejects.toMatchObject({
+      message: "В списке запрещённых уже 1000 сайтов. Удалите ненужные",
+      field: "domain",
+    });
+    await expect(api.addSite("s5.test", "blocked")).rejects.toMatchObject({ message: "Этот сайт уже в списке", field: "domain" });
+    await expect(api.addSite("study.test", "study")).resolves.toMatchObject({ message: "Добавлено: study.test" });
+  });
+
+  it("RemoveSite: прежний список и «Отменить» на 10 с; повтор — сайта уже нет", async () => {
+    installBackend({ sessionActive: true });
+    const r = await api.removeSite("example.com");
+    expect(r).toMatchObject({ message: "Удалён example.com", domain: "example.com", kind: "blocked" });
+    expect(r.undoUntilMs).toBe(Date.now() + 10_000);
+    expect(r.sites.sites.map((s) => s.domain)).not.toContain("example.com");
+    await expect(api.removeSite("example.com")).rejects.toMatchObject({ message: "Этого сайта уже нет в списках" });
+  });
+
+  it("SetAdultFilter: переключатель ребёнка; незнакомый ребёнок — отказ", async () => {
+    installBackend({ sessionActive: true });
+    const r = await api.setAdultFilter(1, false);
+    expect(r.message).toBe("Миша: сайты 18+ не блокируются");
+    expect(r.sites.children).toEqual([{ childId: 1, name: "Миша", on: false }]);
+    await expect(api.setAdultFilter(9, true)).rejects.toMatchObject({ message: "Такого ребёнка нет в списке" });
+  });
+
+  it("MockChild.adultFilter: false — переключатель выключен", async () => {
+    installBackend({ sessionActive: true, children: [mockChild({ adultFilter: false })] });
+    expect((await api.listSites()).children).toEqual([{ childId: 1, name: "Миша", on: false }]);
+  });
+
+  it("журнал: тексты и виды событий, как у службы", async () => {
+    const mock = installBackend({ sessionActive: true });
+    await api.addSite("https://www.Example.org/a", "blocked");
+    await api.addSite("youtube.com", "study");
+    await api.removeSite("example.com");
+    await api.setAdultFilter(1, false);
+    expect(mock.state.events.slice(0, 4).map((e) => [e.kind, e.text])).toEqual([
+      ["site_adult_filter", "Миша: сайты 18+ не блокируются"],
+      ["site_removed", "Вы удалили сайт example.com из «Запрещённых»"],
+      ["site_moved", "Вы перенесли сайт youtube.com в «Учёбу»"],
+      ["site_added", "Вы добавили сайт example.org в «Запрещённые»"],
+    ]);
+    expect(mock.state.events[0].childId).toBe(1);
+  });
+});
+
+describe("программы: пустая смена категории (B-41)", () => {
+  const UCHI = "c:\\program files\\uchi\\uchi.exe";
+  const BRAVE = "c:\\program files\\bravesoftware\\brave-browser\\application\\brave.exe";
+  const list = (): ProgramDTO[] => [
+    { path: UCHI, name: "Учи.ру", publisher: "Учи.ру", category: "study", source: "parent", weekS: 0 },
+    { path: BRAVE, name: "Brave", publisher: "Brave Software, Inc.", category: "other", source: "snapshot", weekS: 0 },
+  ];
+  const undoOf = (r: { message: string; undoId: string; undoUntilMs: number }) => ({
+    message: r.message,
+    undoId: r.undoId,
+    undoUntilMs: r.undoUntilMs,
+  });
+
+  // Ловит: мок, как служба до B-41, даёт «Изменено программ: 0» с «Отменить» и пишет журнал.
+  it("та же категория решением родителя: «Категория не изменилась» без «Отменить» и журнала", async () => {
+    const mock = installBackend({ sessionActive: true, programs: list() });
+    const unchanged = { message: "Категория не изменилась", undoId: "", undoUntilMs: 0 };
+    expect(undoOf(await api.setProgramsCategory([UCHI], "study"))).toEqual(unchanged);
+    expect(undoOf(await api.decideProgram(UCHI, "study"))).toEqual(unchanged);
+    expect(mock.state.events.filter((e) => e.kind === "program_decided")).toEqual([]);
+
+    const mixed = await api.setProgramsCategory([UCHI, BRAVE], "study");
+    expect(mixed.message).toBe("Изменено программ: 1");
+    expect(mixed.undoId).not.toBe("");
   });
 });

@@ -12,12 +12,15 @@ import (
 	"pcblock/internal/core"
 	"pcblock/internal/ipc"
 	"pcblock/internal/programs"
+	"pcblock/internal/sites"
 )
 
 // Сроки службы. Всё, что про людей и процессы, считается по настоящим часам; учёт по часам ядра.
 const (
 	sampleMaxAge    = 5 * time.Second  // снимок стража старше этого срока не засчитывается
 	adminCheckEvery = 60 * time.Second // проверка R1 для каждого ребёнка
+	braveCheckEvery = 60 * time.Second // сверка правил Brave в ветке реестра ребёнка (RM4-10)
+	braveLogEvery   = 10 * time.Minute // «правила Brave восстановлены» в журнал родителя не чаще, на ребёнка
 	rulesRetryEvery = 60 * time.Second // повторное чтение правил, которые не удалось прочитать (R18)
 	errLogEvery     = 60 * time.Second // одна и та же ошибка пишется в журнал работы не чаще
 	parentIdle      = 10 * time.Minute // родительская сессия заканчивается без действий (R19)
@@ -100,6 +103,9 @@ type Config struct {
 	// Watcher — процессы сеансов для наблюдателя (R12, R13, R5, R8, NFR-6): закрывает незнакомое,
 	// запрещённое и то, что сейчас нельзя. nil: наблюдение выключено, ничего не закрывается.
 	Watcher ProcessWatcher
+	// Adult открывает список сайтов «18+» (M4, R14, D-67). nil: встроенный в программу
+	// (sites.Embedded).
+	Adult func() (sites.AdultList, error)
 }
 
 // pendingWarning — предупреждение, ещё не доставленное стражу.
@@ -137,6 +143,7 @@ type childState struct {
 	lastBypass    string               // последняя записанная попытка обхода (дедуп журнала, D-41)
 	lastBypassAt  time.Time            // когда записана; страж повторяет сообщение каждую секунду
 	usage         map[progUsageKey]int // учёт по программам с прошлого сохранения (RM3-6); пишется в saveState
+	unreadSince   time.Time            // с какого момента подряд адрес Brave не читается (RM4-1, S-3); нулевой — читается
 }
 
 // Service — служба PCBlock без привязки к Windows: логика на портах (doc.go).
@@ -189,6 +196,24 @@ type Service struct {
 
 	bypassWait []pendingBypass // гибель стража, значка или окна, о которой ещё не решено, обход ли это (FB-1)
 	logoffs    []logoffMark    // недавние выходы из учёток: гибель рядом с ними в отключённом сеансе ребёнка не обход (FB-5)
+
+	// Сайты (M4, sites_svc.go): свои списки родителя в памяти, прочитаны ли они в последний раз,
+	// когда пробовали; список «18+»; правила Brave надо переписать (braveDue, T5); в какой день
+	// ребёнку уже записано «не удалось прочитать адрес» (unreadDay, раз в день, RM4-1).
+	siteLists   sites.Lists
+	siteListsOK bool
+	sitesAt     time.Time
+	adult       sites.AdultList
+	braveDue    bool
+	unreadDay   map[int64]string
+
+	// Правила Brave (T5, brave.go): домены «Запрещённых» из последнего удачного чтения списков и
+	// было ли оно (до него правила не пишутся, T5-5); когда сверяли; когда последний раз писали
+	// родителю о восстановлении (по ребёнку, T5-7).
+	braveBlocked []string
+	braveReady   bool
+	braveAt      time.Time
+	braveLogAt   map[int64]time.Time
 }
 
 // New собирает службу. Ничего не запускает: Start читает базу и поднимает сеансные части.
@@ -254,7 +279,10 @@ func (noAccounts) List() ([]AccountInfo, error) { return []AccountInfo{}, nil }
 
 type noPolicy struct{}
 
-func (noPolicy) SetTaskMgrDisabled(string, bool) error { return nil }
+func (noPolicy) SetTaskMgrDisabled(string, bool) error         { return nil }
+func (noPolicy) SetBraveRules(string, BraveRules) error        { return nil }
+func (noPolicy) BraveRulesOK(string, BraveRules) (bool, error) { return true, nil }
+func (noPolicy) RemoveBraveRules(string) error                 { return nil }
 
 // randomToken возвращает 32 случайных байта в шестнадцатеричной записи.
 func randomToken() string {
@@ -285,6 +313,8 @@ func (s *Service) Start(real time.Time) error {
 	}
 	s.loadChildren(real)
 	s.ensurePrograms(real)
+	s.loadAdult()
+	s.reloadSites(real)
 	if v, ok, err := s.cfg.Store.GetSetting(settingVerboseLogs); err == nil && ok && v == "1" {
 		s.verbose = true
 		s.cfg.Logf("Подробные логи для диагностики включены (FR-25, D-42)")
@@ -293,7 +323,9 @@ func (s *Service) Start(real time.Time) error {
 		cs := s.children[id]
 		s.checkAdmin(cs, real)
 		s.applyPolicy(cs.child.SID, true)
+		s.applyBrave(cs)
 	}
+	s.braveAt = real
 	s.started = true
 	s.syncSessions(real)
 	return nil
@@ -481,7 +513,7 @@ func (s *Service) saveState(cs *childState, st core.DayState) {
 	// полуночи не переносит вчерашние секунды в сегодня (PL-15). Ошибка — накопитель остаётся.
 	rows := make([]UsageRow, 0, len(cs.usage))
 	for k, sec := range cs.usage {
-		rows = append(rows, UsageRow{Day: k.day, Category: k.cat, Kind: usageKindProgram, Subject: k.path, Seconds: sec})
+		rows = append(rows, UsageRow{Day: k.day, Category: k.cat, Kind: k.kind, Subject: k.subject, Seconds: sec})
 	}
 	sort.Slice(rows, func(i, j int) bool {
 		a, b := rows[i], rows[j]
@@ -490,6 +522,9 @@ func (s *Service) saveState(cs *childState, st core.DayState) {
 		}
 		if a.Category != b.Category {
 			return a.Category < b.Category
+		}
+		if a.Kind != b.Kind {
+			return a.Kind < b.Kind
 		}
 		return a.Subject < b.Subject
 	})
@@ -602,16 +637,18 @@ func (s *Service) cardOf(cs *childState) ipc.TodayCard {
 		bonus = 0
 	}
 	noForbidden := state.NoForbidden && state.Day == st.Day
-	gamesS := state.GamesS
+	gamesS, videoS := state.GamesS, state.VideoS
 	if state.Day != st.Day && st.Day != "" {
-		gamesS = 0
+		gamesS, videoS = 0, 0
 	}
 	return ipc.TodayCard{
 		ChildID: cs.child.ID, SID: cs.child.SID, Name: cs.child.Name, Status: st,
 		ExtraMin: extra, BonusBalance: bonus, CanClearBlock: bypass != "",
 		NoForbiddenToday: noForbidden,
 		// «Игры 40 мин из 1 ч» (8.3.2 п.3): игры за день ядра и лимит игр из того же решения.
-		GamesText:       ipc.GamesCardText(gamesS, st.GamesLimitS, st.GamesUnlimited),
+		GamesText: ipc.GamesCardText(gamesS, st.GamesLimitS, st.GamesUnlimited),
+		// «Видео 10 мин из 20 мин» (R6): так же по лимиту видео решения ядра.
+		VideoText:       ipc.VideoCardText(videoS, st.VideoLimitS, st.VideoUnlimited),
 		PendingPrograms: s.pendingCount(),
 	}
 }
@@ -638,12 +675,15 @@ func limitsView(r core.Rules) []ipc.WeekdayLimit {
 	out := make([]ipc.WeekdayLimit, 0, 7)
 	for i := 0; i < 7; i++ {
 		l := r.Week[i]
-		w := ipc.WeekdayLimit{Weekday: i + 1, Unlimited: l.Unlimited(), GamesUnlimited: l.GamesMin == nil}
+		w := ipc.WeekdayLimit{Weekday: i + 1, Unlimited: l.Unlimited(), GamesUnlimited: l.GamesMin == nil, VideoUnlimited: l.VideoMin == nil}
 		if !w.Unlimited {
 			w.TotalMin = *l.TotalMin
 		}
 		if !w.GamesUnlimited {
 			w.GamesMin = *l.GamesMin
+		}
+		if !w.VideoUnlimited {
+			w.VideoMin = *l.VideoMin
 		}
 		out = append(out, w)
 	}

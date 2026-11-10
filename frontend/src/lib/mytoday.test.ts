@@ -190,7 +190,7 @@ describe("todayRows: остаток, лимиты, запретные часы, 
     expect(rows({ bonusBalance: 45, forbiddenNote: "Сегодня нельзя с 21:00 до 07:00" })).toEqual({
       "Осталось всего": "1 ч 25 мин",
       "Игры": "Без отдельного лимита",
-      "Видео и соцсети": "Пока не считается",
+      "Видео и соцсети": "Без отдельного лимита",
       "Лимит дня": "2 ч",
       "Запретные часы": "Сегодня нельзя с 21:00 до 07:00",
       "Копилка": "45 мин",
@@ -247,6 +247,25 @@ describe("todayRows: остаток, лимиты, запретные часы, 
     const r = rows({ lock: "rest", gamesUnlimited: false, gamesLimitS: 3600, gamesRemainingS: 1200 });
     expect(r["Осталось всего"]).toBe("1 ч 25 мин");
     expect(r["Игры"]).toBe("Осталось 20 мин из 1 ч");
+  });
+
+  // R6, Review Focus плана п. 9: остаток видео тот же, что в подсказке значка «Видео: 10 мин».
+  it("видео с лимитом: остаток из ответа службы и лимит видео дня", () => {
+    const v = { videoUnlimited: false, videoLimitS: 1200, videoRemainingS: 590 };
+    expect(rows(v)["Видео и соцсети"]).toBe("Осталось 10 мин из 20 мин");
+    expect(rows({ ...v, lock: "rest" })["Видео и соцсети"]).toBe("Осталось 10 мин из 20 мин");
+    expect(rows({ ...v, status: "timeUp", lock: "timeUp" })["Видео и соцсети"]).toBe("Осталось 0 мин из 20 мин");
+    expect(rows({ ...v, studyOnly: true })["Видео и соцсети"]).toBe("Осталось 0 мин из 20 мин");
+    expect(rows({ ...v, status: "admin" })["Видео и соцсети"]).toBe("Не действует");
+    expect(rows({ ...v, status: "safe" })["Видео и соцсети"]).toBe("Не действует");
+  });
+
+  // Ловит: «лимит 0» без закрытия видео показан «Сегодня нельзя» (у службы это «лимита нет», пример GetToday).
+  it("видео: лимит 0 - «нельзя» только при закрытом видео; нет полей - без отдельного лимита", () => {
+    expect(rows({ videoUnlimited: false, videoLimitS: 0, closeVideo: true })["Видео и соцсети"]).toBe("Сегодня нельзя");
+    expect(rows({ videoUnlimited: false, videoLimitS: 0, closeVideo: false })["Видео и соцсети"]).toBe("Без отдельного лимита");
+    expect(rows({ videoUnlimited: true, videoLimitS: 1200, videoRemainingS: 600 })["Видео и соцсети"]).toBe("Без отдельного лимита");
+    expect(rows({})["Видео и соцсети"]).toBe("Без отдельного лимита");
   });
 
   it("запретные часы сейчас: остаток не показывается как «0 мин»", () => {
@@ -332,14 +351,45 @@ const S39: ProgramTime[] = [
 ];
 
 describe("вкладки «Итогов»", () => {
-  it("вкладки «Всего», «Игры», «Учёба», «Прочее» с суммами от службы", () => {
+  it("вкладки «Всего», «Игры», «Видео и соцсети», «Учёба», «Прочее» с суммами от службы", () => {
     const r = totalsReply(S39);
     expect(TOTALS_TABS.map((t) => [t.label, formatDuration(tabSeconds(r, t.id))])).toEqual([
       ["Всего", "23 мин"],
       ["Игры", "15 мин"],
+      ["Видео и соцсети", "0 мин"],
       ["Учёба", "3 мин"],
       ["Прочее", "5 мин"],
     ]);
+    expect(formatDuration(tabSeconds(totalsReply(S39, { videoS: 900 }), "video_social"))).toBe("15 мин");
+  });
+
+  it("имена списков вкладок для диктора", () => {
+    expect(TOTALS_TABS.map((t) => t.list)).toEqual([
+      "Всего: по программам и сайтам",
+      "Игры: по программам",
+      "Видео и соцсети: по сайтам",
+      "Учёба: по программам",
+      "Прочее: по программам",
+    ]);
+  });
+
+  // Ловит (PL-28): «Всего» без сайтов не сходится с плиткой; у видео «Остальное время» не последнее.
+  it("сайты: строки «Видео и соцсетей» и во «Всего», «Остальное время» последним", () => {
+    const sites: ProgramTime[] = [
+      { path: "youtube.com", name: "youtube.com", category: "video_social", seconds: 600, kind: "site" },
+      { path: "vk.com", name: "vk.com", category: "video_social", seconds: 240, kind: "site" },
+      { path: "", name: "Остальное время", category: "video_social", seconds: 60 },
+    ];
+    const r = totalsReply([...S39, ...sites], { videoS: 900, allS: 2280 });
+    expect(tabRows(r, "video_social").map((x) => [x.name, x.time, x.share])).toEqual([
+      ["youtube.com", "10 мин", "67%"],
+      ["vk.com", "4 мин", "27%"],
+      ["Остальное время", "1 мин", "7%"],
+    ]);
+    const all = tabRows(r, "all");
+    expect(all.map((x) => x.name)).toEqual(["game", "youtube.com", "game2", "vk.com", "study", "Brave", "Остальное время"]);
+    expect(all.find((x) => x.name === "youtube.com")?.key).toBe("youtube.com");
+    expect(all.at(-1)).toMatchObject({ time: "4 мин", rest: true });
   });
 
   // Ловит (S39): доля не от суммы категории, проценты дробные или не округлены; не по убыванию.

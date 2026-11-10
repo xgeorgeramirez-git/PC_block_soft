@@ -410,3 +410,37 @@ func TestPushStateNamesVisiblePlateText(t *testing.T) {
 		t.Fatalf("через 6 с плашка %q; ждали пусто", got)
 	}
 }
+
+// Ловит (проба M4 T0, PL-9, PL-15, PL-16): домен вкладки Brave читался, но в запрос GuardPoll не
+// попадал — служба не видела ни одного сайта, а тест на один GuardState был зелёным. Домен идёт в
+// снимок из того же прохода датчиков, что и путь, и тот же — в GuardState.
+func TestPushStateCarriesForegroundDomain(t *testing.T) {
+	r := newCtRig()
+	r.svc.test = true
+	r.svc.status = ctRunningStatus(600)
+	domains := []string{"probe-site.test", ""}
+	reads := 0
+	r.ctl.read = func(now time.Time) ipc.SensorSample {
+		d := domains[min(reads, len(domains)-1)]
+		reads++
+		return BuildSample(now, RawSensors{IdleMs: 1500, ForegroundDomain: d}, 1)
+	}
+	for i, want := range domains {
+		r.ctl.PollOnce()
+		r.ctl.PushState()
+		polls := r.svc.called(ipc.CmdGuardPoll)
+		var req ipc.GuardPollRequest
+		if err := polls[len(polls)-1].Into(&req); err != nil {
+			t.Fatal(err)
+		}
+		if req.Sample.ForegroundDomain != want {
+			t.Fatalf("опрос %d: в запросе GuardPoll домен %q; ждали %q", i+1, req.Sample.ForegroundDomain, want)
+		}
+		if got := lastPushed(t, r).ForegroundDomain; got != want {
+			t.Fatalf("опрос %d: в GuardState домен %q; ждали %q", i+1, got, want)
+		}
+	}
+	if reads != 2 {
+		t.Fatalf("датчики прочитаны %d раз за два опроса", reads)
+	}
+}

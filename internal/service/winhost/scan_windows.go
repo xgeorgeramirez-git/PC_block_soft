@@ -13,6 +13,7 @@ import (
 	"golang.org/x/sys/windows"
 
 	"pcblock/internal/programs"
+	"pcblock/internal/service"
 )
 
 // machineFolders — папки компьютера из KnownFolders и каталог установки PC Block, развёрнутые
@@ -78,17 +79,20 @@ func (f machineFolders) roots() programs.Roots {
 	}
 }
 
-// newWinScanner — сканер программ этого компьютера (service.Scanner).
-func newWinScanner(f machineFolders) *programScanner {
+// newWinScanner — сканер программ этого компьютера (service.Scanner): папка пакетов магазина
+// store (programs.Roots.StoreDir, "" — не сканировать) и свойства файлов meta (winMeta).
+func newWinScanner(f machineFolders, store string, meta service.FileMeta) *programScanner {
 	pfs := []string{f.programFiles}
 	if f.programFilesX86 != "" && !strings.EqualFold(f.programFilesX86, f.programFiles) {
 		pfs = append(pfs, f.programFilesX86)
 	}
-	store := ""
-	if f.programFiles != "" {
-		store = f.programFiles + `\WindowsApps`
-	}
-	return newProgramScanner(pfs, store, programs.Normalize(f.installDir), fileMeta, osScanFS{})
+	return newProgramScanner(pfs, store, programs.Normalize(f.installDir), meta, osScanFS{})
+}
+
+// winMeta — service.FileMeta этого компьютера: свойства exe, а в папке пакетов магазина store —
+// издатель из манифеста и ключ без версии (RM4-11).
+func winMeta(store string) service.FileMeta {
+	return metaReader{store: store, fs: osScanFS{}, file: fileMeta}.read
 }
 
 // osScanFS — scanFS над os.ReadDir. Ссылки и junction (ModeSymlink, ModeIrregular) не отдаются:

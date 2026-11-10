@@ -282,6 +282,13 @@ func init() {
 		ipc.CmdSetProgramsHidden:   {parentToken(true), (*Service).hSetProgramsHidden},
 		ipc.CmdRenameProgram:       {parentToken(true), (*Service).hRenameProgram},
 		ipc.CmdScanPrograms:        {and(elevated(), unconfiguredCheck()), (*Service).hScanPrograms},
+
+		// M4: сайты (FR-21) — только родитель; программы «до обновления» — только тестовый режим.
+		ipc.CmdListSites:        {parentToken(false), (*Service).hListSites},
+		ipc.CmdAddSite:          {parentToken(true), (*Service).hAddSite},
+		ipc.CmdRemoveSite:       {parentToken(true), (*Service).hRemoveSite},
+		ipc.CmdSetAdultFilter:   {parentToken(true), (*Service).hSetAdultFilter},
+		ipc.CmdTestSeedPrograms: {testMode(admins()), (*Service).hTestSeedPrograms},
 	}
 }
 

@@ -346,7 +346,7 @@ func TestScanErrorsPerFolderAndAllRoots(t *testing.T) {
 	}
 }
 
-// Ловит: снимок длиннее 400 записей (мастер и база раздуваются) или при обрезке теряются главные
+// Ловит: снимок длиннее предела записей (мастер и база раздуваются) или при обрезке теряются главные
 // exe корней приложений, а остаются находки по каталогу; порядок зависит от порядка обхода.
 func TestScanLimitsEntriesMainsFirstAndSorted(t *testing.T) {
 	sizes := map[string]int64{}
@@ -384,6 +384,65 @@ func TestScanLimitsEntriesMainsFirstAndSorted(t *testing.T) {
 	again, _ := s2.Scan()
 	if !slices.Equal(foundPaths(got), foundPaths(again)) {
 		t.Errorf("два сканирования одного дерева дали разный результат")
+	}
+}
+
+// Ловит (B-36): обрезка снимка по пределу молчит — программа из Program Files, не вошедшая в
+// снимок, классифицируется как «незнакомая» и закрывается до решения родителя, а в журнале работы
+// нет ни слова; повтор одного пути (главный exe, он же находка по каталогу) считается «не вошедшим».
+func TestScanReportsDroppedEntries(t *testing.T) {
+	build := func(dup bool) map[string]int64 {
+		sizes := map[string]int64{}
+		for i := range 30 {
+			sizes[fmt.Sprintf(`%s\App%02d\app.exe`, tPF, i)] = 100
+		}
+		for i := range 30 {
+			sizes[fmt.Sprintf(`%s\Aaa\sub%02d\x\y\terraria.exe`, tPF, i)] = 100 // по каталогу, 3 уровня
+		}
+		if dup { // главный exe App00 — имя из каталога: он же находка по каталогу (повтор пути)
+			delete(sizes, tPF+`\App00\app.exe`)
+			sizes[tPF+`\App00\terraria.exe`] = 100
+		}
+		return sizes
+	}
+	for _, dup := range []bool{false, true} {
+		var lines []string
+		s := testScanner(newFakeFS(build(dup)))
+		s.maxEntries = 31
+		s.logf = func(format string, args ...any) { lines = append(lines, fmt.Sprintf(format, args...)) }
+		_, st, err := s.scan()
+		if err != nil {
+			t.Fatalf("повтор %v: scan: %v", dup, err)
+		}
+		if st.Dropped != 29 || !strings.Contains(st.String(), "найдено 31, не вошло 29;") {
+			t.Errorf("повтор %v: не вошло %d, статистика %q; ждали 29 и «найдено 31, не вошло 29;»", dup, st.Dropped, st.String())
+		}
+		if len(lines) != 0 {
+			t.Errorf("повтор %v: scan (сухой прогон) пишет журнал %q; ждали ничего", dup, lines)
+		}
+		if _, err := s.Scan(); err != nil {
+			t.Fatalf("повтор %v: Scan: %v", dup, err)
+		}
+		want := []string{"Снимок программ обрезан по пределу 31: не вошло программ 29, они будут ждать решения родителя"}
+		if !slices.Equal(lines, want) {
+			t.Errorf("повтор %v: журнал %q; ждали %q", dup, lines, want)
+		}
+	}
+
+	var lines []string
+	s := testScanner(newFakeFS(build(false)))
+	s.maxEntries = 100
+	s.logf = func(format string, args ...any) { lines = append(lines, fmt.Sprintf(format, args...)) }
+	if _, st, _ := s.scan(); st.Dropped != 0 {
+		t.Errorf("без обрезки не вошло %d; ждали 0", st.Dropped)
+	}
+	if _, err := s.Scan(); err != nil || len(lines) != 0 {
+		t.Errorf("без обрезки: ошибка %v, журнал %q; ждали ничего", err, lines)
+	}
+	s.logf = nil // без журнала обрезка не падает
+	s.maxEntries = 31
+	if got, err := s.Scan(); err != nil || len(got) != 31 {
+		t.Errorf("без журнала: %d записей, ошибка %v; ждали 31", len(got), err)
 	}
 }
 

@@ -28,6 +28,13 @@ const (
 	// уточнения (R13, D-65): следующего снимка стража с вводом (раз в секунду) и ручного запуска
 	// того же exe; потом пишет «запускалась сама».
 	launchSettle = 2 * time.Second
+	// killWorkers — сколько Kill одного прохода идут одновременно (B-37, NFR-6): Windows-адаптер
+	// ждёт исчезновения процесса до 300 мс, и по очереди пять закрываемых держали бы проход 1,5 с.
+	killWorkers = 8
+	// metaBudget — сколько проход ждёт свойства (издатель, описание) закрытых незнакомых (B-32,
+	// NFR-6, PL-17): чтение с сетевого пути может висеть. Не успело — в «Ждут решения» «Без подписи
+	// издателя»; решение родителя всё равно перечитывает свойства (fileMetaUnlocked).
+	metaBudget = 300 * time.Millisecond
 )
 
 // procKey — процесс: PID повторяется, пара (PID, момент создания) — нет (RM3-11).
@@ -41,7 +48,8 @@ type procKey struct {
 type watchEntry struct {
 	session uint32
 	path    string // путь как прислал адаптер (регистр для имени)
-	norm    string // programs.Normalize(path)
+	norm    string // programs.Normalize(path): настоящий путь — свойства файла, отпечаток, родитель процесса
+	key     string // ключ программы (Roots.StableKey, RM4-11): «Ждут решения», журнал, плашка, повторы
 	fp      string
 	fpRead  bool
 	pub     string // издатель файла (RM3-13): читается, только если решение в профиле его ждёт
@@ -114,6 +122,11 @@ type watchState struct {
 	mu    sync.Mutex
 	gen   uint64
 	procs map[procKey]*watchEntry
+	// metaBusy — пути, свойства которых сейчас читаются (B-32): зависший сетевой путь, запускаемый
+	// снова и снова, не плодит горутины. Под своим metaMu: горутина чтения снимает отметку сама,
+	// когда проход, начавший её, уже закончен.
+	metaMu   sync.Mutex
+	metaBusy map[string]bool
 }
 
 // RunWatch крутит наблюдатель на собственном тикере по настоящим часам, пока не отменён ctx.
@@ -191,15 +204,11 @@ func (s *Service) Watch(real time.Time) {
 			pubs[e.norm] = e.pub
 		}
 	}
+	s.killAll(acts)
+	s.readClosedMeta(acts)
 	for i := range acts {
-		a := &acts[i]
-		a.killed = s.cfg.Watcher.Kill(a.p)
-		if a.killed && !a.again && a.res.Verdict == programs.VerdictUnknown {
-			pub, descr, _ := s.cfg.FileMeta(a.e.norm)
-			a.publisher, a.descr = programs.ClipName(pub), programs.ClipName(descr)
-		}
-		if a.killed {
-			a.e.closed = true
+		if acts[i].killed {
+			acts[i].e.closed = true
 		}
 	}
 	s.mu.Lock()
@@ -208,6 +217,118 @@ func (s *Service) Watch(real time.Time) {
 	s.fpSeen = fps   // категория секунды переднего плана сверяет тот же отпечаток (RM3-12)
 	s.pubSeen = pubs // и того же издателя (RM3-13)
 	s.applyWatch(acts, notes, unreadable, others, real)
+}
+
+// killAll закрывает процессы прохода пулом из killWorkers горутин (B-37) и ждёт все. Каждая
+// горутина пишет только killed своей записи; порядок записей (applyWatch) остаётся порядком acts.
+// Паника Kill доходит до Watch после ожидания (runGuarded пишет её, как раньше).
+func (s *Service) killAll(acts []watchAct) {
+	if len(acts) == 0 {
+		return
+	}
+	var (
+		wg       sync.WaitGroup
+		pmu      sync.Mutex
+		panicked any
+	)
+	next := make(chan int)
+	for range min(killWorkers, len(acts)) {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := range next {
+				func() {
+					defer func() {
+						if p := recover(); p != nil {
+							pmu.Lock()
+							if panicked == nil {
+								panicked = p
+							}
+							pmu.Unlock()
+						}
+					}()
+					acts[i].killed = s.cfg.Watcher.Kill(acts[i].p)
+				}()
+			}
+		}()
+	}
+	for i := range acts {
+		next <- i
+	}
+	close(next)
+	wg.Wait()
+	if panicked != nil {
+		panic(panicked)
+	}
+}
+
+// readClosedMeta читает издателя и описание закрытых незнакомых (для «Ждут решения») после всех
+// Kill (B-32): медленный путь одной программы не держит закрытие других. Одно чтение на путь в
+// своей горутине; проход ждёт их не дольше metaBudget, опоздавшие отбрасываются (запись без
+// издателя). Путь, чтение которого ещё висит с прошлого прохода, не читается снова.
+func (s *Service) readClosedMeta(acts []watchAct) {
+	byPath := map[string][]int{}
+	for i := range acts {
+		a := &acts[i]
+		if a.killed && !a.again && a.res.Verdict == programs.VerdictUnknown {
+			byPath[a.e.norm] = append(byPath[a.e.norm], i)
+		}
+	}
+	type meta struct{ path, pub, descr string }
+	out := make(chan meta, len(byPath)) // горутина не ждёт опоздавшего читателя
+	started := 0
+	for path := range byPath {
+		if !s.watch.takeMeta(path) {
+			continue
+		}
+		started++
+		go func() {
+			var pub, descr string
+			defer func() {
+				if p := recover(); p != nil {
+					s.cfg.Logf("наблюдатель: сбой чтения свойств %s: %v", path, p)
+				}
+				s.watch.doneMeta(path)
+				out <- meta{path, pub, descr}
+			}()
+			pub, descr, _ = s.cfg.FileMeta(path)
+		}()
+	}
+	if started == 0 {
+		return
+	}
+	budget := time.NewTimer(metaBudget)
+	defer budget.Stop()
+	for ; started > 0; started-- {
+		select {
+		case m := <-out:
+			for _, i := range byPath[m.path] {
+				acts[i].publisher, acts[i].descr = programs.ClipName(m.pub), programs.ClipName(m.descr)
+			}
+		case <-budget.C:
+			return
+		}
+	}
+}
+
+// takeMeta отмечает, что свойства path читаются; false — уже читаются.
+func (w *watchState) takeMeta(path string) bool {
+	w.metaMu.Lock()
+	defer w.metaMu.Unlock()
+	if w.metaBusy[path] {
+		return false
+	}
+	if w.metaBusy == nil {
+		w.metaBusy = map[string]bool{}
+	}
+	w.metaBusy[path] = true
+	return true
+}
+
+func (w *watchState) doneMeta(path string) {
+	w.metaMu.Lock()
+	defer w.metaMu.Unlock()
+	delete(w.metaBusy, path)
 }
 
 // keepSession помечает виденными процессы сеанса, список которого не прочитался: память о них
@@ -311,7 +432,7 @@ func (s *Service) watchDecide(t *watchTarget, p ProcInfo, gen uint64) (*watchAct
 	key := procKey{pid: p.PID, stamp: p.Stamp}
 	e := s.watch.procs[key]
 	if e == nil {
-		norm := programs.Normalize(p.Path)
+		norm := programs.Normalize(p.Path) // настоящий путь, не ключ
 		if norm == "" {
 			return nil, skipUnreadable
 		}
@@ -319,18 +440,20 @@ func (s *Service) watchDecide(t *watchTarget, p ProcInfo, gen uint64) (*watchAct
 		s.watch.procs[key] = e
 	}
 	e.seen = gen
-	if dir := s.cfg.Test.WatchDir; s.cfg.Test.Enabled && !strings.HasPrefix(e.norm, strings.TrimSuffix(dir, `\`)+`\`) {
-		return nil, skipNone // тестовый режим: только папка тестовых программ (RM3-8)
-	}
 	c := s.classifier
 	needFP := !e.fpRead && !c.Roots().IsTrusted(e.norm) && c.NeedsFingerprint(e.norm)
 	needPub := !e.pubRead && c.NeedsPublisher(e.norm)
 	if needFP || needPub {
-		// Одно чтение свойств на процесс: отпечаток (RM3-12) и издатель (RM3-13) вместе.
+		// Одно чтение свойств на процесс: отпечаток (RM3-12) и издатель (RM3-13) вместе. Читается
+		// и в тестовом режиме вне WatchDir (T6-5): чтение ничего не закрывает, а без издателя Brave
+		// из профиля раннера был бы «незнакомой», и сайты в нём не различались бы.
 		var pub string
 		pub, _, e.fp = s.cfg.FileMeta(e.norm)
 		e.pub = programs.ClipName(pub)
 		e.fpRead, e.pubRead = true, true
+	}
+	if dir := s.cfg.Test.WatchDir; s.cfg.Test.Enabled && !strings.HasPrefix(e.norm, strings.TrimSuffix(dir, `\`)+`\`) {
+		return nil, skipNone // тестовый режим: закрывается только папка тестовых программ (RM3-8)
 	}
 	res := c.Classify(e.path, e.fp, e.pub)
 	if !e.classified {
@@ -351,7 +474,8 @@ func (s *Service) watchDecide(t *watchTarget, p ProcInfo, gen uint64) (*watchAct
 			return nil, skipNone
 		}
 		switch {
-		case t.d.StudyOnly && a.cat != core.CatStudy:
+		case t.d.StudyOnly && a.cat != core.CatStudy && !isBrave(e.norm, res):
+			// Brave в «только учёбе» не закрывается: вкладки не из «Учёбы» закрывает siteGuard (S-14).
 			a.plateKind = ipc.BlockedStudyOnly
 		case t.d.CloseGames && a.cat == core.CatGames:
 			a.plateKind = ipc.BlockedGamesOver
@@ -366,13 +490,13 @@ func (s *Service) watchDecide(t *watchTarget, p ProcInfo, gen uint64) (*watchAct
 // Родитель того же exe (многопроцессная программа): решение главного процесса (его запись
 // заводится здесь же, если он в списке дальше), записи только у него (quiet).
 func (s *Service) newWatchEntry(t *watchTarget, p ProcInfo, norm string, gen uint64, depth int) *watchEntry {
-	e := &watchEntry{session: t.session, path: p.Path, norm: norm, seen: gen}
 	roots := s.classifier.Roots()
+	e := &watchEntry{session: t.session, path: p.Path, norm: norm, key: roots.StableKey(norm), seen: gen}
 	e.parent = launchParentOf(p, t.byPID, t.sid)
 	e.facts = launchFacts{
 		At: t.at, LogonAt: t.logonAt, InputAt: t.inputAt, Self: norm, Parent: e.parent,
 		Shell: launchShell(roots.SystemRoot), Foreground: t.fg,
-		Store: launchStoreApp(norm, roots.ProgramFiles), Broker: launchBroker(roots.SystemRoot),
+		Store: launchStoreApp(norm, roots.StoreDir()), Broker: launchBroker(roots.SystemRoot),
 	}
 	if e.parent != "" && e.parent == norm && depth < maxLaunchDepth {
 		q := t.byPID[p.ParentPID]
@@ -475,11 +599,11 @@ func (s *Service) settleLaunches(real time.Time) {
 			keep = append(keep, p)
 			continue
 		}
-		if at, ok := s.watchAt[fmt.Sprintf("ev|%d|%s|%s", cs.child.ID, evProgramForbiddenTry, a.e.norm)]; ok && real.Sub(at) < watchRepeatEvery {
+		if at, ok := s.watchAt[fmt.Sprintf("ev|%d|%s|%s", cs.child.ID, evProgramForbiddenTry, a.e.key)]; ok && real.Sub(at) < watchRepeatEvery {
 			s.vlogf("наблюдатель: %s (PID %d) без записи «сама»: рядом ручной запуск того же exe", a.e.norm, a.p.PID)
 			continue
 		}
-		if s.autoClosedOnce(cs.child.ID, a.t.d.Day, a.e.norm, real) {
+		if s.autoClosedOnce(cs.child.ID, a.t.d.Day, a.e.key, real) {
 			_, details := closedName(a)
 			s.journal.Write(cs.child.ID, evProgramAutoClosed, details)
 		}
@@ -493,14 +617,14 @@ func closedName(a *watchAct) (string, map[string]any) {
 	if name == "" {
 		name = programs.NameFromPath(a.e.path)
 	}
-	return name, map[string]any{"name": name, "path": a.e.norm}
+	return name, map[string]any{"name": name, "path": a.e.key}
 }
 
 // recordClosed — записи о закрытой программе: журнал, «Ждут решения» и плашка.
 func (s *Service) recordClosed(cs *childState, a *watchAct, real time.Time) {
 	name, details := closedName(a)
 	var kind, text string
-	plate := ipc.BlockedPlate{Kind: a.plateKind, ShowS: blockedPlateShowS, Path: a.e.norm}
+	plate := ipc.BlockedPlate{Kind: a.plateKind, ShowS: blockedPlateShowS, Path: a.e.key}
 	switch a.plateKind {
 	case ipc.BlockedUnknown:
 		kind, text = evProgramPending, ""
@@ -508,10 +632,10 @@ func (s *Service) recordClosed(cs *childState, a *watchAct, real time.Time) {
 		// В «Ждут решения» своих названий нет (D-59): название из файла, иначе решение родителя
 		// записало бы своё название как название из файла.
 		pendName := name
-		if p, ok, err := s.cfg.Store.GetProgram(a.e.norm); err == nil && ok {
+		if p, ok, err := s.cfg.Store.GetProgram(a.e.key); err == nil && ok {
 			pendName = programName(p.Name, p.Path)
 		}
-		pend := PendingProgram{Path: a.e.norm, Name: pendName, Publisher: a.publisher, Description: a.descr, WasCategory: a.res.WasCategory}
+		pend := PendingProgram{Path: a.e.key, Name: pendName, Publisher: a.publisher, Description: a.descr, WasCategory: a.res.WasCategory}
 		if _, err := s.cfg.Store.AddPendingAttempt(pend, cs.child.ID, real.UnixMilli()); err != nil {
 			s.logRate("pending-add", "попытка запуска %s не записана в «Ждут решения»: %v", a.e.norm, err)
 		}
@@ -527,6 +651,10 @@ func (s *Service) recordClosed(cs *childState, a *watchAct, real time.Time) {
 		}
 		kind = evProgramForbiddenTry
 		plate.Text = fmt.Sprintf(textPlateForbidden, name)
+		if _, ok := s.classifier.Catalog().ForbiddenBrowser(a.e.norm); ok {
+			// Браузер, кроме Brave (RM4-8, 8.2.5 п. 4): при любом источнике запрета.
+			plate.Kind, plate.Text = ipc.BlockedBrowser, textPlateBrowser
+		}
 	case ipc.BlockedStudyOnly:
 		kind, text = evProgramClosedStudyOnly, a.t.d.DeniedText(a.cat)
 		plate.Text = a.t.d.CloseReason
@@ -543,7 +671,7 @@ func (s *Service) recordClosed(cs *childState, a *watchAct, real time.Time) {
 	if text != "" {
 		details["text"] = text
 	}
-	if s.watchOnce(fmt.Sprintf("ev|%d|%s|%s", cs.child.ID, kind, a.e.norm), watchRepeatEvery, real) {
+	if s.watchOnce(fmt.Sprintf("ev|%d|%s|%s", cs.child.ID, kind, a.e.key), watchRepeatEvery, real) {
 		s.journal.Write(cs.child.ID, kind, details)
 	}
 	s.blockedPlate(a.t.session, cs.child.ID, plate, real)

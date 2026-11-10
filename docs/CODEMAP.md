@@ -10,19 +10,21 @@
 | `.` | 1 (0) | main: точка входа, запуск окна |
 | `internal/auth` | 2 (1) | auth — пароль родителя: проверка длины и паузы после неверных вводов (R19); только стандартная библиотека. |
 | `internal/auth/pwhash` | 1 (1) | pwhash — хеш пароля родителя Argon2id (NFR-9): память 64 МБ, 3 прохода, строка формата PHC. |
-| `internal/core` | 13 (18) | core — ядро правил и учёта времени: активные секунды, лимиты, предупреждения, блокировка; только стандартная библиотека, всё внешнее через порты. |
-| `internal/guard` | 18 (12) | guard — страж сеанса: нативный экран блокировки Windows, который |
-| `internal/ipc` | 14 (8) | ipc — канал связи службы программы с её окнами, стражем сеанса и значком на том |
+| `internal/core` | 13 (19) | core — ядро правил и учёта времени: активные секунды, лимиты, предупреждения, блокировка; только стандартная библиотека, всё внешнее через порты. |
+| `internal/guard` | 25 (18) | guard — страж сеанса: нативный экран блокировки Windows, который |
+| `internal/ipc` | 15 (9) | ipc — канал связи службы программы с её окнами, стражем сеанса и значком на том |
 | `internal/launch` | 1 (1) | launch разбирает ключи запуска программы: в каком режиме работает PCBlock.exe. |
-| `internal/programs` | 3 (3) | programs — классификация программ по пути exe (веха M3: R12, R13, RM3-1, RM3-12): |
-| `internal/service` | 24 (34) | service — служба PCBlock: фоновая часть, которая считает время за компьютером, |
-| `internal/service/winhost` | 27 (7) | winhost — Windows-обвязка службы PCBlock: всё, что внутри internal/service |
+| `internal/programs` | 3 (5) | programs — классификация программ по пути exe (веха M3: R12, R13, RM3-1, RM3-12): |
+| `internal/service` | 28 (45) | service — служба PCBlock: фоновая часть, которая считает время за компьютером, |
+| `internal/service/winhost` | 29 (10) | winhost — Windows-обвязка службы PCBlock: всё, что внутри internal/service |
+| `internal/sites` | 5 (5) | sites — домены сайтов: нормализация ввода родителя и поля адреса Brave, punycode, свои списки родителя и встроенный список «18+». |
 | `internal/sound` | 3 (1) | sound — звук предупреждения заказчика (D-55, FR-9). Файл заказчика |
-| `internal/storage` | 7 (12) | storage — хранилище программы: SQLite в режиме WAL (ТЗ 3.1, 3.4, 4), драйвер на чистом Go. |
+| `internal/storage` | 8 (14) | storage — хранилище программы: SQLite в режиме WAL (ТЗ 3.1, 3.4, 4), драйвер на чистом Go. |
 | `internal/systray` | 20 (12) | systray — значок у часов и мини-панель: надпись остатка, подсказка, цвет статуса, |
 | `internal/ui` | 3 (1) | ui — окно программы на Wails: запуск окна и методы, доступные интерфейсу. |
 | `internal/version` | 1 (2) | version хранит номер версии программы. |
 | `internal/winsession` | 5 (0) | winsession запускает процессы в интерактивных сеансах Windows: |
+| `tools/adultlist` | 1 (1) | (нет комментария Package) |
 
 ## Миграции базы
 
@@ -34,6 +36,7 @@
 - `006_last_minute.sql` — Назначение: фидбек-раунд 0.3.1 (FB-12, D-60): последняя минута идёт по часам до нуля.
 - `007_custom_names.sql` — Назначение: фидбек-раунд 0.3.1 (FB-11, D-59): свои названия программ.
 - `008_rest_break.sql` — Назначение: фидбек-раунд 0.3.2 (FB-14, D-62): перерыв на отдых (R27, FR-37).
+- `009_sites_m4.sql` — Назначение: веха M4 «Сайты и Brave»: один домен — один список, стартовый набор «Видео и соцсети», браузеры каталога запрещены.
 
 ## Интерфейс (frontend/src)
 
@@ -73,6 +76,7 @@
 - `src/lib/programs.ts`
 - `src/lib/rest.ts`
 - `src/lib/schedule.ts`
+- `src/lib/sites.ts`
 - `src/lib/status.ts`
 - `src/main.tsx`
 - `src/screens/Bonus.tsx`
@@ -86,6 +90,7 @@
 - `src/screens/Programs.tsx`
 - `src/screens/ResetPassword.tsx`
 - `src/screens/Settings.tsx`
+- `src/screens/Sites.tsx`
 - `src/screens/Today.tsx`
 - `src/screens/UninstallGate.tsx`
 - `src/screens/Wizard.tsx`

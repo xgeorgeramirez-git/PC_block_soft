@@ -15,9 +15,19 @@ type RawSensors struct {
 	IdleMs     int64 // сколько прошло с последнего ввода с клавиатуры или мыши, мс
 	Fullscreen bool  // окно переднего плана занимает весь монитор (рабочий стол не в счёт, Ruling 24)
 	Locked     bool  // сеанс заблокирован (экран входа Windows)
+	// LockUnknown — рабочий стол ввода не открылся или имя не прочитано: о блокировке не известно
+	// (B-23). Locked при этом false: секунда считается (R2), служба решает по событиям сеанса.
+	LockUnknown bool
 	// ForegroundPath — путь exe программы на переднем плане (R3, M3) после ForegroundPathFor;
 	// «» — не определён, не прочитан или это окно PC Block.
 	ForegroundPath string
+	// ForegroundDomain — домен активной вкладки Brave на переднем плане (M4, RM4-1) из того же
+	// прохода, что и ForegroundPath; «» — не Brave, служебная страница или не прочитан. Полный
+	// адрес не хранится нигде (R23).
+	ForegroundDomain string
+	// DomainUnread — на переднем плане Brave, а адрес не прочитан (ошибка UIA, у окна нет ни поля
+	// адреса, ни адреса документа; domainMemo.Read).
+	DomainUnread bool
 }
 
 // ForegroundPathFor решает, какой путь переднего плана отправить службе: path — путь exe
@@ -71,8 +81,9 @@ func ClampSpeed(n int64) int {
 }
 
 // BuildSample собирает снимок датчиков для службы. now берётся по настоящим часам с местным
-// поясом; о переднем плане страж сообщает путь exe, а категорию по нему определяет служба
-// (RM3-1), поэтому Foreground всегда «Прочее». Заголовки окон не читаются (R23).
+// поясом; о переднем плане страж сообщает путь exe и домен вкладки Brave, а категорию по ним
+// определяет служба (RM3-1, RM4-1), поэтому Foreground всегда «Прочее». Заголовки окон не
+// читаются (R23).
 func BuildSample(now time.Time, raw RawSensors, speed int) ipc.SensorSample {
 	_, offset := now.Zone()
 	return ipc.SensorSample{
@@ -83,6 +94,10 @@ func BuildSample(now time.Time, raw RawSensors, speed int) ipc.SensorSample {
 		Fullscreen:     raw.Fullscreen,
 		Foreground:     ipc.CatNameOther,
 		ForegroundPath: raw.ForegroundPath,
+
+		ForegroundDomain: raw.ForegroundDomain,
+		DomainUnread:     raw.DomainUnread,
+		LockUnknown:      raw.LockUnknown,
 	}
 }
 

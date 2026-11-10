@@ -8,6 +8,7 @@ import (
 	"pcblock/internal/auth"
 	"pcblock/internal/core"
 	"pcblock/internal/ipc"
+	"pcblock/internal/sites"
 )
 
 // Обработчики команд. Права уже проверены в Handle (commands.go): здесь разбор запроса и
@@ -148,7 +149,7 @@ func (s *Service) hListAccounts(c *callCtx) ipc.Reply {
 	return ipc.OK(out)
 }
 
-// weekFromLimits проверяет семь дней лимитов (общий и игр) и собирает массив для ядра. При
+// weekFromLimits проверяет семь дней лимитов (общий, игр и видео) и собирает массив для ядра. При
 // ошибке возвращает поле формы и текст у поля (L-121).
 func weekFromLimits(ls []ipc.WeekdayLimit) (week [7]core.DayLimit, field, text string) {
 	seen := [7]bool{}
@@ -179,6 +180,18 @@ func weekFromLimits(ls []ipc.WeekdayLimit) (week [7]core.DayLimit, field, text s
 			}
 			games := l.GamesMin
 			week[l.Weekday-1].GamesMin = &games
+		}
+		if !l.VideoUnlimited {
+			// Лимит «Видео и соцсети» (R6, FR-16) — по образцу игр; день без ключа videoUnlimited
+			// канал читает «без лимита» (S-3, ipc.WeekdayLimit.UnmarshalJSON).
+			switch v := ipc.VideoField(l.Weekday); {
+			case l.VideoMin < 0:
+				return week, v, textLimitNegative
+			case l.VideoMin > 1440:
+				return week, v, textLimitTooBig
+			}
+			video := l.VideoMin
+			week[l.Weekday-1].VideoMin = &video
 		}
 	}
 	for _, ok := range seen {
@@ -233,6 +246,10 @@ func (s *Service) hSetup(c *callCtx) ipc.Reply {
 		}
 		plans = append(plans, plan{ch.SID, name, week})
 	}
+	video, siteDenial := setupVideoSites(req.Sites)
+	if siteDenial != nil {
+		return *siteDenial
+	}
 	progs, denial := s.setupPrograms(req.Programs, c.real.UnixMilli())
 	switch denial {
 	case "":
@@ -255,6 +272,7 @@ func (s *Service) hSetup(c *callCtx) ipc.Reply {
 	}
 	// Дети записываются раньше пароля: оборвавшаяся настройка остаётся «не настроено», и
 	// мастер можно пройти заново.
+	ids := make(map[string]int64, len(plans))
 	for _, p := range plans {
 		id, err := s.cfg.Store.UpsertChild(p.sid, p.name)
 		if err == nil {
@@ -264,10 +282,16 @@ func (s *Service) hSetup(c *callCtx) ipc.Reply {
 			s.logRate("setup", "настройка не записана: %v", err)
 			return ipc.Fail(textSaveFailed)
 		}
+		ids[p.sid] = id
 	}
 	// Программы мастера (FR-2) — тоже до пароля: оборвавшаяся настройка проходится заново.
 	if err := s.writeSetupPrograms(progs); err != nil {
 		s.logRate("setup", "программы мастера не записаны: %v", err)
+		return ipc.Fail(textSaveFailed)
+	}
+	// Сайты мастера (S-4 пакета T3) — тоже до пароля.
+	if err := s.writeSetupSites(req.Sites, video, ids); err != nil {
+		s.logRate("setup", "сайты мастера не записаны: %v", err)
 		return ipc.Fail(textSaveFailed)
 	}
 	if err := s.cfg.Store.SetAuth(Auth{Hash: hash, ChangedAtMs: c.real.UnixMilli()}); err != nil {
@@ -275,6 +299,7 @@ func (s *Service) hSetup(c *callCtx) ipc.Reply {
 		return ipc.Fail(textSaveFailed)
 	}
 	s.loadChildren(c.real)
+	s.sitesChanged(c.real)
 	s.afterSetupPrograms(c)
 	for _, p := range plans {
 		s.applyPolicy(p.sid, true)
@@ -282,6 +307,56 @@ func (s *Service) hSetup(c *callCtx) ipc.Reply {
 	s.journal.Write(0, "setup_done", map[string]any{"text": "Программа настроена: пароль родителя задан"})
 	s.syncSessions(c.real)
 	return ipc.OK(ipc.Empty{})
+}
+
+// setupVideoSites проверяет «Видео и соцсети» шага мастера «Сайты» до записи (RM4-4): каждый
+// ввод сводится к домену, повторы схлопываются. Не домен — отказ у поля домена, больше
+// ipc.MaxBlockedSites доменов — неверный запрос. Шага нет (nil) — nil, nil.
+func setupVideoSites(st *ipc.SetupSites) ([]string, *ipc.Reply) {
+	if st == nil {
+		return nil, nil
+	}
+	out := make([]string, 0, len(st.Video))
+	seen := map[string]bool{}
+	for _, raw := range st.Video {
+		d, err := sites.NormalizeInput(raw)
+		if err != nil {
+			r := ipc.FailField(textNotDomain, ipc.FieldDomain)
+			return nil, &r
+		}
+		if seen[d] {
+			continue
+		}
+		seen[d] = true
+		out = append(out, d)
+	}
+	if len(out) > ipc.MaxBlockedSites {
+		r := bad()
+		return nil, &r
+	}
+	return out, nil
+}
+
+// writeSetupSites записывает шаг мастера «Сайты»: «Видео и соцсети» целиком и «18+» каждому
+// ребёнку мастера (выключен у SID из AdultOff, у остальных включён: повтор оборванной настройки
+// не оставляет прежнего выбора). Чужие SID в AdultOff пропускаются. Шага нет — ничего.
+func (s *Service) writeSetupSites(st *ipc.SetupSites, video []string, ids map[string]int64) error {
+	if st == nil {
+		return nil
+	}
+	if err := s.cfg.Store.ReplaceSiteRules(ipc.SiteKindVideo, video); err != nil {
+		return err
+	}
+	off := map[string]bool{}
+	for _, sid := range st.AdultOff {
+		off[sid] = true
+	}
+	for sid, id := range ids {
+		if err := s.cfg.Store.SetAdultFilter(id, !off[sid]); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func findAccount(list []AccountInfo, sid string) (AccountInfo, bool) {
@@ -786,6 +861,7 @@ func (s *Service) hSetChildren(c *callCtx) ipc.Reply {
 		}
 		delete(s.children, id)
 		s.applyPolicy(cs.child.SID, false)
+		s.removeBrave(cs)
 	}
 	for _, r := range req.Rename {
 		cs := s.children[r.ChildID]
@@ -803,8 +879,9 @@ func (s *Service) hSetChildren(c *callCtx) ipc.Reply {
 			s.logRate("setchildren", "ребёнок не добавлен: %v", err)
 			return ipc.Fail(textSaveFailed)
 		}
-		s.addChild(Child{ID: id, SID: a.sid, Name: a.name}, c.real)
+		cs := s.addChild(Child{ID: id, SID: a.sid, Name: a.name}, c.real)
 		s.applyPolicy(a.sid, true)
+		s.applyBrave(cs)
 	}
 	s.journal.Write(0, "children_changed", map[string]any{
 		"text": "изменён состав детских учёток", "added": len(adds), "removed": len(req.Remove), "renamed": len(req.Rename),
@@ -872,7 +949,7 @@ func (s *Service) myTodayOf(cs *childState, period string) ipc.MyTodayReply {
 	}
 	from, _ := periodFrom(period, now)
 	sum, past := s.periodTotals(cs, from, today, live)
-	out.UsedS, out.GamesS, out.StudyS = sum.TotalS, sum.GamesS, sum.StudyS
+	out.UsedS, out.GamesS, out.StudyS, out.VideoS = sum.TotalS, sum.GamesS, sum.StudyS, sum.VideoS
 	out.OtherS = max(0, sum.TotalS-sum.GamesS-sum.VideoS)
 	out.AllS = sum.TotalS + sum.StudyS
 	out.ExtraMin = sum.ExtraMin
@@ -898,9 +975,11 @@ func (s *Service) myTodayOf(cs *childState, period string) ipc.MyTodayReply {
 		}
 		out.Rules = append(out.Rules, ipc.MyRule{Weekday: i + 1, Day: weekdayShort[i], Text: text})
 	}
-	// Общие правила (R21): лимит игр и что будет, когда время вышло.
-	if text := gamesRuleText(cs.rules); text != "" {
-		out.Rules = append(out.Rules, ipc.MyRule{Text: text})
+	// Общие правила (R21): лимиты игр и видео и что будет, когда время вышло.
+	for _, text := range []string{gamesRuleText(cs.rules), videoRuleText(cs.rules)} {
+		if text != "" {
+			out.Rules = append(out.Rules, ipc.MyRule{Text: text})
+		}
 	}
 	out.Rules = append(out.Rules, ipc.MyRule{Text: endModeRuleText(cs.rules.EndMode)})
 	return out
@@ -910,6 +989,17 @@ func (s *Service) myTodayOf(cs *childState, period string) ipc.MyTodayReply {
 // 1 ч в день» («Игры: нельзя»), иначе по дням с лимитом — «Игры: пн до 1 ч, ср нельзя». Лимита
 // игр нет ни в один день — пусто.
 func gamesRuleText(r core.Rules) string {
+	return catRuleText(r, "Игры", func(l core.DayLimit) *int { return l.GamesMin })
+}
+
+// videoRuleText — то же для лимита «Видео и соцсети» (R6, R21): «Видео и соцсети: до 20 мин в день».
+func videoRuleText(r core.Rules) string {
+	return catRuleText(r, "Видео и соцсети", func(l core.DayLimit) *int { return l.VideoMin })
+}
+
+// catRuleText — строка «Моих правил» об отдельном лимите категории: title — начало строки, limit —
+// минуты категории дня (nil — без отдельного лимита).
+func catRuleText(r core.Rules, title string, limit func(core.DayLimit) *int) string {
 	word := func(min int) string {
 		if min == 0 {
 			return "нельзя"
@@ -917,13 +1007,14 @@ func gamesRuleText(r core.Rules) string {
 		return "до " + core.FormatLimit(min)
 	}
 	same, parts := true, []string{}
+	first := limit(r.Week[0])
 	for i := 0; i < 7; i++ {
-		g := r.Week[i].GamesMin
+		g := limit(r.Week[i])
 		if g == nil {
 			same = false
 			continue
 		}
-		if first := r.Week[0].GamesMin; first == nil || *first != *g {
+		if first == nil || *first != *g {
 			same = false
 		}
 		parts = append(parts, weekdayShort[i]+" "+word(*g))
@@ -931,12 +1022,12 @@ func gamesRuleText(r core.Rules) string {
 	switch {
 	case len(parts) == 0:
 		return ""
-	case same && *r.Week[0].GamesMin == 0:
-		return "Игры: нельзя"
+	case same && *first == 0:
+		return title + ": нельзя"
 	case same:
-		return "Игры: " + word(*r.Week[0].GamesMin) + " в день"
+		return title + ": " + word(*first) + " в день"
 	}
-	return "Игры: " + strings.Join(parts, ", ")
+	return title + ": " + strings.Join(parts, ", ")
 }
 
 // endModeRuleText — строка «Моих правил» о режиме «Когда время вышло» (R8, R21).
@@ -981,8 +1072,15 @@ func (s *Service) hGuardPoll(c *callCtx) ipc.Reply {
 	if len([]rune(req.Sample.ForegroundPath)) > ipc.MaxForegroundPathLen {
 		req.Sample.ForegroundPath = "" // мусор от стража: путь не определён
 	}
+	if d := req.Sample.ForegroundDomain; len(d) > ipc.MaxDomainLen || sites.FromOmnibox(d) != d {
+		// Не домен: мог быть адресом страницы, поэтому в журнал только длина (R23, S-5).
+		s.logRate("bad-domain|"+itoa(int(session)), "страж прислал домен, не похожий на домен (%d символов), он не учитывается", len(d))
+		req.Sample.ForegroundDomain = ""
+	}
 	cs.sample, cs.sampleAt, cs.sampleSess, cs.haveSample = req.Sample, c.real, session, true
 	ss.resetLockBySample(req.Sample)
+	// Вкладки Brave решаются в этом же ответе (S-1): команды встают в очередь перед её сливом.
+	s.siteGuard(cs, ss, session, req.Sample, c.real)
 	for _, ev := range req.Events {
 		if ev.Kind == ipc.GuardEvBypass && !cs.admin {
 			s.markBypass(cs, ev.Detail, "guard", c.real)
@@ -1043,10 +1141,11 @@ func (s *Service) hGuardSwitchUser(c *callCtx) ipc.Reply {
 // --- тестовый режим -------------------------------------------------------------------------------
 
 // testActions — действия стражу, которые служба передаёт в тестовом режиме (TestGuard, Ruling 5);
-// TestForeground — подмена переднего плана (приёмка S38, S44, S45).
+// TestForeground — подмена переднего плана (приёмка S38, S44, S45); TestDomain — подмена домена
+// вкладки Brave (RM4-12, приёмка S16…S18).
 var testActions = map[string]bool{
 	ipc.TestClick: true, ipc.TestType: true, ipc.TestWMClose: true, ipc.TestAltF4: true, ipc.TestEsc: true,
-	ipc.TestEndSession: true, ipc.TestForeground: true,
+	ipc.TestEndSession: true, ipc.TestForeground: true, ipc.TestDomain: true,
 }
 
 func (s *Service) hTestGuard(c *callCtx) ipc.Reply {

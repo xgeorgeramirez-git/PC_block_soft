@@ -257,6 +257,11 @@ const (
 	textGames15          = "Через 15 минут время на игры закончится"
 	textGames5           = "Сохрани игру: через 5 минут время на игры закончится"
 	textGames1           = "Осталась 1 минута на игры"
+	textVideoBoardTitle  = "ОСТАЛОСЬ НА ВИДЕО:"
+	textVideo30          = "Через 30 минут время на видео и соцсети закончится"
+	textVideo15          = "Через 15 минут время на видео и соцсети закончится"
+	textVideo5           = "Через 5 минут время на видео и соцсети закончится"
+	textVideo1           = "Осталась 1 минута на видео и соцсети"
 	textPlateFailed      = "Не получилось. Попробуй ещё раз"
 )
 
@@ -588,18 +593,22 @@ func (m *Model) duplicate(w Incoming, deadline time.Time) bool {
 	return d > -3*time.Second && d < 3*time.Second
 }
 
-// moved: остаток до события вида event снова больше порога thr минут (лимит, игры) или лимита
-// нет: событие отодвинулось (доп. время, копилка, промокод).
+// moved: остаток до события вида event снова больше порога thr минут (лимит, игры, видео) или
+// лимита нет: событие отодвинулось (доп. время, копилка, промокод).
 func (m *Model) moved(event string, thr int) bool {
-	if event == ipc.WarnEventGames {
+	switch event {
+	case ipc.WarnEventGames:
 		return m.dec.GamesUnlimited || m.dec.GamesRemainingS > thr*60
+	case ipc.WarnEventVideo:
+		return m.dec.VideoUnlimited || m.dec.VideoRemainingS > thr*60
 	}
 	return m.dec.Unlimited || m.dec.RemainingS > thr*60
 }
 
 // mostUrgent возвращает одно предупреждение из пришедших в одном опросе (одна причина: одно
 // уведомление, L-118): меньший из известных порогов, при равных — меньше секунд до события, при
-// равных секундах — общее, а не игры (Review Focus 1 плана M3); false, если известных нет.
+// равных секундах — общее (и запретные часы, пауза), потом игры, потом видео (eventRank; Review
+// Focus 1 плана M3); false, если известных нет.
 func mostUrgent(newWarnings []Incoming) (Incoming, bool) {
 	var best Incoming
 	better := func(w Incoming) bool {
@@ -611,7 +620,7 @@ func mostUrgent(newWarnings []Incoming) (Incoming, bool) {
 		case w.EventS != best.EventS:
 			return w.EventS < best.EventS
 		}
-		return best.Event == ipc.WarnEventGames && w.Event != ipc.WarnEventGames
+		return eventRank(w.Event) < eventRank(best.Event)
 	}
 	for _, w := range newWarnings {
 		for _, known := range warnThresholds {
@@ -624,6 +633,18 @@ func mostUrgent(newWarnings []Incoming) (Incoming, bool) {
 		best.Event = ipc.WarnEventLimit
 	}
 	return best, best.Threshold != 0
+}
+
+// eventRank — старшинство вида события при равных порогах и секундах (mostUrgent): общее время,
+// запретные часы и пауза важнее игр, игры — видео.
+func eventRank(event string) int {
+	switch event {
+	case ipc.WarnEventGames:
+		return 1
+	case ipc.WarnEventVideo:
+		return 2
+	}
+	return 0
 }
 
 // stale: событие, о котором предупреждала плашка, отодвинулось, отменено или наступило без
@@ -650,6 +671,9 @@ func (m *Model) stale(now time.Time) bool {
 		return m.dec.Status != core.StatusPaused || now.After(p.deadline.Add(staleGrace))
 	case ipc.WarnEventGames:
 		return m.moved(p.event, p.threshold) || m.dec.CloseGames
+	case ipc.WarnEventVideo:
+		// Видео закрыто, остальное работает (CloseVideo, R6): плашка 1 мин не висит с «0:00».
+		return m.moved(p.event, p.threshold) || m.dec.CloseVideo || m.dec.StudyOnly
 	}
 	return m.moved(p.event, p.threshold) || m.dec.StudyOnly
 }
@@ -661,6 +685,8 @@ func (m *Model) eventSecs(now time.Time) int {
 	switch {
 	case p.event == ipc.WarnEventGames:
 		return m.dec.GamesRemainingS
+	case p.event == ipc.WarnEventVideo:
+		return m.dec.VideoRemainingS
 	case !byClock(p.event):
 		return m.dec.RemainingS
 	}
@@ -1043,9 +1069,19 @@ func (m *Model) shownPlate(now time.Time) *plate {
 		w = m.warn
 	}
 	if b := m.blocked; b != nil && !b.expired(now) && (w == nil || b.id > w.id) {
+		if w != nil && isSitePlate(b.blockedKind) && w.kind == plateThreshold && w.threshold == 1 {
+			// Плашка сайта не ложится поверх плашки 1 мин (RM4-9, PL-34): служба повторяет её раз
+			// в 5 с и спрятала бы «Попросить ещё»; срок плашки сайта идёт, она видна потом.
+			return w
+		}
 		return b
 	}
 	return w
+}
+
+// sitePlateShown: видна плашка сайта (RM4-9) — плашка отдыха ждёт её (PL-34).
+func (m *Model) sitePlateShown(now time.Time) bool {
+	return m.blocked != nil && isSitePlate(m.blocked.blockedKind) && !m.blocked.expired(now)
 }
 
 // plateVisible: плашка есть, не вышел её срок, не устарела и сейчас нет ни экрана
@@ -1227,8 +1263,13 @@ func (m *Model) plateView(now time.Time, p *plate) *WarningView {
 		return w
 	}
 	board := systray.TimeCountdown(secs)
-	if p.event == ipc.WarnEventGames && board.Status != systray.StatusOut {
-		board.Title = textGamesBoardTitle
+	if board.Status != systray.StatusOut {
+		switch p.event {
+		case ipc.WarnEventGames:
+			board.Title = textGamesBoardTitle
+		case ipc.WarnEventVideo:
+			board.Title = textVideoBoardTitle
+		}
 	}
 	board.Line = text
 	w.Kind, w.Text, w.Board = ipc.PlateBoard, text, &board
@@ -1262,9 +1303,20 @@ func (m *Model) plateButtons(p *plate) []ButtonView {
 	return append(out, ButtonView{Button: ButtonPlateAskMore, Label: textAskMore, Enabled: true})
 }
 
-// fallbackWarnText — текст порога о лимите или играх, если служба текста не прислала.
+// fallbackWarnText — текст порога о лимите, играх или видео, если служба текста не прислала.
 func fallbackWarnText(thr int, event string) string {
 	games := event == ipc.WarnEventGames
+	if event == ipc.WarnEventVideo {
+		switch thr {
+		case 30:
+			return textVideo30
+		case 15:
+			return textVideo15
+		case 5:
+			return textVideo5
+		}
+		return textVideo1
+	}
 	switch {
 	case thr == 30 && games:
 		return textGames30

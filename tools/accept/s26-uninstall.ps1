@@ -32,6 +32,7 @@ function Assert-Removed([string]$When) {
   $key = "Registry::HKEY_USERS\$($script:MySid)\Software\Microsoft\Windows\CurrentVersion\Policies\System"
   $v = Get-ItemProperty -Path $key -Name DisableTaskMgr -ErrorAction SilentlyContinue
   Assert-That (-not ($v -and $v.DisableTaskMgr -eq 1)) "${When}: остался запрет Диспетчера задач"
+  Assert-That (-not (Test-Path -Path "Registry::HKEY_USERS\$($script:MySid)\Software\Policies\BraveSoftware\Brave")) "${When}: остались правила Brave"
 }
 
 Invoke-Scenario "S26" "Удаление с паролем родителя: отказ, удаление, база, /DELETEDATA" {
@@ -42,6 +43,7 @@ Invoke-Scenario "S26" "Удаление с паролем родителя: от
     Wait-SessionParts
     $key = "Registry::HKEY_USERS\$($script:MySid)\Software\Microsoft\Windows\CurrentVersion\Policies\System"
     Wait-Until { $v = Get-ItemProperty -Path $key -Name DisableTaskMgr -ErrorAction SilentlyContinue; $v -and $v.DisableTaskMgr -eq 1 } 20 "запрет Диспетчера задач стоит до удаления"
+    Wait-Until { $b = Get-ItemProperty -Path "Registry::HKEY_USERS\$($script:MySid)\Software\Policies\BraveSoftware\Brave" -Name TorDisabled -ErrorAction SilentlyContinue; $b -and $b.TorDisabled -eq 1 } 20 "правила Brave стоят до удаления"
   }
 
   Step "/S без пароля: отказ, программа и служба на месте" {

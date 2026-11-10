@@ -76,6 +76,10 @@ func ChildStatusFrom(name string, d core.Decision) ChildStatus {
 		GamesUnlimited:  d.GamesUnlimited,
 		CloseGames:      d.CloseGames,
 		StudyOnly:       d.StudyOnly,
+		VideoRemainingS: d.VideoRemainingS,
+		VideoLimitS:     d.VideoLimitS,
+		VideoUnlimited:  d.VideoUnlimited,
+		CloseVideo:      d.CloseVideo,
 		RestUntilMs:     d.RestUntilMs,
 		RestLeftS:       d.RestLeftS,
 		RestMessage:     d.RestMessage,
@@ -96,6 +100,10 @@ func ChildStatusFrom(name string, d core.Decision) ChildStatus {
 		if hasGamesLimit(d) {
 			// Вторая строка подсказки (ТЗ 8.2.1 п.2): остаток игр тем же правилом минут (B-5).
 			s.Tooltip += "\nИгры: " + core.FormatDuration(core.RemainingMinutes(d.GamesRemainingS)*60)
+		}
+		if hasVideoLimit(d) {
+			// Строка видео (R6) — тем же правилом минут, после игр.
+			s.Tooltip += "\nВидео: " + core.FormatDuration(core.RemainingMinutes(d.VideoRemainingS)*60)
 		}
 		s.Summary = "Сегодня осталось " + core.FormatDuration(remMin*60) + " из " + core.FormatLimit(d.LimitS/60)
 	case StatusTimeUp:
@@ -142,6 +150,11 @@ func hasGamesLimit(d core.Decision) bool {
 	return !d.GamesUnlimited && (d.GamesLimitS > 0 || d.CloseGames)
 }
 
+// hasVideoLimit: у решения есть отдельный лимит «Видео и соцсетей» (R6) — по образцу hasGamesLimit.
+func hasVideoLimit(d core.Decision) bool {
+	return !d.VideoUnlimited && (d.VideoLimitS > 0 || d.CloseVideo)
+}
+
 // GamesCardText — строка игр карточки «Сегодня» (ТЗ 8.3.2 п.3): «Игры 40 мин из 1 ч». usedS —
 // игры за день (прошедшее время, вниз), limitS — лимит игр с доп. временем; без отдельного
 // лимита игр — пусто.
@@ -152,18 +165,27 @@ func GamesCardText(usedS, limitS int, unlimited bool) string {
 	return "Игры " + core.FormatDuration(usedS) + " из " + core.FormatLimit(limitS/60)
 }
 
+// VideoCardText — строка видео карточки «Сегодня» по образцу GamesCardText: «Видео 10 мин из
+// 20 мин»; без отдельного лимита видео — пусто.
+func VideoCardText(usedS, limitS int, unlimited bool) string {
+	if unlimited {
+		return ""
+	}
+	return "Видео " + core.FormatDuration(usedS) + " из " + core.FormatLimit(limitS/60)
+}
+
 // ChildStatusAdmin — статус учётки, которая стала администратором (R1): ограничения не действуют.
 func ChildStatusAdmin(name string) ChildStatus {
 	return ChildStatus{
 		Name: name, Status: StatusAdmin, StatusText: statusWords[StatusAdmin], Lock: LockNone,
-		Tooltip: textAdmin, Summary: textAdmin, Unlimited: true, GamesUnlimited: true, EndMode: EndModeLock,
+		Tooltip: textAdmin, Summary: textAdmin, Unlimited: true, GamesUnlimited: true, VideoUnlimited: true, EndMode: EndModeLock,
 	}
 }
 
 // ChildStatusNotChild — ответ GetChildStatus из сеанса, где работает не ребёнок: значку
 // нечего показывать, кроме пункта «Настройки для родителя».
 func ChildStatusNotChild() ChildStatus {
-	return ChildStatus{Status: StatusNotChild, Lock: LockNone, Unlimited: true, GamesUnlimited: true, EndMode: EndModeLock}
+	return ChildStatus{Status: StatusNotChild, Lock: LockNone, Unlimited: true, GamesUnlimited: true, VideoUnlimited: true, EndMode: EndModeLock}
 }
 
 func lockName(k core.LockKind) string {
@@ -243,7 +265,7 @@ func NewGuardWarningFor(threshold int, ev core.WarnEvent, eventS int) GuardWarni
 		w.Text = fmt.Sprintf("Через %d минут %s", threshold, what)
 	case 5:
 		switch ev {
-		case core.WarnForbidden, core.WarnPauseEnd:
+		case core.WarnForbidden, core.WarnPauseEnd, core.WarnVideo:
 			w.Text = fmt.Sprintf("Через 5 минут %s", what)
 		case core.WarnGames:
 			w.Text = "Сохрани игру: через 5 минут " + what
@@ -267,6 +289,8 @@ func warnEventName(ev core.WarnEvent) string {
 		return WarnEventPause
 	case core.WarnGames:
 		return WarnEventGames
+	case core.WarnVideo:
+		return WarnEventVideo
 	default:
 		return WarnEventLimit
 	}
@@ -281,6 +305,8 @@ func warnSubject(ev core.WarnEvent) (full, short string) {
 		return "закончится пауза", "закончится пауза"
 	case core.WarnGames:
 		return "время на игры закончится", "время на игры закончится"
+	case core.WarnVideo:
+		return "время на видео и соцсети закончится", "время на видео и соцсети закончится"
 	default:
 		return "время на сегодня закончится", "время закончится"
 	}
@@ -295,6 +321,8 @@ func warnOneMinute(ev core.WarnEvent) string {
 		return "Через минуту закончится пауза"
 	case core.WarnGames:
 		return "Осталась 1 минута на игры" // страж дописывает отсчёт: «…: 0:59»
+	case core.WarnVideo:
+		return "Осталась 1 минута на видео и соцсети"
 	default:
 		return "Осталась 1 минута"
 	}

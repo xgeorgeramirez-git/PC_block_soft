@@ -71,7 +71,7 @@ func TestSeedProgramsOnFirstStart(t *testing.T) {
 			AppRoot: `c:\program files\brave software`},
 		pathMinecraft: {Path: pathMinecraft, Name: "Minecraft Launcher", Publisher: "Mojang", Category: "games", Source: "catalog",
 			AppRoot: `c:\program files (x86)\minecraft launcher`},
-		pathChrome: {Path: pathChrome, Name: "chrome", Publisher: "Google LLC", Category: "other", Source: "catalog",
+		pathChrome: {Path: pathChrome, Name: "chrome", Publisher: "Google LLC", Category: "blocked", Source: "catalog", // RM4-8
 			AppRoot: `c:\program files\google`},
 		pathGeoGebra: {Path: pathGeoGebra, Name: "GeoGebra Classic", Category: "other", Source: "snapshot",
 			AppRoot: `c:\program files\geogebra`},
@@ -204,6 +204,8 @@ func TestSeedProgramsStorePackages(t *testing.T) {
 	java := wa + `microsoft.minecraftjavaedition_1.0.0.0_x64__8wekyb3d8bbwe\minecraft.exe.launcher.exe`
 	widgets := wa + `microsoftwindows.client.webexperience_524.33200.0.0_x64__cw5n1h2txyewy\widgets.exe`
 	sc := &fakeScanner{list: []FoundProgram{{Path: calc, Name: "Калькулятор"}, {Path: java, Name: "Minecraft"}, {Path: widgets, Name: "Виджеты"}}}
+	calcKey := wa + `microsoft.windowscalculator__8wekyb3d8bbwe\calculatorapp.exe` // строки — по ключу без версии (RM4-11)
+	javaKey := wa + `microsoft.minecraftjavaedition__8wekyb3d8bbwe\minecraft.exe.launcher.exe`
 	h := newHarness(t, configured(), withChild(childSID, "Миша", 120), withPrograms(sc))
 	h.start()
 	got := map[string]string{}
@@ -211,8 +213,8 @@ func TestSeedProgramsStorePackages(t *testing.T) {
 		got[p.Path] = p.Category + "|" + p.Source + "|" + p.AppRoot
 	}
 	want := map[string]string{
-		calc: "other|snapshot|" + wa + `microsoft.windowscalculator__8wekyb3d8bbwe`,
-		java: "games|catalog|" + wa + `microsoft.minecraftjavaedition__8wekyb3d8bbwe`,
+		calcKey: "other|snapshot|" + wa + `microsoft.windowscalculator__8wekyb3d8bbwe`,
+		javaKey: "games|catalog|" + wa + `microsoft.minecraftjavaedition__8wekyb3d8bbwe`,
 	}
 	if jsonOf(t, got) != jsonOf(t, want) {
 		t.Errorf("снимок пакетов Store:\n got %v\nwant %v", got, want)

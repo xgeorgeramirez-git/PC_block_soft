@@ -16,6 +16,23 @@ describe("журнал", () => {
     expect(isViolation("")).toBe(false);
   });
 
+  // Ловит: «Нарушения сегодня» молчит о попытках открыть запрещённый сайт или считает закрытие по лимиту видео.
+  it("сайты: нарушение - только попытка открыть запрещённый сайт", () => {
+    expect(isViolation("site_forbidden_try")).toBe(true);
+    for (const kind of [
+      "site_closed_video",
+      "site_closed_study_only",
+      "site_unread",
+      "site_added",
+      "site_moved",
+      "site_removed",
+      "site_adult_filter",
+      "brave_restored",
+    ]) {
+      expect(isViolation(kind), kind).toBe(false);
+    }
+  });
+
   it("начало суток - местная полночь", () => {
     const noon = new Date(2026, 9, 19, 12, 30, 15, 500);
     const start = new Date(startOfDayMs(noon.getTime()));

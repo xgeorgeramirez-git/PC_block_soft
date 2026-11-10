@@ -22,6 +22,7 @@ type host struct {
 	logf   func(string, ...any)
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
+	sessq  *sessionQueue // события сеанса в службу по порядку (B-22)
 }
 
 // openHost собирает службу: читает тестовый режим, открывает базу и журнал работы, строит
@@ -68,6 +69,12 @@ func openHost() (*host, error) {
 	// процессов. В тестовом режиме наблюдатель трогает только папку WatchDir (RM3-8).
 	folders := readMachineFolders()
 	roots := folders.roots()
+	if tm.StoreRoot != "" {
+		roots.Store = tm.StoreRoot // тестовый режим: поддельные пакеты магазина внутри WatchDir (RM4-11)
+	}
+	meta := winMeta(roots.StoreDir()) // снимок и служба видят одну папку пакетов (RM4-11)
+	sc := newWinScanner(folders, roots.StoreDir(), meta)
+	sc.logf = logf // обрезка снимка по пределу — в журнал работы (B-36)
 	s, err := service.New(service.Config{
 		Store:      res.Store,
 		Hasher:     hasher{},
@@ -75,7 +82,7 @@ func openHost() (*host, error) {
 		OpenFolder: openFolder,
 		Admins:     admins,
 		Accounts:   accountDir{admins: admins},
-		Policy:     &policy{},
+		Policy:     &policy{logf: logf},
 		Clock:      clock,
 		Loc:        time.Local,
 		Version:    version.Version,
@@ -84,8 +91,8 @@ func openHost() (*host, error) {
 		Recovered:  res.Recovered,
 		BrokenCopy: res.BrokenCopy,
 		Logf:       logf,
-		Scanner:    newWinScanner(folders),
-		FileMeta:   fileMeta,
+		Scanner:    sc,
+		FileMeta:   meta,
 		Roots:      roots,
 		Watcher:    newProcessWatcher(),
 	})
@@ -94,19 +101,24 @@ func openHost() (*host, error) {
 		return fail(err)
 	}
 	logf("Служба PC Block %s запускается, папка данных %s, программа %s", version.Version, dataDir, exe)
-	logf("Корни программ: Windows %q, Program Files %q и %q, PC Block %q, ProgramData %q, профили %q; папка тестовых программ %q",
-		roots.SystemRoot, roots.ProgramFiles, roots.ProgramFilesX86, roots.InstallDir, roots.ProgramData, roots.UserProfiles, tm.WatchDir)
+	logf("Корни программ: Windows %q, Program Files %q и %q, PC Block %q, ProgramData %q, профили %q, пакеты магазина %q; папка тестовых программ %q",
+		roots.SystemRoot, roots.ProgramFiles, roots.ProgramFilesX86, roots.InstallDir, roots.ProgramData, roots.UserProfiles, roots.StoreDir(), tm.WatchDir)
 	if err := s.Start(time.Now()); err != nil {
 		_ = res.Store.Close()
 		return fail(err)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	h := &host{svc: s, store: res.Store, rlog: rl, logf: logf, cancel: cancel}
-	h.wg.Add(2)
+	h := &host{svc: s, store: res.Store, rlog: rl, logf: logf, cancel: cancel, sessq: newSessionQueue()}
+	h.wg.Add(3)
 	go func() {
 		defer h.wg.Done()
 		s.RunLoop(ctx)
+	}()
+	go func() {
+		defer h.wg.Done()
+		// Момент — в доставке, а не в событии: иначе поздняя доставка откатила бы часы службы (P2-R6).
+		h.sessq.run(ctx, func(ev service.SessionEvent, id uint32) { s.OnSession(ev, id, time.Now()) })
 	}()
 	go func() {
 		defer h.wg.Done()
@@ -138,9 +150,10 @@ func (h *host) serve(ctx context.Context) {
 	}
 }
 
-// onSession сообщает службе о событии сеанса (вход, выход, подключение) и номере сеанса.
+// onSession сообщает службе о событии сеанса (вход, выход, подключение) и номере сеанса через
+// очередь (B-22): цикл Execute не ждёт службу, а служба получает события по порядку.
 func (h *host) onSession(ev service.SessionEvent, id uint32) {
-	go h.svc.OnSession(ev, id, time.Now())
+	h.sessq.push(ev, id)
 }
 
 // stop останавливает цикл и канал, сохраняет состояние, завершает значки, стражей и окна во

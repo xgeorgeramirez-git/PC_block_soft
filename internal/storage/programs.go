@@ -517,6 +517,113 @@ func (s *Store) RestorePending(p PendingProgram) error {
 	return nil
 }
 
+// ProgramMerge — слияние повторов приложения магазина на ключ без версии (RM4-11, T6-11).
+// Into — строка программы ключа Key (nil — строк программ в группе нет); From — пути строк
+// программ группы; Pending — строка «Ждут решения» ключа (nil — «Ждут решения» группы только
+// удаляются); PendingFrom — пути строк «Ждут решения» группы.
+type ProgramMerge struct {
+	Key         string
+	Into        *Program
+	From        []string
+	Pending     *PendingProgram
+	PendingFrom []string
+}
+
+// checkMerge проверяет одно слияние (ErrInvalid).
+func checkMerge(m ProgramMerge) error {
+	switch {
+	case m.Key == "":
+		return fmt.Errorf("%w: у слияния программ нет ключа", ErrInvalid)
+	case m.Into != nil && m.Into.Path != m.Key:
+		return fmt.Errorf("%w: строка слияния %q не по ключу %q", ErrInvalid, m.Into.Path, m.Key)
+	case m.Pending != nil && (m.Pending.Path != m.Key || m.Pending.Name == ""):
+		return fmt.Errorf("%w: ждущая программа слияния %q без имени или не по ключу", ErrInvalid, m.Pending.Path)
+	}
+	if m.Into != nil {
+		return checkProgram(*m.Into)
+	}
+	return nil
+}
+
+// MergePrograms сливает повторы приложений магазина (RM4-11) одной транзакцией: строки From
+// (кроме Key) удаляются, Into записывается по ключу целиком; учёт вида «программа» с предметом
+// из From и PendingFrom суммируется на Key; строки «Ждут решения» PendingFrom удаляются вместе с
+// попытками (каскад), затем пишется Pending с попытками детей. Каждое слияние проверяется внутри
+// транзакции: ошибка в любом — ничего не изменилось.
+func (s *Store) MergePrograms(ms []ProgramMerge) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("storage: слить повторы программ: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	for _, m := range ms {
+		if err := checkMerge(m); err != nil {
+			return err
+		}
+		if err := mergeOne(tx, m); err != nil {
+			return fmt.Errorf("storage: слить повторы программ: %w", err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("storage: слить повторы программ: %w", err)
+	}
+	return nil
+}
+
+// mergeOne — одно слияние внутри транзакции.
+func mergeOne(tx *sql.Tx, m ProgramMerge) error {
+	if m.Into != nil {
+		for _, p := range m.From {
+			if _, err := tx.Exec(`DELETE FROM programs WHERE exe_path = ? AND exe_path <> ?`, p, m.Key); err != nil {
+				return err
+			}
+		}
+		if err := upsertProgram(tx, *m.Into); err != nil {
+			return err
+		}
+	}
+	for _, p := range append(append([]string{}, m.From...), m.PendingFrom...) {
+		if p == m.Key {
+			continue
+		}
+		if _, err := tx.Exec(`INSERT INTO usage_daily (child_id, day, category, subject_kind, subject, seconds)
+			SELECT child_id, day, category, subject_kind, ?, seconds FROM usage_daily WHERE subject_kind = ? AND subject = ?
+			ON CONFLICT (child_id, day, category, subject_kind, subject) DO UPDATE SET seconds = seconds + excluded.seconds`,
+			m.Key, SubjectProgram, p); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(`DELETE FROM usage_daily WHERE subject_kind = ? AND subject = ?`, SubjectProgram, p); err != nil {
+			return err
+		}
+	}
+	for _, p := range m.PendingFrom {
+		if _, err := tx.Exec(`DELETE FROM pending_programs WHERE exe_path = ?`, p); err != nil {
+			return err
+		}
+	}
+	if p := m.Pending; p != nil {
+		var first any
+		if p.FirstChildID != 0 {
+			first = p.FirstChildID
+		}
+		if _, err := tx.Exec(`DELETE FROM pending_programs WHERE exe_path = ?`, p.Path); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(`INSERT INTO pending_programs (exe_path, display_name, publisher, description, was_category,
+				first_child_id, first_attempt_at, last_attempt_at, attempts) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			p.Path, p.Name, p.Publisher, p.Description, p.WasCategory, first, p.FirstAttemptAt, p.LastAttemptAt, p.Attempts); err != nil {
+			return err
+		}
+		for _, c := range p.Children {
+			if _, err := tx.Exec(`INSERT INTO pending_attempts (exe_path, child_id, attempts, last_attempt_at) VALUES (?, ?, ?, ?)`,
+				p.Path, c.ChildID, c.Attempts, c.LastAttemptAt); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 // --- учёт по программам ---------------------------------------------------------------------
 
 // UsageRow — порция учёта usage_daily (RM3-6): секунды категории по программе или сайту за день.
@@ -575,8 +682,8 @@ func (s *Store) AddUsage(childID int64, day, category, kind, subject string, sec
 	return nil
 }
 
-// SaveDayAndUsage записывает состояние дня и накопленные службой порции учёта по программам
-// одной транзакцией (RM3-6, G10): после сбоя не бывает дня без учёта или учёта без дня. Всё
+// SaveDayAndUsage записывает состояние дня и накопленные службой порции учёта по программам и
+// сайтам одной транзакцией (RM3-6, G10): после сбоя не бывает дня без учёта или учёта без дня. Всё
 // проверяется до записи (ErrInvalid); сбой базы откатывает и день, и учёт.
 func (s *Store) SaveDayAndUsage(childID int64, st core.DayState, usage []UsageRow) error {
 	if err := checkDay(st.Day); err != nil {
@@ -640,24 +747,26 @@ func (s *Store) ProgramSeconds(fromDay string) (map[string]int, error) {
 	return out, nil
 }
 
-// DayUsage возвращает учёт по программам ребёнка за день day (вкладки «Итогов», D-58): строки
-// по категории и пути, по порядку категории и пути. Скрытые здесь есть: их имя прячет служба, а
-// секунды остаются в сумме категории (класс A). Сайтов нет (M4). Нет учёта: [], не nil.
+// DayUsage возвращает учёт по программам и сайтам ребёнка за день day (вкладки «Итогов», D-58,
+// RM4-7): строки по категории, виду (Kind: program | site) и предмету (путь exe или домен), по
+// порядку категории, вида и предмета. Скрытые программы здесь есть: их имя прячет служба, а
+// секунды остаются в сумме категории (класс A); показ по текущему списку решает служба (PL-38).
+// Нет учёта: [], не nil.
 func (s *Store) DayUsage(childID int64, day string) ([]UsageRow, error) {
 	if err := checkDay(day); err != nil {
 		return nil, err
 	}
-	rows, err := s.db.Query(`SELECT category, subject, seconds FROM usage_daily
-		WHERE child_id = ? AND day = ? AND subject_kind = ? ORDER BY category, subject`,
-		childID, day, SubjectProgram)
+	rows, err := s.db.Query(`SELECT category, subject_kind, subject, seconds FROM usage_daily
+		WHERE child_id = ? AND day = ? ORDER BY category, subject_kind, subject`,
+		childID, day)
 	if err != nil {
 		return nil, fmt.Errorf("storage: учёт за день: %w", err)
 	}
 	defer rows.Close()
 	out := []UsageRow{}
 	for rows.Next() {
-		u := UsageRow{Day: day, Kind: SubjectProgram}
-		if err := rows.Scan(&u.Category, &u.Subject, &u.Seconds); err != nil {
+		u := UsageRow{Day: day}
+		if err := rows.Scan(&u.Category, &u.Kind, &u.Subject, &u.Seconds); err != nil {
 			return nil, fmt.Errorf("storage: учёт за день: %w", err)
 		}
 		out = append(out, u)
@@ -688,9 +797,9 @@ func (s *Store) PeriodDays(childID int64, fromDay, beforeDay string) (core.DaySt
 	return st, nil
 }
 
-// PeriodUsage возвращает учёт по программам ребёнка за дни с fromDay включительно до beforeDay не
-// включительно, сложенный по категории и пути (Day пусто), по порядку категории и пути. Скрытые здесь
-// есть: их имя прячет служба (как DayUsage). Сайтов нет (M4). Нет учёта: [], не nil.
+// PeriodUsage возвращает учёт по программам и сайтам ребёнка за дни с fromDay включительно до
+// beforeDay не включительно, сложенный по категории, виду и предмету (Day пусто), в том же порядке,
+// что DayUsage. Скрытые здесь есть: их имя прячет служба (как DayUsage). Нет учёта: [], не nil.
 func (s *Store) PeriodUsage(childID int64, fromDay, beforeDay string) ([]UsageRow, error) {
 	if err := checkDay(fromDay); err != nil {
 		return nil, err
@@ -698,18 +807,18 @@ func (s *Store) PeriodUsage(childID int64, fromDay, beforeDay string) ([]UsageRo
 	if err := checkDay(beforeDay); err != nil {
 		return nil, err
 	}
-	rows, err := s.db.Query(`SELECT category, subject, sum(seconds) FROM usage_daily
-		WHERE child_id = ? AND day >= ? AND day < ? AND subject_kind = ?
-		GROUP BY category, subject ORDER BY category, subject`,
-		childID, fromDay, beforeDay, SubjectProgram)
+	rows, err := s.db.Query(`SELECT category, subject_kind, subject, sum(seconds) FROM usage_daily
+		WHERE child_id = ? AND day >= ? AND day < ?
+		GROUP BY category, subject_kind, subject ORDER BY category, subject_kind, subject`,
+		childID, fromDay, beforeDay)
 	if err != nil {
 		return nil, fmt.Errorf("storage: учёт за период: %w", err)
 	}
 	defer rows.Close()
 	out := []UsageRow{}
 	for rows.Next() {
-		u := UsageRow{Kind: SubjectProgram}
-		if err := rows.Scan(&u.Category, &u.Subject, &u.Seconds); err != nil {
+		var u UsageRow
+		if err := rows.Scan(&u.Category, &u.Kind, &u.Subject, &u.Seconds); err != nil {
 			return nil, fmt.Errorf("storage: учёт за период: %w", err)
 		}
 		out = append(out, u)

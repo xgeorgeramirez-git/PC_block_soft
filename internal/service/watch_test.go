@@ -188,7 +188,8 @@ func TestWatchVerdicts(t *testing.T) {
 	}{
 		{"обычный день: незнакомая и запрещённая", withRules(120, -1, "lock"), []string{pathSuperGame, pathChrome}},
 		{"игры кончились: ещё и игра", withRules(120, 0, "lock"), []string{pathSuperGame, pathMinecraft, pathChrome}},
-		{"только учёба: всё, кроме учёбы и системы", withRules(0, -1, "study_only"), []string{pathSuperGame, pathMinecraft, pathBrave, pathChrome}},
+		// Brave в «только учёбе» живёт: вкладки не из «Учёбы» закрывает служба по домену (S-14, RM4-6).
+		{"только учёба: всё, кроме учёбы, Brave и системы", withRules(0, -1, "study_only"), []string{pathSuperGame, pathMinecraft, pathChrome}},
 		{"экран блокировки: только игры (и незнакомое, запрещённое)", withRules(0, -1, "lock"), []string{pathSuperGame, pathMinecraft, pathChrome}},
 	}
 	for _, k := range cases {

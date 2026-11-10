@@ -98,17 +98,16 @@ export default function ParentStats({ initialChildId }: { initialChildId?: numbe
         </Notice>
       ) : null}
 
-      {children.length === 0 && !error ? (
-        <p className="panel-text">Пока нет ни одного ребёнка</p>
-      ) : data === null ? (
-        error ? null : <p className="panel-text">Загружаю данные</p>
+      {children.length === 0 ? (
+        error ? null : <p className="panel-text">Пока нет ни одного ребёнка</p>
       ) : (
         <>
-          {/* Панель периода - только «Итоги»: «Мои правила» всегда за сегодня. */}
-          <div id={PERIOD_PANEL} role="tabpanel" aria-labelledby={`period-${period}`}>
-            <Totals data={data} busy={busy} />
+          {/* Панель периода есть всегда, когда есть вкладки (B-46: aria-controls ведёт на неё и пока
+              данные идут). В ней только «Итоги»: «Мои правила» всегда за сегодня. */}
+          <div id={PERIOD_PANEL} role="tabpanel" aria-labelledby={`period-${period}`} aria-busy={(data === null && !error) || undefined}>
+            {data === null ? (error ? null : <p className="panel-text">Загружаю данные</p>) : <Totals data={data} busy={busy} />}
           </div>
-          <Rules data={data} />
+          {data ? <Rules data={data} /> : null}
         </>
       )}
     </div>

@@ -56,7 +56,7 @@ func testSetup(opts launch.Options, info map[string]any) error {
 
 	limits := make([]ipc.WeekdayLimit, 0, 7)
 	for day := 1; day <= 7; day++ {
-		limits = append(limits, ipc.WeekdayLimit{Weekday: day, TotalMin: 120})
+		limits = append(limits, ipc.WeekdayLimit{Weekday: day, TotalMin: 120, VideoUnlimited: true}) // видео без лимита (S-3)
 	}
 	c, err := dial()
 	if err != nil {

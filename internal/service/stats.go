@@ -22,7 +22,7 @@ const usageCatVideo = "video_social"
 // statsCatOrder — порядок категорий в ответе: как строки «Итогов».
 var statsCatOrder = map[string]int{programs.CatGames: 0, usageCatVideo: 1, programs.CatStudy: 2, programs.CatOther: 3}
 
-// programTimes собирает строки вкладок за период с итогами day (day.Day — сегодня): учёт прошлых дней
+// programTimes собирает строки вкладок (программы и сайты, RM4-7) за период с итогами day (day.Day — сегодня): учёт прошлых дней
 // периода past (PeriodUsage), сохранённый учёт сегодня (DayUsage) и ещё не сохранённый накопитель
 // службы за сегодня (cs.usage, сброс раз в 30 с). Название —
 // то же, что в списке программ и журнале (displayName, D-59); скрытая (D-57) и запрещённая (D-64,
@@ -31,11 +31,20 @@ var statsCatOrder = map[string]int{programs.CatGames: 0, usageCatVideo: 1, progr
 // сумма строк категории равна итогу категории. Внутри категории самые долгие сверху, «Остальное время»
 // последней. Ошибка чтения учёта или списка программ — всё время категории в «Остальное время»
 // (время не пропадает, скрытые и запрещённые не видны именами файлов).
+// Строка сайта — домен (или запись списка) в той категории, где секунды засчитаны (перенос из
+// «Видео» в «Учёбу» прошлое не переносит); сайт, который сейчас запрещён или в «18+» ребёнка, строки
+// не получает (PL-38, S-8); списки не прочитаны — все сайты в «Остальное время» (безопасный вид).
 func (s *Service) programTimes(cs *childState, day core.DayState, past []UsageRow) []ipc.ProgramTime {
-	type key struct{ cat, path string }
+	type key struct{ cat, kind, path string }
+	kindOf := func(k string) string {
+		if k == usageKindSite {
+			return usageKindSite
+		}
+		return usageKindProgram
+	}
 	secs := map[key]int{}
 	for _, u := range past {
-		secs[key{u.Category, u.Subject}] += u.Seconds
+		secs[key{u.Category, kindOf(u.Kind), u.Subject}] += u.Seconds
 	}
 	rows, err := s.cfg.Store.DayUsage(cs.child.ID, day.Day)
 	if err != nil {
@@ -43,11 +52,11 @@ func (s *Service) programTimes(cs *childState, day core.DayState, past []UsageRo
 		rows = nil
 	}
 	for _, u := range rows {
-		secs[key{u.Category, u.Subject}] += u.Seconds
+		secs[key{u.Category, kindOf(u.Kind), u.Subject}] += u.Seconds
 	}
 	for k, n := range cs.usage {
 		if k.day == day.Day {
-			secs[key{k.cat, k.path}] += n
+			secs[key{k.cat, kindOf(k.kind), k.subject}] += n
 		}
 	}
 	known := map[string]Program{}
@@ -79,6 +88,17 @@ func (s *Service) programTimes(cs *childState, day core.DayState, past []UsageRo
 		if _, ok := totals[k.cat]; !ok || n <= 0 {
 			continue
 		}
+		if k.kind == usageKindSite {
+			if !s.siteListsOK {
+				continue // списки не прочитаны: не узнать, что сейчас запрещено
+			}
+			if cls, _ := s.classifySite(k.path, cs.child.AdultFilter); cls == siteBlocked || cls == siteAdult {
+				continue
+			}
+			out = append(out, ipc.ProgramTime{Path: k.path, Name: k.path, Category: k.cat, Seconds: n, Kind: usageKindSite})
+			named[k.cat] += n
+			continue
+		}
 		var name string
 		if p, ok := known[k.path]; ok {
 			if p.Hidden || p.Category == programs.CatBlocked {
@@ -90,7 +110,7 @@ func (s *Service) programTimes(cs *childState, day core.DayState, past []UsageRo
 		} else {
 			name = programs.NameFromPath(k.path)
 		}
-		out = append(out, ipc.ProgramTime{Path: k.path, Name: name, Category: k.cat, Seconds: n})
+		out = append(out, ipc.ProgramTime{Path: k.path, Name: name, Category: k.cat, Seconds: n, Kind: usageKindProgram})
 		named[k.cat] += n
 	}
 	for cat, total := range totals {
@@ -112,7 +132,10 @@ func (s *Service) programTimes(cs *childState, day core.DayState, past []UsageRo
 		if la, lb := strings.ToLower(a.Name), strings.ToLower(b.Name); la != lb {
 			return la < lb
 		}
-		return a.Path < b.Path
+		if a.Path != b.Path {
+			return a.Path < b.Path
+		}
+		return a.Kind < b.Kind
 	})
 	return out
 }

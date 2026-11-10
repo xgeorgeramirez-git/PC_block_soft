@@ -53,6 +53,12 @@ type Decision struct {
 	StudyOnly       bool   // режим «Оставить только учёбу» действует: экрана нет, открыта только учёба (R8)
 	CloseReason     string // текст плашки ребёнку о закрытии; «» — ничего не закрыто
 
+	VideoRemainingS  int    // остаток «Видео и соцсетей», с (R6); 0 без лимита видео
+	VideoLimitS      int    // лимит видео дня вместе с доп. временем, с; 0 без лимита видео
+	VideoUnlimited   bool   // отдельного лимита видео нет (или правила не прочитаны)
+	CloseVideo       bool   // закрыть видео и соцсети: лимит видео исчерпан (R6), экрана блокировки нет
+	VideoCloseReason string // текст плашки ребёнку о закрытии видео (8.2.5 п. 3); «» — видео не закрыто
+
 	RestWarn  bool   // на этом тике пора показать плашку «ПОРА ОТДОХНУТЬ» (R27, 8.2.2 п.7)
 	RestWarnS int    // секунды до начала перерыва для плиток плашки
 	RestText  string // строка под плитками плашки отдыха
@@ -66,9 +72,10 @@ type Decision struct {
 }
 
 // Allows сообщает, можно ли сейчас программе категории cat работать на переднем плане и
-// запускаться (R5, R8). Экран блокировки — нельзя ничего; «только учёба» — только CatStudy;
-// игры закрыты — всё, кроме игр. Нулевое решение (старый код, пауза, Broken) — можно всё.
-// Программы класса «Системное» служба передаёт как CatOther и не закрывает сама (C-8).
+// запускаться (R5, R6, R8). Экран блокировки — нельзя ничего; «только учёба» — только
+// CatStudy; игры закрыты — всё, кроме игр; видео закрыто — всё, кроме видео и соцсетей.
+// Нулевое решение (старый код, пауза, Broken) — можно всё. Программы класса «Системное» и
+// служебные страницы Brave служба передаёт как CatOther и не закрывает сама (C-8).
 func (d Decision) Allows(cat Category) bool {
 	switch {
 	case d.Lock != LockNone:
@@ -77,18 +84,23 @@ func (d Decision) Allows(cat Category) bool {
 		return cat == CatStudy
 	case d.CloseGames && cat == CatGames:
 		return false
+	case d.CloseVideo && cat == CatVideoSocial:
+		return false
 	}
 	return true
 }
 
 // DeniedText — запись журнала и плашки о закрытой попытке запуска программы категории cat
-// (R5, R8); «» — запуск разрешён или закрытие не связано с играми и режимом «только учёба».
+// (R5, R6, R8); «» — запуск разрешён или закрытие не связано с играми, видео и режимом
+// «только учёба».
 func (d Decision) DeniedText(cat Category) string {
 	switch {
 	case d.StudyOnly && cat != CatStudy:
 		return StudyOnlyDeniedText
 	case d.CloseGames && cat == CatGames:
 		return GamesDeniedText
+	case d.CloseVideo && cat == CatVideoSocial:
+		return VideoDeniedText
 	}
 	return ""
 }
@@ -105,7 +117,8 @@ type Engine struct {
 	acc      *Accumulator
 	warn     warnings
 	gwarn    warnings // пороги остатка игр (R5, R9): отдельный набор, событие WarnGames
-	fg       Category // категория переднего плана текущего тика (игровые пороги — только при игре, R9)
+	vwarn    warnings // пороги остатка видео (R6, R9): отдельный набор, событие WarnVideo
+	fg       Category // категория переднего плана текущего тика (пороги игр — только при игре, видео — только при видео, R9)
 	bypass   string   // описание блокировки за обход; «» — блокировки нет
 	pending  []Event
 	started  time.Time // начало учёта — первый тик (отсчёт сохранений, G10)
@@ -354,9 +367,10 @@ func (e *Engine) ClearBlock() Decision {
 }
 
 // SetRules применяет сохранённые правила сразу (FR-19): r — правила целиком (лимиты, лимиты
-// игр, расписание, режим окончания; по частям ядро их не собирает). Блокировка и закрытия
-// ставятся или снимаются в возвращённом решении, пороги (общие и игровые) взводятся заново. Broken — безопасный режим
-// (R18): ограничений нет, событие safe_mode — один раз при переходе в этот режим.
+// игр и видео, расписание, режим окончания; по частям ядро их не собирает). Блокировка и
+// закрытия ставятся или снимаются в возвращённом решении, пороги (общие, игр и видео)
+// взводятся заново. Broken — безопасный режим (R18): ограничений нет, событие safe_mode —
+// один раз при переходе в этот режим.
 func (e *Engine) SetRules(r Rules) Decision {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -460,7 +474,8 @@ func (e *Engine) limitFor(day string) (DayLimit, Weekday) {
 // rearm взводит пороги заново по дельте до ближайшего события (R9): минимум из остатка
 // общего лимита, секунд до начала ближайшего запретного интервала и секунд до конца
 // паузы (если активна). Вид этого события кладётся в warnings для текста предупреждения.
-// Второй набор порогов — по остатку игр (R5): взводится тем же строгим правилом.
+// Второй и третий наборы порогов — по остатку игр (R5) и видео (R6): взводятся тем же
+// строгим правилом.
 func (e *Engine) rearm() {
 	now := e.now()
 	st := e.effective(e.acc.State(), now)
@@ -468,20 +483,41 @@ func (e *Engine) rearm() {
 	e.warn.arm(deltaS, ev, limited)
 	gamesS, gamesLimited := e.nextGames(st, now)
 	e.gwarn.arm(gamesS, WarnGames, gamesLimited)
+	videoS, videoLimited := e.nextVideo(st, now)
+	e.vwarn.arm(videoS, WarnVideo, videoLimited)
 }
 
 // nextGames возвращает секунды до исчерпания лимита игр и признак, что такое событие есть:
 // лимит игр задан, паузы нет (R11 снимает все ограничения) и правила прочитаны (R18).
 func (e *Engine) nextGames(st DayState, now time.Time) (deltaS int, limited bool) {
-	if e.rules.Broken {
-		return 0, false
-	}
-	if until, ok := e.pauseUntil(st); ok && now.Before(until) {
+	if !e.limitsApply(st, now) {
 		return 0, false
 	}
 	lim, _ := e.limitFor(st.Day)
 	rem, unl := RemainingGamesS(lim, st.ExtraMin, st.GamesS)
 	return rem, !unl
+}
+
+// nextVideo — то же для лимита «Видео и соцсетей» (R6).
+func (e *Engine) nextVideo(st DayState, now time.Time) (deltaS int, limited bool) {
+	if !e.limitsApply(st, now) {
+		return 0, false
+	}
+	lim, _ := e.limitFor(st.Day)
+	rem, unl := RemainingVideoS(lim, st.ExtraMin, st.VideoS)
+	return rem, !unl
+}
+
+// limitsApply сообщает, что лимиты игр и видео действуют: правила прочитаны (R18) и паузы
+// нет (R11 снимает все ограничения).
+func (e *Engine) limitsApply(st DayState, now time.Time) bool {
+	if e.rules.Broken {
+		return false
+	}
+	if until, ok := e.pauseUntil(st); ok && now.Before(until) {
+		return false
+	}
+	return true
 }
 
 // nextEvent возвращает секунды до ближайшего события ограничения, его вид и признак, что
@@ -527,7 +563,7 @@ func (e *Engine) decide(st DayState, fire bool) Decision {
 	st = e.effective(st, e.now()) // последняя минута идёт по часам и без тиков (R2, D-60)
 	d := Decision{Day: st.Day, UsedS: st.TotalS, Events: []Event{}}
 	if e.rules.Broken {
-		d.Status, d.Unlimited, d.GamesUnlimited = StatusSafe, true, true
+		d.Status, d.Unlimited, d.GamesUnlimited, d.VideoUnlimited = StatusSafe, true, true, true
 		d.Used = UsedText(st.TotalS, 0, true)
 		return d
 	}
@@ -545,6 +581,11 @@ func (e *Engine) decide(st DayState, fire bool) Decision {
 	d.GamesRemainingS, d.GamesUnlimited = grem, gunl
 	if !gunl {
 		d.GamesLimitS = max(0, (*lim.GamesMin+st.ExtraMin)*60)
+	}
+	vrem, vunl := RemainingVideoS(lim, st.ExtraMin, st.VideoS)
+	d.VideoRemainingS, d.VideoUnlimited = vrem, vunl
+	if !vunl {
+		d.VideoLimitS = max(0, (*lim.VideoMin+st.ExtraMin)*60)
 	}
 
 	paused := false
@@ -574,18 +615,26 @@ func (e *Engine) decide(st DayState, fire bool) Decision {
 	case inForbidden:
 		d.Status, d.Until = StatusForbidden, UntilForbidden(now, forbiddenEnd)
 		e.endMode(&d, LockForbidden, ReasonForbidden, StudyOnlyForbiddenPlateText)
-		e.quenchGames(grem, gunl, fire)
+		quench(&e.gwarn, grem, gunl, fire)
+		quench(&e.vwarn, vrem, vunl, fire)
 	case !unl && rem <= 0:
 		d.Status, d.Until = StatusTimeUp, UntilText(wd, e.rules, now)
 		e.endMode(&d, LockTimeUp, ReasonTimeUp, StudyOnlyPlateText)
-		e.quenchGames(grem, gunl, fire)
+		quench(&e.gwarn, grem, gunl, fire)
+		quench(&e.vwarn, vrem, vunl, fire)
 	default:
 		if !gunl && grem <= 0 {
 			// Лимит игр исчерпан (R5): закрываются только игры, экрана блокировки нет.
 			d.CloseGames, d.CloseReason = true, GamesOverPlateText
 		}
+		if !vunl && vrem <= 0 {
+			// Лимит видео исчерпан (R6): закрываются только видео и соцсети, экрана нет. Под
+			// экраном блокировки видео не закрывается (R8 закрывает только игры), в «только
+			// учёбе» его закрывает StudyOnly (V-4).
+			d.CloseVideo, d.VideoCloseReason = true, VideoOverPlateText(rem, unl)
+		}
 		if fire {
-			e.fireWarnings(&d, st, now, grem, gunl)
+			e.fireWarnings(&d, st, now, grem, gunl, vrem, vunl)
 		}
 		switch {
 		case unl:
@@ -612,20 +661,24 @@ func (e *Engine) endMode(d *Decision, lock LockKind, reason, studyPlate string) 
 	d.CloseGames, d.CloseReason = true, reason
 }
 
-// quenchGames на тике при закрытии (экран, «только учёба») гасит игровые пороги, до которых
-// уже дошло (без уведомления): после снятия закрытия они не всплывут задним числом.
-func (e *Engine) quenchGames(grem int, gunl, fire bool) {
-	if fire && !gunl {
-		e.gwarn.fire(grem)
+// quench на тике при закрытии (экран, «только учёба») гасит пороги набора w (игры или видео),
+// до которых уже дошло (без уведомления): после снятия закрытия они не всплывут задним числом.
+func quench(w *warnings, rem int, unl, fire bool) {
+	if fire && !unl {
+		w.fire(rem)
 	}
 }
 
 // fireWarnings — срабатывание порогов на тике без блокировки (R9, PL-14). Общий порог — по
 // ближайшему событию ограничения. Игровой порог — по остатку игр и только когда на переднем
-// плане игра (иначе он ждёт); при закрытых играх он гасится без уведомления. Игровой порог не
-// показывается, если общее событие ближе (общий лимит кончится раньше), но гасится. Если
-// сработали оба — одно уведомление: у кого меньше секунд до события, при равенстве общее.
-func (e *Engine) fireWarnings(d *Decision, st DayState, now time.Time, grem int, gunl bool) {
+// плане игра, порог видео — по остатку видео и только когда на переднем плане видео или
+// соцсеть (иначе он ждёт); при закрытых играх (видео) свой порог гасится без уведомления.
+// Порог игр или видео не показывается, если общее событие ближе (общий лимит кончится
+// раньше), но гасится. Если сработало несколько — одно уведомление: у кого меньше секунд до
+// события, при равенстве общее (PL-34). Игра и видео не бывают на переднем плане в одну
+// секунду, поэтому игровой и видео-порог в один тик не показываются оба. Порог 1 мин игр или
+// видео не ставит последнюю минуту: она только у общего лимита (D-60).
+func (e *Engine) fireWarnings(d *Decision, st DayState, now time.Time, grem int, gunl bool, vrem int, vunl bool) {
 	deltaS, _, has := e.nextEvent(st, now)
 	d.Warning, d.WarningEvent = e.warn.fire(deltaS)
 	if d.Warning != 0 {
@@ -637,15 +690,24 @@ func (e *Engine) fireWarnings(d *Decision, st DayState, now time.Time, grem int,
 		e.acc.SetLastMinute(&ms)
 		e.saveNow = true
 	}
-	if gunl || (e.fg != CatGames && !d.CloseGames) {
+	e.fireCategory(d, &e.gwarn, CatGames, WarnGames, d.CloseGames, grem, gunl, deltaS, has)
+	e.fireCategory(d, &e.vwarn, CatVideoSocial, WarnVideo, d.CloseVideo, vrem, vunl, deltaS, has)
+}
+
+// fireCategory — порог отдельного лимита категории cat (игры или видео) с набором w: rem —
+// остаток категории, closed — категория уже закрыта, deltaS/has — общее событие. Срабатывает,
+// только когда cat на переднем плане или она закрыта (тогда гасится без показа); показывается,
+// если ничего ещё не выбрано или его остаток строго меньше выбранного.
+func (e *Engine) fireCategory(d *Decision, w *warnings, cat Category, ev WarnEvent, closed bool, rem int, unl bool, deltaS int, has bool) {
+	if unl || (e.fg != cat && !closed) {
 		return
 	}
-	gw, _ := e.gwarn.fire(grem)
-	if gw == 0 || d.CloseGames || (has && grem > deltaS) {
+	cw, _ := w.fire(rem)
+	if cw == 0 || closed || (has && rem > deltaS) {
 		return
 	}
-	if d.Warning == 0 || grem < deltaS {
-		d.Warning, d.WarningEvent, d.WarningS = gw, WarnGames, grem
+	if d.Warning == 0 || rem < d.WarningS {
+		d.Warning, d.WarningEvent, d.WarningS = cw, ev, rem
 	}
 }
 

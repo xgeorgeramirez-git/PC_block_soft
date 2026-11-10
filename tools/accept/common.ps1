@@ -40,6 +40,10 @@ $script:TestAppSource = ""
 $script:FgOverride = $false
 # Закрытие программы (NFR-6: не позже 1 с): допуск на раннере 1500 мс, в журнал — фактическое время.
 $script:CloseToleranceMs = 1500
+# Brave (M4, RM4-12): профиль приёмки, свой на сценарий (Reset-Machine удаляет). Закрытие вкладки
+# (NFR-6: не позже 2 с): допуск на раннере 3000 мс, в журнал — фактическое время (T10-2).
+$script:BraveProfile = Join-Path $script:Work "brave-profile"
+$script:TabToleranceMs = 3000
 $script:MySid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
 $script:MySession = (Get-Process -Id $PID).SessionId
 $script:PsExe = (Get-Process -Id $PID).Path
@@ -158,6 +162,9 @@ public static class PcbNative {
     IntPtr h = GetForegroundWindow();
     return h == IntPtr.Zero ? "" : Describe(h);
   }
+
+  // Окно переднего плана как есть (UIA окна Brave, S20).
+  public static IntPtr ForegroundHandle() { return GetForegroundWindow(); }
 
   // Видимые окна верхнего уровня заданных процессов.
   public static string[] VisibleWindows(uint[] pids) {
@@ -435,18 +442,23 @@ function Get-Today {
 }
 
 # Лимит одного дня для Setup и SaveLimits. GamesMin < 0: игры без отдельного лимита (как до M3);
-# 0 и больше: лимит игр в минутах (R5, FR-16; 0 — игры в этот день нельзя).
-function New-DayLimit([int]$Weekday, [int]$TotalMin, [int]$GamesMin = -1) {
-  return @{ weekday = $Weekday; totalMin = $TotalMin; unlimited = $false; gamesMin = [Math]::Max($GamesMin, 0); gamesUnlimited = ($GamesMin -lt 0) }
+# 0 и больше: лимит игр в минутах (R5, FR-16; 0 — игры в этот день нельзя). VideoMin — то же для
+# «Видео и соцсетей» (R6, M4): по умолчанию без отдельного лимита (WeekdayLimit.videoMin, videoUnlimited).
+function New-DayLimit([int]$Weekday, [int]$TotalMin, [int]$GamesMin = -1, [int]$VideoMin = -1) {
+  return @{
+    weekday = $Weekday; totalMin = $TotalMin; unlimited = $false
+    gamesMin = [Math]::Max($GamesMin, 0); gamesUnlimited = ($GamesMin -lt 0)
+    videoMin = [Math]::Max($VideoMin, 0); videoUnlimited = ($VideoMin -lt 0)
+  }
 }
 
 # Первичная настройка по команде Setup (то же, что делает мастер): пароль, ребёнок, лимиты на семь дней.
 # Programs — категории программ шага мастера «Программы» (FR-2): @(@{ path = ...; category = "games" }).
 # DecideProgram принимает только программу из «Ждут решения» или списка, поэтому категорию тестовой
 # программе до её первого запуска даёт мастер (PL-11: сначала настройка, потом запуск).
-function Invoke-Setup([int]$LimitMin = 120, [string]$ChildSid = $script:MySid, [string]$Name = "Тест", $Limits = $null, [int]$GamesMin = -1, $Programs = $null) {
+function Invoke-Setup([int]$LimitMin = 120, [string]$ChildSid = $script:MySid, [string]$Name = "Тест", $Limits = $null, [int]$GamesMin = -1, $Programs = $null, [int]$VideoMin = -1) {
   if (-not $Limits) {
-    $Limits = @(1..7 | ForEach-Object { New-DayLimit $_ $LimitMin $GamesMin })
+    $Limits = @(1..7 | ForEach-Object { New-DayLimit $_ $LimitMin $GamesMin $VideoMin })
   }
   $child = @{ sid = $ChildSid; name = $Name; limits = @($Limits) }
   $req = @{ password = $script:ParentPassword; children = @($child) }
@@ -454,8 +466,9 @@ function Invoke-Setup([int]$LimitMin = 120, [string]$ChildSid = $script:MySid, [
   $r = Send-Pcb "Setup" $req
   Assert-Reply $r "Первичная настройка"
   $games = if ($GamesMin -lt 0) { "игры без отдельного лимита" } else { "игры $GamesMin мин" }
+  $video = if ($VideoMin -lt 0) { "видео без отдельного лимита" } else { "видео и соцсети $VideoMin мин" }
   $progs = (@(List $Programs) | ForEach-Object { "$(Split-Path -Leaf $_.path)=$($_.category)" }) -join ", "
-  Write-Log "Первичная настройка: ребёнок $Name, лимит $LimitMin мин на каждый день, $games; программы мастера: [$progs]"
+  Write-Log "Первичная настройка: ребёнок $Name, лимит $LimitMin мин на каждый день, $games, $video; программы мастера: [$progs]"
 }
 
 # --- Установка, тестовый режим, сброс -------------------------------------------------------------------
@@ -510,10 +523,59 @@ function Enable-TestMode([int]$Speed = 1, [string]$ChildSid = $script:MySid, [bo
   Write-Log "Тестовый режим: ClockSpeed=$Speed, ClockStart=2026-10-19T15:00:00, данные $($script:Data), WatchDir $($script:Apps)"
 }
 
+# Строки журналов работы службы про тестовый режим (service.log, boot.log в папке данных и в ProgramData):
+# для текста ошибки, журналы Actions не скачиваются (PL-1).
+function Get-TestModeLog([int]$Last = 8) {
+  $out = @()
+  foreach ($dir in @($script:Data, $script:DefaultData)) {
+    foreach ($name in @("service.log", "boot.log")) {
+      $f = Join-Path (Join-Path $dir "logs") $name
+      if (-not (Test-Path -LiteralPath $f)) { continue }
+      $lines = @(Get-Content -LiteralPath $f -Tail 400 -Encoding UTF8 -ErrorAction SilentlyContinue | Where-Object { $_ -match 'Тестовый режим|StoreRoot|WatchDir|папка тестовых программ' }) | Select-Object -Last $Last
+      foreach ($l in @($lines)) { $out += "$name`: $l" }
+    }
+  }
+  if ($out.Count -eq 0) { return "строк про тестовый режим нет" }
+  return ($out -join ' | ')
+}
+
+# Перезапуск службы без перезаписи значений TestMode (T10-12, S46): база и настройка остаются, часы ядра идут
+# дальше по ClockRealStart (не с ClockStart заново, как в Enable-TestMode), новые значения TestMode (StoreRoot)
+# служба читает при старте. Пауза часов ядра живёт только в памяти службы: если её ставил сценарий
+# (Suspend-Clock), она включается снова. Ждёт Running 40 с и ответ Hello в тестовом режиме ещё 40 с.
+function Restart-PcbService {
+  $sw = [Diagnostics.Stopwatch]::StartNew()
+  Close-PipeConn
+  $script:Token = ""
+  Restart-Service -Name $script:ServiceName -Force
+  Wait-Until { (Get-ServiceState) -eq "Running" } 40 "служба в состоянии Running после перезапуска"
+  $wait = [Diagnostics.Stopwatch]::StartNew()
+  $hello = $null
+  while ($null -eq $hello) {
+    try {
+      $h = Send-Pcb "Hello"
+      if ($h.ok -and $h.payload.testMode) { $hello = $h.payload; break }
+    } catch { Close-PipeConn }
+    if ($wait.Elapsed.TotalSeconds -gt 40) {
+      throw "За 40 с после перезапуска служба не ответила в тестовом режиме (состояние $(Get-ServiceState)); журналы работы: $(Get-TestModeLog)"
+    }
+    Start-Sleep -Milliseconds 200
+  }
+  $clock = ""
+  if ($script:ClockPausedByUs) {
+    $c = Set-ClockPaused $true
+    $clock = "; часы ядра снова на паузе, " + [DateTimeOffset]::FromUnixTimeMilliseconds([int64]$c.nowMs).ToLocalTime().ToString("dd.MM.yyyy HH:mm")
+  }
+  Write-Log ("Служба перезапущена за {0:N1} с без перезаписи TestMode: настроена {1}{2}" -f $sw.Elapsed.TotalSeconds, $hello.configured, $clock)
+}
+
 # Приводит машину к чистому состоянию. Вызывается в начале и в конце сценария и ничего не бросает.
 function Reset-Machine {
   Close-PipeConn
   Stop-TestApps
+  # Brave приёмки (M4): закрыть до удаления папок, профиль удалить (свежий профиль на сценарий, PL-16).
+  try { Stop-Brave } catch {}
+  try { Remove-Item -LiteralPath $script:BraveProfile -Recurse -Force -ErrorAction SilentlyContinue } catch {}
   $exe = Join-Path (Join-Path $env:ProgramFiles "PCBlock") "PCBlock.exe"
   try {
     if ((Get-ServiceState) -ne "нет" -and (Test-Path -LiteralPath $exe)) {
@@ -533,6 +595,7 @@ function Reset-Machine {
   } catch {}
   Stop-AllPcb
   try { Remove-ItemProperty -Path "Registry::HKEY_USERS\$($script:MySid)\Software\Microsoft\Windows\CurrentVersion\Policies\System" -Name DisableTaskMgr -ErrorAction SilentlyContinue } catch {}
+  try { Remove-Item -Path "Registry::HKEY_USERS\$($script:MySid)\Software\Policies\BraveSoftware\Brave" -Recurse -Force -ErrorAction SilentlyContinue } catch {}
   try { Remove-Item -LiteralPath $script:Data -Recurse -Force -ErrorAction SilentlyContinue } catch {}
   try { Remove-Item -LiteralPath $script:DefaultData -Recurse -Force -ErrorAction SilentlyContinue } catch {}
   try { Remove-TestUser } catch {}
@@ -820,7 +883,7 @@ function Format-GuardState($s) {
   $b = (@(List $s.buttons)) -join ","
   $f = (@(List $s.fields) | ForEach-Object { "$($_.id)='$($_.text)'" }) -join ","
   $x = (@(List $s.exits)) -join ","
-  return "экран=$($s.lockShown)/$($s.lockKind); плашка=$($s.plateKind)'$($s.plate)'; кнопки=[$b]; поля=[$f]; предупреждения=[$w]; выходы=[$x]; передний план='$($s.foregroundPath)'"
+  return "экран=$($s.lockShown)/$($s.lockKind); плашка=$($s.plateKind)'$($s.plate)'; кнопки=[$b]; поля=[$f]; предупреждения=[$w]; выходы=[$x]; передний план='$($s.foregroundPath)'; домен вкладки='$($s.foregroundDomain)'; closedTab='$($s.closedTab)'; closedTabWay='$($s.closedTabWay)'"
 }
 
 function Get-WarnThresholds($State) { return @(List $State.warnings | ForEach-Object { [int]$_.threshold }) }
@@ -917,15 +980,15 @@ function Show-TrayIconOnTaskbar {
 
 # Ребёнок готов к испытанию: ввод идёт, настройка сделана, значок и страж запущены, часы ядра на паузе
 # (ускорение больше 1), чтобы время не уходило, пока готовится проверка. Дальше Resume-Clock.
-function Start-Child([int]$LimitMin, [bool]$Pinging = $true, [int]$GamesMin = -1, $Programs = $null) {
+function Start-Child([int]$LimitMin, [bool]$Pinging = $true, [int]$GamesMin = -1, $Programs = $null, [int]$VideoMin = -1) {
   Assert-That ($script:ClockSpeed -gt 1) "Start-Child работает только с ускорением часов (Initialize-Scenario 60)"
   if ($Pinging) { Start-Input 1000 }
-  Invoke-Setup $LimitMin $script:MySid "Тест" $null $GamesMin $Programs
+  Invoke-Setup $LimitMin $script:MySid "Тест" $null $GamesMin $Programs $VideoMin
   Suspend-Clock
   Wait-SessionParts
   Start-Sleep -Seconds 3
   $st = Get-Status
-  Write-Log "Ребёнок готов: статус $($st.status), остаток $($st.remainingS) с, лимит $($st.limitS) с, часы на паузе"
+  Write-Log "Ребёнок готов: статус $($st.status), остаток $($st.remainingS) с, лимит $($st.limitS) с, видео $($st.videoRemainingS) с из $($st.videoLimitS) (без лимита: $($st.videoUnlimited)), часы на паузе"
 }
 
 # --- Служебная учётка pcbtest (обычный пользователь) ----------------------------------------------------
@@ -1270,4 +1333,378 @@ function Wait-Status([scriptblock]$Cond, [double]$Seconds, [string]$What, [int]$
 # Пороги показанных предупреждений с текстами (для журнала сценария).
 function Format-Warnings($State) {
   return ((@(List $State.warnings) | ForEach-Object { "$($_.threshold):'$($_.text)'" }) -join "; ")
+}
+
+# --- Brave и сайты (M4: RM4-1, RM4-2, RM4-12, T10-2) -------------------------------------------------
+# Brave раннера (шаг windows.yml «Brave для пробы и приёмки») запускается от имени пользователя раннера,
+# он же ребёнок (Start-Child), со своим профилем $script:BraveProfile. Все адреса — домены из hosts раннера
+# (127.0.0.1) или 127.0.0.1: из сети ничего не грузится (Open-Brave проверяет). Ожидания — по GuardState:
+# foregroundDomain (домен вкладки, который страж прислал службе), closedTab и closedTabWay (последняя
+# исполненная команда closeTab, не сбрасывается: повтор того же домена доказывается плашкой, T10-4).
+
+# Путь brave.exe (Program Files, Program Files (x86), профиль) или "" (как в пробе PROBE).
+function Find-Brave {
+  $rel = "BraveSoftware\Brave-Browser\Application\brave.exe"
+  foreach ($d in @($env:ProgramFiles, ${env:ProgramFiles(x86)}, $env:LOCALAPPDATA)) {
+    if (-not $d) { continue }
+    $p = Join-Path $d $rel
+    if (Test-Path -LiteralPath $p) { return $p }
+  }
+  return ""
+}
+
+# Закрывает все процессы Brave. Ничего не бросает; секунду ждёт, только если было что закрывать.
+function Stop-Brave {
+  try {
+    $procs = @(Get-Process -Name brave -ErrorAction SilentlyContinue)
+    if ($procs.Count -eq 0) { return }
+    $procs | Stop-Process -Force -ErrorAction SilentlyContinue
+    Start-Sleep -Seconds 1
+  } catch {}
+}
+
+# Видимое окно Brave шире 100 точек (у Chromium есть и скрытые служебные окна): "pid|класс|рамка|заголовок" или $null.
+function Get-BraveWindow {
+  $pids = @(Get-Process -Name brave -ErrorAction SilentlyContinue | ForEach-Object { [uint32]$_.Id })
+  if ($pids.Count -eq 0) { return $null }
+  foreach ($w in [PcbNative]::VisibleWindows([uint32[]]$pids)) {
+    $parts = $w -split '\|', 4
+    if ($parts[1] -ne "Chrome_WidgetWin_1") { continue }
+    $r = @($parts[2] -split ',' | ForEach-Object { [int]$_ })
+    if ($r[2] - $r[0] -ge 100) { return $w }
+  }
+  return $null
+}
+
+# Главное окно первого процесса Brave, у которого оно есть; иначе IntPtr.Zero.
+function Get-BraveHandle {
+  foreach ($p in @(Get-Process -Name brave -ErrorAction SilentlyContinue)) {
+    if ($p.MainWindowHandle -ne [IntPtr]::Zero) { return $p.MainWindowHandle }
+  }
+  return [IntPtr]::Zero
+}
+
+# Окно переднего плана принадлежит Brave.
+function Test-BraveForeground {
+  $fg = [PcbNative]::Foreground()
+  if (-not $fg) { return $false }
+  $fgPid = ($fg -split '\|', 4)[0]
+  $pids = @(Get-Process -Name brave -ErrorAction SilentlyContinue | ForEach-Object { [string]$_.Id })
+  return ($pids -contains $fgPid)
+}
+
+# Заголовок окна переднего плана, если это Brave; иначе "". Читает только приёмка (S20, страница
+# сервера 8765); программа заголовков окон не читает и не хранит (R23).
+function Get-BraveTitle {
+  if (-not (Test-BraveForeground)) { return "" }
+  return [string](([PcbNative]::Foreground() -split '\|', 4)[3])
+}
+
+# Есть ли имя HostName в строке «127.0.0.1 …» файла hosts раннера.
+function Test-InHosts([string]$HostName) {
+  $file = Join-Path $env:SystemRoot "System32\drivers\etc\hosts"
+  foreach ($line in @(Get-Content -LiteralPath $file -ErrorAction SilentlyContinue)) {
+    $t = ($line -replace '#.*$', '').Trim()
+    if (-not $t) { continue }
+    $parts = @($t -split '\s+')
+    if ($parts[0] -ne "127.0.0.1") { continue }
+    if (@($parts | Select-Object -Skip 1) -contains $HostName) { return $true }
+  }
+  return $false
+}
+
+# Brave установлен: путь и версия в журнал, все процессы Brave закрыты. Возвращает путь brave.exe.
+function Assert-BraveInstalled {
+  $exe = Find-Brave
+  Assert-That ($exe -ne "") "brave.exe не найден: шаг windows.yml «Brave для пробы и приёмки» не поставил Brave"
+  Write-Log "Brave: $exe, версия $((Get-Item -LiteralPath $exe).VersionInfo.FileVersion)"
+  Stop-Brave
+  return $exe
+}
+
+# Запускает Brave от имени ребёнка (пользователь раннера) с профилем приёмки на адресе Url: новым окном
+# (NewWindow) или новой вкладкой последнего окна (Brave с этим профилем уже открыт). Адрес http(s) должен
+# вести на 127.0.0.1 (hosts), иначе Brave ушёл бы в сеть: тогда ошибка до запуска. Возвращает Stopwatch,
+# запущенный перед Start-Process (замер NFR-6: вкладка закрыта не позже 2 с).
+function Open-Brave([string]$Url, [switch]$NewWindow) {
+  $exe = Find-Brave
+  Assert-That ($exe -ne "") "brave.exe не найден: шаг windows.yml «Brave для пробы и приёмки» не поставил Brave"
+  $u = $null
+  if ([Uri]::TryCreate($Url, [UriKind]::Absolute, [ref]$u) -and ($u.Scheme -eq "http" -or $u.Scheme -eq "https")) {
+    if ($u.Host -ne "127.0.0.1" -and -not (Test-InHosts $u.Host)) {
+      throw "Домена $($u.Host) нет в hosts раннера (127.0.0.1): Brave ушёл бы в сеть; шаг windows.yml «Brave для пробы и приёмки» дописывает домены приёмки"
+    }
+  }
+  New-Item -ItemType Directory -Force -Path $script:BraveProfile | Out-Null
+  $list = @("--no-first-run", "--no-default-browser-check", "--user-data-dir=$($script:BraveProfile)")
+  if ($NewWindow) { $list += "--new-window" }
+  $list += $Url
+  $how = if ($NewWindow) { "новым окном" } else { "новой вкладкой" }
+  $sw = [Diagnostics.Stopwatch]::StartNew()
+  Start-Process -FilePath $exe -ArgumentList (ConvertTo-ArgString $list) | Out-Null
+  Write-Log "Brave: $Url $how"
+  return $sw
+}
+
+# Строки журналов работы программы про сайты и Brave (все файлы $script:Data\logs): для текста ошибки,
+# журналы Actions не скачиваются (PL-1).
+function Get-SiteLogLines([int]$Last = 15) {
+  $dir = Join-Path $script:Data "logs"
+  if (-not (Test-Path -LiteralPath $dir)) { return "папки logs нет" }
+  $out = @()
+  foreach ($f in @(Get-ChildItem -LiteralPath $dir -File -ErrorAction SilentlyContinue)) {
+    $lines = @(Get-Content -LiteralPath $f.FullName -Tail 600 -Encoding UTF8 -ErrorAction SilentlyContinue | Where-Object { $_ -match 'сайт|[Bb]rave|вкладк|18\+|адрес' }) | Select-Object -Last $Last
+    foreach ($l in @($lines)) { $out += "$($f.Name): $l" }
+  }
+  if ($out.Count -eq 0) { return "строк про сайты нет" }
+  return ($out -join ' | ')
+}
+
+# Всё, что нужно для разбора падения сценария сайтов, одной строкой: вид стража (с доменом вкладки,
+# closedTab и closedTabWay), окно переднего плана, журнал родителя, строки журнала работы про сайты.
+# Открывает родительскую сессию (она прячет плашки, Ruling 19): звать только вне Use-Parent и только при
+# ошибке, в throw внутри if; не в сообщении Assert-That (оно вычисляется и при успехе).
+function Get-SiteDiag($State = $null) {
+  $parts = @()
+  try { if (-not $State) { $State = Get-GuardState } } catch { $parts += "GuardState не прочитан: $($_.Exception.Message)" }
+  $parts += "страж: $(Format-GuardState $State)"
+  $parts += "окно переднего плана: $([PcbNative]::Foreground())"
+  try { $parts += "журнал: $(Use-Parent { Format-Events })" } catch { $parts += "журнал не прочитан: $($_.Exception.Message)" }
+  $parts += "журнал работы (сайты): $(Get-SiteLogLines)"
+  return ($parts -join '; ')
+}
+
+# Выводит окно Brave на передний план: ForceForeground главного окна, не вышло — AppActivate до 10 раз
+# (как PROBE). Ждёт, пока страж пришлёт путь переднего плана, оканчивающийся на \brave.exe (5 с). NoGuard —
+# стража ещё нет (S20 до настройки): ждать нечего, ошибка, если Brave не впереди.
+function Set-BraveForeground([switch]$NoGuard) {
+  $h = Get-BraveHandle
+  $forced = $false
+  if ($h -ne [IntPtr]::Zero) { $forced = [PcbNative]::ForceForeground($h) }
+  if (-not (Test-BraveForeground)) {
+    $ws = New-Object -ComObject WScript.Shell
+    for ($i = 0; $i -lt 10 -and -not (Test-BraveForeground); $i++) {
+      $bp = @(Get-Process -Name brave -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -ne [IntPtr]::Zero }) | Select-Object -First 1
+      if ($bp) { [void]$ws.AppActivate([int]$bp.Id) }
+      Start-Sleep -Milliseconds 500
+    }
+  }
+  Write-Log "Передний план: $([PcbNative]::Foreground()); ForceForeground=$forced, Brave впереди: $(Test-BraveForeground)"
+  if ($NoGuard) {
+    if (-not (Test-BraveForeground)) { throw "Окно Brave не вышло на передний план: $([PcbNative]::Foreground())" }
+    return
+  }
+  $sw = [Diagnostics.Stopwatch]::StartNew()
+  while ($true) {
+    $s = Get-GuardState
+    if (([string]$s.foregroundPath).ToLowerInvariant().EndsWith("\brave.exe")) { return }
+    if ($sw.Elapsed.TotalSeconds -gt 5) { throw "За 5 с страж не прислал brave.exe на переднем плане; $(Get-SiteDiag $s)" }
+    Start-Sleep -Milliseconds 150
+  }
+}
+
+# Ждёт, пока страж пришлёт домен вкладки Domain (GuardState.foregroundDomain). Возвращает состояние.
+function Wait-BraveDomain([string]$Domain, [double]$Seconds = 15) {
+  $sw = [Diagnostics.Stopwatch]::StartNew()
+  while ($true) {
+    $s = Get-GuardState
+    if ([string]$s.foregroundDomain -eq $Domain) {
+      Write-Log ("Страж прислал домен вкладки {0} за {1:N1} с" -f $Domain, $sw.Elapsed.TotalSeconds)
+      return $s
+    }
+    if ($sw.Elapsed.TotalSeconds -gt $Seconds) { throw "За $Seconds с страж не прислал домен вкладки «$Domain»; $(Get-SiteDiag $s)" }
+    Start-Sleep -Milliseconds 150
+  }
+}
+
+# Общее начало сценариев сайтов: Brave новым окном на http://probe-site.test/ (разрешённая вкладка, прогрев
+# дерева доступности: холодное до 3,5 с, RM4-1-итог), окно на переднем плане, страж прислал домен. Дальше
+# проверяемые адреса открываются новыми вкладками этого окна (T10-2).
+function Open-BraveHome {
+  $sw = Open-Brave "http://probe-site.test/" -NewWindow
+  Wait-Until { $null -ne (Get-BraveWindow) } 20 "окно Brave"
+  Write-Log "Окно Brave за $($sw.ElapsedMilliseconds) мс: $(Get-BraveWindow)"
+  Set-BraveForeground
+  [void](Wait-BraveDomain "probe-site.test" 15)
+}
+
+# Вкладка Domain закрыта: closedTab стал Domain, и активной стала разрешённая вкладка Remain того же окна
+# (окно не закрыто целиком). Since — Stopwatch события (Open-Brave или «видео кончилось»); время — до первого
+# GuardState с closedTab = Domain. Domain до события не должен быть в closedTab (вызывающий проверяет, PL-16).
+# Способ: ctrlW или invoke (invoke — пометка ::warning, Ctrl+W от SYSTEM не дошёл); wmClose — ошибка.
+function Wait-TabClosed([string]$Domain, $Since, [string]$Remain = "probe-site.test") {
+  $sw = [Diagnostics.Stopwatch]::StartNew()
+  $ms = -1
+  $way = ""
+  $s = $null
+  while ($sw.Elapsed.TotalSeconds -lt 8) {
+    $s = Get-GuardState
+    if ($ms -lt 0 -and [string]$s.closedTab -eq $Domain) { $ms = [int]$Since.ElapsedMilliseconds; $way = [string]$s.closedTabWay }
+    if ($ms -ge 0 -and [string]$s.foregroundDomain -eq $Remain) { break }
+    Start-Sleep -Milliseconds 100
+  }
+  if ($ms -lt 0) { throw "Вкладка $Domain не закрыта за 8 с; $(Get-SiteDiag $s)" }
+  Write-Log "вкладка $Domain закрыта за $ms мс (NFR-6 не позже 2000 мс, допуск раннера $($script:TabToleranceMs) мс), способ $way"
+  if ($way -eq "invoke") {
+    Write-Host "::warning title=Ctrl+W от SYSTEM::вкладка $Domain закрыта кнопкой вкладки (invoke), Ctrl+W не сработал (Open T7)"
+  }
+  # Разбор (Get-SiteDiag открывает родительскую сессию) только при ошибке: сообщение Assert-That вычисляется всегда.
+  if ($way -ne "ctrlW" -and $way -ne "invoke") { throw "Вкладка $Domain закрыта способом «$way», ждали ctrlW или invoke (wmClose закрывает окно целиком); $(Get-SiteDiag $s)" }
+  if ([string]$s.foregroundDomain -ne $Remain) { throw "Вкладка $Domain закрыта за $ms мс, но за 8 с активной не стала разрешённая вкладка $Remain (окно закрыто?); $(Get-SiteDiag $s)" }
+  Assert-That ($ms -le $script:TabToleranceMs) "Вкладка $Domain закрыта за $ms мс, допуск раннера $($script:TabToleranceMs) мс (NFR-6: 2000 мс)"
+  return $s
+}
+
+# Вкладка Domain остаётся активной Seconds секунд подряд, и плашки вида NoPlateKind нет (T10-4: «не
+# закрывается» проверяется после события, вызывающий сначала дожидается домена). Возвращает состояние.
+function Assert-TabStays([string]$Domain, [double]$Seconds = 6, [string]$NoPlateKind = "") {
+  $sw = [Diagnostics.Stopwatch]::StartNew()
+  $s = $null
+  while ($sw.Elapsed.TotalSeconds -lt $Seconds) {
+    $s = Get-GuardState
+    if ([string]$s.foregroundDomain -ne $Domain) {
+      throw ("Вкладка {0} не удержалась: через {1:N1} с домен вкладки «{2}»; {3}" -f $Domain, $sw.Elapsed.TotalSeconds, $s.foregroundDomain, (Get-SiteDiag $s))
+    }
+    if ($NoPlateKind -and [string]$s.plateKind -eq $NoPlateKind) {
+      throw ("Вкладка {0}: через {1:N1} с показана плашка {2}; {3}" -f $Domain, $sw.Elapsed.TotalSeconds, $NoPlateKind, (Get-SiteDiag $s))
+    }
+    Start-Sleep -Milliseconds 150
+  }
+  Write-Log "Вкладка $Domain открыта $Seconds с подряд$(if ($NoPlateKind) { ", плашки $NoPlateKind нет" })"
+  return $s
+}
+
+# Ждёт плашку о сайте: текст Text (с Regex — регулярное выражение с якорями) и вид Kind (BlockedPlate.Kind:
+# site, adult, videoOver). Возвращает состояние; при провале — разбор сайтов.
+function Wait-SitePlate([string]$Text, [string]$Kind, [double]$Seconds = 5, [switch]$Regex) {
+  $sw = [Diagnostics.Stopwatch]::StartNew()
+  while ($true) {
+    $s = Get-GuardState
+    $p = [string]$s.plate
+    $hit = if ($Regex) { $p -match $Text } else { $p -eq $Text }
+    if ($hit) { break }
+    if ($sw.Elapsed.TotalSeconds -gt $Seconds) { throw "За $Seconds с нет плашки «$Text»; $(Get-SiteDiag $s)" }
+    Start-Sleep -Milliseconds 100
+  }
+  Write-Log ("Плашка за {0:N1} с: {1} «{2}»" -f $sw.Elapsed.TotalSeconds, $s.plateKind, $s.plate)
+  if ([string]$s.plateKind -ne $Kind) { throw "Вид плашки «$($s.plateKind)», ждали $Kind; $(Get-SiteDiag $s)" }
+  return $s
+}
+
+# Ждёт, пока плашка вида Kind уйдёт (ShowS 10 с): перед повтором того же домена (T10-4).
+function Wait-PlateGone([string]$Kind, [double]$Seconds = 12) {
+  $sw = [Diagnostics.Stopwatch]::StartNew()
+  while ($true) {
+    $s = Get-GuardState
+    if ([string]$s.plateKind -ne $Kind) {
+      Write-Log ("Плашки {0} нет ({1:N1} с ожидания)" -f $Kind, $sw.Elapsed.TotalSeconds)
+      return $s
+    }
+    if ($sw.Elapsed.TotalSeconds -gt $Seconds) { throw "За $Seconds с не ушла плашка $Kind; $(Get-SiteDiag $s)" }
+    Start-Sleep -Milliseconds 200
+  }
+}
+
+# Добавляет домен в список родителя (AddSite: blocked, study, video_social) и возвращает домен из ответа
+# программы (после нормализации, PL-22). Родительская сессия только на время команды (Ruling 19).
+function Add-PcbSite([string]$Domain, [string]$Kind) {
+  $r = Use-Parent { Send-Parent "AddSite" @{ domain = $Domain; kind = $Kind } }
+  Assert-Reply $r "AddSite $Domain $Kind"
+  Write-Log "AddSite ${Domain} в ${Kind}: домен $($r.payload.domain), перенесён $($r.payload.moved), «$($r.payload.message)»"
+  return [string]$r.payload.domain
+}
+
+# Списки сайтов и переключатели «18+» (ListSites): sites[{domain,kind}], children[{childId,name,on}].
+function Get-PcbSites {
+  return (Use-Parent {
+    $r = Send-Parent "ListSites"
+    Assert-Reply $r "ListSites"
+    $r.payload
+  })
+}
+
+# Записи журнала родителя вида Kind, текст которых оканчивается на Tail (точное совпадение хвоста, PL-27:
+# начало строки — имя ребёнка «Тест: »). Сама открывает родительскую сессию: не звать внутри Use-Parent.
+function Get-SiteEvents([string]$Kind, [string]$Tail) {
+  return @(Use-Parent { @(Get-Events | Where-Object { [string]$_.kind -eq $Kind -and ([string]$_.text).EndsWith($Tail) }) })
+}
+
+# --- UI Automation окна Brave (S20, T10-10, RM4-10-итог) --------------------------------------------
+# Кнопки окна Brave читаются от имени ребёнка (пользователь раннера) через System.Windows.Automation. Страница
+# brave://policy этим путём не читается (дерево документа недоступно), её разбирает visual-reviewer по снимку.
+
+# Загружает UI Automation в pwsh 7. Не загрузилась — ошибка с текстом: запасного пути нет намеренно (PL-41).
+function Import-Uia {
+  if ('System.Windows.Automation.AutomationElement' -as [type]) { return }
+  try {
+    Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
+  } catch {
+    throw "UI Automation не загрузилась в pwsh (Add-Type UIAutomationClient, UIAutomationTypes): $($_.Exception.Message); запасного пути нет (T10-10, PL-41)"
+  }
+}
+
+# Окно Brave для UIA: окно переднего плана, если это Brave, иначе главное окно первого процесса Brave.
+function Get-BraveUiaHandle {
+  if (Test-BraveForeground) { return [PcbNative]::ForegroundHandle() }
+  return (Get-BraveHandle)
+}
+
+# Названия всех кнопок (ControlType.Button) окна Brave: панель, вкладки, страница. Окна нет или UIA вернул
+# ошибку (окно перестраивается) — пусто, причина в журнал. Вызывающий оборачивает в @().
+function Get-BraveButtonNames {
+  Import-Uia
+  $h = Get-BraveUiaHandle
+  if ($h -eq [IntPtr]::Zero) { return @() }
+  try {
+    $root = [System.Windows.Automation.AutomationElement]::FromHandle($h)
+    $cond = [System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::Button)
+    $found = $root.FindAll([System.Windows.Automation.TreeScope]::Descendants, $cond)
+    $names = @()
+    foreach ($el in $found) {
+      try { $names += [string]$el.Current.Name } catch {}
+    }
+    return $names
+  } catch {
+    Write-Log "UIA: кнопки окна Brave не прочитаны: $($_.Exception.Message)"
+    return @()
+  }
+}
+
+# Ждёт, пока в окне Brave будет не меньше Min кнопок (дерево доступности готово: холодное до 3,5 с,
+# RM4-1-итог), и возвращает их названия. Не дождались — ошибка с прочитанным и передним планом.
+function Wait-BraveButtons([int]$Min = 5, [double]$Seconds = 15) {
+  $sw = [Diagnostics.Stopwatch]::StartNew()
+  while ($true) {
+    $names = @(Get-BraveButtonNames)
+    if ($names.Count -ge $Min) {
+      Write-Log ("UIA: кнопок в окне Brave {0} за {1:N1} с: {2}" -f $names.Count, $sw.Elapsed.TotalSeconds, ($names -join ', '))
+      return $names
+    }
+    if ($sw.Elapsed.TotalSeconds -gt $Seconds) {
+      throw "За $Seconds с в окне Brave меньше $Min кнопок UIA ($($names.Count): $($names -join ', ')); передний план: $([PcbNative]::Foreground()); окно Brave: $(Get-BraveWindow)"
+    }
+    Start-Sleep -Milliseconds 500
+  }
+}
+
+# Число видимых окон Brave шире 100 точек (как Get-BraveWindow): новое окно Tor прибавляет одно.
+function Get-BraveWindowCount {
+  $pids = @(Get-Process -Name brave -ErrorAction SilentlyContinue | ForEach-Object { [uint32]$_.Id })
+  if ($pids.Count -eq 0) { return 0 }
+  $n = 0
+  foreach ($w in [PcbNative]::VisibleWindows([uint32[]]$pids)) {
+    $parts = $w -split '\|', 4
+    if ($parts[1] -ne "Chrome_WidgetWin_1") { continue }
+    $r = @($parts[2] -split ',' | ForEach-Object { [int]$_ })
+    if ($r[2] - $r[0] -ge 100) { $n++ }
+  }
+  return $n
+}
+
+# Клавиши в окно Brave от имени ребёнка (SendKeys: «%+n» — Alt+Shift+N, «Новое окно Tor»). Brave должен быть
+# на переднем плане (Set-BraveForeground), иначе клавиши ушли бы в чужое окно: тогда ошибка.
+function Send-BraveKeys([string]$Keys) {
+  if (-not (Test-BraveForeground)) { throw "Клавиши $Keys не нажаты: Brave не на переднем плане ($([PcbNative]::Foreground()))" }
+  [System.Windows.Forms.SendKeys]::SendWait($Keys)
+  Write-Log "Клавиши в окне Brave: $Keys"
 }

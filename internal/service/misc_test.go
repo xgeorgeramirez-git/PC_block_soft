@@ -124,6 +124,12 @@ func TestNewValidatesConfig(t *testing.T) {
 	if (noPolicy{}).SetTaskMgrDisabled("x", true) != nil {
 		t.Error("noPolicy")
 	}
+	if (noPolicy{}).SetBraveRules("x", BraveRules{}) != nil || (noPolicy{}).RemoveBraveRules("x") != nil {
+		t.Error("noPolicy: правила Brave")
+	}
+	if ok, err := (noPolicy{}).BraveRulesOK("x", BraveRules{}); !ok || err != nil {
+		t.Error("noPolicy: сверка правил Brave")
+	}
 }
 
 // Ловит: токены случайной строки пустые или одинаковые.

@@ -5,6 +5,8 @@ import {
   breakField,
   breakSummary,
   DEFAULT_BREAK_MESSAGE,
+  selfRestHint,
+  selfRestLabel,
   setBreakNumber,
   toggleBreak,
   type BreakNumberField,
@@ -64,11 +66,11 @@ export default function RestSettings({ value, saved, onChange, errors }: Props) 
           <MinutesField label="Предупредить за" field="warnMin" disabled={off} value={value.warnMin} error={errors[breakField("warnMin")]} onChange={setNum} />
           <MinutesField label="Отдых" field="restMin" disabled={off} value={value.restMin} error={errors[breakField("restMin")]} onChange={setNum} />
           <MinutesField
-            label="Засчитать как отдых, если не играл подряд"
+            label={selfRestLabel(value.counts)}
             field="selfRestMin" disabled={off}
             value={value.selfRestMin}
             error={errors[breakField("selfRestMin")]}
-            hint="Если ребёнок сам не играл столько минут подряд, перерыв уже не нужен"
+            hint={selfRestHint(value.counts)}
             onChange={setNum}
           />
           <div className={msgError ? "field rest-message field-invalid" : "field rest-message"}>

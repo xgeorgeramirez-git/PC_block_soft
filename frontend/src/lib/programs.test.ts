@@ -2,7 +2,12 @@ import { describe, expect, it } from "vitest";
 import {
   CATEGORY_OPTIONS,
   DECISIONS,
-  FILTERS,
+  APPLY_HINT,
+  DECISION_HINTS,
+  HIDE_LEAD,
+  NO_HIDE,
+  NO_PUBLISHER,
+  NO_PUBLISHER_HINT,
   attemptsText,
   categoryTitle,
   decisionMessage,
@@ -16,8 +21,10 @@ import {
   timesWord,
   visiblePrograms,
   wasCategoryText,
+  weekCell,
   weekText,
   whenText,
+  filtersFor,
 } from "./programs";
 import type { ProgramDTO } from "../types";
 
@@ -57,8 +64,16 @@ describe("подписи категорий", () => {
   });
 
   it("фильтр: Все, Игры, Учёба, Прочее, Запрещено", () => {
-    expect(FILTERS.map((f) => f.label)).toEqual(["Все", "Игры", "Учёба", "Прочее", "Запрещено", "Скрытые"]);
-    expect(FILTERS.map((f) => f.id)).toEqual(["all", "games", "study", "other", "blocked", "hidden"]);
+    expect(filtersFor(0).map((f) => f.label)).toEqual(["Все", "Игры", "Учёба", "Прочее", "Запрещено", "Скрытые"]);
+    expect(filtersFor(0).map((f) => f.id)).toEqual(["all", "games", "study", "other", "blocked", "hidden"]);
+  });
+
+  // Ловит (B-43 п.2): у «Скрытые» не видно, сколько программ скрыто.
+  it("«Скрытые (3)», когда скрытые есть; прочие фильтры без числа", () => {
+    expect(filtersFor(3).at(-1)!.label).toBe("Скрытые (3)");
+    expect(filtersFor(1).at(-1)!.label).toBe("Скрытые (1)");
+    expect(filtersFor(3).slice(0, -1).map((f) => f.label)).toEqual(["Все", "Игры", "Учёба", "Прочее", "Запрещено"]);
+    expect(filtersFor(3).map((f) => f.id)).toEqual(["all", "games", "study", "other", "blocked", "hidden"]);
   });
 
   it("название категории для строки", () => {
@@ -67,21 +82,36 @@ describe("подписи категорий", () => {
     expect(categoryTitle("system")).toBe("");
   });
 
-  it("«Раньше было: игра» по коду категории, пусто без пометки", () => {
-    expect(wasCategoryText("games")).toBe("Раньше было: игра");
-    expect(wasCategoryText("study")).toBe("Раньше было: учёба");
-    expect(wasCategoryText("other")).toBe("Раньше было: прочее");
-    expect(wasCategoryText("blocked")).toBe("Раньше было: запрещена");
+  // Ловит (B-43 п.5): пометка не говорит, что файл подменён и решение надо проверить (RM3-12).
+  it("«Файл изменился, проверьте решение. Было: игра» по коду категории, пусто без пометки", () => {
+    expect(wasCategoryText("games")).toBe("Файл изменился, проверьте решение. Было: игра");
+    expect(wasCategoryText("study")).toBe("Файл изменился, проверьте решение. Было: учёба");
+    expect(wasCategoryText("other")).toBe("Файл изменился, проверьте решение. Было: прочее");
+    expect(wasCategoryText("blocked")).toBe("Файл изменился, проверьте решение. Было: запрещена");
     expect(wasCategoryText("")).toBe("");
     // Служба прислала уже слово, а не код: показываем его, но строчными.
-    expect(wasCategoryText("Игра")).toBe("Раньше было: игра");
+    expect(wasCategoryText("Игра")).toBe("Файл изменился, проверьте решение. Было: игра");
     // Системная категория родителю не показывается.
     expect(wasCategoryText("system")).toBe("");
   });
 
+  // Ловит (B-39): легенда кнопок решения не того текста или не по своей категории.
+  it("легенда кнопок решения: что значит каждая (R3, R5, R13)", () => {
+    // Смысл кнопки — явная строка, а не хвост общей строки после подписи (ревью M4).
+    expect(DECISION_HINTS).toEqual({
+      games: "время идёт в лимит игр и в общее время",
+      study: "время не тратит лимит",
+      other: "время идёт в общее время",
+      blocked: "программа будет закрываться сразу после запуска",
+    });
+  });
+
   it("издатель из файла или «Без подписи издателя»", () => {
+    expect(NO_PUBLISHER).toBe("Без подписи издателя");
+    expect(NO_PUBLISHER_HINT).toBe("Издатель неизвестен: проверьте, откуда этот файл");
     expect(publisherText("Mojang")).toBe("Mojang");
     expect(publisherText("")).toBe("Без подписи издателя");
+    expect(publisherText("")).toBe(NO_PUBLISHER);
     expect(publisherText("   ")).toBe("Без подписи издателя");
   });
 
@@ -226,6 +256,24 @@ describe("время за неделю", () => {
     expect(weekText(40 * 60)).toBe("40 мин");
     expect(weekText(30)).toBe("меньше минуты");
     expect(weekText(0)).toBe("нет");
+  });
+
+  // Ловит (B-43 п.9): у скрытой пустая ячейка выглядит как сбой; время скрытой не считается (R2, D-63).
+  it("ячейка «За неделю»: у скрытой «не считается», иначе время словами", () => {
+    expect(weekCell(prog({ hidden: true, weekS: 600 }))).toBe("не считается");
+    expect(weekCell(prog({ hidden: true, weekS: 0 }))).toBe("не считается");
+    expect(weekCell(prog({ category: "blocked", weekS: 0 }))).toBe("нет");
+    expect(weekCell(prog({ weekS: 40 * 60 }))).toBe("40 мин");
+  });
+});
+
+describe("пояснения списка", () => {
+  it("что делает «Скрыть», почему запрещённую не скрыть, почему «Применить» недоступна", () => {
+    expect(HIDE_LEAD).toBe(
+      "Скрытая программа пропадает из списка и статистики, не закрывается и не тратит время. Вернуть её можно в фильтре «Скрытые». Запрещённую скрыть нельзя",
+    );
+    expect(NO_HIDE).toBe("Скрыть нельзя");
+    expect(APPLY_HINT).toBe("Сначала выберите категорию");
   });
 });
 

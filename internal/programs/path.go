@@ -79,6 +79,9 @@ type Roots struct {
 	InstallDir      string // каталог установки PC Block: служба, страж, значок, окна
 	ProgramData     string // %ProgramData%: «c:\programdata» (компоненты Защитника Windows, RM3-13)
 	UserProfiles    string // папка профилей (KnownFolder UserProfiles): «c:\users» (RM3-13)
+	// Store — папка пакетов Microsoft Store; «» — «<ProgramFiles>\windowsapps». В тестовом режиме —
+	// TestMode\StoreRoot (RM4-11): настоящая WindowsApps защищена TrustedInstaller.
+	Store string
 }
 
 // under сообщает, что нормализованный путь p лежит внутри root (строго глубже, по границе
@@ -103,10 +106,11 @@ func (r Roots) IsTrusted(path string) bool {
 }
 
 // IsSystem сообщает, что программа из класса «система» (RM3-1 п.1): папка Windows (в том числе
-// SystemApps оболочки), каталог установки PC Block, WebView2 внутри Program Files и пакеты
-// компонентов Windows в WindowsApps (издатель windowsPackagePublisher). Остальные приложения
-// Microsoft Store — не система (Д-3): ребёнок ставит их сам. Такие процессы наблюдатель не
-// трогает никогда, их секунды идут как «Прочее».
+// SystemApps оболочки), каталог установки PC Block, WebView2 (и msedgewebview2.exe в папке Edge),
+// обновлятор Brave («bravesoftware\update») внутри Program Files и пакеты компонентов Windows в
+// WindowsApps (издатель windowsPackagePublisher). Остальные приложения Microsoft Store — не система
+// (Д-3): ребёнок ставит их сам. Такие процессы наблюдатель не трогает никогда, их секунды идут как
+// «Прочее».
 func (r Roots) IsSystem(path string) bool {
 	p := Normalize(path)
 	if under(p, r.SystemRoot) || under(p, r.InstallDir) {
@@ -116,7 +120,13 @@ func (r Roots) IsSystem(path string) bool {
 		if pf == "" {
 			continue
 		}
-		if under(p, pf+`\microsoft\edgewebview`) {
+		// Служебные части Brave в Program Files (T6-4): обновлятор и обработчик сбоев системного
+		// Brave; ребёнок туда писать не может.
+		if under(p, pf+`\microsoft\edgewebview`) || under(p, pf+`\`+braveDir+`\update`) {
+			return true
+		}
+		// WebView2 в папке версии Edge (PL-18): им пользуются чужие программы, он не браузер.
+		if under(p, pf+`\microsoft\edge\application`) && strings.HasSuffix(p, `\`+webView2Exe) {
 			return true
 		}
 	}
@@ -134,6 +144,9 @@ func (r Roots) IsSystem(path string) bool {
 	return false
 }
 
+// webView2Exe — имя файла WebView2: никогда не браузер и не запрещается (PL-18).
+const webView2Exe = "msedgewebview2.exe"
+
 // defenderDirs — папки Защитника Windows внутри %ProgramData% (RM3-13): его платформа обновляется
 // в папки версий, ребёнок туда писать не может.
 var defenderDirs = []string{`microsoft\windows defender`, `microsoft\windows defender advanced threat protection`}
@@ -145,11 +158,26 @@ const windowsPackagePublisher = "cw5n1h2txyewy"
 // storeDir — папка пакетов Microsoft Store внутри %ProgramFiles%.
 const storeDir = `windowsapps`
 
-// storePkg — пакет Microsoft Store по имени папки «имя_версия_архитектура_ресурс_издатель».
+// StoreDir — нормализованная папка пакетов Microsoft Store: Store, иначе
+// «<ProgramFiles>\windowsapps»; «» — ни той, ни другой нет.
+func (r Roots) StoreDir() string {
+	if r.Store != "" {
+		return strings.TrimSuffix(r.Store, `\`)
+	}
+	if r.ProgramFiles == "" {
+		return ""
+	}
+	return strings.TrimSuffix(r.ProgramFiles, `\`) + `\` + storeDir
+}
+
+// storePkg — пакет Microsoft Store по имени папки «имя_версия_архитектура_ресурс_издатель» или
+// по папке ключа «имя__издатель» (StableKey).
 type storePkg struct {
 	dir       string // имя папки пакета как есть
 	name      string // имя пакета без версии («microsoft.minecraftuwp»); «» — папка не по образцу
 	publisher string // код издателя («8wekyb3d8bbwe»)
+	versioned bool   // папка версии (5 частей), а не папка ключа
+	rest      string // путь внутри папки пакета («msedge_proxy.exe»)
 }
 
 // family — семейство пакета «имя__издатель»: не зависит от версии и архитектуры (Д-3). Папка
@@ -161,25 +189,37 @@ func (k storePkg) family() string {
 	return k.name + "__" + k.publisher
 }
 
-// storePackage разбирает нормализованный путь внутри <ProgramFiles>\WindowsApps\<пакет>\…;
-// ok = false — путь не в пакете Store (или прямо в WindowsApps).
+// storePackage разбирает нормализованный путь внутри <StoreDir>\<пакет>\…; ok = false — путь не
+// в пакете Store (или прямо в папке пакетов).
 func (r Roots) storePackage(p string) (storePkg, bool) {
-	if r.ProgramFiles == "" {
+	base := r.StoreDir()
+	if base == "" || !under(p, base) {
 		return storePkg{}, false
 	}
-	base := strings.TrimSuffix(r.ProgramFiles, `\`) + `\` + storeDir
-	if !under(p, base) {
+	dir, rest, ok := strings.Cut(p[len(base)+1:], `\`)
+	if !ok || rest == "" {
 		return storePkg{}, false
 	}
-	parts := strings.Split(p[len(base)+1:], `\`)
-	if len(parts) < 2 {
-		return storePkg{}, false
-	}
-	k := storePkg{dir: parts[0]}
-	if f := strings.Split(parts[0], "_"); len(f) == 5 && f[0] != "" && f[4] != "" {
-		k.name, k.publisher = f[0], f[4]
+	k := storePkg{dir: dir, rest: rest}
+	switch f := strings.Split(dir, "_"); {
+	case len(f) == 5 && f[0] != "" && f[4] != "":
+		k.name, k.publisher, k.versioned = f[0], f[4], true
+	case len(f) == 3 && f[0] != "" && f[1] == "" && f[2] != "":
+		k.name, k.publisher = f[0], f[2] // папка ключа «имя__издатель»
 	}
 	return k, true
+}
+
+// StableKey — ключ программы (RM4-11, D-66): Normalize, а путь в папке версии пакета магазина
+// «<StoreDir>\<имя>_<версия>_<арх>_<ресурс>_<издатель>\<путь exe>» — «<StoreDir>\<имя>__<издатель>\
+// <путь exe>»: одна строка программы на все версии пакета. Папка не по образцу и путь вне папки
+// пакетов — Normalize как есть. Идемпотентна: ключ — сам себе ключ.
+func (r Roots) StableKey(path string) string {
+	p := Normalize(path)
+	if k, ok := r.storePackage(p); ok && k.versioned {
+		return r.StoreDir() + `\` + k.family() + `\` + k.rest
+	}
+	return p
 }
 
 // containerDirs — папки Program Files, в которых лежат разные приложения одного издателя или
@@ -193,13 +233,12 @@ var containerDirs = map[string]bool{"microsoft": true, "common files": true}
 // прямо в Program Files, сама папка и путь вне них — «».
 func (r Roots) AppRoot(path string) string {
 	p := Normalize(path)
-	if r.ProgramFiles != "" {
-		store := strings.TrimSuffix(r.ProgramFiles, `\`) + `\` + storeDir
+	if store := r.StoreDir(); store != "" {
 		if pkg, ok := r.storePackage(p); ok {
 			return store + `\` + pkg.family()
 		}
 		if under(p, store) {
-			return "" // файл прямо в WindowsApps: не приложение
+			return "" // файл прямо в папке пакетов: не приложение
 		}
 	}
 	for _, pf := range []string{r.ProgramFiles, r.ProgramFilesX86} {
@@ -256,6 +295,124 @@ func (r Roots) profileRel(p string) string {
 		return ""
 	}
 	return strings.Join(parts[:n], `\`)
+}
+
+// braveDir — папка Brave Software в Program Files и в AppData\Local профиля.
+const braveDir = "bravesoftware"
+
+// braveProfileRel — путь внутри папки Brave в профиле «<UserProfiles>\<имя>\appdata\local\
+// bravesoftware\…» без неё («brave-browser\application\brave.exe»); «» — путь не там. p нормализован.
+func (r Roots) braveProfileRel(p string) string {
+	if !under(p, r.UserProfiles) {
+		return ""
+	}
+	base := strings.TrimSuffix(r.UserProfiles, `\`)
+	parts := strings.SplitN(p[len(base)+1:], `\`, 5) // имя, appdata, local, bravesoftware, остальное
+	if len(parts) < 5 || parts[1] != "appdata" || parts[2] != "local" || parts[3] != braveDir {
+		return ""
+	}
+	return parts[4]
+}
+
+// braveUpdatePrefixes — начала имён файлов обновлятора Brave в «bravesoftware\update\…»
+// (braveupdate.exe, braveupdatebroker.exe, braveupdatecore.exe, bravecrashhandler64.exe…).
+var braveUpdatePrefixes = []string{"braveupdate", "bravecrashhandler"}
+
+// braveAppHelpers — служебные exe Brave рядом с brave.exe и в папке версии
+// «brave-browser\application\<версия>\» (сборка Chromium и Brave VPN).
+var braveAppHelpers = map[string]bool{
+	"notification_helper.exe": true, "chrome_proxy.exe": true, "chrome_pwa_launcher.exe": true,
+	"elevation_service.exe": true, "brave_vpn_helper.exe": true, "brave_vpn_wireguard_service.exe": true,
+}
+
+// braveProfileService сообщает, что путь внутри папки Brave профиля (braveProfileRel) — известная
+// служебная часть Brave (ревью M4 F1-2): обновлятор и обработчик сбоев в «update\» (в том числе в
+// папке версии), служебные exe в «brave-browser\application\» и его папке версии, установщик
+// «brave-browser\application\<версия>\installer\setup.exe». Любой другой exe этой папки — не
+// служебный: ребёнок может положить туда свою программу с подделанным издателем. Установщик
+// обновления в «update\install\{GUID}\» — только по именам braveUpdateInstaller (возврат F1 №1).
+func braveProfileService(rel string) bool {
+	parts := strings.Split(rel, `\`)
+	base := parts[len(parts)-1]
+	switch {
+	case parts[0] == "update" && (len(parts) == 2 || (len(parts) == 3 && isVersionDir(parts[1]))):
+		for _, pre := range braveUpdatePrefixes {
+			if strings.HasPrefix(base, pre) && strings.HasSuffix(base, ".exe") {
+				return true
+			}
+		}
+	case len(parts) == 4 && parts[0] == "update" && parts[1] == "install" && isGUIDDir(parts[2]):
+		return braveUpdateInstaller(base)
+	case len(parts) >= 3 && parts[0] == "brave-browser" && parts[1] == "application":
+		switch dirs := parts[2 : len(parts)-1]; {
+		case len(dirs) == 0:
+			return braveAppHelpers[base]
+		case len(dirs) == 1 && isVersionDir(dirs[0]):
+			return braveAppHelpers[base]
+		case len(dirs) == 2 && isVersionDir(dirs[0]) && dirs[1] == "installer":
+			return base == "setup.exe"
+		}
+	}
+	return false
+}
+
+// braveInstallerArch — окончания имени полного установщика Brave («brave_installer-x64.exe» в
+// выпусках brave/brave-browser), которые обновлятор запускает из «update\install\{GUID}\».
+var braveInstallerArch = []string{"brave_installer-x64.exe", "brave_installer-ia32.exe", "brave_installer-arm64.exe"}
+
+// braveUpdateInstaller — имя файла, которое обновлятор Brave (Omaha) кладёт и запускает в
+// «update\install\{GUID}\»: полный установщик Brave (по образцу Google Update — с номером версии
+// впереди через «_»), BraveBrowserStandaloneSetup.exe и BraveBrowserSetup.exe, установщик самого
+// обновлятора (braveupdate*), setup.exe. Любое другое имя — не служебное.
+func braveUpdateInstaller(base string) bool {
+	switch base {
+	case "setup.exe", "bravebrowserstandalonesetup.exe", "bravebrowsersetup.exe":
+		return true
+	}
+	if strings.HasPrefix(base, "braveupdate") && strings.HasSuffix(base, ".exe") {
+		return true
+	}
+	for _, tail := range braveInstallerArch {
+		if base == tail {
+			return true
+		}
+		if ver, ok := strings.CutSuffix(base, "_"+tail); ok && isVersionDir(ver) {
+			return true
+		}
+	}
+	return false
+}
+
+// isGUIDDir — имя папки «{xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx}» (шестнадцатеричные цифры в нижнем
+// регистре: путь уже нормализован), как у папок установки Omaha.
+func isGUIDDir(s string) bool {
+	if len(s) != 38 || s[0] != '{' || s[37] != '}' {
+		return false
+	}
+	for i := 1; i < 37; i++ {
+		switch c := s[i]; {
+		case i == 9 || i == 14 || i == 19 || i == 24:
+			if c != '-' {
+				return false
+			}
+		case (c < '0' || c > '9') && (c < 'a' || c > 'f'):
+			return false
+		}
+	}
+	return true
+}
+
+// isVersionDir — имя папки версии: цифры через точку («157.1.99.1»).
+func isVersionDir(s string) bool {
+	if s == "" || s[0] == '.' || s[len(s)-1] == '.' {
+		return false
+	}
+	for _, r := range s {
+		if (r < '0' || r > '9') && r != '.' {
+			return false
+		}
+	}
+	return strings.Contains(s, ".")
 }
 
 // NameFromPath — имя программы для плашки и журнала из пути: имя файла без «.exe», обрезанное до

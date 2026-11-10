@@ -17,6 +17,7 @@ type Child struct {
 	Name         string // имя, которое видит родитель (display_name)
 	BypassDetail string // блокировка за обход (R17): что произошло; пусто — блокировки нет
 	EndMode      string // «Когда время вышло» (R8, end_mode): EndModeLock или EndModeStudyOnly
+	AdultFilter  bool   // список 18+ включён (R14, adult_filter); новому ребёнку — включён
 	CreatedAtMs  int64  // UTC, миллисекунды
 }
 
@@ -45,7 +46,7 @@ func (s *Store) UpsertChild(c Child) (int64, error) {
 
 // ListChildren возвращает детей, отмеченных сейчас (removed_at пуст), по возрастанию id.
 func (s *Store) ListChildren() ([]Child, error) {
-	rows, err := s.db.Query(`SELECT id, windows_sid, display_name, COALESCE(bypass_detail, ''), end_mode, created_at
+	rows, err := s.db.Query(`SELECT id, windows_sid, display_name, COALESCE(bypass_detail, ''), end_mode, adult_filter <> 0, created_at
 		FROM children WHERE removed_at IS NULL ORDER BY id`)
 	if err != nil {
 		return nil, fmt.Errorf("storage: список детей: %w", err)
@@ -54,7 +55,7 @@ func (s *Store) ListChildren() ([]Child, error) {
 	out := []Child{}
 	for rows.Next() {
 		var c Child
-		if err := rows.Scan(&c.ID, &c.SID, &c.Name, &c.BypassDetail, &c.EndMode, &c.CreatedAtMs); err != nil {
+		if err := rows.Scan(&c.ID, &c.SID, &c.Name, &c.BypassDetail, &c.EndMode, &c.AdultFilter, &c.CreatedAtMs); err != nil {
 			return nil, fmt.Errorf("storage: список детей: %w", err)
 		}
 		out = append(out, c)
@@ -92,6 +93,13 @@ func (s *Store) SetEndMode(childID int64, mode string) error {
 	}
 	res, err := s.db.Exec(`UPDATE children SET end_mode = ? WHERE id = ?`, mode, childID)
 	return affectedOne(res, err, "записать режим «Когда время вышло»")
+}
+
+// SetAdultFilter включает или выключает ребёнку список сайтов 18+ («Блокировать сайты 18+», R14,
+// FR-21). Снятие и возврат отметки «детская» выбор не сбрасывают. Нет такого ребёнка — ErrNotFound.
+func (s *Store) SetAdultFilter(childID int64, on bool) error {
+	res, err := s.db.Exec(`UPDATE children SET adult_filter = ? WHERE id = ?`, boolToInt(on), childID)
+	return affectedOne(res, err, "записать переключатель 18+")
 }
 
 // GetEndMode читает режим «Когда время вышло» ребёнка (R8). Нет такого ребёнка: EndModeLock и nil
@@ -135,9 +143,10 @@ func boolToInt(b bool) int {
 const maxLimitMin = 1440
 
 // SetDayLimits сохраняет лимиты семи дней недели (индекс 0 = пн, в базе weekday 1…7): общий
-// (total_min, R4) и игр (games_min, R5). Лимит nil записывается как NULL («без лимита» / «игры
-// без отдельного лимита»), 0 значит «нельзя». Все семь строк пишутся в одной транзакции; значения
-// вне 0…1440 отклоняются до записи (ErrInvalid). Поле M4 video_min не трогается.
+// (total_min, R4), игр (games_min, R5) и видео и соцсетей (video_min, R6). Лимит nil записывается
+// как NULL («без лимита» / «без отдельного лимита»), 0 значит «нельзя». Три лимита дня пишутся
+// одной строкой, все семь строк — в одной транзакции (PL-21); значения вне 0…1440 отклоняются до
+// записи (ErrInvalid).
 func (s *Store) SetDayLimits(childID int64, week [7]core.DayLimit) error {
 	for i, l := range week {
 		if l.TotalMin != nil && (*l.TotalMin < 0 || *l.TotalMin > maxLimitMin) {
@@ -146,6 +155,9 @@ func (s *Store) SetDayLimits(childID int64, week [7]core.DayLimit) error {
 		if l.GamesMin != nil && (*l.GamesMin < 0 || *l.GamesMin > maxLimitMin) {
 			return fmt.Errorf("%w: лимит игр дня %d равен %d мин, допустимо от 0 до %d", ErrInvalid, i+1, *l.GamesMin, maxLimitMin)
 		}
+		if l.VideoMin != nil && (*l.VideoMin < 0 || *l.VideoMin > maxLimitMin) {
+			return fmt.Errorf("%w: лимит видео дня %d равен %d мин, допустимо от 0 до %d", ErrInvalid, i+1, *l.VideoMin, maxLimitMin)
+		}
 	}
 	tx, err := s.db.Begin()
 	if err != nil {
@@ -153,9 +165,10 @@ func (s *Store) SetDayLimits(childID int64, week [7]core.DayLimit) error {
 	}
 	defer func() { _ = tx.Rollback() }()
 	for i, l := range week {
-		_, err := tx.Exec(`INSERT INTO day_limits (child_id, weekday, total_min, games_min) VALUES (?, ?, ?, ?)
-			ON CONFLICT (child_id, weekday) DO UPDATE SET total_min = excluded.total_min, games_min = excluded.games_min`,
-			childID, i+1, nullableMin(l.TotalMin), nullableMin(l.GamesMin))
+		_, err := tx.Exec(`INSERT INTO day_limits (child_id, weekday, total_min, games_min, video_min) VALUES (?, ?, ?, ?, ?)
+			ON CONFLICT (child_id, weekday) DO UPDATE SET total_min = excluded.total_min, games_min = excluded.games_min,
+			video_min = excluded.video_min`,
+			childID, i+1, nullableMin(l.TotalMin), nullableMin(l.GamesMin), nullableMin(l.VideoMin))
 		if err != nil {
 			return fmt.Errorf("storage: сохранить лимиты: %w", err)
 		}
@@ -174,20 +187,20 @@ func nullableMin(p *int) any {
 	return int64(*p)
 }
 
-// GetDayLimits возвращает лимиты семи дней недели (индекс 0 = пн): общий и игр. Дни без строки
-// или с NULL — «без лимита»: у ребёнка без сохранённых лимитов ограничений по времени нет, игры
-// без отдельного лимита.
+// GetDayLimits возвращает лимиты семи дней недели (индекс 0 = пн): общий, игр и видео. Дни без
+// строки или с NULL — «без лимита»: у ребёнка без сохранённых лимитов ограничений по времени нет,
+// игры и видео без отдельного лимита (база 0.3.3 после миграции 009 — тоже, video_min NULL).
 func (s *Store) GetDayLimits(childID int64) ([7]core.DayLimit, error) {
 	var week [7]core.DayLimit
-	rows, err := s.db.Query(`SELECT weekday, total_min, games_min FROM day_limits WHERE child_id = ?`, childID)
+	rows, err := s.db.Query(`SELECT weekday, total_min, games_min, video_min FROM day_limits WHERE child_id = ?`, childID)
 	if err != nil {
 		return [7]core.DayLimit{}, fmt.Errorf("storage: прочитать лимиты: %w", err)
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var weekday int
-		var total, games sql.NullInt64
-		if err := rows.Scan(&weekday, &total, &games); err != nil {
+		var total, games, video sql.NullInt64
+		if err := rows.Scan(&weekday, &total, &games, &video); err != nil {
 			return [7]core.DayLimit{}, fmt.Errorf("storage: прочитать лимиты: %w", err)
 		}
 		if weekday < 1 || weekday > 7 {
@@ -200,6 +213,10 @@ func (s *Store) GetDayLimits(childID int64) ([7]core.DayLimit, error) {
 		if games.Valid {
 			v := int(games.Int64)
 			week[weekday-1].GamesMin = &v
+		}
+		if video.Valid {
+			v := int(video.Int64)
+			week[weekday-1].VideoMin = &v
 		}
 	}
 	if err := rows.Err(); err != nil {

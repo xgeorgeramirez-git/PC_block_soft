@@ -173,9 +173,9 @@ describe("лимиты игр и режим «Когда время вышло»
         { weekday: 3, totalMin: 60, unlimited: false, gamesMin: 0, gamesUnlimited: false },
       ]),
     ).toEqual([
-      { weekday: 1, totalMin: 60, unlimited: false, gamesMin: 0, gamesUnlimited: true },
-      { weekday: 2, totalMin: 60, unlimited: false, gamesMin: 30, gamesUnlimited: false },
-      { weekday: 3, totalMin: 60, unlimited: false, gamesMin: 0, gamesUnlimited: false },
+      { weekday: 1, totalMin: 60, unlimited: false, gamesMin: 0, gamesUnlimited: true, videoMin: 0, videoUnlimited: true },
+      { weekday: 2, totalMin: 60, unlimited: false, gamesMin: 30, gamesUnlimited: false, videoMin: 0, videoUnlimited: true },
+      { weekday: 3, totalMin: 60, unlimited: false, gamesMin: 0, gamesUnlimited: false, videoMin: 0, videoUnlimited: true },
     ]);
   });
 
@@ -192,6 +192,16 @@ describe("лимиты игр и режим «Когда время вышло»
     expect(modeOnly.rules.endMode).toBe("lock");
     expect(modeOnly.rules.limits[0]).toMatchObject({ gamesMin: 45, gamesUnlimited: false });
     expect(mock.calls.filter((c) => c.command === "SaveLimits").map((c) => c.payload.endMode)).toEqual(["study_only", "lock"]);
+  });
+
+  // Ловит: день без полей видео уходит без них, и служба снимает лимит видео без ведома родителя.
+  it("saveLimits шлёт поля видео и у дня без них", async () => {
+    const mock = installBackend({ sessionActive: true });
+    await api.saveLimits(1, [{ weekday: 2, totalMin: 60, unlimited: false, gamesMin: 30, gamesUnlimited: false }]);
+    const sent = mock.calls.find((c) => c.command === "SaveLimits")?.payload;
+    expect(sent.limits).toEqual([
+      { weekday: 2, totalMin: 60, unlimited: false, gamesMin: 30, gamesUnlimited: false, videoMin: 0, videoUnlimited: true },
+    ]);
   });
 });
 

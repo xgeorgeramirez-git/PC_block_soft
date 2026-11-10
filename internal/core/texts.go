@@ -25,7 +25,20 @@ const (
 	StudyOnlyPlateText          = "Время вышло. Сейчас доступна только учёба"
 	StudyOnlyForbiddenPlateText = "Сейчас нельзя пользоваться компьютером. Доступна только учёба"
 	StudyOnlyDeniedText         = "Закрыто: время вышло, доступна только учёба"
+	VideoDeniedText             = "Закрыто: время на видео и соцсети на сегодня закончилось"
+	videoOverText               = "Время на видео и соцсети на сегодня закончилось"
 )
+
+// VideoOverPlateText — плашка ребёнку, когда лимит «Видео и соцсетей» исчерпан (R6, 8.2.5
+// п. 3): «Время на видео и соцсети на сегодня закончилось. Общего времени осталось 40 мин».
+// Минуты общего остатка — единым правилом B-5 (вверх), как у значка. Без общего лимита
+// второй фразы нет.
+func VideoOverPlateText(totalRemainingS int, totalUnlimited bool) string {
+	if totalUnlimited {
+		return videoOverText
+	}
+	return videoOverText + ". Общего времени осталось " + FormatDuration(RemainingMinutes(totalRemainingS)*60)
+}
 
 // FormatClock — момент времени как «21:00» по местному поясу (ТЗ 4).
 func FormatClock(t time.Time) string { return t.Format("15:04") }

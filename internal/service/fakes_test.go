@@ -36,9 +36,12 @@ type fakeStore struct {
 	failSave     bool // SaveDayState возвращает ошибку
 	failEvents   bool // AppendEvent возвращает ошибку
 	failAuth     bool // GetAuth возвращает ошибку
+	failSetAuth  bool // SetAuth возвращает ошибку (оборванная настройка, M4)
 	failSchedule bool // GetSchedule возвращает ошибку
 	failEndMode  bool // GetEndMode возвращает ошибку
 	failPrograms bool // ListPrograms возвращает ошибку
+	failMerge    bool // MergePrograms возвращает ошибку, ничего не меняя (RM4-11)
+	mergeCalls   int  // сколько раз вызван MergePrograms
 
 	endModes   map[int64]string           // режим «Когда время вышло» (M3); нет записи — "lock"
 	programs   map[string]Program         // программы по пути (M3)
@@ -53,7 +56,14 @@ type fakeStore struct {
 	breakRules  map[int64]core.BreakRules // «Отдых» по ребёнку (FB-14); нет записи — по умолчанию
 	breakStates map[int64]core.BreakState // счёт к перерыву по ребёнку
 	failBreak   bool                      // GetBreakRules возвращает ошибку
+
+	sites     map[string]string // списки сайтов (M4): домен → blocked|study|video_social
+	adultOff  map[int64]bool    // ребёнок с выключенным списком 18+ (M4); нет записи — включён
+	failSites bool              // ListSiteRules возвращает ошибку (M4)
 }
+
+// fakeStarterVideo — стартовый набор «Видео и соцсети», как в миграции 009 (R14).
+var fakeStarterVideo = []string{"youtube.com", "vk.com", "tiktok.com", "rutube.ru", "ok.ru", "telegram.org", "web.telegram.org", "discord.com", "twitch.tv"}
 
 type savedUsage struct {
 	childID int64
@@ -73,7 +83,125 @@ func newFakeStore() *fakeStore {
 		schedule: map[int64][]core.Interval{}, bonus: map[int64][]BonusRecord{},
 		endModes: map[int64]string{}, programs: map[string]Program{}, nextProg: 1,
 		pending: map[string]*PendingProgram{}, usage: map[string]int{},
+		sites: fakeSites(), adultOff: map[int64]bool{},
 	}
+}
+
+func fakeSites() map[string]string {
+	out := map[string]string{}
+	for _, d := range fakeStarterVideo {
+		out[d] = "video_social"
+	}
+	return out
+}
+
+var fakeSiteKinds = map[string]bool{"blocked": true, "study": true, "video_social": true}
+
+// ListSiteRules — как storage.ListSiteRules: по списку, затем по домену.
+func (f *fakeStore) ListSiteRules() ([]SiteRule, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.failSites {
+		return nil, errors.New("диск недоступен")
+	}
+	out := []SiteRule{}
+	for d, k := range f.sites {
+		out = append(out, SiteRule{Domain: d, Kind: k})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Kind != out[j].Kind {
+			return out[i].Kind < out[j].Kind
+		}
+		return out[i].Domain < out[j].Domain
+	})
+	return out, nil
+}
+
+// AddSiteRule — как storage.AddSiteRule: вставка, повтор или перенос той же записи.
+func (f *fakeStore) AddSiteRule(domain, kind string) (bool, string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if domain == "" || !fakeSiteKinds[kind] {
+		return false, "", errors.New("неверный домен или список")
+	}
+	prev, ok := f.sites[domain]
+	switch {
+	case !ok:
+		f.sites[domain] = kind
+		return false, "", nil
+	case prev == kind:
+		return false, kind, nil
+	default:
+		f.sites[domain] = kind
+		return true, prev, nil
+	}
+}
+
+// RemoveSiteRule — как storage.RemoveSiteRule: прежний список для «Отменить».
+func (f *fakeStore) RemoveSiteRule(domain string) (string, bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if domain == "" {
+		return "", false, errors.New("пустой домен")
+	}
+	prev, ok := f.sites[domain]
+	if !ok {
+		return "", false, nil
+	}
+	delete(f.sites, domain)
+	return prev, true, nil
+}
+
+func (f *fakeStore) CountSiteRules(kind string) (int, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if !fakeSiteKinds[kind] {
+		return 0, errors.New("неверный список")
+	}
+	n := 0
+	for _, k := range f.sites {
+		if k == kind {
+			n++
+		}
+	}
+	return n, nil
+}
+
+// ReplaceSiteRules — как storage.ReplaceSiteRules: список целиком, ошибка — ничего не изменилось.
+func (f *fakeStore) ReplaceSiteRules(kind string, domains []string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if !fakeSiteKinds[kind] {
+		return errors.New("неверный список")
+	}
+	for _, d := range domains {
+		if d == "" {
+			return errors.New("пустой домен")
+		}
+	}
+	for d, k := range f.sites {
+		if k == kind {
+			delete(f.sites, d)
+		}
+	}
+	for _, d := range domains {
+		f.sites[d] = kind
+	}
+	return nil
+}
+
+func (f *fakeStore) SetAdultFilter(id int64, on bool) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if _, ok := f.children[id]; !ok {
+		return errors.New("нет такого ребёнка")
+	}
+	if on {
+		delete(f.adultOff, id)
+	} else {
+		f.adultOff[id] = true
+	}
+	return nil
 }
 
 func (f *fakeStore) SetEndMode(id int64, mode string) error {
@@ -335,6 +463,52 @@ func (f *fakeStore) RestorePending(p PendingProgram) error {
 	return nil
 }
 
+// MergePrograms — как storage: весь набор или ничего (проверка до записи).
+func (f *fakeStore) MergePrograms(ms []ProgramMerge) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.mergeCalls++
+	if f.failMerge {
+		return errFake
+	}
+	for _, m := range ms {
+		if m.Key == "" || (m.Into != nil && (m.Into.Path != m.Key || m.Into.Name == "" || !fakeCategories[m.Into.Category])) ||
+			(m.Pending != nil && (m.Pending.Path != m.Key || m.Pending.Name == "")) {
+			return errFake
+		}
+	}
+	for _, m := range ms {
+		if m.Into != nil {
+			for _, p := range m.From {
+				if p != m.Key {
+					delete(f.programs, p)
+				}
+			}
+			f.putProgram(*m.Into)
+		}
+		for _, p := range append(append([]string{}, m.From...), m.PendingFrom...) {
+			if p == m.Key {
+				continue
+			}
+			for k, sec := range f.usage {
+				parts := strings.SplitN(k, "|", 5)
+				if len(parts) == 5 && parts[3] == usageKindProgram && parts[4] == p {
+					delete(f.usage, k)
+					f.usage[strings.Join(parts[:4], "|")+"|"+m.Key] += sec
+				}
+			}
+		}
+		for _, p := range m.PendingFrom {
+			delete(f.pending, p)
+		}
+		if m.Pending != nil {
+			cp := pendingCopy(m.Pending)
+			f.pending[m.Key] = &cp
+		}
+	}
+	return nil
+}
+
 // --- учёт по программам (M3) ----------------------------------------------------------
 
 var fakeUsageCats = map[string]bool{"games": true, "video_social": true, "study": true, "other": true}
@@ -390,16 +564,11 @@ func (f *fakeStore) DayUsage(id int64, day string) ([]UsageRow, error) {
 	out := []UsageRow{}
 	for k, sec := range f.usage {
 		parts := strings.SplitN(k, "|", 5)
-		if parts[0] == fmt.Sprint(id) && parts[1] == day && parts[3] == "program" {
-			out = append(out, UsageRow{Day: day, Category: parts[2], Kind: "program", Subject: parts[4], Seconds: sec})
+		if parts[0] == fmt.Sprint(id) && parts[1] == day {
+			out = append(out, UsageRow{Day: day, Category: parts[2], Kind: parts[3], Subject: parts[4], Seconds: sec})
 		}
 	}
-	sort.Slice(out, func(i, j int) bool {
-		if out[i].Category != out[j].Category {
-			return out[i].Category < out[j].Category
-		}
-		return out[i].Subject < out[j].Subject
-	})
+	sortUsage(out)
 	return out, nil
 }
 
@@ -432,25 +601,33 @@ func (f *fakeStore) PeriodUsage(id int64, from, before string) ([]UsageRow, erro
 	if f.failUsage {
 		return nil, errFake
 	}
-	type key struct{ cat, subject string }
+	type key struct{ cat, kind, subject string }
 	sum := map[key]int{}
 	for k, sec := range f.usage {
 		parts := strings.SplitN(k, "|", 5)
-		if parts[0] == fmt.Sprint(id) && parts[1] >= from && parts[1] < before && parts[3] == "program" {
-			sum[key{parts[2], parts[4]}] += sec
+		if parts[0] == fmt.Sprint(id) && parts[1] >= from && parts[1] < before {
+			sum[key{parts[2], parts[3], parts[4]}] += sec
 		}
 	}
 	out := []UsageRow{}
 	for k, sec := range sum {
-		out = append(out, UsageRow{Category: k.cat, Kind: "program", Subject: k.subject, Seconds: sec})
+		out = append(out, UsageRow{Category: k.cat, Kind: k.kind, Subject: k.subject, Seconds: sec})
 	}
+	sortUsage(out)
+	return out, nil
+}
+
+// sortUsage — порядок storage.DayUsage и PeriodUsage: категория, вид (program, site), предмет.
+func sortUsage(out []UsageRow) {
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].Category != out[j].Category {
 			return out[i].Category < out[j].Category
 		}
+		if out[i].Kind != out[j].Kind {
+			return out[i].Kind < out[j].Kind
+		}
 		return out[i].Subject < out[j].Subject
 	})
-	return out, nil
 }
 
 func (f *fakeStore) ProgramSeconds(fromDay string) (map[string]int, error) {
@@ -498,6 +675,7 @@ func (f *fakeStore) ListChildren() ([]Child, error) {
 			if m, ok := f.endModes[id]; ok {
 				cp.EndMode = m
 			}
+			cp.AdultFilter = !f.adultOff[id]
 			out = append(out, cp)
 		}
 	}
@@ -725,8 +903,8 @@ func (f *fakeStore) GetAuth() (Auth, bool, error) {
 func (f *fakeStore) SetAuth(a Auth) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if a.Hash == "" {
-		return errors.New("пустой хеш")
+	if a.Hash == "" || f.failSetAuth {
+		return errors.New("пустой хеш или диск недоступен")
 	}
 	f.auth = &a
 	return nil
@@ -1061,9 +1239,92 @@ type fakePolicy struct {
 	state map[string]bool
 	log   []string
 	err   error
+
+	// Правила Brave (T5): что лежит в ветке учётки, ошибка адаптера, учётки без загруженной ветки
+	// (BraveRulesOK их не читает, T5-4) и история вызовов: "set <sid> N", "ok <sid>", "bad <sid>", "rm <sid>".
+	brave    map[string][]BraveValue
+	braveErr error
+	unloaded map[string]bool
+	braveLog []string
 }
 
-func newPolicy() *fakePolicy { return &fakePolicy{state: map[string]bool{}} }
+func newPolicy() *fakePolicy {
+	return &fakePolicy{state: map[string]bool{}, brave: map[string][]BraveValue{}, unloaded: map[string]bool{}}
+}
+
+func (p *fakePolicy) SetBraveRules(sid string, r BraveRules) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.braveErr != nil {
+		return p.braveErr
+	}
+	p.brave[sid] = r.Values()
+	p.braveLog = append(p.braveLog, fmt.Sprintf("set %s %d", sid, len(p.brave[sid])))
+	return nil
+}
+
+func (p *fakePolicy) BraveRulesOK(sid string, r BraveRules) (bool, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.braveErr != nil {
+		return false, p.braveErr
+	}
+	if p.unloaded[sid] {
+		return true, nil
+	}
+	set, del, delKeys := BravePlan(p.brave[sid], r.Values())
+	if len(set)+len(del)+len(delKeys) == 0 {
+		p.braveLog = append(p.braveLog, "ok "+sid)
+		return true, nil
+	}
+	p.braveLog = append(p.braveLog, "bad "+sid)
+	return false, nil
+}
+
+func (p *fakePolicy) RemoveBraveRules(sid string) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.braveErr != nil {
+		return p.braveErr
+	}
+	delete(p.brave, sid)
+	p.braveLog = append(p.braveLog, "rm "+sid)
+	return nil
+}
+
+// tamper убирает из ветки учётки запрет окна Tor (правка ветки чужими руками).
+func (p *fakePolicy) tamper(sid string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	keep := []BraveValue{}
+	for _, v := range p.brave[sid] {
+		if v.Name != "TorDisabled" {
+			keep = append(keep, v)
+		}
+	}
+	p.brave[sid] = keep
+}
+
+// braveOf — значения ветки учётки и есть ли ветка.
+func (p *fakePolicy) braveOf(sid string) ([]BraveValue, bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	v, ok := p.brave[sid]
+	return append([]BraveValue(nil), v...), ok
+}
+
+// braveCalls — история вызовов правил Brave с номера from.
+func (p *fakePolicy) braveCalls(from int) []string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return append([]string{}, p.braveLog[from:]...)
+}
+
+func (p *fakePolicy) braveCallN() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return len(p.braveLog)
+}
 
 func (p *fakePolicy) SetTaskMgrDisabled(sid string, disabled bool) error {
 	p.mu.Lock()
@@ -1162,11 +1423,12 @@ func (sc *fakeScanner) callCount() int {
 
 // fakeMeta — свойства файлов по пути (издатель, описание, отпечаток) и журнал запросов.
 type fakeMeta struct {
-	mu    sync.Mutex
-	files map[string][3]string
-	asked []string
-	gate  chan struct{} // не nil: чтение ждёт, пока его закроют (медленный сетевой путь)
-	in    chan struct{} // сигнал о входе в чтение
+	mu      sync.Mutex
+	files   map[string][3]string
+	asked   []string
+	gate    chan struct{} // не nil: чтение ждёт, пока его закроют (медленный сетевой путь)
+	in      chan struct{} // сигнал о входе в чтение
+	entered int           // начатые чтения (и ждущие у gate)
 }
 
 // hold — следующие чтения свойств ждут release (проверка, что их ждёт не блокировка службы).
@@ -1196,6 +1458,7 @@ func (m *fakeMeta) set(path, publisher, description, fingerprint string) {
 func (m *fakeMeta) meta(path string) (string, string, string) {
 	m.mu.Lock()
 	gate, in := m.gate, m.in
+	m.entered++
 	m.mu.Unlock()
 	if in != nil {
 		select {
@@ -1211,6 +1474,13 @@ func (m *fakeMeta) meta(path string) (string, string, string) {
 	m.asked = append(m.asked, path)
 	f := m.files[path]
 	return f[0], f[1], f[2]
+}
+
+// enteredCount — сколько чтений свойств начато, включая ждущие у ворот hold.
+func (m *fakeMeta) enteredCount() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.entered
 }
 
 func (m *fakeMeta) askedPaths() []string {
@@ -1405,6 +1675,13 @@ func (w *fakeWatcher) listCount() int {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	return len(w.listAt)
+}
+
+// killTries — сколько вызовов Kill начато, включая ждущие у ворот holdKill.
+func (w *fakeWatcher) killTries() int {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.tries
 }
 
 // holdKill включает задержку Kill до releaseKill.

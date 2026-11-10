@@ -67,7 +67,7 @@ describe("окно: название и версия", () => {
 describe("выбор экрана по режиму", () => {
   it("window, программа не настроена: мастер", async () => {
     setup({ configured: false });
-    expect(await screen.findByText("Шаг 1 из 4")).toBeTruthy();
+    expect(await screen.findByText("Шаг 1 из 5")).toBeTruthy();
   });
 
   it("window, настроена: вход, потом «Сегодня»", async () => {
@@ -192,7 +192,8 @@ describe("мастер и вход", () => {
     await user.click(screen.getByRole("button", { name: "Далее" }));
     await user.click(await screen.findByRole("button", { name: "Далее" }));
     await screen.findByRole("table", { name: "Программы на этом компьютере" });
-    await user.click(screen.getByRole("button", { name: "Готово" }));
+    await user.click(screen.getByRole("button", { name: "Далее" }));
+    await user.click(await screen.findByRole("button", { name: "Готово" }));
     await user.click(await screen.findByRole("button", { name: "Открыть настройки" }));
     expect(await screen.findByRole("heading", { name: "Сегодня" })).toBeTruthy();
     expect(mock.count("Login")).toBe(1);
@@ -208,7 +209,8 @@ describe("мастер и вход", () => {
     await user.click(screen.getByRole("button", { name: "Далее" }));
     await user.click(await screen.findByRole("button", { name: "Далее" }));
     await screen.findByRole("table", { name: "Программы на этом компьютере" });
-    await user.click(screen.getByRole("button", { name: "Готово" }));
+    await user.click(screen.getByRole("button", { name: "Далее" }));
+    await user.click(await screen.findByRole("button", { name: "Готово" }));
     await user.click(await screen.findByRole("button", { name: "Открыть настройки" }));
     expect(await screen.findByLabelText("Пароль родителя")).toBeTruthy();
     expect(screen.queryByRole("heading", { name: "Сегодня" })).toBeNull();
@@ -225,7 +227,7 @@ describe("мастер и вход", () => {
 });
 
 describe("меню окна родителя", () => {
-  it("«Сегодня», «Дети», «Программы», «Копилка», «Статистика», «Журнал», «Настройки» и внизу «Что нового»", async () => {
+  it("«Сегодня», «Дети», «Программы», «Сайты», «Копилка», «Статистика», «Журнал», «Настройки» и внизу «Что нового»", async () => {
     const user = setup();
     await login(user);
     const nav = screen.getByRole("navigation", { name: "Разделы" });
@@ -233,6 +235,7 @@ describe("меню окна родителя", () => {
       "Сегодня",
       "Дети",
       "Программы",
+      "Сайты",
       "Копилка",
       "Статистика",
       "Журнал",
@@ -240,6 +243,18 @@ describe("меню окна родителя", () => {
       "Что нового",
     ]);
     expect(within(nav).getByRole("button", { name: "Сегодня" }).getAttribute("aria-current")).toBe("page");
+  });
+
+  // Ловит: пункта «Сайты» нет или он открывает не тот экран (8.3.2 п.2, FR-21).
+  it("«Сайты» после «Программ» открывают экран сайтов", async () => {
+    const user = setup();
+    await login(user);
+    const nav = screen.getByRole("navigation", { name: "Разделы" });
+    const item = within(nav).getByRole("button", { name: "Сайты" });
+    await user.click(item);
+    expect(await screen.findByRole("heading", { name: "Сайты" })).toBeTruthy();
+    expect(item.getAttribute("aria-current")).toBe("page");
+    expect(await screen.findByRole("tablist", { name: "Списки сайтов" })).toBeTruthy();
   });
 
   it("каждый пункт открывает свой раздел", async () => {
@@ -282,7 +297,7 @@ describe("меню окна родителя", () => {
     await user.click(item);
     expect(item.getAttribute("aria-current")).toBe("page");
     const versions = (await screen.findAllByRole("heading", { level: 3 })).map((h) => h.textContent);
-    expect(versions[0]).toBe("Версия 0.3.3. Скрытые и запрещённые программы");
+    expect(versions[0]).toBe("Версия 0.4.0. Сайты и Brave");
     expect(screen.queryByRole("heading", { name: "Помощь" })).toBeNull();
   });
 

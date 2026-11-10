@@ -23,6 +23,14 @@ type Child struct {
 	Name         string
 	BypassDetail string // блокировка за обход (R17); пусто: блокировки нет
 	EndMode      string // «Когда время вышло» (R8): "lock" или "study_only" (core.EndMode.String)
+	AdultFilter  bool   // список сайтов 18+ включён (R14); новому ребёнку — включён
+}
+
+// SiteRule — запись списков сайтов (storage.SiteRule без id, R14, FR-21, RM4-5): у домена одна
+// запись. Kind: blocked | study | video_social (те же ключи, что sites.Kind.String).
+type SiteRule struct {
+	Domain string
+	Kind   string
 }
 
 // Program — программа из списка (storage.Program): одна категория для всех детей (R12, FR-20).
@@ -60,6 +68,19 @@ type PendingProgram struct {
 	LastAttemptAt  int64 // UTC мс
 	Attempts       int
 	Children       []PendingChild // новые сверху; нет — [], не nil
+}
+
+// ProgramMerge — слияние повторов приложения магазина на ключ без версии (RM4-11, T6-11):
+// storage.ProgramMerge. Хранилище пишет весь набор одной транзакцией: строка Into по ключу Key,
+// строки From (кроме Key) удаляются; учёт usage_daily вида «программа» с предметом из From и
+// PendingFrom суммируется на Key; строки «Ждут решения» PendingFrom удаляются, и, если Pending не
+// nil, пишется он (с попытками детей).
+type ProgramMerge struct {
+	Key         string
+	Into        *Program // nil — строк программ в группе нет
+	From        []string
+	Pending     *PendingProgram // nil — «Ждут решения» группы только удаляются
+	PendingFrom []string
 }
 
 // UsageRow — порция учёта usage_daily (storage.UsageRow, RM3-6). Day пусто — день состояния;
@@ -137,16 +158,16 @@ type Store interface {
 	ListPromos() ([]PromoRecord, error)
 	LoadDayState(childID int64, day string) (core.DayState, error)
 	SaveDayState(childID int64, st core.DayState) error
-	// SaveDayAndUsage — состояние дня и порции учёта по программам одной транзакцией (RM3-6, G10).
+	// SaveDayAndUsage — состояние дня и порции учёта по программам и сайтам одной транзакцией (RM3-6, G10).
 	SaveDayAndUsage(childID int64, st core.DayState, usage []UsageRow) error
 	AddUsage(childID int64, day, category, kind, subject string, seconds int) error
 	ProgramSeconds(fromDay string) (map[string]int, error)  // секунды по пути exe с fromDay, все дети
-	DayUsage(childID int64, day string) ([]UsageRow, error) // учёт по программам ребёнка за день (D-58); нет — []
+	DayUsage(childID int64, day string) ([]UsageRow, error) // учёт по программам и сайтам ребёнка за день (D-58, RM4-7); нет — []
 	// PeriodDays — суммы итогов дней ребёнка (общее, игры, видео, учёба, доп. время) с fromDay
 	// включительно до beforeDay не включительно (периоды «Итогов», D-61); Day у ответа пусто, нет дней — нули.
 	PeriodDays(childID int64, fromDay, beforeDay string) (core.DayState, error)
-	// PeriodUsage — учёт по программам ребёнка за те же дни, сложенный по категории и пути (Day пусто);
-	// скрытые тоже (их прячет служба); нет — [].
+	// PeriodUsage — учёт по программам и сайтам ребёнка за те же дни, сложенный по категории, виду и
+	// предмету (Day пусто); скрытые тоже (их прячет служба); нет — [].
 	PeriodUsage(childID int64, fromDay, beforeDay string) ([]UsageRow, error)
 
 	// Программы и «Ждут решения» (M3: R12, FR-20, RM3-10).
@@ -166,6 +187,22 @@ type Store interface {
 	ListPending() ([]PendingProgram, error)
 	ResolvePending(path string) (PendingProgram, bool, error)
 	RestorePending(p PendingProgram) error
+	// MergePrograms — слияние повторов приложений магазина (RM4-11) одной транзакцией: ошибка —
+	// ничего не изменилось.
+	MergePrograms(ms []ProgramMerge) error
+
+	// Сайты (M4: R14, FR-21, RM4-5). Домен нормализует служба (sites.NormalizeInput); хранилище
+	// отклоняет пустой, длиннее 253 и чужой список. Предел 1000 запрещённых проверяет служба.
+	ListSiteRules() ([]SiteRule, error) // по списку и домену; нет — []
+	// AddSiteRule — новая запись: (false, "", nil); уже в этом списке: (false, kind, nil); перенос из
+	// другого списка: (true, прежний, nil).
+	AddSiteRule(domain, kind string) (moved bool, prevKind string, err error)
+	RemoveSiteRule(domain string) (prevKind string, ok bool, err error) // нет домена — ok = false
+	CountSiteRules(kind string) (int, error)
+	// ReplaceSiteRules — список kind целиком (мастер, S-4) одной транзакцией; домены из других
+	// списков переносятся; ошибка — ничего не изменилось.
+	ReplaceSiteRules(kind string, domains []string) error
+	SetAdultFilter(childID int64, on bool) error // «Блокировать сайты 18+» (R14); нет ребёнка — ошибка
 	AppendEvent(e StoredEvent) error
 	ListEvents(q EventQuery) ([]StoredEvent, error)
 	GetAuth() (Auth, bool, error)
@@ -336,11 +373,19 @@ type AccountDirectory interface {
 	List() ([]AccountInfo, error)
 }
 
-// Policy ставит и снимает запрет Диспетчера задач в учётке ребёнка (FR-29, Ruling 20).
-// Если пользователь не вошёл, адаптер подгружает раздел его профиля; профиля ещё нет:
-// запись откладывается до первого входа и ошибкой не считается.
+// Policy ставит и снимает запрет Диспетчера задач (FR-29, Ruling 20) и правила Brave (R15, FR-31,
+// RM4-10) в учётке ребёнка. Если пользователь не вошёл, адаптер подгружает раздел его профиля;
+// профиля ещё нет: запись откладывается до первого входа и ошибкой не считается.
 type Policy interface {
 	SetTaskMgrDisabled(sid string, disabled bool) error
+	// SetBraveRules приводит ветку HKU\<sid>\Software\Policies\BraveSoftware\Brave к r, не стирая
+	// её (BravePlan): ветка не загружена — через профиль; профиля нет — nil.
+	SetBraveRules(sid string, r BraveRules) error
+	// BraveRulesOK — ветка совпадает с r. Ветка пользователя не загружена (не вошёл) — (true, nil):
+	// профиль ради сверки не подгружается (T5-4).
+	BraveRulesOK(sid string, r BraveRules) (bool, error)
+	// RemoveBraveRules снимает ветку правил Brave целиком; её нет — nil.
+	RemoveBraveRules(sid string) error
 }
 
 // Journal — запись событий журнала (R22). childID 0: событие не про ребёнка. Ошибки записи

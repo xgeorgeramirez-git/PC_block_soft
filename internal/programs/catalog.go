@@ -27,7 +27,9 @@ type Catalog struct {
 var DefaultCatalog = Catalog{Games: catalogGames, Browsers: catalogBrowsers, GameFamilies: catalogGameFamilies}
 
 // Lookup ищет программу по имени файла (или по пути: берётся имя файла; регистр не важен).
-// Игра — CatGames; браузер — CatOther (в M3 сайты не различаются, RM3-2). Нет в каталоге — "", false.
+// Игра — CatGames; Brave — CatOther (сайты в нём решает служба, RM4-8); остальные браузеры —
+// CatBlocked (R15, D-68): browser.exe — только по пути Яндекс Браузера (ForbiddenBrowser), по
+// голому имени он не узнаётся. Нет в каталоге — "", false.
 func (c Catalog) Lookup(name string) (category string, ok bool) {
 	base := baseName(name)
 	if base == "" {
@@ -36,10 +38,33 @@ func (c Catalog) Lookup(name string) (category string, ok bool) {
 	if _, ok := c.Games[base]; ok {
 		return CatGames, true
 	}
-	if _, ok := c.Browsers[base]; ok {
+	if _, ok := c.Browsers[base]; ok && base == braveExe {
 		return CatOther, true
 	}
+	if _, ok := c.ForbiddenBrowser(name); ok {
+		return CatBlocked, true
+	}
 	return "", false
+}
+
+// braveExe — имя файла Brave: единственный разрешённый браузер (R15).
+const braveExe = "brave.exe"
+
+// yandexBrowserTail — окончание пути Яндекс Браузера: имя browser.exe общее, по нему одному
+// браузер не узнаётся (как миграция 009).
+const yandexBrowserTail = `\yandex\yandexbrowser\application\browser.exe`
+
+// ForbiddenBrowser сообщает, что файл — браузер из каталога, кроме Brave (RM4-8): такой браузер
+// запрещён по имени файла в любом каталоге. browser.exe — только по пути Яндекс Браузера.
+// msedgewebview2.exe и msedge_proxy.exe браузерами не считаются (PL-18). name — название для людей.
+func (c Catalog) ForbiddenBrowser(path string) (name string, ok bool) {
+	p := strings.ToLower(strings.ReplaceAll(path, "/", `\`))
+	base := baseName(p)
+	name, ok = c.Browsers[base]
+	if !ok || base == braveExe || (base == "browser.exe" && !strings.HasSuffix(p, yandexBrowserTail)) {
+		return "", false
+	}
+	return name, true
 }
 
 // LookupFamily ищет игру Microsoft Store по имени пакета (без версии и издателя, регистр не
@@ -49,12 +74,6 @@ func (c Catalog) LookupFamily(pkgName string) (category string, ok bool) {
 		return CatGames, true
 	}
 	return "", false
-}
-
-// IsBrowser сообщает, что файл — известный браузер (для сайтов в M4).
-func (c Catalog) IsBrowser(name string) bool {
-	_, ok := c.Browsers[baseName(name)]
-	return ok
 }
 
 // baseName — имя файла из имени или пути в нижнем регистре.

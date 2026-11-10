@@ -42,7 +42,7 @@ func TestWatchPlatesAndJournal(t *testing.T) {
 	startManual(w, explorer, pathSuperGame, pathChrome, pathMinecraft)
 	h.watch()
 	want := []ipc.BlockedPlate{
-		{Kind: ipc.BlockedForbidden, Text: "Программа «chrome» запрещена родителем", ShowS: 10, Path: pathChrome},
+		{Kind: ipc.BlockedBrowser, Text: "Этот браузер запрещён. Пользуйся Brave", ShowS: 10, Path: pathChrome}, // RM4-8: при любом источнике запрета
 		{Kind: ipc.BlockedGamesOver, Text: "Время на игры на сегодня закончилось", ShowS: 10, Path: pathMinecraft},
 		{Kind: ipc.BlockedUnknown, Text: "Программа «supergame» ждёт разрешения родителя", ShowS: 15, Path: pathSuperGame, CanAsk: true},
 	}
@@ -101,17 +101,18 @@ func TestWatchPlatesAndJournal(t *testing.T) {
 }
 
 // Ловит (R8, S-5): в режиме «только учёба» плашка и журнал говорят не про учёбу; ребёнку в
-// отключённом сеансе (смена пользователя) приходит плашка, а программа не закрывается.
+// отключённом сеансе (смена пользователя) приходит плашка, а программа не закрывается. Программа
+// «Прочее» — GeoGebra из снимка: Brave в «только учёбе» не закрывается (S-14).
 func TestWatchStudyOnlyAndDisconnected(t *testing.T) {
 	w := newWatcher()
 	h := watchHarness(t, w, withRules(0, -1, "study_only"))
-	w.start(childSession, pathBrave)
+	w.start(childSession, pathGeoGebra)
 	h.watch()
-	want := []ipc.BlockedPlate{{Kind: ipc.BlockedStudyOnly, Text: core.StudyOnlyPlateText, ShowS: 10, Path: pathBrave}}
+	want := []ipc.BlockedPlate{{Kind: ipc.BlockedStudyOnly, Text: core.StudyOnlyPlateText, ShowS: 10, Path: pathGeoGebra}}
 	if got := platesOf(h.poll(activeSample)); jsonOf(t, got) != jsonOf(t, want) {
 		t.Errorf("плашка «только учёба»: %s, want %s", jsonOf(t, got), jsonOf(t, want))
 	}
-	if got := h.eventTexts(evProgramClosedStudyOnly); jsonOf(t, got) != jsonOf(t, []string{"Миша: закрыта «Brave»: время вышло, доступна только учёба"}) {
+	if got := h.eventTexts(evProgramClosedStudyOnly); jsonOf(t, got) != jsonOf(t, []string{"Миша: закрыта «GeoGebra Classic»: время вышло, доступна только учёба"}) {
 		t.Errorf("журнал «только учёба»: %v", got)
 	}
 	h.svc.OnSession(SessionDisconnect, childSession, h.real.Now())

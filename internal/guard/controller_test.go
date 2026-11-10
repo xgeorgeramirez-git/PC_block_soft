@@ -370,7 +370,17 @@ func TestDecisionFromStatusKeepsEverythingTheScreenNeeds(t *testing.T) {
 		"обход":       bypassDecision(),
 		"идёт":        runningDecision(900),
 		"перерыв":     restDecision(899),
+		"видео":       videoDecision(900, 300),
+		"видео закрыто": func() core.Decision {
+			d := videoDecision(900, 0)
+			d.CloseVideo = true
+			return d
+		}(),
 	} {
+		if got := DecisionFromStatus(ipc.ChildStatusFrom("Миша", d)); got.VideoRemainingS != d.VideoRemainingS ||
+			got.VideoLimitS != d.VideoLimitS || got.VideoUnlimited != d.VideoUnlimited || got.CloseVideo != d.CloseVideo {
+			t.Errorf("%s: видео изменилось по дороге: %+v", name, got)
+		}
 		got := DecisionFromStatus(ipc.ChildStatusFrom("Миша", d))
 		if got.RestLeftS != d.RestLeftS || got.RestMessage != d.RestMessage || got.RestUntilMs != d.RestUntilMs {
 			t.Errorf("%s: перерыв изменился по дороге: %+v", name, got)

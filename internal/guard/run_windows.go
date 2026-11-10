@@ -166,6 +166,7 @@ func Run(opts launch.Options) error {
 		procPostMessage.Call(a.host, wmAppRefresh, 0, 0)
 	})
 	a.ctl.SetSoundPlayer(sound.PlayWarning)
+	a.ctl.SetTabActor(winTabs{})
 	a.ctl.SetClockSpeed(a.speed)
 
 	stop := make(chan struct{})
@@ -178,20 +179,25 @@ func Run(opts launch.Options) error {
 
 	procSetTimer.Call(host, tickTimerID, tickEveryMs, 0)
 	a.loop()
+	runStage.Store(1)
 
 	close(stop)
 	caller.close() // прерывает ожидающий запрос
 	wg.Wait()
+	runStage.Store(2)
 	a.shutdown()
+	runStage.Store(3)
 	return nil
 }
 
+// readSensors читает датчики одним проходом (readRaw): путь, домен вкладки Brave и признак «адрес
+// не прочитан» попадают в снимок из одного окна (PL-15).
 func (a *app) readSensors(now time.Time) ipc.SensorSample {
 	speed := 1
 	if a.ctl != nil && a.ctl.TestMode() {
 		speed = a.speed
 	}
-	return ReadSensors(now, speed)
+	return BuildSample(now, readRaw(), speed)
 }
 
 // pollLoop опрашивает службу раз в секунду и сразу после команды, меняющей решение; после
@@ -199,7 +205,7 @@ func (a *app) readSensors(now time.Time) ipc.SensorSample {
 func (a *app) pollLoop(stop <-chan struct{}) {
 	t := time.NewTicker(time.Second)
 	defer t.Stop()
-	for {
+	pollEvery(stop, t.C, a.ctl.Kicked(), func() {
 		safely(func() {
 			a.ctl.PollOnce()
 			// Экран показан 15 минут, пароль родителя не введён: смена пользователя (D-40).
@@ -208,13 +214,7 @@ func (a *app) pollLoop(stop <-chan struct{}) {
 			}
 			a.ctl.PushState()
 		})
-		select {
-		case <-stop:
-			return
-		case <-t.C:
-		case <-a.ctl.Kicked():
-		}
-	}
+	})
 }
 
 // loop крутит цикл сообщений потока окон. Enter на экране блокировки нажимает главную

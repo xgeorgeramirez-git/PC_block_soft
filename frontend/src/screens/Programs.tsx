@@ -6,12 +6,18 @@ import UndoLine from "../components/UndoLine";
 import { errorText } from "../lib/errors";
 import { localOffsetMin } from "../lib/format";
 import {
+  APPLY_HINT,
   CATEGORY_OPTIONS,
   DECISIONS,
-  FILTERS,
+  DECISION_HINTS,
+  HIDE_LEAD,
+  NO_HIDE,
+  NO_PUBLISHER,
+  NO_PUBLISHER_HINT,
   attemptsText,
   categoryTitle,
   decisionMessage,
+  filtersFor,
   hiddenMessage,
   fitPath,
   nameError,
@@ -19,7 +25,7 @@ import {
   shortenPath,
   visiblePrograms,
   wasCategoryText,
-  weekText,
+  weekCell,
   type ParentCategory,
   type ProgramFilter,
   type ProgramSort,
@@ -77,7 +83,6 @@ export default function Programs({ initialFilter = "all" }: Props) {
   const [sort, setSort] = useState<ProgramSort>({ key: "name", dir: "asc" });
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const [bulkCategory, setBulkCategory] = useState<ParentCategory | "">("");
-  const [bulkError, setBulkError] = useState("");
   /** Строка, где сейчас поле названия (D-59): одна за раз; ошибка — у поля. */
   const [editing, setEditing] = useState<{ path: string; error: string } | null>(null);
   const alive = useRef(true);
@@ -254,7 +259,6 @@ export default function Programs({ initialFilter = "all" }: Props) {
         applyReply(reply.programs);
         setSelected(new Set());
         setBulkCategory("");
-        setBulkError("");
         lastOp.current = { kind: "bulk" };
         sayDecided("list", reply, "");
         return { to: "selectAll" };
@@ -262,12 +266,8 @@ export default function Programs({ initialFilter = "all" }: Props) {
       { to: "selectAll" },
     );
 
-  const applyBulk = (paths: string[]) => {
-    if (bulkCategory === "") {
-      setBulkError("Выберите категорию");
-      return;
-    }
-    const category = bulkCategory;
+  /** «Применить» для отмеченных: без выбранной категории кнопка недоступна и не вызывается (B-43 п.4). */
+  const applyBulk = (paths: string[], category: ParentCategory) =>
     void run(
       { kind: "bulk" },
       async () => {
@@ -282,7 +282,6 @@ export default function Programs({ initialFilter = "all" }: Props) {
       },
       { to: "selectAll" },
     );
-  };
 
   const undo = (undoId: string, where: Feedback["where"]) =>
     void run(
@@ -309,6 +308,8 @@ export default function Programs({ initialFilter = "all" }: Props) {
   const onlyBlockedSelected = (sel: ProgramDTO[]) => !hiddenView && sel.length > 0 && sel.every((p) => p.category === "blocked");
   // «Программ пока нет» только когда нет ни видимых, ни скрытых: иначе пропал бы фильтр «Скрытые».
   const list = data ? data.programs.filter((p) => p.category !== "system") : [];
+  // Число у фильтра «Скрытые» (B-43 п.2): только те, что родитель видит в этом фильтре.
+  const hiddenCount = list.filter((p) => p.hidden === true).length;
   const shown = data ? visiblePrograms(data.programs, { query, filter, sort }) : [];
   const pending = data?.pending ?? [];
   const selectedShown = shown.filter((p) => selected.has(p.path));
@@ -387,6 +388,7 @@ export default function Programs({ initialFilter = "all" }: Props) {
                 {`Ждут решения: ${pending.length}`}
               </h3>
               <p className="programs-lead">Решение действует для всех детей</p>
+              <DecisionLegend />
               <ul className="pending-list">
                 {pending.map((p, i) => (
                   <PendingItem
@@ -410,6 +412,7 @@ export default function Programs({ initialFilter = "all" }: Props) {
               <p className="panel-text">Программ пока нет: они появятся, когда ребёнок запустит что-то новое</p>
             ) : (
               <>
+                <p className="programs-lead">{HIDE_LEAD}</p>
                 <div className="programs-tools">
                   <div className="field programs-search">
                     <label className="field-label" htmlFor="programs-search">
@@ -424,7 +427,7 @@ export default function Programs({ initialFilter = "all" }: Props) {
                     />
                   </div>
                   <div className="programs-filter" role="group" aria-label="Показать">
-                    {FILTERS.map((f) => (
+                    {filtersFor(hiddenCount).map((f) => (
                       <button
                         key={f.id}
                         type="button"
@@ -474,14 +477,9 @@ export default function Programs({ initialFilter = "all" }: Props) {
                               <select
                                 className="field-input bulk-select"
                                 aria-label="Новая категория для отмеченных"
-                                aria-invalid={bulkError ? true : undefined}
-                                aria-describedby={bulkError ? "bulk-error" : undefined}
                                 value={bulkCategory}
                                 disabled={busy !== null}
-                                onChange={(e) => {
-                                  setBulkCategory(e.target.value as ParentCategory | "");
-                                  setBulkError("");
-                                }}
+                                onChange={(e) => setBulkCategory(e.target.value as ParentCategory | "")}
                               >
                                 <option value="">Категория…</option>
                                 {CATEGORY_OPTIONS.map((o) => (
@@ -490,14 +488,23 @@ export default function Programs({ initialFilter = "all" }: Props) {
                                   </option>
                                 ))}
                               </select>
+                              {/* Без категории «Применить» недоступна, причина рядом (ТЗ 8.0 п.5, B-43 п.4). */}
                               <button
                                 type="button"
                                 className="btn btn-primary"
-                                aria-disabled={busy !== null || undefined}
-                                onClick={() => (busy ? undefined : applyBulk(selectedShown.map((p) => p.path)))}
+                                aria-disabled={busy !== null || bulkCategory === "" || undefined}
+                                aria-describedby={bulkCategory === "" ? "bulk-apply-hint" : undefined}
+                                onClick={() =>
+                                  busy || bulkCategory === "" ? undefined : applyBulk(selectedShown.map((p) => p.path), bulkCategory)
+                                }
                               >
                                 {busy?.kind === "bulk" && !busy.hide ? "Сохраняю…" : "Применить"}
                               </button>
+                              {bulkCategory === "" ? (
+                                <span id="bulk-apply-hint" className="field-hint bulk-hint">
+                                  {APPLY_HINT}
+                                </span>
+                              ) : null}
                             </>
                           )}
                           <button
@@ -515,11 +522,6 @@ export default function Programs({ initialFilter = "all" }: Props) {
                           {onlyBlockedSelected(selectedShown) ? (
                             <span id="bulk-hide-hint" className="field-hint bulk-hint">
                               {selectedShown.length === 1 ? HIDE_BLOCKED_ONE : HIDE_BLOCKED_MANY}
-                            </span>
-                          ) : null}
-                          {bulkError ? (
-                            <span id="bulk-error" className="field-error bulk-error">
-                              {bulkError}
                             </span>
                           ) : null}
                         </div>
@@ -665,6 +667,30 @@ function PathText({ path, max }: { path: string; max: number }) {
   );
 }
 
+/** id строки легенды для кнопки решения: одна легенда на блок, кнопки всех ждущих ссылаются на неё. */
+const decisionHintId = (category: ParentCategory) => `decision-hint-${category}`;
+
+const LEGEND_TITLE_ID = "pending-legend-title";
+
+/** Легенда кнопок решения (B-39): видимый заголовок; подпись кнопки выделена, за ней что она значит. */
+function DecisionLegend() {
+  return (
+    <>
+      <h4 id={LEGEND_TITLE_ID} className="pending-legend-title">
+        Что значат кнопки
+      </h4>
+      <ul className="pending-legend" aria-labelledby={LEGEND_TITLE_ID}>
+        {DECISIONS.map((d) => (
+          <li key={d.category} id={decisionHintId(d.category)}>
+            <span className="pending-legend-label">{d.label}</span>
+            {`: ${DECISION_HINTS[d.category]}`}
+          </li>
+        ))}
+      </ul>
+    </>
+  );
+}
+
 interface PendingProps {
   program: PendingProgramDTO;
   now: number;
@@ -677,12 +703,14 @@ function PendingItem({ program: p, now, tz, busy, onDecide }: PendingProps) {
   const was = wasCategoryText(p.wasCategory);
   const attempts = attemptsText(p.byChild, p.attempts, p.lastAttemptAt, now, tz);
   const description = p.description.trim();
+  const publisher = publisherText(p.publisher);
   return (
     <li className="pending-item" aria-label={p.name} data-path={p.path}>
       <AppIcon />
       <div className="pending-body">
         <p className="program-name">{p.name}</p>
-        <p className="program-meta">{publisherText(p.publisher)}</p>
+        <p className="program-meta">{publisher}</p>
+        {publisher === NO_PUBLISHER ? <p className="program-meta pending-publisher-hint">{NO_PUBLISHER_HINT}</p> : null}
         {description && description !== p.name ? <p className="program-meta">{description}</p> : null}
         <p className="program-meta">
           <PathText path={p.path} max={PENDING_PATH_MAX} />
@@ -698,6 +726,7 @@ function PendingItem({ program: p, now, tz, busy, onDecide }: PendingProps) {
                 type="button"
                 data-category={d.category}
                 className="btn"
+                aria-describedby={decisionHintId(d.category)}
                 // Нажатая кнопка остаётся в фокусе и говорит «Сохраняю…», остальные недоступны.
                 aria-disabled={pressed || undefined}
                 disabled={busy !== null && !pressed}
@@ -744,12 +773,15 @@ interface RowProps {
 function ProgramRow(props: RowProps) {
   const { program: p, checked, busy, onToggle, onCategory, onHide } = props;
   const saving = busy?.kind === "row" && busy.path === p.path;
+  // Пока в строке открыто поле названия, остальные действия строки недоступны (B-43 п.6):
+  // сначала «Сохранить» или «Отмена», подсказка поля — рядом.
+  const locked = busy !== null || props.editing;
   const hidden = p.hidden === true;
   const fileName = (p.fileName ?? "").trim();
   return (
     <tr aria-label={p.name} data-path={p.path}>
       <td className="col-check">
-        <input type="checkbox" aria-label={`Отметить «${p.name}»`} checked={checked} disabled={busy !== null} onChange={onToggle} />
+        <input type="checkbox" aria-label={`Отметить «${p.name}»`} checked={checked} disabled={locked} onChange={onToggle} />
       </td>
       <td>
         {props.editing ? (
@@ -795,7 +827,7 @@ function ProgramRow(props: RowProps) {
             className="field-input"
             aria-label={`Категория для «${p.name}»`}
             value={p.category}
-            disabled={busy !== null}
+            disabled={locked}
             onChange={(e) => onCategory(e.target.value as ParentCategory)}
           >
             {CATEGORY_OPTIONS.map((o) => (
@@ -807,15 +839,19 @@ function ProgramRow(props: RowProps) {
         )}
         {saving ? <span className="program-saving">Сохраняю…</span> : null}
       </td>
-      <td className="col-week">{hidden ? "" : weekText(p.weekS)}</td>
+      {/* У скрытой время не считается (R2, D-63): вторичным текстом, чтобы не спорить с настоящим временем. */}
+      <td className="col-week">{hidden ? <span className="program-week-off">{weekCell(p)}</span> : weekCell(p)}</td>
       <td className="col-action">
-        {/* Запрещённую скрыть нельзя (RF9-5): запрет сильнее скрытия. «Показать» у скрытой — всегда. */}
-        {!hidden && p.category === "blocked" ? null : (
+        {/* Запрещённую скрыть нельзя (RF9-5): запрет сильнее скрытия, вместо кнопки сказано почему.
+            «Показать» у скрытой — всегда. */}
+        {!hidden && p.category === "blocked" ? (
+          <span className="program-nohide">{NO_HIDE}</span>
+        ) : (
           <button
             type="button"
             className="btn btn-small"
             aria-label={hidden ? `Показать «${p.name}»` : `Скрыть «${p.name}»`}
-            disabled={busy !== null}
+            disabled={locked}
             onClick={() => onHide(!hidden)}
           >
             {hidden ? "Показать" : "Скрыть"}

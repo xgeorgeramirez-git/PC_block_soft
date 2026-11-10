@@ -72,6 +72,13 @@ export interface ChildStatus {
   closeGames: boolean;
   /** Действует «Оставить только учёбу»: экрана блокировки нет, открыта только учёба. */
   studyOnly: boolean;
+  /** Остаток «Видео и соцсетей», с (M4, R6); 0 без лимита видео. Необязательны: экраны видео - T9. */
+  videoRemainingS?: number;
+  /** Лимит видео дня с доп. временем, с; 0 без лимита видео. */
+  videoLimitS?: number;
+  videoUnlimited?: boolean;
+  /** Видео и соцсети закрыты: лимит видео исчерпан. */
+  closeVideo?: boolean;
 }
 
 export interface Account {
@@ -91,6 +98,8 @@ export interface ListAccountsReply {
  * Лимит дня недели: 1 = пн … 7 = вс; 0 минут - нельзя; unlimited - без лимита. gamesMin - лимит
  * игр (R5): 0 - игры нельзя; gamesUnlimited - игры без отдельного лимита. Поля игр необязательны,
  * пока экраны лимитов их не показывают: обёртки saveLimits и setup подставляют «без отдельного лимита».
+ * videoMin, videoUnlimited - лимит «Видео и соцсети» (R6) по тому же правилу; без videoUnlimited служба
+ * читает день «видео без отдельного лимита» (S-3).
  */
 export interface WeekdayLimit {
   weekday: number;
@@ -98,6 +107,8 @@ export interface WeekdayLimit {
   unlimited: boolean;
   gamesMin?: number;
   gamesUnlimited?: boolean;
+  videoMin?: number;
+  videoUnlimited?: boolean;
 }
 
 /** «Когда время вышло» (R8, FR-18): экран блокировки или «Оставить только учёбу». */
@@ -114,6 +125,8 @@ export interface SetupRequest {
   children: SetupChild[];
   /** Категории с шага «Программы» (FR-2); нет - категории по умолчанию. */
   programs?: SetupProgram[];
+  /** Шаг «Сайты» (M4); нет - «18+» включён всем, «Видео и соцсети» - стартовый набор. */
+  sites?: SetupSites;
 }
 
 export interface ResetPasswordRequest {
@@ -164,6 +177,8 @@ export interface TodayCard {
   gamesText: string;
   /** Сколько программ ждут решения: ссылка «Ждут решения: N» (8.3.2 п.5). */
   pendingPrograms: number;
+  /** «Видео 10 мин из 20 мин» (M4, R6); "" - отдельного лимита видео нет. */
+  videoText?: string;
 }
 
 // Фидбек-раунд 0.2.2.
@@ -378,6 +393,8 @@ export interface MyTodayReply {
   /** Игры и учёба за период, с (итоги, S13). */
   gamesS: number;
   studyS: number;
+  /** «Видео и соцсети» за период, с (M4, R6). */
+  videoS?: number;
   /** «Прочее» за период, с: общее время без игр и «Видео и соцсетей». */
   otherS: number;
   /** «Всего» за период, с: общее время и учёба (учёба в лимит не входит, D-7). */
@@ -404,6 +421,8 @@ export interface ProgramTime {
   name: string;
   category: "games" | "study" | "other" | "video_social";
   seconds: number;
+  /** "program" или "site" (M4); у сайта path - домен (R23); "" - «Остальное время». */
+  kind?: "program" | "site" | "";
 }
 
 // --- M2: расписание, пауза, копилка ---------------------------------------
@@ -639,4 +658,58 @@ export interface ScanProgramsReply {
 export interface SetupProgram {
   path: string;
   category: ProgramCategory;
+}
+
+// --- M4: сайты (FR-21, R14) ------------------------------------------------
+
+/** Список сайтов (internal/ipc.SiteKind*). */
+export type SiteKind = "blocked" | "study" | "video_social";
+
+/** Домен в одном из списков. */
+export interface SiteDTO {
+  domain: string;
+  kind: SiteKind;
+}
+
+/** Переключатель «Блокировать сайты 18+» ребёнка. */
+export interface AdultFilterDTO {
+  childId: number;
+  name: string;
+  on: boolean;
+}
+
+/** Экран «Сайты»: списки, переключатели детей, предел «Запрещённых», подпись источника «18+». */
+export interface ListSitesReply {
+  sites: SiteDTO[];
+  children: AdultFilterDTO[];
+  blockedMax: number;
+  adultSource: string;
+}
+
+/** Ответ AddSite: домен после нормализации; moved - перенесён из другого списка. */
+export interface AddSiteReply {
+  message: string;
+  domain: string;
+  moved: boolean;
+  sites: ListSitesReply;
+}
+
+/** Ответ RemoveSite: «Отменить» до undoUntilMs - это addSite(domain, kind). */
+export interface RemoveSiteReply {
+  message: string;
+  domain: string;
+  kind: SiteKind;
+  undoUntilMs: number;
+  sites: ListSitesReply;
+}
+
+export interface SetAdultFilterReply {
+  message: string;
+  sites: ListSitesReply;
+}
+
+/** Шаг мастера «Сайты»: SID детей с выключенным «18+» и полный список «Видео и соцсетей». */
+export interface SetupSites {
+  adultOff: string[];
+  video: string[];
 }

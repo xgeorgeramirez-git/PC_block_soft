@@ -1,0 +1,34 @@
+Список «18+» PC Block
+
+Список сайтов «18+», встроенный в PC Block, построен из категории «adult» базы UT1
+(Université Toulouse 1 Capitole, автор Fabrice Prigent):
+  https://dsi.ut-capitole.fr/blacklists/
+Использовано зеркало https://github.com/olbat/ut1-blacklists на закреплённом коммите
+(файл tools/adultlist/ut1.commit в исходном коде PC Block):
+  03501c64d230df9d84124176558d758351027be1
+
+Лицензия базы UT1: Creative Commons «Attribution-ShareAlike 4.0 International» (CC BY-SA 4.0)
+  https://creativecommons.org/licenses/by-sa/4.0/
+
+Изменения: домены приведены к единому виду (нижний регистр, без «www.», IDN в punycode)
+и сохранены как 44-битные хеши FNV-1a в файле adult.bin. Сам файл adult.bin распространяется
+на тех же условиях CC BY-SA 4.0.
+
+----------------------------------------------------------------------
+
+PC Block "18+" list
+
+The "18+" site list embedded in PC Block is built from the "adult" category of the UT1
+blacklists (Université Toulouse 1 Capitole, author Fabrice Prigent):
+  https://dsi.ut-capitole.fr/blacklists/
+Taken from the mirror https://github.com/olbat/ut1-blacklists at a pinned commit
+(file tools/adultlist/ut1.commit in the PC Block source code):
+  03501c64d230df9d84124176558d758351027be1
+
+License of the UT1 blacklists: Creative Commons Attribution-ShareAlike 4.0 International
+(CC BY-SA 4.0)
+  https://creativecommons.org/licenses/by-sa/4.0/
+
+Changes: domains were normalized (lower case, no "www." prefix, IDN as punycode) and stored
+as 44-bit FNV-1a hashes in the file adult.bin. The file adult.bin is distributed under the
+same CC BY-SA 4.0 terms.

@@ -13,7 +13,7 @@ on:
   workflow_dispatch:
     inputs:
       scenario:
-        description: "Что прогнать после сборки: пусто = обычная сборка, smoke = ранний смоук службы (tools/accept/smoke.ps1), accept = приёмка S1...S15, S25...S27, S33...S41, LE1, LE2, FB1, FB5 (tools/accept/run-all.ps1)"
+        description: "Что прогнать после сборки: пусто = обычная сборка, smoke = ранний смоук службы (tools/accept/smoke.ps1), accept = приёмка S1...S20, S25...S27, S33...S46, LE1, LE2, FB1, FB5, PROBE (tools/accept/run-all.ps1), probe = проба Brave (TestBraveProbe, M4 T0)"
         required: false
         default: ""
         type: string
@@ -62,10 +62,40 @@ jobs:
           fi
           echo "C:/Program Files (x86)/NSIS" >> "$GITHUB_PATH"
 
+      # Полный список «18+» (RM4-3, D-67): зеркало UT1 на закреплённом коммите tools/adultlist/ut1.commit,
+      # только папка blacklists/adult, клон вне дерева репозитория. Инструмент перезаписывает встроенный
+      # internal/sites/adult/adult.bin перед wails build (в ветку файл не коммитится: шаг «Биндинги»
+      # добавляет только frontend/wailsjs/go). Три домена входа идут в TestAdultListFull.
+      - name: Полный список 18+ (UT1 на закреплённом коммите)
+        run: |
+          exec > >(tee -a "$RUNNER_TEMP/ci.log") 2>&1
+          commit=$(tr -d '[:space:]' < tools/adultlist/ut1.commit)
+          src="$RUNNER_TEMP/ut1"
+          git init -q "$src"
+          git -C "$src" remote add origin https://github.com/olbat/ut1-blacklists.git
+          git -C "$src" sparse-checkout set blacklists/adult
+          git -C "$src" fetch -q --depth 1 --filter=blob:none origin "$commit"
+          git -C "$src" checkout -q FETCH_HEAD
+          ls -la "$src/blacklists/adult"
+          go run ./tools/adultlist -src "$src/blacklists/adult" -out internal/sites/adult/adult.bin -sample "$RUNNER_TEMP/adult-sample.txt"
+          echo "PCB_ADULT_SAMPLE=$(paste -sd, "$RUNNER_TEMP/adult-sample.txt")" >> "$GITHUB_ENV"
+
       - name: Сборка программы и установщика
         run: |
           exec > >(tee -a "$RUNNER_TEMP/ci.log") 2>&1
           wails build -clean -nsis -trimpath -ldflags "-s -w"
+
+      # NFR-4: установщик не больше 40 МБ (с полным списком 18+ ожидание около 28 МБ).
+      - name: Размер установщика (NFR-4 ≤ 40 МБ)
+        run: |
+          exec > >(tee -a "$RUNNER_TEMP/ci.log") 2>&1
+          inst=$(ls build/bin/*installer*.exe | head -1)
+          size=$(stat -c %s "$inst")
+          echo "::notice title=Размер установщика::$size байт ($inst)"
+          if [ "$size" -gt 41943040 ]; then
+            echo "::error title=Размер установщика::$size байт, NFR-4 не больше 41943040 (40 МБ)"
+            exit 1
+          fi
 
       # Биндинги Wails в песочнице агента не генерируются. При ручном запуске на рабочей ветке
       # сгенерированные файлы коммитятся в ветку (как go.sum в ci.yml, Ruling 22), в остальных
@@ -89,7 +119,53 @@ jobs:
             fi
           fi
 
+      # Brave для пробы M4 T0 и приёмки сайтов (RM4-12): ставится только при scenario=accept или probe.
+      # Сначала пакет choco, нет brave.exe — офлайн-установщик последнего стабильного выпуска с GitHub.
+      # Адреса проб в hosts ведут на 127.0.0.1: из сети ничего не грузится. Есть brave.exe — тесты Go
+      # получают PCB_BRAVE_PROBE=1 (TestBraveProbe).
+      - name: Brave для пробы и приёмки
+        if: github.event_name == 'workflow_dispatch' && (inputs.scenario == 'accept' || inputs.scenario == 'probe')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          exec > >(tee -a "$RUNNER_TEMP/ci.log") 2>&1
+          find_brave() {
+            for d in "$PROGRAMFILES" "${PROGRAMFILES} (x86)" "$LOCALAPPDATA"; do
+              f="$(cygpath -u "$d")/BraveSoftware/Brave-Browser/Application/brave.exe"
+              if [ -f "$f" ]; then echo "$f"; return 0; fi
+            done
+            return 1
+          }
+          how="choco"
+          choco install brave -y --no-progress || echo "choco install brave: код $?"
+          if ! exe=$(find_brave); then
+            how="офлайн-установщик GitHub"
+            tag=$(gh api repos/brave/brave-browser/releases/latest --jq .tag_name)
+            echo "Последний стабильный выпуск Brave: $tag"
+            gh release download "$tag" -R brave/brave-browser -p BraveBrowserStandaloneSetup.exe -D "$RUNNER_TEMP" --clobber
+            "$RUNNER_TEMP/BraveBrowserStandaloneSetup.exe" /silent /install || echo "установщик Brave: код $?"
+            for i in $(seq 1 60); do exe=$(find_brave) && break; sleep 5; done
+          fi
+          if ! exe=$(find_brave); then
+            echo "::error title=Brave::brave.exe не найден после choco и офлайн-установщика"
+            exit 1
+          fi
+          ver=$(powershell -NoProfile -Command "(Get-Item -LiteralPath '$(cygpath -w "$exe")').VersionInfo.FileVersion")
+          echo "::notice title=Brave::$how: $(cygpath -w "$exe"), версия $ver"
+          # Домены приёмки сайтов (M4 T10): пробы, «Запрещённые» и поддомен, «Учёба», YouTube и образец «18+»
+          # сборки (PCB_ADULT_SAMPLE из шага «Полный список 18+» без IP: по IP hosts не работает, Brave ушёл бы
+          # в сеть). Не больше 9 имён в строке: дальше Windows их может не читать.
+          adult=$(printf '%s' "$PCB_ADULT_SAMPLE" | tr ',' '\n' | { grep -Ev '^[0-9.]+$' || true; } | tr '\n' ' ')
+          hosts=/c/Windows/System32/drivers/etc/hosts
+          printf '\r\n127.0.0.1 probe-site.test probe-two.test probe-app.test blocked-probe.test\r\n' >> "$hosts"
+          printf '127.0.0.1 forbidden-site.test video.forbidden-site.test study-site.test youtube.com www.youtube.com\r\n' >> "$hosts"
+          if [ -n "${adult// /}" ]; then printf '127.0.0.1 %s\r\n' "$adult" >> "$hosts"; else echo "PCB_ADULT_SAMPLE без доменов: «$PCB_ADULT_SAMPLE»"; fi
+          echo "hosts: $(tail -n 3 "$hosts" | tr -d '\r' | paste -sd ';')"
+          echo "PCB_BRAVE_PROBE=1" >> "$GITHUB_ENV"
+
       - name: Тесты Go на Windows
+        env:
+          PCB_ADULT_FULL: "1"
         run: |
           exec > >(tee -a "$RUNNER_TEMP/ci.log") 2>&1
           go test -count=1 -tags desktop,production $(go list ./... | grep -v -E '^pcblock$')
@@ -104,6 +180,28 @@ jobs:
             cat "$f"
           else
             echo "::warning title=Сухой прогон наблюдателя::итог не записан: тест TestWatcherDryRun не дошёл до конца"
+          fi
+
+      # Список 18+ (RM4-3): TestAdultListFull пишет факты полного списка пометкой в файл, здесь она выводится.
+      - name: Список 18+ (пометки)
+        if: always()
+        run: |
+          f="$RUNNER_TEMP/pcb-adult.txt"
+          if [ -s "$f" ]; then
+            cat "$f"
+          else
+            echo "::warning title=Список 18+::итог не записан: тест TestAdultListFull не дошёл до конца"
+          fi
+
+      # Проба Brave (M4 T0): TestBraveProbe пишет факты пометками ::notice в файл, здесь они выводятся.
+      - name: Проба Brave (пометки)
+        if: always() && env.PCB_BRAVE_PROBE == '1'
+        run: |
+          f="$RUNNER_TEMP/pcb-brave-probe.txt"
+          if [ -s "$f" ]; then
+            cat "$f"
+          else
+            echo "::warning title=Проба Brave::факты не записаны: тест TestBraveProbe не дошёл до первого шага"
           fi
 
       - name: Ошибки — в пометки сборки (их видно без журнала)
@@ -131,6 +229,10 @@ jobs:
           $dir = $exe.DirectoryName
           # Свой шаблон установщика (build/windows/installer/project.nsi), а не шаблон Wails: папка, служба, ярлык сброса пароля.
           if ($dir -ne (Join-Path $env:ProgramFiles "PCBlock")) { Write-Host "::error::Папка установки $dir, ждали $env:ProgramFiles\PCBlock"; exit 1 }
+          # Лицензия списка 18+ рядом с программой (RM4-3, ТЗ 8.3.5 п. 3; project.nsi). Её удаление проверяет «осталось: папка» ниже.
+          $lic = Join-Path $dir "LICENSE-UT1.txt"
+          if (-not (Test-Path -LiteralPath $lic)) { Write-Host "::error title=Лицензия UT1::После установки нет $lic (project.nsi: File LICENSE-UT1.txt после wails.files)"; exit 1 }
+          if (-not (Get-Content -LiteralPath $lic -Raw -Encoding UTF8).Contains("CC BY-SA 4.0")) { Write-Host "::error title=Лицензия UT1::В $lic ($((Get-Item -LiteralPath $lic).Length) б) нет «CC BY-SA 4.0»"; exit 1 }
           $svc = Get-Service -Name PCBlock -ErrorAction SilentlyContinue
           if (-not $svc -or $svc.Status -ne "Running") { Write-Host "::error::После тихой установки служба PCBlock не работает: $($svc.Status)"; exit 1 }
           $lnkDir = Join-Path $env:ProgramData "Microsoft\Windows\Start Menu\Programs"
@@ -143,7 +245,7 @@ jobs:
           if ($lnkText -notmatch [regex]::Escape("--reset-password") -or $lnkText -notmatch [regex]::Escape("PCBlock.exe")) {
             Write-Host "::error::Ярлык сброса пароля ведёт не туда: в $($lnk.FullName) ($($lnk.Length) б) нет --reset-password или PCBlock.exe"; exit 1
           }
-          Write-Host "::notice title=Установка::$($exe.FullName); служба PCBlock работает; ярлык «$($lnk.BaseName)» ведёт на --reset-password"
+          Write-Host "::notice title=Установка::$($exe.FullName); служба PCBlock работает; ярлык «$($lnk.BaseName)» ведёт на --reset-password; LICENSE-UT1.txt рядом с программой"
           $un = Join-Path $dir "uninstall.exe"
           if (-not (Test-Path $un)) { Write-Host "::error::Нет uninstall.exe в $dir"; exit 1 }
           Start-Process $un -ArgumentList "/S" -Wait
@@ -264,7 +366,7 @@ jobs:
         if: failure() && steps.smoke.conclusion == 'failure'
         run: bash tools/annotate-errors.sh "$RUNNER_TEMP/ci.log" "Смоук службы"
 
-      # Приёмка на настоящей Windows: S1...S15 (S12...S15 — программы и игры M3: тестовые программы в папке WatchDir, RM3-8), S25...S27, S34...S37, LE1 и LE2 (выходы с экрана блокировки), FB1 (конец сеанса), FB5 (выход другого сеанса при отключённом сеансе ребёнка), S41 (последняя минута идёт по часам при выходе и перезапуске службы), S38 (скрытая программа), S40 (своё название программы), S39 (вкладки «Итогов»: время каждой программы), S42 (периоды «Итогов»: прошлые дни подкладывает тестовая команда TestSeedDay), S43 (перерыв на отдых: часы ядра ×20, «вышел» — TestSession), S44 (запрещённые программы не в «Итогах»: прошлый день — TestSeedDay), S45 (запрещённая, запустившаяся сама, закрыта без плашки и нарушения, раз в день в журнал; ручной запуск из программы на переднем плане — с плашкой: передний план подменой TestGuard foreground), S33 (смена пользователя), каждый на свежей установке и свежей папке данных.
+      # Приёмка на настоящей Windows: S1...S15 (S12...S15 — программы и игры M3: тестовые программы в папке WatchDir, RM3-8), S25...S27, S34...S37, LE1 и LE2 (выходы с экрана блокировки), FB1 (конец сеанса), FB5 (выход другого сеанса при отключённом сеансе ребёнка), S41 (последняя минута идёт по часам при выходе и перезапуске службы), S38 (скрытая программа), S40 (своё название программы), S39 (вкладки «Итогов»: время каждой программы), S42 (периоды «Итогов»: прошлые дни подкладывает тестовая команда TestSeedDay), S43 (перерыв на отдых: часы ядра ×20, «вышел» — TestSession), S44 (запрещённые программы не в «Итогах»: прошлый день — TestSeedDay), S45 (запрещённая, запустившаяся сама, закрыта без плашки и нарушения, раз в день в журнал; ручной запуск из программы на переднем плане — с плашкой: передний план подменой TestGuard foreground), S16…S18 (сайты в настоящем Brave раннера: «18+» из образца сборки, поддомен «Запрещённых», учёба на сайте и подмена домена TestGuard domain, лимит «Видео и соцсети»; домены в hosts ведут на 127.0.0.1, шаг «Brave для пробы и приёмки»), S19 (другие браузеры: копии тестовой программы с именами msedge.exe, chrome.exe, firefox.exe в WatchDir), S20 (правила Brave в ветке реестра ребёнка, кнопка VPN по UIA, запрещённый домен на сервере 127.0.0.1:8765), S46 (одна строка приложения магазина: поддельные папки версий в TestMode\StoreRoot, повторы «до обновления» — TestSeedPrograms, перезапуск службы), S33 (смена пользователя), каждый на свежей установке и свежей папке данных.
       # Идёт по одному сценарию за раз (одна учётка раннера, одна служба, один экран). Снимки sNN-*.png уходят
       # в ветку screenshots (папка screens/<ветка>).
       - name: Приёмка M1 (ручной запуск, scenario=accept)

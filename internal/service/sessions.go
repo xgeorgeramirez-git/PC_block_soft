@@ -178,8 +178,10 @@ const offHoldFor = 5 * time.Second
 const lockResetInputMs = 5000
 
 // resetLockBySample сбрасывает признак блокировки по свежему снимку стража, пока сеанс на экране.
+// Снимок, в котором страж не прочитал рабочий стол ввода (LockUnknown, B-23), блокировке не
+// противоречит: «активен» в нём — «не знаю», и признак, поставленный событием, остаётся (PL-7).
 func (ss *sessState) resetLockBySample(sm ipc.SensorSample) {
-	if ss.locked && ss.screen == ScreenOn && sm.SessionActive && sm.LastInputAgoMs < lockResetInputMs {
+	if ss.locked && ss.screen == ScreenOn && sm.SessionActive && !sm.LockUnknown && sm.LastInputAgoMs < lockResetInputMs {
 		ss.locked = false
 	}
 }
@@ -244,6 +246,7 @@ func (s *Service) syncSessions(real time.Time) {
 			if prev != ss.childID {
 				s.checkAdmin(cs, real)
 				s.applyPolicy(cs.child.SID, true)
+				s.applyBrave(cs)
 			}
 		}
 	}

@@ -24,6 +24,7 @@ const (
 	valTestChildSID   = "TestChildSID"
 	valLockAutoSwitch = "LockAutoSwitchS"
 	valWatchDir       = "WatchDir"
+	valStoreRoot      = "StoreRoot"
 
 	// MaxClockSpeed — наибольшее ускорение: период тика не короче миллисекунды.
 	MaxClockSpeed = 1000
@@ -34,7 +35,7 @@ const (
 )
 
 // TestModeValueNames — значения ключа, которые читает служба.
-var TestModeValueNames = []string{valDataDir, valClockSpeed, valClockStart, valClockRealStart, valTestChildSID, valLockAutoSwitch, valWatchDir}
+var TestModeValueNames = []string{valDataDir, valClockSpeed, valClockStart, valClockRealStart, valTestChildSID, valLockAutoSwitch, valWatchDir, valStoreRoot}
 
 // TestMode — значения тестового режима.
 type TestMode struct {
@@ -51,6 +52,10 @@ type TestMode struct {
 	// режиме наблюдатель трогает только процессы, чей путь внутри неё (иначе он завершил бы
 	// раннер). Пусто — наблюдатель в тестовом режиме ничего не закрывает.
 	WatchDir string
+	// StoreRoot — папка поддельных пакетов магазина вместо WindowsApps (RM4-11, S46),
+	// нормализованная, строго внутри WatchDir: настоящая WindowsApps раннера защищена
+	// TrustedInstaller. Пусто — настоящая WindowsApps.
+	StoreRoot string
 }
 
 // momentLayouts — допустимые записи момента: с поясом или местное время без пояса.
@@ -129,6 +134,13 @@ func ParseTestMode(values map[string]string, loc *time.Location) (TestMode, erro
 			return TestMode{}, fmt.Errorf("Тестовый режим: %s должен быть полным путём к папке вида C:\\Temp\\pcb-programs, а не %q", valWatchDir, s)
 		}
 		tm.WatchDir = dir
+	}
+	if s := strings.TrimSpace(values[valStoreRoot]); s != "" {
+		dir := programs.Normalize(s)
+		if dir == "" || strings.HasSuffix(dir, `\`) || tm.WatchDir == "" || !strings.HasPrefix(dir, tm.WatchDir+`\`) {
+			return TestMode{}, fmt.Errorf("Тестовый режим: %s должен быть папкой внутри WatchDir, а не %q", valStoreRoot, s)
+		}
+		tm.StoreRoot = dir
 	}
 	return tm, nil
 }

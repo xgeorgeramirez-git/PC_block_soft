@@ -710,10 +710,6 @@ p {
   margin: 0;
 }
 
-.stat-row-muted {
-  color: var(--text-muted);
-}
-
 .stat-row-lead dt,
 .stat-row-lead dd {
   font-weight: 600;
@@ -744,6 +740,18 @@ p {
   grid-template-columns: repeat(auto-fit, minmax(112px, 1fr));
   gap: var(--space-2);
   margin-top: var(--space-4);
+}
+
+/* Пять плиток в ряд нужны 592 px (5 × 112 + 4 зазора). Уже - сетка 3 + 2, а не 4 + 1 с одинокой
+   плиткой во втором ряду: ширина «Итогов», а не окна (окно ребёнка 640 px, статистика родителя 800 px). */
+.totals {
+  container-type: inline-size;
+}
+
+@container (max-width: 591.98px) {
+  .totals-tabs {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
 }
 
 .totals-tab {
@@ -999,7 +1007,8 @@ html:has(.shell-child) body {
 }
 
 .limits-wrap {
-  max-width: 640px;
+  /* Три столбца (общее, игры, видео): таблица около 635 px помещается в «Дети» окна 960 (T9-2, PL-26). */
+  max-width: 760px;
   margin-bottom: var(--space-4);
 }
 
@@ -1013,7 +1022,7 @@ html:has(.shell-child) body {
 
 .limits-table th,
 .limits-table td {
-  padding: var(--space-1) var(--space-3);
+  padding: var(--space-1) var(--space-2);
   border-bottom: 1px solid var(--line);
   text-align: left;
   vertical-align: top;
@@ -1050,7 +1059,7 @@ html:has(.shell-child) body {
 }
 
 .limits-num {
-  width: 60px;
+  width: 52px;
   padding: var(--space-1) var(--space-2);
 }
 
@@ -1379,6 +1388,20 @@ html:has(.shell-child) body {
   border-radius: var(--radius-control);
 }
 
+/* Шаг мастера «Сайты» (FR-2): «18+» с подписью источника рядом, список видео и поле одним блоком
+   (PL-36). Поле, строки и переключатели - те же, что на экране «Сайты». */
+.wizard-sites-block {
+  margin-bottom: var(--space-4);
+}
+
+.wizard-sites-block .sites-add {
+  margin-bottom: var(--space-3);
+}
+
+.wizard-sites-list {
+  max-width: 640px;
+}
+
 .wizard-scanning {
   display: flex;
   align-items: center;
@@ -1558,6 +1581,30 @@ html:has(.shell-child) body {
   border-left-color: var(--status-danger);
 }
 
+/* Легенда кнопок решения (B-39): видимый заголовок, строки мелко и приглушённо, в две колонки,
+   когда хватает ширины. */
+.pending-legend-title {
+  margin: 0 0 var(--space-1);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.pending-legend {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: var(--space-1) var(--space-4);
+  margin: 0 0 var(--space-3);
+  padding: 0;
+  list-style: none;
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+.pending-legend-label {
+  color: var(--text);
+  font-weight: 600;
+}
+
 .pending-list {
   margin: 0;
   padding: 0;
@@ -1729,7 +1776,6 @@ html:has(.shell-child) body {
   width: auto;
 }
 
-.bulk-error,
 .bulk-hint {
   margin-top: 0;
 }
@@ -1783,13 +1829,17 @@ html:has(.shell-child) body {
   vertical-align: middle;
 }
 
-/* 8 + список 122 («Запрещено» со стрелкой при полях 8 px) + 8 */
+/* 8 + список 122 + 8. Шире колонку не делать: в окне 960 путь «c:…\stalker2-win64-shipping.exe»
+   перестаёт помещаться в одну строку (F2: при 152 px упал e2e «переименование», pathsOneLine). */
 .programs-table .col-category {
   width: 138px;
 }
 
+/* Справа поля нет: Chromium и так оставляет под стрелку ~27 px, а 8 px справа обрезали «Запрещено»
+   в запасном шрифте снимков CI (ревью M4). Слева 8 px, как у текста других полей; e2e categoriesFit
+   меряет, что список вмещает самую длинную подпись. */
 .programs-table .col-category select {
-  padding-inline: var(--space-2);
+  padding-inline: var(--space-2) 0;
 }
 
 /* 8 + 96 («12 ч 30 мин» — 84 px) + 8; редкое «меньше минуты» переносится на вторую строку. */
@@ -1806,6 +1856,22 @@ html:has(.shell-child) body {
 
 .programs-table .col-action .btn {
   max-width: 100%;
+}
+
+/* «не считается» у скрытой (B-43 п.9): вторичный текст помельче, в колонку «За неделю» одной строкой. */
+.program-week-off {
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+/* «Скрыть нельзя» у запрещённой (RF9-5): вторичный текст, не красный (ТЗ 8.0 п.3); в узкой
+   колонке может перейти на вторую строку, но не выходит за правый край. */
+.program-nohide {
+  display: inline-block;
+  max-width: 100%;
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.3;
 }
 
 .program-category {
@@ -1968,6 +2034,87 @@ html:has(.shell-child) body {
   margin-top: var(--space-4);
 }
 
+/* --- Сайты (FR-21, 8.3.5) ------------------------------------------------------------ */
+/* Блоки и сообщения: как у «Программ» (.programs-block, .programs-feedback). Цвет статуса не
+   используется: ни у «Запрещённых», ни у счётчика «N из 1000» (8.0 п.3). */
+
+.sites-intro {
+  margin-bottom: var(--space-4);
+}
+
+.sites-switches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3) var(--space-6);
+}
+
+/* Подпись источника списка «18+» мелко под переключателями (8.3.5 п.3, PL-36). */
+.sites-source {
+  margin-top: var(--space-3);
+}
+
+.sites-adult .sites-feedback {
+  margin: var(--space-3) 0 0;
+}
+
+.sites-tabs .tab {
+  padding: var(--space-2) var(--space-3);
+}
+
+.sites-limit {
+  margin-bottom: var(--space-3);
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+/* Подпись над полем, поле и «Добавить» в одну строку одной высоты, подсказка или ошибка под ними. */
+.sites-add {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  column-gap: var(--space-3);
+  max-width: 640px;
+  margin-bottom: var(--space-4);
+}
+
+.sites-add-label,
+.sites-add-note {
+  grid-column: 1 / -1;
+}
+
+.sites-add-button {
+  white-space: nowrap;
+}
+
+.sites-search {
+  max-width: 360px;
+}
+
+.sites-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border-top: 1px solid var(--line);
+}
+
+/* Домен до 253 знаков переносится, а не съедает «Удалить» (PL-26); кнопки в одну колонку справа. */
+.sites-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.sites-domain {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.sites-row .btn {
+  flex: none;
+}
+
 /* --- Узкое окно: масштаб Windows 150 % и выше (NFR-14) ------------------------------ */
 
 @media (max-width: 640px) {
@@ -2026,7 +2173,7 @@ html:has(.shell-child) body {
   }
 
   .limits-num {
-    width: 56px;
+    width: 52px;
   }
 
   .topbar {

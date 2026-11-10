@@ -57,11 +57,37 @@ func ReadSensors(now time.Time, speed int) ipc.SensorSample {
 	return BuildSample(now, readRaw(), speed)
 }
 
-// readRaw читает датчики одним проходом: окно переднего плана берётся один раз, и полноэкранность
-// и путь относятся к одному окну (PL-15).
+// readRaw читает датчики одним проходом: окно переднего плана берётся один раз, и полноэкранность,
+// путь и домен вкладки Brave относятся к одному окну (PL-15).
 func readRaw() RawSensors {
 	fg, _, _ := procGetForegroundWin.Call()
-	return RawSensors{IdleMs: idleMs(), Fullscreen: windowIsFullscreen(fg), Locked: sessionLocked(), ForegroundPath: foregroundPath(fg)}
+	locked, known := sessionLocked()
+	raw := RawSensors{IdleMs: idleMs(), Fullscreen: windowIsFullscreen(fg), Locked: locked, LockUnknown: !known, ForegroundPath: foregroundPath(fg)}
+	if isBravePath(raw.ForegroundPath) {
+		raw.ForegroundDomain, raw.DomainUnread, _ = braveDomain(windows.HWND(fg))
+	}
+	return raw
+}
+
+// Чтение домена Brave (RM4-1): один braveReader (поток COM) и память доменов окон на весь страж.
+var (
+	braveMu      sync.Mutex
+	braveRd      *braveReader
+	braveDomains domainMemo
+)
+
+// braveDomain — домен активной вкладки окна Brave fg и признак «адрес не прочитан». Адрес документа
+// и текст поля адреса живут только здесь и сразу превращаются в домен (R23). Основной источник —
+// адрес документа; поле в фокусе без него — прежний домен вкладки; ошибка UIA и окно без адреса —
+// («», true), у окна без адреса ещё noAddress: только его можно закрыть (PL-9, domainMemo.Read).
+func braveDomain(fg windows.HWND) (domain string, unread, noAddress bool) {
+	braveMu.Lock()
+	defer braveMu.Unlock()
+	if braveRd == nil {
+		braveRd = newBraveReader()
+	}
+	rd, err := braveRd.Read(fg)
+	return braveDomains.Read(uintptr(fg), rd, err)
 }
 
 // fgPathBuf — сколько символов пути читается: больше ipc.MaxForegroundPathLen, чтобы длинный путь
@@ -186,12 +212,13 @@ func windowIsFullscreen(fg uintptr) bool {
 
 // sessionLocked: сейчас на экране не рабочий стол сеанса, а защищённый (экран входа Windows
 // после блокировки). Страж работает от имени системы и может открыть рабочий стол ввода
-// и узнать его имя; не получилось открыть, значит ничего не известно, и сеанс считается
-// незаблокированным (лучше засчитать секунду, чем перестать считать совсем).
-func sessionLocked() bool {
+// и узнать его имя; не получилось открыть или прочитать имя — known = false: ничего не
+// известно, сеанс считается незаблокированным (лучше засчитать секунду, чем перестать считать
+// совсем), а служба по такому снимку не снимает блокировку, поставленную событием (B-23).
+func sessionLocked() (locked, known bool) {
 	h, _, _ := procOpenInputDesktop.Call(0, 0, desktopReadObjects)
 	if h == 0 {
-		return false
+		return false, false
 	}
 	defer procCloseDesktop.Call(h)
 	buf := make([]uint16, 64)
@@ -199,9 +226,9 @@ func sessionLocked() bool {
 	r, _, _ := procGetUserObjectInfoW.Call(h, uoiName, uintptr(unsafe.Pointer(&buf[0])),
 		uintptr(len(buf)*2), uintptr(unsafe.Pointer(&need)))
 	if r == 0 {
-		return false
+		return false, false
 	}
-	return strings.EqualFold(windows.UTF16ToString(buf), "Winlogon")
+	return strings.EqualFold(windows.UTF16ToString(buf), "Winlogon"), true
 }
 
 // testModeKeyPath — ключ реестра тестового режима (ТЗ 10.8); его читает и служба.

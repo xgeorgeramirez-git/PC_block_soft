@@ -9,6 +9,7 @@ import contract from "../../../internal/ipc/testdata/contract.json";
 import { formatDuration, formatHour, formatLimit, localOffsetMin, weekdayOfMs, weekdayShort } from "../lib/format";
 import { normalizeLimits } from "../lib/limits";
 import { breakEqual, DEFAULT_BREAK, validateBreak } from "../lib/rest";
+import { ADULT_SOURCE_TEXT, DUPLICATE_TEXT, NOT_DOMAIN_TEXT, cleanDomain } from "../lib/sites";
 import type {
   BreakRules,
   Account,
@@ -28,6 +29,9 @@ import type {
   ProgramDTO,
   ProgramsReply,
   ProgramTime,
+  ListSitesReply,
+  SiteDTO,
+  SiteKind,
   StatsPeriod,
 } from "../types";
 
@@ -35,6 +39,8 @@ export const DEFAULT_PASSWORD = "секрет-123";
 /** Версия программы по умолчанию: одна на всех экранах (настоящий номер поднимает оркестратор). */
 export const DEFAULT_VERSION = "0.0.1";
 const UNDO_WINDOW_MS = 10_000;
+// Текст службы (texts.go textCategoryUnchanged): смена категории ничего не изменила (B-41).
+const CATEGORY_UNCHANGED = "Категория не изменилась";
 const MAX_LIMIT_MIN = 1440;
 
 /** Ребёнок в памяти подменной программы. */
@@ -73,6 +79,8 @@ export interface MockChild {
   gamesUsedS?: number;
   /** Учёба за сегодня, секунды (R3); в usedS не входит. */
   studyUsedS?: number;
+  /** «Видео и соцсети» за сегодня, секунды (R6); входят и в usedS. */
+  videoUsedS?: number;
   /**
    * Время программ за сегодня для вкладок «Итогов» (D-58), как отдаёт служба: скрытых и запрещённых нет, время
    * без программы - строка «Остальное время» без пути. Нет - пустой список.
@@ -84,6 +92,8 @@ export interface MockChild {
    * programsToday; день сегодня или позже в периоды не входит (его ведёт ядро).
    */
   history?: MockDay[];
+  /** «Блокировать сайты 18+» (R14); нет поля - включено, как у нового ребёнка. */
+  adultFilter?: boolean;
 }
 
 /** Прошлый день ребёнка в подменной программе (периоды «Итогов», D-61). */
@@ -94,6 +104,8 @@ export interface MockDay {
   totalS?: number;
   gamesS?: number;
   studyS?: number;
+  /** «Видео и соцсети», с (R6); входят и в totalS. */
+  videoS?: number;
   extraMin?: number;
   bonusSpentMin?: number;
   programs?: ProgramTime[];
@@ -175,6 +187,8 @@ export interface MockOptions {
   /** «Программы» на старте (FR-20); по умолчанию - как в примере контракта ListPrograms. */
   programs?: ProgramDTO[];
   pending?: PendingProgramDTO[];
+  /** Списки «Сайтов» на старте (FR-21); по умолчанию - как в примере контракта ListSites. */
+  sites?: SiteDTO[];
 }
 
 export interface MockState {
@@ -221,6 +235,8 @@ export interface MockState {
   pending: PendingProgramDTO[];
   /** «Отменить» решений по программам: снимок списков до решения. */
   programUndo: Map<string, { programs: ProgramDTO[]; pending: PendingProgramDTO[]; undoUntilMs: number }>;
+  /** Домены трёх списков «Сайтов»: у домена одна запись (RM4-5). */
+  sites: SiteDTO[];
 }
 
 export type Override = Reply | "reject" | "garbage" | ((request: any) => Reply | Promise<Reply>);
@@ -291,14 +307,12 @@ function isoDay(ms: number): string {
   return d.toISOString().slice(0, 10);
 }
 
-/** Семь дней лимитов, как их отдаёт служба: с полями игр (нет поля - игры без отдельного лимита). */
+/**
+ * Семь дней лимитов, как их отдаёт служба: с полями игр (нет поля - игры без отдельного лимита) и видео
+ * (нет videoUnlimited - видео без отдельного лимита, S-3). Поля видео не теряются (T9-1).
+ */
 function limitsWithGames(limits: WeekdayLimit[] | null | undefined): WeekdayLimit[] {
-  const src = new Map((limits ?? []).map((l) => [l.weekday, l]));
-  return normalizeLimits(limits).map((l) => {
-    const got = src.get(l.weekday);
-    const gamesUnlimited = got?.gamesUnlimited ?? got?.gamesMin === undefined;
-    return { ...l, gamesMin: gamesUnlimited ? 0 : (got?.gamesMin ?? 0), gamesUnlimited };
-  });
+  return normalizeLimits(limits);
 }
 
 function todayLimit(child: MockChild, nowMs: number): WeekdayLimit {
@@ -339,11 +353,33 @@ function gamesOf(child: MockChild, nowMs: number) {
   return { gamesRemainingS: Math.max(0, gamesLimitS - (child.gamesUsedS ?? 0)), gamesLimitS, gamesUnlimited: false };
 }
 
+/**
+ * Остаток и лимит «Видео и соцсетей», как их считает ядро (R6): нет лимита видео - всё по нулям,
+ * лимит с доп. временем; закрыто, когда лимит есть и остатка нет.
+ */
+function videoOf(child: MockChild, nowMs: number) {
+  const limit = todayLimit(child, nowMs);
+  const raw = limitsWithGames(child.limits)[limit.weekday - 1];
+  if (raw.videoUnlimited ?? true) {
+    return { videoRemainingS: 0, videoLimitS: 0, videoUnlimited: true, closeVideo: false };
+  }
+  const videoLimitS = Math.max(0, ((raw.videoMin ?? 0) + child.extraMin) * 60);
+  const videoRemainingS = Math.max(0, videoLimitS - (child.videoUsedS ?? 0));
+  return { videoRemainingS, videoLimitS, videoUnlimited: false, closeVideo: videoRemainingS === 0 };
+}
+
+/** Лимит видео есть (как hasVideoLimit службы): у админа и без лимита - нет. */
+function videoLimited(v: ReturnType<typeof videoOf>): boolean {
+  return !v.videoUnlimited && (v.videoLimitS > 0 || v.closeVideo);
+}
+
 function statusCore(child: MockChild, nowMs: number): ChildStatus {
   const games = gamesOf(child, nowMs);
+  const video = videoOf(child, nowMs);
   const endMode: EndMode = child.endMode ?? "lock";
   const base = {
     ...games,
+    ...video,
     endMode,
     closeGames: !games.gamesUnlimited && games.gamesRemainingS === 0,
     studyOnly: false,
@@ -375,6 +411,10 @@ function statusCore(child: MockChild, nowMs: number): ChildStatus {
       gamesLimitS: 0,
       gamesUnlimited: true,
       closeGames: false,
+      videoRemainingS: 0,
+      videoLimitS: 0,
+      videoUnlimited: true,
+      closeVideo: false,
     };
   }
   const limit = todayLimit(child, nowMs);
@@ -448,9 +488,12 @@ function statusCore(child: MockChild, nowMs: number): ChildStatus {
     status: low ? "low" : "ok",
     statusText: low ? `Осталось ${left}` : "Можно",
     label: String(Math.floor(remainingS / 60)),
-    tooltip: games.gamesUnlimited
-      ? `Осталось ${left}`
-      : `Осталось ${left}\nИгры: ${formatDuration(Math.ceil(games.gamesRemainingS / 60) * 60)}`,
+    // Подсказка значка как у службы (status.go): остаток, затем игры и видео, если у них есть лимит.
+    tooltip: [
+      `Осталось ${left}`,
+      ...(games.gamesUnlimited ? [] : [`Игры: ${formatDuration(Math.ceil(games.gamesRemainingS / 60) * 60)}`]),
+      ...(videoLimited(video) ? [`Видео: ${formatDuration(Math.ceil(video.videoRemainingS / 60) * 60)}`] : []),
+    ].join("\n"),
     summary: `Сегодня осталось ${left} из ${formatLimit(limitMin)}`,
     lock: "none",
   };
@@ -468,7 +511,15 @@ function cardOf(child: MockChild, nowMs: number, pendingPrograms = 0): TodayCard
     noForbiddenToday: Boolean(child.noForbiddenToday),
     gamesText: gamesTextOf(child, nowMs),
     pendingPrograms,
+    videoText: videoTextOf(child, nowMs),
   };
+}
+
+/** «Видео 10 мин из 20 мин» (8.3.2 п.3), как ipc.VideoCardText; без лимита видео дня - пусто. */
+function videoTextOf(child: MockChild, nowMs: number): string {
+  const v = videoOf(child, nowMs);
+  if (v.videoUnlimited) return "";
+  return `Видео ${formatDuration(child.videoUsedS ?? 0)} из ${formatLimit(v.videoLimitS / 60)}`;
 }
 
 /** «Игры 40 мин из 1 ч» (8.3.2 п.3), как ipc.GamesCardText; без лимита игр - пусто. */
@@ -485,9 +536,12 @@ function myRules(child: MockChild): MyRule[] {
     day: weekdayShort(l.weekday),
     text: l.unlimited ? "Без лимита" : l.totalMin === 0 ? "Нельзя" : formatLimit(l.totalMin),
   }));
-  // Общие правила после дней (R21), как у службы: лимит игр и «Когда время вышло».
-  const games = gamesRuleText(limitsWithGames(child.limits));
+  // Общие правила после дней (R21), как у службы: лимит игр, лимит видео и «Когда время вышло».
+  const limits = limitsWithGames(child.limits);
+  const games = catRuleText(limits, "Игры", (l) => (l.gamesUnlimited ? null : (l.gamesMin ?? 0)));
   if (games) days.push({ weekday: 0, day: "", text: games });
+  const video = catRuleText(limits, "Видео и соцсети", (l) => (l.videoUnlimited ? null : (l.videoMin ?? 0)));
+  if (video) days.push({ weekday: 0, day: "", text: video });
   days.push({
     weekday: 0,
     day: "",
@@ -496,16 +550,22 @@ function myRules(child: MockChild): MyRule[] {
   return days;
 }
 
-/** «Игры: до 1 ч в день» / «Игры: пн до 1 ч, ср нельзя» (как gamesRuleText службы). */
-function gamesRuleText(limits: WeekdayLimit[]): string {
+/**
+ * «Игры: до 1 ч в день» / «Видео и соцсети: пн до 1 ч, ср нельзя» (как catRuleText службы). pick - минуты
+ * лимита категории дня, null - без отдельного лимита.
+ */
+function catRuleText(limits: WeekdayLimit[], title: string, pick: (l: WeekdayLimit) => number | null): string {
   const word = (min: number) => (min === 0 ? "нельзя" : `до ${formatLimit(min)}`);
-  const limited = limits.filter((l) => !l.gamesUnlimited);
+  const limited = limits.flatMap((l) => {
+    const min = pick(l);
+    return min === null ? [] : [{ weekday: l.weekday, min }];
+  });
   if (!limited.length) return "";
-  const first = limited[0].gamesMin ?? 0;
-  if (limited.length === 7 && limited.every((l) => (l.gamesMin ?? 0) === first)) {
-    return first === 0 ? "Игры: нельзя" : `Игры: ${word(first)} в день`;
+  const first = limited[0].min;
+  if (limited.length === 7 && limited.every((l) => l.min === first)) {
+    return first === 0 ? `${title}: нельзя` : `${title}: ${word(first)} в день`;
   }
-  return `Игры: ${limited.map((l) => `${weekdayShort(l.weekday)} ${word(l.gamesMin ?? 0)}`).join(", ")}`;
+  return `${title}: ${limited.map((l) => `${weekdayShort(l.weekday)} ${word(l.min)}`).join(", ")}`;
 }
 
 /** Первый день периода по местному времени момента nowMs, как служба (periodFrom); неизвестный - "". */
@@ -547,8 +607,9 @@ function myToday(child: MockChild | undefined, nowMs: number, period: StatsPerio
   const usedS = status.usedS + sum((d) => d.totalS);
   const gamesS = (child.gamesUsedS ?? 0) + sum((d) => d.gamesS);
   const studyS = (child.studyUsedS ?? 0) + sum((d) => d.studyS);
-  // «Прочее» и «Всего» - как у службы: общее время без игр (видео в M3 нет) и общее плюс учёба.
-  const otherS = Math.max(0, usedS - gamesS);
+  const videoS = (child.videoUsedS ?? 0) + sum((d) => d.videoS);
+  // «Прочее» и «Всего» - как у службы (stats.go): общее время без игр и видео и общее плюс учёба.
+  const otherS = Math.max(0, usedS - gamesS - videoS);
   const merged = new Map<string, ProgramTime>();
   for (const p of [...(child.programsToday ?? []), ...past.flatMap((d) => d.programs ?? [])]) {
     const key = `${p.category}|${p.path}`;
@@ -558,7 +619,7 @@ function myToday(child: MockChild | undefined, nowMs: number, period: StatsPerio
   }
   const programs = [...merged.values()];
   // Как служба: время категории, не названное строками, - строка «Остальное время» (сумма строк = итог).
-  for (const [category, total] of [["games", gamesS], ["study", studyS], ["other", otherS]] as const) {
+  for (const [category, total] of [["games", gamesS], ["video_social", videoS], ["study", studyS], ["other", otherS]] as const) {
     const named = programs.filter((p) => p.category === category).reduce((n, p) => n + p.seconds, 0);
     if (total > named) programs.push({ path: "", name: "Остальное время", category, seconds: total - named });
   }
@@ -569,6 +630,7 @@ function myToday(child: MockChild | undefined, nowMs: number, period: StatsPerio
     period,
     usedS,
     gamesS,
+    videoS,
     studyS,
     otherS,
     allS: usedS + studyS,
@@ -625,6 +687,10 @@ const PARENT_COMMANDS = new Set([
   "SetProgramsHidden",
   "RenameProgram",
   "UndoProgram",
+  "ListSites",
+  "AddSite",
+  "RemoveSite",
+  "SetAdultFilter",
 ]);
 
 /** Нормализация промокода как в ядре (R26): без пробелов по краям и без учёта регистра. */
@@ -668,8 +734,26 @@ function makeState(opts: MockOptions): MockState {
     programs: (opts.programs ?? exampleProgramsReply().programs).map((p) => ({ ...p })),
     pending: (opts.pending ?? exampleProgramsReply().pending).map((p) => ({ ...p, byChild: [...p.byChild] })),
     programUndo: new Map(),
+    sites: (opts.sites ?? exampleSites()).map((x) => ({ ...x })),
   };
 }
+
+/** Сайты из примера контракта ListSites (копия). */
+function exampleSites(): SiteDTO[] {
+  return JSON.parse(JSON.stringify((examples.ListSites.reply.payload as ListSitesReply).sites)) as SiteDTO[];
+}
+
+/** Порядок списков в ответе, как у хранилища (ListSiteRules: по списку, затем по домену). */
+const SITE_KIND_ORDER: SiteKind[] = ["blocked", "study", "video_social"];
+/** Предел «Запрещённых» (ipc.MaxBlockedSites). */
+const MAX_BLOCKED_SITES = 1000;
+/** Названия списков в сообщениях и журнале (service.siteListNames): винительный и родительный падежи. */
+const SITE_LIST_NAMES: Record<SiteKind, { acc: string; gen: string }> = {
+  blocked: { acc: "«Запрещённые»", gen: "«Запрещённых»" },
+  study: { acc: "«Учёбу»", gen: "«Учёбы»" },
+  video_social: { acc: "«Видео и соцсети»", gen: "«Видео и соцсетей»" },
+};
+const isSiteKind = (k: unknown): k is SiteKind => typeof k === "string" && (SITE_KIND_ORDER as string[]).includes(k);
 
 /** «Программы» из примера контракта (копия). */
 function exampleProgramsReply(): ProgramsReply {
@@ -726,6 +810,14 @@ export function createBackend(opts: MockOptions = {}): MockBackend {
     });
     return { undoId, undoUntilMs: now + UNDO_WINDOW_MS };
   };
+  const sitesReply = (): ListSitesReply => ({
+    sites: [...state.sites]
+      .sort((a, b) => SITE_KIND_ORDER.indexOf(a.kind) - SITE_KIND_ORDER.indexOf(b.kind) || (a.domain < b.domain ? -1 : a.domain > b.domain ? 1 : 0))
+      .map((x) => ({ ...x })),
+    children: state.children.map((c) => ({ childId: c.childId, name: c.name, on: c.adultFilter ?? true })),
+    blockedMax: MAX_BLOCKED_SITES,
+    adultSource: ADULT_SOURCE_TEXT,
+  });
   const parentCategory = (c: unknown): c is ProgramCategory => typeof c === "string" && c in PROGRAM_CATEGORY_WORD;
 
   // Неверный пароль: считаем попытки, после серии закрываем ввод на паузу (R19).
@@ -761,6 +853,9 @@ export function createBackend(opts: MockOptions = {}): MockBackend {
       if (l.gamesUnlimited === false && (l.gamesMin ?? 0) > MAX_LIMIT_MIN) {
         return fail("Не больше 24 ч", `games.${l.weekday}`);
       }
+      if (l.videoUnlimited === false && (l.videoMin ?? 0) > MAX_LIMIT_MIN) {
+        return fail("Не больше 24 ч", `video.${l.weekday}`);
+      }
     }
     return null;
   };
@@ -788,11 +883,30 @@ export function createBackend(opts: MockOptions = {}): MockBackend {
         const bad = limitsError(c.limits ?? []);
         if (bad) return bad;
       }
+      // Шаг «Сайты» (handlers.go): video заменяет список целиком, повторы схлопываются, не домен - отказ.
+      const sites = req.sites as { adultOff?: string[]; video?: string[] } | undefined;
+      const video: string[] = [];
+      for (const raw of sites?.video ?? []) {
+        const domain = cleanDomain(String(raw));
+        if (!domain) return fail(NOT_DOMAIN_TEXT, "domain");
+        if (!video.includes(domain)) video.push(domain);
+      }
       state.password = req.password;
       state.configured = true;
+      const adultOff = new Set(sites?.adultOff ?? []);
       state.children = req.children.map((c: { sid: string; name: string; limits: WeekdayLimit[] }) =>
-        mockChild({ childId: state.nextChildId++, sid: c.sid, name: c.name, limits: c.limits, usedS: 0 }),
+        mockChild({
+          childId: state.nextChildId++,
+          sid: c.sid,
+          name: c.name,
+          limits: c.limits,
+          usedS: 0,
+          ...(adultOff.has(c.sid) ? { adultFilter: false } : {}),
+        }),
       );
+      if (sites) {
+        state.sites = [...state.sites.filter((x) => x.kind !== "video_social" && !video.includes(x.domain)), ...video.map((domain) => ({ domain, kind: "video_social" as const }))];
+      }
       addEvent(now, undefined, "settings", "Программа настроена");
       return okReply();
     },
@@ -1231,6 +1345,10 @@ export function createBackend(opts: MockOptions = {}): MockBackend {
       const known = state.programs.find((x) => x.path === path);
       // Как служба: ждущая программа или уже в списке, иначе отказ.
       if (!p && !known) return fail("Такой программы нет в списке");
+      // Как служба (B-41): та же категория решением родителя — без «Отменить» и без журнала.
+      if (!p && known && known.category === req.category && known.source === "parent") {
+        return okReply({ message: CATEGORY_UNCHANGED, undoId: "", undoUntilMs: 0, programs: programsReply() });
+      }
       const undo = rememberUndo(now);
       const name = p?.name ?? known?.name ?? "";
       if (p) {
@@ -1250,16 +1368,15 @@ export function createBackend(opts: MockOptions = {}): MockBackend {
       const paths = new Set<string>((req.paths ?? []).map((x: string) => x.toLowerCase()));
       if (paths.size > 200) return fail("Можно изменить не больше 200 программ за раз");
       if (!state.programs.some((p) => paths.has(p.path))) return fail("Такой программы нет в списке");
+      const changing = state.programs.filter((p) => paths.has(p.path) && (p.category !== req.category || p.source !== "parent"));
+      // Как служба (B-41): ничего не изменилось — без «Отменить».
+      if (changing.length === 0) return okReply({ message: CATEGORY_UNCHANGED, undoId: "", undoUntilMs: 0, programs: programsReply() });
       const undo = rememberUndo(now);
-      let n = 0;
-      for (const p of state.programs) {
-        if (paths.has(p.path) && (p.category !== req.category || p.source !== "parent")) {
-          p.category = req.category;
-          p.source = "parent";
-          n += 1;
-        }
+      for (const p of changing) {
+        p.category = req.category;
+        p.source = "parent";
       }
-      return okReply({ message: `Изменено программ: ${n}`, ...undo, programs: programsReply() });
+      return okReply({ message: `Изменено программ: ${changing.length}`, ...undo, programs: programsReply() });
     },
 
     SetProgramsHidden: (req, now) => {
@@ -1324,6 +1441,60 @@ export function createBackend(opts: MockOptions = {}): MockBackend {
       state.programs = rec.programs;
       state.pending = rec.pending;
       return okReply({ message: "Решение отменено", programs: programsReply() });
+    },
+
+    // «Сайты» (FR-21) как handlers_m4.go: разбор домена, один домен - один список, предел 1000.
+    ListSites: () => okReply(sitesReply()),
+
+    AddSite: (req, now) => {
+      // Запрос приходит как any: список сужается проверкой до SiteKind (индекс SITE_LIST_NAMES без any).
+      const kind: unknown = req?.kind;
+      if (!isSiteKind(kind)) return fail("Не удалось разобрать запрос. Попробуйте ещё раз");
+      const domain = cleanDomain(String(req.domain ?? ""));
+      if (!domain) return fail(NOT_DOMAIN_TEXT, "domain");
+      const known = state.sites.find((x) => x.domain === domain);
+      // Как blockedFull: повтор в «Запрещённых» получает свой отказ, перенос в полный список - отказ о пределе.
+      const blockedCount = state.sites.filter((x) => x.kind === "blocked").length;
+      if (kind === "blocked" && known?.kind !== "blocked" && blockedCount >= MAX_BLOCKED_SITES) {
+        return fail("В списке запрещённых уже 1000 сайтов. Удалите ненужные", "domain");
+      }
+      if (known && known.kind === kind) return fail(DUPLICATE_TEXT, "domain");
+      let message: string;
+      if (known) {
+        known.kind = kind;
+        message = `Сайт перенесён в ${SITE_LIST_NAMES[kind].acc}`;
+        addEvent(now, undefined, "site_moved", `Вы перенесли сайт ${domain} в ${SITE_LIST_NAMES[kind].acc}`);
+      } else {
+        state.sites.push({ domain, kind });
+        message = `Добавлено: ${domain}`;
+        addEvent(now, undefined, "site_added", `Вы добавили сайт ${domain} в ${SITE_LIST_NAMES[kind].acc}`);
+      }
+      return okReply({ message, domain, moved: Boolean(known), sites: sitesReply() });
+    },
+
+    RemoveSite: (req, now) => {
+      const domain = cleanDomain(String(req?.domain ?? ""));
+      if (!domain) return fail(NOT_DOMAIN_TEXT, "domain");
+      const at = state.sites.findIndex((x) => x.domain === domain);
+      if (at < 0) return fail("Этого сайта уже нет в списках");
+      const [gone] = state.sites.splice(at, 1);
+      addEvent(now, undefined, "site_removed", `Вы удалили сайт ${domain} из ${SITE_LIST_NAMES[gone.kind].gen}`);
+      return okReply({
+        message: `Удалён ${domain}`,
+        domain,
+        kind: gone.kind,
+        undoUntilMs: now + UNDO_WINDOW_MS,
+        sites: sitesReply(),
+      });
+    },
+
+    SetAdultFilter: (req, now) => {
+      const child = childById(req?.childId);
+      if (!child) return fail("Такого ребёнка нет в списке");
+      child.adultFilter = Boolean(req.on);
+      const text = `${child.name}: ${child.adultFilter ? "сайты 18+ блокируются" : "сайты 18+ не блокируются"}`;
+      addEvent(now, child, "site_adult_filter", text);
+      return okReply({ message: text, sites: sitesReply() });
     },
 
     GetBonusRate: () => okReply({ minutes: state.bonusRate }),

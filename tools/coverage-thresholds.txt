@@ -5,3 +5,4 @@ internal/storage 75
 internal/ipc 80
 internal/systray 70
 internal/service 85
+internal/sites 90

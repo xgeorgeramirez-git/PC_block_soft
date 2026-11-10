@@ -235,8 +235,9 @@ func stopAndDelete(s *mgr.Service, info map[string]any) error {
 	return nil
 }
 
-// clearChildPolicies снимает запрет Диспетчера задач у отмеченных детей (Ruling 20). Базы нет
-// или она не открылась: снимать нечего или нечем, это не мешает удалению.
+// clearChildPolicies снимает у отмеченных детей запрет Диспетчера задач (Ruling 20) и правила
+// Brave (RM4-10, T5-12). Базы нет или она не открылась: снимать нечего или нечем, это не мешает
+// удалению.
 func clearChildPolicies(dataDir string, info map[string]any) error {
 	path := dbPath(dataDir)
 	if _, err := os.Stat(path); err != nil {
@@ -244,7 +245,7 @@ func clearChildPolicies(dataDir string, info map[string]any) error {
 	}
 	st, err := storage.Open(path)
 	if err != nil {
-		info["policy"] = "база не открылась, запрет Диспетчера задач не снят"
+		info["policy"] = "база не открылась, запрет Диспетчера задач и правила Brave не сняты"
 		return nil
 	}
 	defer st.Close()
@@ -254,12 +255,18 @@ func clearChildPolicies(dataDir string, info map[string]any) error {
 	}
 	var p policy
 	var failed []string
+	braveFailed := 0
 	for _, c := range children {
 		if err := p.SetTaskMgrDisabled(c.SID, false); err != nil {
 			failed = append(failed, err.Error())
 		}
+		if err := p.RemoveBraveRules(c.SID); err != nil {
+			failed = append(failed, err.Error())
+			braveFailed++
+		}
 	}
-	info["policyCleared"] = len(children) - len(failed)
+	info["policyCleared"] = len(children) - (len(failed) - braveFailed)
+	info["braveCleared"] = len(children) - braveFailed
 	if len(failed) > 0 {
 		return errors.New(strings.Join(failed, "; "))
 	}
