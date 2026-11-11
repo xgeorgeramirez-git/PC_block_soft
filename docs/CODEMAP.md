@@ -43,8 +43,11 @@
 
 - `src/App.tsx`
 - `src/__mocks__/backend.ts`
+- `src/__mocks__/g15.ts`
 - `src/api.ts`
 - `src/components/AskMoreDialog.tsx`
+- `src/components/BonusHistory.tsx`
+- `src/components/DayBars.tsx`
 - `src/components/DayStrip.tsx`
 - `src/components/Dialog.tsx`
 - `src/components/FitText.tsx`
@@ -66,6 +69,7 @@
 - `src/global.d.ts`
 - `src/guard.tsx`
 - `src/lib/bonus.ts`
+- `src/lib/daybars.ts`
 - `src/lib/errors.ts`
 - `src/lib/format.ts`
 - `src/lib/journal.ts`
