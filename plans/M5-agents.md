@@ -14,5 +14,6 @@
 |------|---------|------|--------|--------------------|-----------|
 | T1a ST1-проба | a5cdf3180756601e4 | writer | done | 44046a8, 64ffea8; локально на ncruces 0,35 с/ребёнка, ci st1 43088428659: 241 мс/ребёнка, база 85,3 МБ | 0 |
 | T1b+T1c+T7c(хранилище) | a32bdc6bc17d3805d | writer | done | 9e0bd9a, 7b547bf, b0c3496, 3b5ed30; локально на ncruces зелёные | 0 |
-| T4 пакеты окна | a0d216c74e671cb37 | reader | running | — | — |
-| T2a+T2b служба | aedfea6561fec7570 | writer | running | — | — |
+| T4 пакеты окна | a0d216c74e671cb37 | reader | done | пакеты M5-T5, M5-T6b; formatDayAt, ссылка без тире | — |
+| T2a+T2b служба | aedfea6561fec7570 | writer | done | 328f6c7, ee06a3d, 5f46794, 243a2c9; ci b3d8306 зелёный | 0 |
+| T2c+T7c(служба) | a9e5ae6eb3c55714f | writer | done | 6b9ea3b, 67dc9d7, b87ce6b, d2428b5; эскалация: безопасный режим в полночь теряет бонус → T3 | 0 |
