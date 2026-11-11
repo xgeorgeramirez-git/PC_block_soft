@@ -3,6 +3,7 @@
 # (full-series.yml на windows-latest, Git Bash) ровно на закрытии вехи и после ревью-фиксов.
 # Кэп параллелизма — чтобы не перегревать машину (GOMAXPROCS ~75% ядер, -p 2, фаззинг -parallel 2).
 # Переопределение: SERIES_PROCS, FUZZ_TIME. Лог: test-results/series-<дата>.log
+# Ключ --st1-only: только проба ST1 (скорость базы, NFR-13) — её же по запросу зовёт ci.yml (вход st1).
 set -uo pipefail
 cd "$(dirname "$0")/.."
 mkdir -p test-results
@@ -33,6 +34,25 @@ step() {
   rm -f "$out"
 }
 
+# Проба ST1 (RM5-7): отдельный шаг без -race и без покрытия — с ними чистый Go SQLite медленнее в
+# разы и порог 1 с упал бы ложно. PCB_ST1 ставится только здесь; в общем go test тест пропускается.
+st1_step() {
+  PCB_ST1=1 go test -run '^TestStatsST1$' -count=1 -v ./internal/storage/
+}
+# run_st1 — шаг серии и пометка итога: вывод шага уходит в журнал серии, поэтому строку
+# ::notice теста повторяем в stdout, иначе Actions её не увидит.
+run_st1() {
+  step "ST1 скорость базы" st1_step
+  grep -ao '::notice title=ST1::.*' "$LOG" | tail -1 || true
+}
+
+if [ "${1:-}" = "--st1-only" ]; then
+  say "Проба ST1, $(date '+%d.%m.%Y %H:%M')"
+  run_st1
+  say "Итог ST1: $([ $FAILED -eq 0 ] && echo ЗЕЛЁНЫЙ || echo КРАСНЫЙ), $(( $(date +%s) - START )) с"
+  exit $FAILED
+fi
+
 say "Тест-серия R4, $(date '+%d.%m.%Y %H:%M'), GOMAXPROCS=$GOMAXPROCS, фаззинг $FUZZ_TIME на цель"
 
 # R0 статика
@@ -45,6 +65,7 @@ step "tsc" bash -c 'cd frontend && npm run typecheck'
 # Юниты с гонками и покрытием по пакетам
 PKGS=$(go list ./... | grep -v -E '/internal/ui$' | grep -v -E '^pcblock$')
 step "go test -race" env CGO_ENABLED=1 go test -race -count=1 -p 2 -tags "$TAGS" -coverprofile=test-results/cover.out $PKGS
+run_st1
 
 check_coverage() {
   local fail=0
