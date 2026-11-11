@@ -8,6 +8,7 @@
 import contract from "../../../internal/ipc/testdata/contract.json";
 import { formatDuration, formatHour, formatLimit, genitiveName, localOffsetMin, weekdayOfMs, weekdayShort } from "../lib/format";
 import { isViolation } from "../lib/journal";
+import { g15Fields } from "./g15";
 import { normalizeLimits } from "../lib/limits";
 import { breakEqual, DEFAULT_BREAK, validateBreak } from "../lib/rest";
 import { ADULT_SOURCE_TEXT, DUPLICATE_TEXT, NOT_DOMAIN_TEXT, cleanDomain } from "../lib/sites";
@@ -159,6 +160,13 @@ export function s42Child(over: Partial<MockChild> = {}): MockChild {
     history: s42History(),
     ...over,
   });
+}
+
+export { G15_LIMITS, G15_NOW, g15Bonus, g15Events, g15Fields, g15History } from "./g15";
+
+/** Ребёнок G15 (S21): эталонная неделя пн 16 … вс 22.11.2026, копилка 25 мин. */
+export function g15Child(over: Partial<MockChild> = {}): MockChild {
+  return mockChild({ ...g15Fields(), ...over });
 }
 
 /** Промокод в подменной программе (R26, D-50). */
