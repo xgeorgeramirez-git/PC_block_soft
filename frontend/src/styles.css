@@ -12,6 +12,8 @@
   --status-danger: #b3261e;
   --status-ok: #2c7a4b;
   --field-border: #7b848c;
+  /* Столбики «По дням» (D-78): нейтральный графит, не цвет статуса (ТЗ 8.0 п.3); на поверхности 6,2:1. */
+  --chart-bar: #59616a;
 
   --radius-control: 6px;
   --radius-panel: 8px;
@@ -40,6 +42,7 @@
     --primary: #eef1f4;
     --primary-text: #15181b;
     --field-border: #7d868e;
+    --chart-bar: #a3abb3;
     /* На тёмном фоне статусные цвета светлее: контраст текста не меньше 4,5:1 (NFR-14). */
     --status-warn: #e3a23b;
     --status-danger: #f2877d;
@@ -878,6 +881,270 @@ p {
 .totals-share {
   min-width: 4ch;
   color: var(--text-muted);
+}
+
+/* --- Разделы карточки периода (8.2.6 п.4-7, M5) ----------------------------------------- */
+
+/* «Статистика ведётся с …» над карточкой «Итогов» (8.2.6 п.10). */
+.stats-since {
+  margin: 0 0 var(--space-2);
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+/* Раздел внутри панели периода: отделён линией, как блок, а не отдельная карточка в карточке. */
+.stat-sub {
+  border-top: 1px solid var(--line);
+  margin-top: var(--space-6);
+  padding-top: var(--space-4);
+}
+
+.stat-sub .stat-lead {
+  margin-bottom: var(--space-2);
+}
+
+/* Нарушения в карточке: та же разметка, что у журнала, без своей рамки (рамка уже у карточки). */
+.stat-journal {
+  max-width: none;
+  background: none;
+  border: 0;
+  border-radius: 0;
+}
+
+.stat-journal .journal-item {
+  padding: var(--space-2) 0;
+}
+
+.stat-more {
+  margin-top: var(--space-2);
+}
+
+/* «Программы» и «Сайты»: название сжимается и обрезается помощником, время и доля - ровно справа. */
+.usage-table {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+}
+
+.usage-col-time {
+  width: 7.5rem;
+}
+
+.usage-col-share {
+  width: 4.5rem;
+}
+
+.usage-table th,
+.usage-table td {
+  padding: var(--space-1) var(--space-2);
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  vertical-align: middle;
+}
+
+.usage-table th {
+  color: var(--text-muted);
+  font-size: 14px;
+  font-weight: 400;
+}
+
+.usage-table th:first-child,
+.usage-table td:first-child {
+  padding-left: 0;
+}
+
+.usage-table th:last-child,
+.usage-table td:last-child {
+  padding-right: 0;
+}
+
+.usage-table .usage-num {
+  text-align: right;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.usage-share {
+  color: var(--text-muted);
+}
+
+.usage-name {
+  min-width: 0;
+}
+
+/* «По дням» (D-69, D-78): график в своей области. Вбок прокручивается только .daybars-scroll (36 месяцев),
+   документ и .content - нет. Сверху запас под подсказку столбика: прокрутка вбок обрезает и по высоте. */
+.daybars {
+  position: relative;
+  margin: 0;
+}
+
+.daybars-scroll {
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 40px 8px 0 0;
+}
+
+.daybars-plot {
+  display: grid;
+  grid-template-columns: 48px 1fr;
+  min-width: calc(48px + var(--n) * var(--col-min));
+}
+
+.daybars-axis {
+  position: relative;
+  height: 160px;
+}
+
+.daybars-tick {
+  position: absolute;
+  right: var(--space-2);
+  transform: translateY(-50%);
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.daybars-area {
+  position: relative;
+  height: 160px;
+}
+
+.daybars-svg {
+  display: block;
+  overflow: visible;
+}
+
+.daybar-total {
+  fill: var(--chart-bar);
+}
+
+.daybar-hatch {
+  fill: var(--chart-bar);
+}
+
+.daybar-study {
+  stroke: var(--chart-bar);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.daybar-empty {
+  stroke: var(--field-border);
+  stroke-width: 2;
+}
+
+.daybars-grid {
+  stroke: var(--line);
+  stroke-width: 1;
+}
+
+.daybars-hits {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  grid-template-columns: repeat(var(--n), minmax(0, 1fr));
+}
+
+.daybar-hit {
+  min-width: 0;
+  border-radius: 2px;
+}
+
+.daybar-hit:focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: -2px;
+}
+
+/* Подсказка над графиком (не накрывает столбики), у краёв выравнивается внутрь (tipAlign). */
+.daybars-tip {
+  position: absolute;
+  bottom: calc(100% + 4px);
+  z-index: 2;
+  padding: 2px var(--space-2);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.45;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.daybars-tip-center {
+  transform: translateX(-50%);
+}
+
+.daybars-tip-start {
+  transform: translateX(-8px);
+}
+
+.daybars-tip-end {
+  transform: translateX(calc(-100% + 8px));
+}
+
+.daybars-labels {
+  display: grid;
+  grid-template-columns: repeat(var(--n), minmax(0, 1fr));
+  padding-top: var(--space-1);
+}
+
+/* Подпись шире узкого столбика: по центру столбика, выходит за его края, не переносится. */
+.daybars-label {
+  display: flex;
+  justify-content: center;
+  min-width: 0;
+  overflow: visible;
+  color: var(--text-muted);
+  font-size: 12px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+/* «Сегодня» - жирной подписью, без цвета (цвет - только статус). */
+.daybars-label-today {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.daybars-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+  margin-top: var(--space-2);
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+.daybars-key {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+/* Строка выбора ребёнка: слева дети, справа «Очистить статистику» (8.3.7 п.3). */
+.stat-child-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  margin-bottom: var(--space-3);
+}
+
+.stat-child-row .stat-child-picker {
+  margin-bottom: 0;
+}
+
+/* Сообщение об очистке - постоянная живая область; пока пусто, места не занимает. */
+.stat-clear-status:empty {
+  margin: 0;
+}
+
+.stat-clear-status:not(:empty) {
+  margin: 0 0 var(--space-3);
 }
 
 /* «Настройки для родителя» внизу окна ребёнка: мелкая ссылка, а не кнопка (ТЗ 8.2.6 п.1). */

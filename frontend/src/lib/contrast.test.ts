@@ -106,6 +106,14 @@ describe("токены палитры (ТЗ 8.0 п.9)", () => {
     expect(ratio(light["field-border"], light.surface)).toBeGreaterThanOrEqual(3);
     expect(ratio(dark["field-border"], dark.surface)).toBeGreaterThanOrEqual(3);
   });
+
+  // Ловит (WCAG 1.4.11): столбики «По дням» сливаются с карточкой; токен не задан в одной из тем.
+  it("столбики заметны на поверхности в обеих темах (3:1)", () => {
+    expect(light["chart-bar"]).toBe("#59616a");
+    expect(dark["chart-bar"]).toBe("#a3abb3");
+    expect(ratio(light["chart-bar"], light.surface)).toBeGreaterThanOrEqual(3);
+    expect(ratio(dark["chart-bar"], dark.surface)).toBeGreaterThanOrEqual(3);
+  });
 });
 
 /** Токен из правила styles.css: «color: var(--text-muted)» у селектора. */

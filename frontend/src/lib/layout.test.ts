@@ -77,3 +77,26 @@ describe("окно «Моя статистика»: вёрстка", () => {
     expect(rule(".content-centered")).toMatch(/padding-top:\s*var\(--space-4\)/);
   });
 });
+
+describe("«По дням»: график в своей области (PL-25)", () => {
+  // Ловит: 36 месяцев растягивают страницу вбок, а не прокручивают только график.
+  it("вбок прокручивается только .daybars-scroll, сверху запас под подсказку", () => {
+    const r = rule(".daybars-scroll");
+    expect(r).toMatch(/overflow-x:\s*auto/);
+    expect(r).toMatch(/overflow-y:\s*hidden/);
+    expect(r).toMatch(/padding:\s*40px/);
+  });
+
+  // Ловит: скрытая таблица чисел (absolute) растягивает окно, а не лежит внутри графика.
+  it("рисунок графика - позиционированный предок скрытой таблицы", () => {
+    expect(rule(".daybars")).toMatch(/position:\s*relative/);
+    expect(rule(".daybars-area")).toMatch(/position:\s*relative/);
+  });
+
+  // Ловит (ТЗ 8.0 п.3): столбики окрашены цветом статуса.
+  it("столбики - нейтральным токеном, не цветом статуса", () => {
+    for (const sel of [".daybar-total", ".daybar-hatch"]) expect(rule(sel)).toMatch(/fill:\s*var\(--chart-bar\)/);
+    expect(rule(".daybar-study")).toMatch(/stroke:\s*var\(--chart-bar\)/);
+    expect(css).not.toMatch(/\.daybar[^{]*\{[^}]*--status-/);
+  });
+});
