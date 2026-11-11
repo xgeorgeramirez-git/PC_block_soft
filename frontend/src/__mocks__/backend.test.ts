@@ -389,6 +389,25 @@ describe("ребёнок о себе: MyToday, FirstRunSeen, Finish", () => {
     expect([all.videoS, all.otherS]).toEqual([1200, 900]);
   });
 
+  // Ловит (M5, RM5-4): подмена отдаёт столбики не как служба: сумма столбиков не равна «Итогам», сегодня
+  // не последним столбиком, «Всё время» не по месяцам; не ребёнок получает null вместо [].
+  it("MyToday: столбики сходятся с итогами, сегодня - последний", async () => {
+    const history = [{ day: "2026-10-12", totalS: 600, studyS: 300 }];
+    installBackend({ children: [mockChild({ usedS: 1200, studyUsedS: 180, history })] });
+    for (const period of ["today", "week", "all"] as const) {
+      const mine = await api.myToday(period);
+      const bars = mine.bars ?? [];
+      expect(bars.reduce((n, b) => n + b.totalS, 0)).toBe(mine.usedS);
+      expect(bars.reduce((n, b) => n + b.studyS, 0)).toBe(mine.studyS);
+      expect(bars[bars.length - 1].today).toBe(true);
+      expect(mine.barsBy).toBe(period === "all" ? "month" : "day");
+    }
+    expect((await api.myToday("today")).bars).toHaveLength(1);
+    installBackend({ myChildId: null });
+    const none = await api.myToday("week");
+    expect([none.bars, none.violations, none.bonus]).toEqual([[], [], []]);
+  });
+
   it("FirstRunSeen запоминается, Finish отдаёт код окну", async () => {
     const mock = installBackend();
     expect(mock.state.firstRunSeen).toBe(false);

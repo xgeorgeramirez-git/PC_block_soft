@@ -299,7 +299,8 @@ export async function myToday(period: StatsPeriod = "today"): Promise<MyTodayRep
 }
 
 /**
- * Пустые списки приходят как null, у старой службы нет итогов, периода и времени программ: приводим к [] и 0.
+ * Пустые списки приходят как null, у старой службы нет итогов, периода, времени программ, столбиков,
+ * нарушений и копилки за период: приводим к [], 0 и "".
  * Служба без периодов отвечает за сегодня: «Использовано» тогда берётся из статуса.
  */
 function myTodayOf(r: Partial<MyTodayReply>): MyTodayReply {
@@ -318,6 +319,12 @@ function myTodayOf(r: Partial<MyTodayReply>): MyTodayReply {
     extraMin: r.extraMin ?? 0,
     bonusSpentMin: r.bonusSpentMin ?? 0,
     programs: r.programs ?? [],
+    bars: r.bars ?? [],
+    barsBy: r.barsBy ?? "day",
+    violations: r.violations ?? [],
+    bonus: r.bonus ?? [],
+    statsSinceDay: r.statsSinceDay ?? "",
+    statsSinceText: r.statsSinceText ?? "",
   };
 }
 

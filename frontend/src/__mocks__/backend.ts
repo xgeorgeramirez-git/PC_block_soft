@@ -7,6 +7,7 @@
 // там как PCBlockMock.installBackend(...).
 import contract from "../../../internal/ipc/testdata/contract.json";
 import { formatDuration, formatHour, formatLimit, localOffsetMin, weekdayOfMs, weekdayShort } from "../lib/format";
+import { isViolation } from "../lib/journal";
 import { normalizeLimits } from "../lib/limits";
 import { breakEqual, DEFAULT_BREAK, validateBreak } from "../lib/rest";
 import { ADULT_SOURCE_TEXT, DUPLICATE_TEXT, NOT_DOMAIN_TEXT, cleanDomain } from "../lib/sites";
@@ -16,6 +17,7 @@ import type {
   BonusEntry,
   ChildInfo,
   ChildStatus,
+  DayBar,
   Interval,
   JournalEntry,
   MyRule,
@@ -591,7 +593,7 @@ function periodFromDay(period: string, nowMs: number): string {
  * Ответ MyToday ребёнка: строки «Сегодня» и правила за сегодня, «Итоги» за период (D-61): прошлые дни
  * history строго до сегодня плюс сегодня. Не ребёнок - пустые списки (не null).
  */
-function myToday(child: MockChild | undefined, nowMs: number, period: StatsPeriod = "today"): MyTodayReply {
+function myToday(child: MockChild | undefined, nowMs: number, period: StatsPeriod = "today", events: JournalEntry[] = []): MyTodayReply {
   if (!child) {
     return { ...(examples["MyToday#empty"].reply.payload as MyTodayReply), period };
   }
@@ -603,6 +605,10 @@ function myToday(child: MockChild | undefined, nowMs: number, period: StatsPerio
   const todayDay = isoDay(nowMs);
   const from = periodFromDay(period, nowMs);
   const past = (child.history ?? []).filter((d) => d.day >= from && d.day < todayDay);
+  // Начало периода в мс (местная полночь); «Всё время» - без границы, как служба (dayStartMs).
+  const fromMs = from === "0001-01-01" ? 0 : new Date(Number(from.slice(0, 4)), Number(from.slice(5, 7)) - 1, Number(from.slice(8, 10))).getTime();
+  // «Статистика ведётся с» - первый день истории до сегодня, иначе сегодня (без очистки, RM5-8).
+  const since = [...(child.history ?? []).map((d) => d.day).filter((d) => d < todayDay), todayDay].sort()[0];
   const sum = (pick: (d: MockDay) => number | undefined) => past.reduce((n, d) => n + (pick(d) ?? 0), 0);
   const usedS = status.usedS + sum((d) => d.totalS);
   const gamesS = (child.gamesUsedS ?? 0) + sum((d) => d.gamesS);
@@ -637,7 +643,84 @@ function myToday(child: MockChild | undefined, nowMs: number, period: StatsPerio
     extraMin: (child.extraMin ?? 0) + sum((d) => d.extraMin),
     bonusSpentMin: sum((d) => d.bonusSpentMin),
     programs,
+    ...mockBars(period, from, todayDay, past, status.usedS, child.studyUsedS ?? 0),
+    violations: events
+      .filter((e) => e.childId === child.childId && isViolation(e.kind) && e.atMs >= fromMs)
+      .sort((a, b) => b.atMs - a.atMs)
+      .slice(0, 200),
+    bonus: (child.bonusLedger ?? []).filter((b) => b.atMs >= fromMs).slice(0, 200),
+    statsSinceDay: since,
+    statsSinceText: `Статистика ведётся с ${Number(since.slice(8, 10))} ${MONTHS_GEN[Number(since.slice(5, 7)) - 1]} ${since.slice(0, 4)}`,
   };
+}
+
+const MONTHS_SHORT = ["янв", "фев", "мар", "апр", "май", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"];
+const MONTHS_NOM = ["январь", "февраль", "март", "апрель", "май", "июнь", "июль", "август", "сентябрь", "октябрь", "ноябрь", "декабрь"];
+const MONTHS_GEN = ["января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа", "сентября", "октября", "ноября", "декабря"];
+
+/** Подсказка столбика, как у службы (stats_days.go barTitle). */
+function barTitle(when: string, totalS: number, studyS: number): string {
+  return `${when}: ${formatDuration(totalS)}, учёба ${formatDuration(studyS)}`;
+}
+
+/**
+ * Столбики «По дням», как служба (buildBars): «Сегодня», «Неделя», «Месяц» - по дню с начала периода по
+ * сегодня; «Год» - по месяцу с января; «Всё время» - по месяцу с первого месяца данных. Пустые дни и месяцы
+ * внутри - нулевые столбики; сегодня - из счётчиков дня (не из истории).
+ */
+function mockBars(
+  period: StatsPeriod,
+  from: string,
+  todayDay: string,
+  past: MockDay[],
+  todayTotalS: number,
+  todayStudyS: number,
+): Pick<MyTodayReply, "bars" | "barsBy"> {
+  const monthly = period === "year" || period === "all";
+  const keyOf = (day: string) => (monthly ? day.slice(0, 7) : day);
+  const sums = new Map<string, { total: number; study: number }>();
+  const add = (key: string, total: number, study: number) => {
+    const cur = sums.get(key) ?? { total: 0, study: 0 };
+    sums.set(key, { total: cur.total + total, study: cur.study + study });
+  };
+  for (const d of past) add(keyOf(d.day), d.totalS ?? 0, d.studyS ?? 0);
+  add(keyOf(todayDay), todayTotalS, todayStudyS);
+  const noon = (day: string) => new Date(Number(day.slice(0, 4)), Number(day.slice(5, 7)) - 1, Number(day.slice(8, 10)), 12);
+  const end = noon(todayDay);
+  if (!monthly) {
+    const bars: DayBar[] = [];
+    for (let t = noon(from); t <= end; t = new Date(t.getFullYear(), t.getMonth(), t.getDate() + 1, 12)) {
+      const key = isoDay(t.getTime());
+      const s = sums.get(key) ?? { total: 0, study: 0 };
+      const wd = weekdayShort(((t.getDay() + 6) % 7) + 1);
+      bars.push({
+        key,
+        label: `${wd} ${t.getDate()}`,
+        title: barTitle(`${wd}, ${t.getDate()} ${MONTHS_GEN[t.getMonth()]}`, s.total, s.study),
+        totalS: s.total,
+        studyS: s.study,
+        today: key === todayDay,
+      });
+    }
+    return { bars, barsBy: "day" };
+  }
+  const firstDay = period === "all" ? [...past.map((d) => d.day), todayDay].sort()[0] : from;
+  const start = noon(firstDay);
+  const withYear = start.getFullYear() !== end.getFullYear();
+  const bars: DayBar[] = [];
+  for (let t = new Date(start.getFullYear(), start.getMonth(), 1, 12); t <= end; t = new Date(t.getFullYear(), t.getMonth() + 1, 1, 12)) {
+    const key = `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, "0")}`;
+    const s = sums.get(key) ?? { total: 0, study: 0 };
+    bars.push({
+      key,
+      label: withYear ? `${MONTHS_SHORT[t.getMonth()]} ${t.getFullYear()}` : MONTHS_SHORT[t.getMonth()],
+      title: barTitle(`${MONTHS_NOM[t.getMonth()]} ${t.getFullYear()}`, s.total, s.study),
+      totalS: s.total,
+      studyS: s.study,
+      today: key === todayDay.slice(0, 7),
+    });
+  }
+  return { bars, barsBy: "month" };
 }
 
 const PERIODS_OK = new Set(["today", "week", "month", "year", "all"]);
@@ -1150,7 +1233,7 @@ export function createBackend(opts: MockOptions = {}): MockBackend {
       if (!child) return fail("Ребёнок не найден");
       const period = periodArg(req);
       if (!period) return fail("Не удалось разобрать запрос. Попробуйте ещё раз");
-      return okReply(myToday(child, now, period));
+      return okReply(myToday(child, now, period, state.events));
     },
 
     GetDiag: () => okReply({ verbose: state.verboseLogs, logsPath: MOCK_LOGS_PATH }),
@@ -1202,7 +1285,7 @@ export function createBackend(opts: MockOptions = {}): MockBackend {
     MyToday: (req, now) => {
       const period = periodArg(req);
       if (!period) return fail("Не удалось разобрать запрос. Попробуй ещё раз");
-      return okReply(myToday(childById(state.myChildId ?? -1), now, period));
+      return okReply(myToday(childById(state.myChildId ?? -1), now, period, state.events));
     },
 
     FirstRunSeen: () => {
