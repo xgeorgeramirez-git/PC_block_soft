@@ -273,8 +273,12 @@ func examples() map[string]example {
 		CmdSetNoForbidden: ok(SetNoForbiddenRequest{ChildID: 1, On: true}, SetNoForbiddenReply{
 			Card: card(okStatus(), 0, false), Message: "Сегодня запретные часы не действуют",
 		}),
-		CmdClearBonus:  ok(ClearBonusRequest{ChildID: 1}, BonusChangeReply{BalanceAfter: 0, Message: "Копилка обнулена"}),
-		CmdReduceBonus: ok(ReduceBonusRequest{ChildID: 1, Minutes: 30}, BonusChangeReply{BalanceAfter: 45, Message: "Убавлено 30 минут. Баланс 45 мин"}),
+		CmdClearBonus:          ok(ClearBonusRequest{ChildID: 1}, BonusChangeReply{BalanceAfter: 0, Message: "Копилка обнулена"}),
+		CmdClearStats:          ok(ClearChildRequest{ChildID: 1}, ClearReply{Message: "Статистика Миши очищена"}),
+		"ClearStats#noChild":   fail(ClearChildRequest{ChildID: 9}, "Такого ребёнка нет в списке", "", nil),
+		CmdClearJournal:        ok(ClearChildRequest{ChildID: 1}, ClearReply{Message: "Журнал Миши очищен"}),
+		"ClearJournal#noChild": fail(ClearChildRequest{ChildID: 9}, "Такого ребёнка нет в списке", "", nil),
+		CmdReduceBonus:         ok(ReduceBonusRequest{ChildID: 1, Minutes: 30}, BonusChangeReply{BalanceAfter: 45, Message: "Убавлено 30 минут. Баланс 45 мин"}),
 		CmdCreatePromo: ok(CreatePromoRequest{Code: "a1234", Minutes: 30}, CreatePromoReply{
 			Promo:   PromoView{CodeDisplay: "a1234", Minutes: 30, CreatedAtMs: t0},
 			Message: "Промокод «a1234» на 30 минут готов",
@@ -591,8 +595,8 @@ func TestContractHasEveryCommand(t *testing.T) {
 			t.Errorf("пример для %s есть, а в AllCommands её нет", c)
 		}
 	}
-	if len(AllCommands) != 71 {
-		t.Errorf("команд %d, ждали 71 (5 команд M4: ListSites, AddSite, RemoveSite, SetAdultFilter, тестовая TestSeedPrograms; тестовая TestSeedDay и EndBreak из раунда 0.3.2; 46 из M1/M2/0.2.1 без команд Помощника, 9 из фидбек-раунда 0.2.2: OpenLogs, SetNoForbidden, ClearBonus, ReduceBonus, CreatePromo, ListPromos, RedeemPromo, GetBonusRate, SetBonusRate, GuardClosing из раунда 0.2.3, тестовая TestSession из 0.2.5 и 5 программ M3: ListPrograms, DecideProgram, SetProgramsCategory, UndoProgram, ScanPrograms; SetProgramsHidden и RenameProgram из раунда 0.3.1)", len(AllCommands))
+	if len(AllCommands) != 73 {
+		t.Errorf("команд %d, ждали 73 (2 команды M5: ClearStats, ClearJournal; 5 команд M4: ListSites, AddSite, RemoveSite, SetAdultFilter, тестовая TestSeedPrograms; тестовая TestSeedDay и EndBreak из раунда 0.3.2; 46 из M1/M2/0.2.1 без команд Помощника, 9 из фидбек-раунда 0.2.2: OpenLogs, SetNoForbidden, ClearBonus, ReduceBonus, CreatePromo, ListPromos, RedeemPromo, GetBonusRate, SetBonusRate, GuardClosing из раунда 0.2.3, тестовая TestSession из 0.2.5 и 5 программ M3: ListPrograms, DecideProgram, SetProgramsCategory, UndoProgram, ScanPrograms; SetProgramsHidden и RenameProgram из раунда 0.3.1)", len(AllCommands))
 	}
 }
 

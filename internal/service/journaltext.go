@@ -126,6 +126,10 @@ func eventText(kind, name string, d map[string]any) string {
 		if d["on"] == true {
 			body = textAdultOn
 		}
+	case evStatsCleared:
+		body = "статистика очищена"
+	case evJournalCleared:
+		body = "журнал очищен"
 	case evBraveRestored:
 		body = "правила Brave восстановлены"
 	case core.EvRestBreak, core.EvRestEnded:

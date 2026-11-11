@@ -31,7 +31,9 @@ const (
 	CmdListEvents     = "ListEvents"
 	CmdChangePassword = "ChangePassword"
 	CmdSetChildren    = "SetChildren"
-	CmdParentStats    = "ParentStats" // статистика выбранного ребёнка за период для родителя (FR-23, D-44, D-61)
+	CmdParentStats    = "ParentStats"  // статистика выбранного ребёнка за период для родителя (FR-23, D-44, D-61)
+	CmdClearStats     = "ClearStats"   // очистить статистику ребёнка, учёт лимита не меняется (FR-38, RM5-8)
+	CmdClearJournal   = "ClearJournal" // очистить журнал ребёнка (FR-38, RM5-9)
 
 	// Диагностика: подробные логи (FR-25, D-42).
 	CmdGetDiag  = "GetDiag"  // прочитать, включены ли подробные логи
@@ -106,6 +108,8 @@ var AllCommands = []string{
 	CmdEndBreak,    // фидбек-раунд 0.3.2 (FB-14, commands_0_3_2.go)
 
 	CmdListSites, CmdAddSite, CmdRemoveSite, CmdSetAdultFilter, CmdTestSeedPrograms, // M4 (commands_m4.go)
+
+	CmdClearStats, CmdClearJournal, // M5 (FR-38)
 }
 
 // Имена полей, к которым служба привязывает ошибку (Reply.Field, L-121).
@@ -509,6 +513,16 @@ type JournalEntry struct {
 // ListEventsReply — ответ ListEvents.
 type ListEventsReply struct {
 	Events []JournalEntry `json:"events"`
+}
+
+// ClearChildRequest — ClearStats и ClearJournal: чью статистику или журнал очистить (FR-38).
+type ClearChildRequest struct {
+	ChildID int64 `json:"childId"`
+}
+
+// ClearReply — ответ ClearStats и ClearJournal: «Статистика Миши очищена», «Журнал Миши очищен».
+type ClearReply struct {
+	Message string `json:"message"`
 }
 
 // ChangePasswordRequest — смена пароля родителя из родительской сессии.

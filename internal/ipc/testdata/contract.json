@@ -404,6 +404,46 @@
       }
     }
   },
+  "ClearJournal": {
+    "request": {
+      "childId": 1
+    },
+    "reply": {
+      "ok": true,
+      "payload": {
+        "message": "Журнал Миши очищен"
+      }
+    }
+  },
+  "ClearJournal#noChild": {
+    "request": {
+      "childId": 9
+    },
+    "reply": {
+      "ok": false,
+      "error": "Такого ребёнка нет в списке"
+    }
+  },
+  "ClearStats": {
+    "request": {
+      "childId": 1
+    },
+    "reply": {
+      "ok": true,
+      "payload": {
+        "message": "Статистика Миши очищена"
+      }
+    }
+  },
+  "ClearStats#noChild": {
+    "request": {
+      "childId": 9
+    },
+    "reply": {
+      "ok": false,
+      "error": "Такого ребёнка нет в списке"
+    }
+  },
   "CopyRules": {
     "request": {
       "fromChildId": 2,

@@ -228,6 +228,8 @@ func init() {
 		ipc.CmdChangePassword: {parentToken(true), (*Service).hChangePassword},
 		ipc.CmdSetChildren:    {parentToken(true), (*Service).hSetChildren},
 		ipc.CmdParentStats:    {parentToken(false), (*Service).hParentStats},
+		ipc.CmdClearStats:     {parentToken(true), (*Service).hClearStats},
+		ipc.CmdClearJournal:   {parentToken(true), (*Service).hClearJournal},
 
 		ipc.CmdGetDiag:  {parentToken(false), (*Service).hGetDiag},
 		ipc.CmdSetDiag:  {parentToken(true), (*Service).hSetDiag},
