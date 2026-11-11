@@ -297,7 +297,7 @@ describe("меню окна родителя", () => {
     await user.click(item);
     expect(item.getAttribute("aria-current")).toBe("page");
     const versions = (await screen.findAllByRole("heading", { level: 3 })).map((h) => h.textContent);
-    expect(versions[0]).toBe("Версия 0.4.0. Сайты и Brave");
+    expect(versions[0]).toBe("Версия 0.4.1. Roblox больше не просит разрешения каждый раз");
     expect(screen.queryByRole("heading", { name: "Помощь" })).toBeNull();
   });
 
