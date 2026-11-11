@@ -243,9 +243,11 @@ func (s *Service) bonusRate() int {
 
 // grantDailyBonus начисляет автобонус за прошедший (закрытый) день (R25, D-49): один раз за
 // день, только в дни, когда игра была разрешена, с потолком копилки 600. Вызывается из
-// afterDecision на смене суток; помечает day.BonusGranted, чтобы повторно не начислять.
+// afterDecision на смене суток и из catchUpBonus при запуске; помечает day.BonusGranted, чтобы
+// повторно не начислять. Безопасный режим (правила не прочитаны, R18): лимит дня не известен —
+// день не рассматривается и не помечается, его догонит catchUpBonus при запуске с правилами (FB-21).
 func (s *Service) grantDailyBonus(cs *childState, day *core.DayState) {
-	if day == nil || day.Day == "" || day.BonusGranted {
+	if day == nil || day.Day == "" || day.BonusGranted || cs.rules.Broken {
 		return
 	}
 	t, err := time.Parse(time.DateOnly, day.Day)

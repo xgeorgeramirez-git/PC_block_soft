@@ -187,3 +187,36 @@ func TestBonusCatchUpSeedDay(t *testing.T) {
 		}
 	}
 }
+
+// Ловит (FB-21, D-82, R18): полночь прошла при работающей службе в безопасном режиме (правила не
+// прочитались, лимиты не известны) — день помечен рассмотренным без бонуса, и догоняющее начисление
+// при следующем запуске с нормальными правилами его уже не видит; строка дня не сохранена.
+func TestBonusSafeModeMidnightWaitsForCatchUp(t *testing.T) {
+	st, id := catchupStore(t)
+	st.failSchedule = true
+	h := startAt(t, st, time.Date(2026, 11, 24, 23, 59, 0, 0, tzMSK))
+	h.childLogsIn()
+	h.run(70, idleSample) // полночь при работающей службе
+	h.svc.Shutdown(h.real.Now())
+	if bal, evs := bonusOf(t, st, id); bal != 0 || len(evs) != 0 {
+		t.Fatalf("безопасный режим: копилка %d, записей %d; want 0", bal, len(evs))
+	}
+	row, ok := st.days[dayKey(id, tue24)]
+	if !ok || row.BonusGranted || row.TotalS != 40*60 {
+		t.Fatalf("строка вторника %+v (есть %v); want сохранена с bonus_granted = 0 и учётом 40 мин", row, ok)
+	}
+
+	st.failSchedule = false
+	h2 := startAt(t, st, time.Date(2026, 11, 25, 9, 0, 0, 0, tzMSK))
+	h2.childLogsIn()
+	h2.run(5, idleSample)
+	h2.svc.Shutdown(h2.real.Now())
+	startAt(t, st, time.Date(2026, 11, 25, 10, 0, 0, 0, tzMSK))
+	bal, evs := bonusOf(t, st, id)
+	if bal != 40 || len(evs) != 1 || evs[0].Details["day"] != tue24 {
+		t.Errorf("после запуска с правилами: копилка %d, записи %+v; want 40 и одна запись за вторник", bal, evs)
+	}
+	if !st.days[dayKey(id, tue24)].BonusGranted {
+		t.Error("вторник не помечен после догоняющего начисления")
+	}
+}
