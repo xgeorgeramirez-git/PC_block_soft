@@ -93,3 +93,46 @@ func TestDecideProfileProgramStoresRootAndPublisher(t *testing.T) {
 		t.Errorf("новая версия у Коли: %+v", r)
 	}
 }
+
+// Установщик Roblox во временной папке Миши (FB-19).
+const (
+	pathRobloxTempInstaller = `c:\users\миша\appdata\local\temp\roblox\robloxplayerinstaller.exe`
+	pathRobloxTempForged    = `c:\users\миша\appdata\local\temp\roblox\sub\robloxplayerinstaller.exe`
+)
+
+// Ловит (FB-19, повтор заказчика 11.11.2026): установщик Roblox во временной папке перезаписан
+// при запуске игры (новый отпечаток, тот же издатель) — наблюдатель закрывает его и снова ставит
+// в «Ждут решения» с «Раньше было: игра»; файл того же имени без издателя проходит без решения.
+func TestWatchTempInstallerOverwrittenKeepsDecision(t *testing.T) {
+	w := newWatcher()
+	meta := newMeta()
+	meta.set(pathRobloxTempInstaller, robloxCorp, "Roblox", "5100:2") // перезаписан: отпечаток другой
+	meta.set(pathRobloxTempForged, "", "", "1:1")                     // своя программа под тем же именем
+	h := watchHarness(t, w, withMeta(meta))
+	if err := h.store.UpsertProgram(Program{Path: pathRobloxTempInstaller, Name: "RobloxPlayerInstaller", Publisher: robloxCorp,
+		Category: "games", Source: "parent", Fingerprint: "5000:1", DecidedAt: 1}); err != nil {
+		t.Fatal(err)
+	}
+	h.svc.mu.Lock()
+	h.svc.reloadPrograms()
+	h.svc.mu.Unlock()
+	procs := startAll(w, pathRobloxTempInstaller, pathRobloxTempForged)
+	for i := 0; i < 3; i++ {
+		h.watch()
+	}
+	if !w.alive(procs[pathRobloxTempInstaller]) {
+		t.Error("перезаписанный установщик Roblox того же издателя закрыт")
+	}
+	if got := w.killedPaths(); len(got) != 1 || got[0] != pathRobloxTempForged {
+		t.Errorf("закрыты %v, want только %s", got, pathRobloxTempForged)
+	}
+	pend, err := h.store.ListPending()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range pend {
+		if p.Path == pathRobloxTempInstaller {
+			t.Errorf("установщик снова ждёт решения: %+v", p)
+		}
+	}
+}

@@ -297,6 +297,23 @@ func (r Roots) profileRel(p string) string {
 	return strings.Join(parts[:n], `\`)
 }
 
+// tempRel — папка временных файлов приложения в профиле относительно папки профилей, с именем
+// профиля («danila\appdata\local\temp\roblox»): первая папка под AppData\Local\Temp, если файл
+// лежит в ней или глубже; «» — путь не там (файл прямо в Temp: имена там случайные). Корнем
+// приложения такая папка не считается (наследования категорий и app_root нет): по ней действует
+// только правило «то же имя файла и тот же издатель» (FB-19, RM3-13). p нормализован.
+func (r Roots) tempRel(p string) string {
+	if !under(p, r.UserProfiles) {
+		return ""
+	}
+	base := strings.TrimSuffix(r.UserProfiles, `\`)
+	parts := strings.Split(p[len(base)+1:], `\`) // имя, appdata, local, temp, папка, …, файл
+	if len(parts) < 6 || parts[1] != "appdata" || parts[2] != "local" || parts[3] != "temp" {
+		return ""
+	}
+	return strings.Join(parts[:5], `\`)
+}
+
 // braveDir — папка Brave Software в Program Files и в AppData\Local профиля.
 const braveDir = "bravesoftware"
 
