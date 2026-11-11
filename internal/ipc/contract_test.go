@@ -355,16 +355,35 @@ func examples() map[string]example {
 		CmdMyToday: ok(MyTodayRequest{Period: PeriodToday}, MyTodayReply{
 			Status: okStatus(), Today: []string{"Сегодня осталось 1 ч 25 мин из 2 ч", "Использовано 35 мин"}, Rules: myRules(),
 			Period: PeriodToday, UsedS: 2100, GamesS: 900, StudyS: 180, VideoS: 600, OtherS: 600, AllS: 2280, Programs: myTodaySitePrograms(),
+			Bars:   []DayBar{{Key: "2026-10-19", Label: "пн 19", Title: "пн, 19 октября: 35 мин, учёба 3 мин", TotalS: 2100, StudyS: 180, Today: true}},
+			BarsBy: BarsByDay, Violations: []JournalEntry{}, Bonus: []BonusEntry{},
+			StatsSinceDay: "2026-10-19", StatsSinceText: "Статистика ведётся с 19 октября 2026",
 		}),
 		"MyToday#week": ok(MyTodayRequest{Period: PeriodWeek}, MyTodayReply{
 			Status: okStatus(), Today: []string{"Сегодня осталось 1 ч 25 мин из 2 ч", "Использовано 35 мин"}, Rules: myRules(),
 			Period: PeriodWeek, UsedS: 2400, GamesS: 2400, StudyS: 0, OtherS: 0, AllS: 2400, ExtraMin: 30, BonusSpentMin: 15,
 			Programs: []ProgramTime{{Path: `c:\games\game.exe`, Name: "game", Category: ProgramCatGames, Seconds: 2400, Kind: "program"}},
+			Bars: []DayBar{
+				{Key: "2026-10-19", Label: "пн 19", Title: "пн, 19 октября: 30 мин, учёба 0 мин", TotalS: 1800},
+				{Key: "2026-10-20", Label: "вт 20", Title: "вт, 20 октября: 0 мин, учёба 0 мин"},
+				{Key: "2026-10-21", Label: "ср 21", Title: "ср, 21 октября: 10 мин, учёба 0 мин", TotalS: 600, Today: true},
+			},
+			BarsBy: BarsByDay,
+			Violations: []JournalEntry{
+				{AtMs: t0 - 3_600_000, TzOffsetMin: 180, ChildID: 1, ChildName: "Миша", Kind: "program_forbidden_try", Text: "Миша: попытка запустить запрещённую программу «Chrome»"},
+			},
+			Bonus: []BonusEntry{
+				{AtMs: t0 - 7_200_000, TzOffset: 180, DeltaMin: -15, Reason: "взято из копилки", Balance: 25},
+				{AtMs: t0 - 86_400_000, TzOffset: 180, DeltaMin: 40, Reason: "Бонус за свободное время: 40 мин", Balance: 40},
+			},
+			StatsSinceDay: "2026-10-01", StatsSinceText: "Статистика ведётся с 1 октября 2026",
 		}),
-		"MyToday#empty": ok(MyTodayRequest{Period: PeriodToday}, MyTodayReply{Status: ChildStatusNotChild(), Period: PeriodToday}),
+		"MyToday#empty": ok(MyTodayRequest{Period: PeriodToday}, MyTodayReply{Status: ChildStatusNotChild(), Period: PeriodToday, BarsBy: BarsByDay}),
 		CmdParentStats: ok(ParentStatsRequest{ChildID: 1, Period: PeriodToday}, MyTodayReply{
 			Status: okStatus(), Today: []string{"Сегодня осталось 1 ч 25 мин из 2 ч", "Использовано 35 мин"}, Rules: myRules(),
 			Period: PeriodToday, UsedS: 2100, GamesS: 900, StudyS: 180, OtherS: 1200, AllS: 2280, Programs: s39Programs(),
+			Bars:   []DayBar{{Key: "2026-10-19", Label: "пн 19", Title: "пн, 19 октября: 35 мин, учёба 3 мин", TotalS: 2100, StudyS: 180, Today: true}},
+			BarsBy: BarsByDay, StatsSinceDay: "2026-10-19", StatsSinceText: "Статистика ведётся с 19 октября 2026",
 		}),
 		"ParentStats#year": ok(ParentStatsRequest{ChildID: 1, Period: PeriodYear}, MyTodayReply{
 			Status: okStatus(), Today: []string{"Сегодня осталось 1 ч 25 мин из 2 ч", "Использовано 35 мин"}, Rules: myRules(),
@@ -373,6 +392,11 @@ func examples() map[string]example {
 				{Path: `c:\games\game.exe`, Name: "game", Category: ProgramCatGames, Seconds: 3600, Kind: "program"},
 				{Path: `c:\school\study.exe`, Name: "study", Category: ProgramCatStudy, Seconds: 2400, Kind: "program"},
 			},
+			Bars: []DayBar{
+				{Key: "2026-09", Label: "сен", Title: "сентябрь 2026: 0 мин, учёба 40 мин", StudyS: 2400},
+				{Key: "2026-10", Label: "окт", Title: "октябрь 2026: 1 ч 00 мин, учёба 0 мин", TotalS: 3600, Today: true},
+			},
+			BarsBy: BarsByMonth, StatsSinceDay: "2026-09-01", StatsSinceText: "Статистика ведётся с 1 сентября 2026",
 		}),
 		CmdFirstRunSeen: ok(nil, Empty{}),
 

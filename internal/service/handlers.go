@@ -935,7 +935,8 @@ func (s *Service) myTodayOf(cs *childState, period string) ipc.MyTodayReply {
 		period = ipc.PeriodToday
 	}
 	if cs == nil {
-		return ipc.MyTodayReply{Status: ipc.ChildStatusNotChild(), Today: []string{}, Rules: []ipc.MyRule{}, Period: period, Programs: []ipc.ProgramTime{}}
+		return ipc.MyTodayReply{Status: ipc.ChildStatusNotChild(), Today: []string{}, Rules: []ipc.MyRule{}, Period: period, Programs: []ipc.ProgramTime{},
+			Bars: []ipc.DayBar{}, BarsBy: ipc.BarsByDay, Violations: []ipc.JournalEntry{}, Bonus: []ipc.BonusEntry{}}
 	}
 	st := s.statusOf(cs)
 	out := ipc.MyTodayReply{Status: st, Today: []string{st.Summary, "Использовано " + core.FormatDuration(st.UsedS)}, Rules: []ipc.MyRule{}, Period: period}
@@ -948,13 +949,23 @@ func (s *Service) myTodayOf(cs *childState, period string) ipc.MyTodayReply {
 		live = day
 	}
 	from, _ := periodFrom(period, now)
-	sum, past := s.periodTotals(cs, from, today, live)
+	// «Итоги» и столбики — из одного чтения ряда дней и одних счётчиков ядра (RM5-4).
+	pd := s.periodTotals(cs, from, today, live)
+	sum := pd.sum
 	out.UsedS, out.GamesS, out.StudyS, out.VideoS = sum.TotalS, sum.GamesS, sum.StudyS, sum.VideoS
 	out.OtherS = max(0, sum.TotalS-sum.GamesS-sum.VideoS)
 	out.AllS = sum.TotalS + sum.StudyS
 	out.ExtraMin = sum.ExtraMin
-	out.BonusSpentMin = s.periodBonusSpent(cs, from)
-	out.Programs = s.programTimes(cs, sum, past)
+	out.Bars, out.BarsBy = buildBars(period, from, today, pd.days, pd.live, s.cfg.Loc)
+	fromMs := s.dayStartMs(from)
+	spentFrom := fromMs
+	if pd.resetOK {
+		spentFrom = max(spentFrom, pd.reset.ClearedAtMs)
+	}
+	out.BonusSpentMin, out.Bonus = s.periodBonus(cs, fromMs, spentFrom)
+	out.Violations = s.periodViolations(cs, fromMs)
+	out.StatsSinceDay, out.StatsSinceText = s.statsSince(cs, today, pd.reset, pd.resetOK)
+	out.Programs = s.programTimes(cs, sum, pd.usage)
 	// Строка «Можно снова…» нужна при любой блокировке: показываем, когда блокировка есть и
 	// ядро назвало срок (B-6).
 	if st.Lock != "" && st.Lock != ipc.LockNone && st.Until != "" {

@@ -2310,7 +2310,22 @@
             "seconds": 300,
             "kind": ""
           }
-        ]
+        ],
+        "bars": [
+          {
+            "key": "2026-10-19",
+            "label": "пн 19",
+            "title": "пн, 19 октября: 35 мин, учёба 3 мин",
+            "totalS": 2100,
+            "studyS": 180,
+            "today": true
+          }
+        ],
+        "barsBy": "day",
+        "violations": [],
+        "bonus": [],
+        "statsSinceDay": "2026-10-19",
+        "statsSinceText": "Статистика ведётся с 19 октября 2026"
       }
     }
   },
@@ -2366,7 +2381,13 @@
         "allS": 0,
         "extraMin": 0,
         "bonusSpentMin": 0,
-        "programs": []
+        "programs": [],
+        "bars": [],
+        "barsBy": "day",
+        "violations": [],
+        "bonus": [],
+        "statsSinceDay": "",
+        "statsSinceText": ""
       }
     }
   },
@@ -2479,7 +2500,62 @@
             "seconds": 2400,
             "kind": "program"
           }
-        ]
+        ],
+        "bars": [
+          {
+            "key": "2026-10-19",
+            "label": "пн 19",
+            "title": "пн, 19 октября: 30 мин, учёба 0 мин",
+            "totalS": 1800,
+            "studyS": 0,
+            "today": false
+          },
+          {
+            "key": "2026-10-20",
+            "label": "вт 20",
+            "title": "вт, 20 октября: 0 мин, учёба 0 мин",
+            "totalS": 0,
+            "studyS": 0,
+            "today": false
+          },
+          {
+            "key": "2026-10-21",
+            "label": "ср 21",
+            "title": "ср, 21 октября: 10 мин, учёба 0 мин",
+            "totalS": 600,
+            "studyS": 0,
+            "today": true
+          }
+        ],
+        "barsBy": "day",
+        "violations": [
+          {
+            "atMs": 1759996400000,
+            "tzOffsetMin": 180,
+            "childId": 1,
+            "childName": "Миша",
+            "kind": "program_forbidden_try",
+            "text": "Миша: попытка запустить запрещённую программу «Chrome»"
+          }
+        ],
+        "bonus": [
+          {
+            "atMs": 1759992800000,
+            "tzOffsetMin": 180,
+            "deltaMin": -15,
+            "reason": "взято из копилки",
+            "balanceAfter": 25
+          },
+          {
+            "atMs": 1759913600000,
+            "tzOffsetMin": 180,
+            "deltaMin": 40,
+            "reason": "Бонус за свободное время: 40 мин",
+            "balanceAfter": 40
+          }
+        ],
+        "statsSinceDay": "2026-10-01",
+        "statsSinceText": "Статистика ведётся с 1 октября 2026"
       }
     }
   },
@@ -2664,7 +2740,22 @@
             "seconds": 300,
             "kind": ""
           }
-        ]
+        ],
+        "bars": [
+          {
+            "key": "2026-10-19",
+            "label": "пн 19",
+            "title": "пн, 19 октября: 35 мин, учёба 3 мин",
+            "totalS": 2100,
+            "studyS": 180,
+            "today": true
+          }
+        ],
+        "barsBy": "day",
+        "violations": [],
+        "bonus": [],
+        "statsSinceDay": "2026-10-19",
+        "statsSinceText": "Статистика ведётся с 19 октября 2026"
       }
     }
   },
@@ -2785,7 +2876,30 @@
             "seconds": 2400,
             "kind": "program"
           }
-        ]
+        ],
+        "bars": [
+          {
+            "key": "2026-09",
+            "label": "сен",
+            "title": "сентябрь 2026: 0 мин, учёба 40 мин",
+            "totalS": 0,
+            "studyS": 2400,
+            "today": false
+          },
+          {
+            "key": "2026-10",
+            "label": "окт",
+            "title": "октябрь 2026: 1 ч 00 мин, учёба 0 мин",
+            "totalS": 3600,
+            "studyS": 0,
+            "today": true
+          }
+        ],
+        "barsBy": "month",
+        "violations": [],
+        "bonus": [],
+        "statsSinceDay": "2026-09-01",
+        "statsSinceText": "Статистика ведётся с 1 сентября 2026"
       }
     }
   },

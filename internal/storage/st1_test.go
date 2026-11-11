@@ -90,9 +90,16 @@ func TestStatsST1(t *testing.T) {
 	var worst time.Duration
 	for _, id := range ids {
 		t0 := time.Now()
-		past, err := s.PeriodDays(id, "0001-01-01", today)
+		days, err := s.DaysSeries(id, "0001-01-01", today)
 		if err != nil {
-			t.Fatalf("PeriodDays: %v", err)
+			t.Fatalf("DaysSeries: %v", err)
+		}
+		totalS := 0
+		for _, d := range days {
+			totalS += d.TotalS
+		}
+		if _, _, err := s.GetStatsReset(id); err != nil {
+			t.Fatalf("GetStatsReset: %v", err)
 		}
 		usage, err := s.PeriodUsage(id, "0001-01-01", today)
 		if err != nil {
@@ -109,12 +116,12 @@ func TestStatsST1(t *testing.T) {
 		}
 		d := time.Since(t0)
 		worst = max(worst, d)
-		t.Logf("ребёнок %d: %v (итог %d с, строк учёта %d, копилка %d, событий %d)",
-			id, d.Round(time.Millisecond), past.TotalS, len(usage), len(bonus), len(events))
+		t.Logf("ребёнок %d: %v (дней %d, итог %d с, строк учёта %d, копилка %d, событий %d)",
+			id, d.Round(time.Millisecond), len(days), totalS, len(usage), len(bonus), len(events))
 		// Сверка, что запросы видят всё сгенерированное (литералы по RM5-7).
-		if len(usage) != 100 || len(bonus) != 550 || len(events) != 1000 || past.TotalS == 0 {
+		if len(usage) != 100 || len(bonus) != 550 || len(events) != 1000 || totalS == 0 {
 			t.Errorf("ребёнок %d: строк учёта %d (ждём 100), копилка %d (ждём 550), событий %d (ждём 1000), итог %d с",
-				id, len(usage), len(bonus), len(events), past.TotalS)
+				id, len(usage), len(bonus), len(events), totalS)
 		}
 	}
 

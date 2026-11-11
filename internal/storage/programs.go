@@ -777,26 +777,6 @@ func (s *Store) DayUsage(childID int64, day string) ([]UsageRow, error) {
 	return out, nil
 }
 
-// PeriodDays возвращает суммы итогов дней ребёнка (общее, игры, видео, учёба, доп. время) с fromDay
-// включительно до beforeDay не включительно: прошлые дни периода «Итогов» (D-61). Сегодняшний день
-// служба передаёт в beforeDay: его счётчики ведёт ядро. Day у ответа пусто; дней нет — нули.
-func (s *Store) PeriodDays(childID int64, fromDay, beforeDay string) (core.DayState, error) {
-	if err := checkDay(fromDay); err != nil {
-		return core.DayState{}, err
-	}
-	if err := checkDay(beforeDay); err != nil {
-		return core.DayState{}, err
-	}
-	var st core.DayState
-	err := s.db.QueryRow(`SELECT coalesce(sum(total_s), 0), coalesce(sum(games_s), 0), coalesce(sum(video_s), 0),
-		coalesce(sum(study_s), 0), coalesce(sum(extra_min), 0) FROM day_state WHERE child_id = ? AND day >= ? AND day < ?`,
-		childID, fromDay, beforeDay).Scan(&st.TotalS, &st.GamesS, &st.VideoS, &st.StudyS, &st.ExtraMin)
-	if err != nil {
-		return core.DayState{}, fmt.Errorf("storage: итоги за период: %w", err)
-	}
-	return st, nil
-}
-
 // PeriodUsage возвращает учёт по программам и сайтам ребёнка за дни с fromDay включительно до
 // beforeDay не включительно, сложенный по категории, виду и предмету (Day пусто), в том же порядке,
 // что DayUsage. Скрытые здесь есть: их имя прячет служба (как DayUsage). Нет учёта: [], не nil.

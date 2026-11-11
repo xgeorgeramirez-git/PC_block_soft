@@ -45,17 +45,18 @@ type fakeStore struct {
 	failMerge    bool // MergePrograms возвращает ошибку, ничего не меняя (RM4-11)
 	mergeCalls   int  // сколько раз вызван MergePrograms
 
-	endModes   map[int64]string           // режим «Когда время вышло» (M3); нет записи — "lock"
-	programs   map[string]Program         // программы по пути (M3)
-	nextProg   int64                      // следующий номер программы
-	pending    map[string]*PendingProgram // «Ждут решения» по пути (M3)
-	usage      map[string]int             // учёт: "id|день|категория|вид|предмет" → секунды (M3)
-	failUsage  bool                       // DayUsage и PeriodUsage отвечают ошибкой (FB-10)
-	failPeriod bool                       // PeriodDays отвечает ошибкой (FB-13)
-	failStats  bool                       // DaysSeries отвечает ошибкой (M5, RM5-4)
-	resets     map[int64]StatsReset       // снимок очистки статистики по ребёнку (RM5-8)
-	now        func() int64               // момент записи копилки, UTC мс; nil — 0
-	usageLog   []savedUsage               // история SaveDayAndUsage
+	endModes    map[int64]string           // режим «Когда время вышло» (M3); нет записи — "lock"
+	programs    map[string]Program         // программы по пути (M3)
+	nextProg    int64                      // следующий номер программы
+	pending     map[string]*PendingProgram // «Ждут решения» по пути (M3)
+	usage       map[string]int             // учёт: "id|день|категория|вид|предмет" → секунды (M3)
+	failUsage   bool                       // DayUsage и PeriodUsage отвечают ошибкой (FB-10)
+	failStats   bool                       // DaysSeries отвечает ошибкой (M5, RM5-4)
+	failReset   bool                       // GetStatsReset отвечает ошибкой (M5, RM5-8)
+	seriesCalls int                        // сколько раз прочитан ряд дней (одно чтение на ответ, RM5-4)
+	resets      map[int64]StatsReset       // снимок очистки статистики по ребёнку (RM5-8)
+	now         func() int64               // момент записи копилки, UTC мс; nil — 0
+	usageLog    []savedUsage               // история SaveDayAndUsage
 
 	breakRules  map[int64]core.BreakRules // «Отдых» по ребёнку (FB-14); нет записи — по умолчанию
 	breakStates map[int64]core.BreakState // счёт к перерыву по ребёнку
@@ -576,27 +577,6 @@ func (f *fakeStore) DayUsage(id int64, day string) ([]UsageRow, error) {
 	return out, nil
 }
 
-// PeriodDays — как storage.PeriodDays: суммы дней from ≤ день < before.
-func (f *fakeStore) PeriodDays(id int64, from, before string) (core.DayState, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if f.failPeriod {
-		return core.DayState{}, errFake
-	}
-	var sum core.DayState
-	for k, st := range f.days {
-		if !strings.HasPrefix(k, fmt.Sprint(id)+"|") || st.Day < from || st.Day >= before {
-			continue
-		}
-		sum.TotalS += st.TotalS
-		sum.GamesS += st.GamesS
-		sum.VideoS += st.VideoS
-		sum.StudyS += st.StudyS
-		sum.ExtraMin += st.ExtraMin
-	}
-	return sum, nil
-}
-
 // fakeDayOf разбирает ключ дня "id|день": ребёнок совпал — день и true.
 func fakeDayOf(k string, id int64) (string, bool) {
 	prefix := fmt.Sprint(id) + "|"
@@ -610,6 +590,7 @@ func fakeDayOf(k string, id int64) (string, bool) {
 func (f *fakeStore) DaysSeries(id int64, from, before string) ([]DayRow, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.seriesCalls++
 	if f.failStats {
 		return nil, errFake
 	}
@@ -642,6 +623,9 @@ func (f *fakeStore) FirstStatsDay(id int64) (string, bool, error) {
 func (f *fakeStore) GetStatsReset(id int64) (StatsReset, bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.failReset {
+		return StatsReset{}, false, errFake
+	}
 	r, ok := f.resets[id]
 	return r, ok, nil
 }

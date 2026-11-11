@@ -587,6 +587,38 @@ type MyTodayReply struct {
 	// Programs — время каждой программы за период по категориям учёта (D-58, вкладки «Итогов»):
 	// самые долгие сверху; скрытых (D-57) и запрещённых (D-64) нет. Пусто — [], не null.
 	Programs []ProgramTime `json:"programs"`
+	// Bars — столбики «По дням» за период (RM5-2, RM5-3): из того же чтения дней, что «Итоги»,
+	// сумма столбиков равна «Итогам»; сегодня — из счётчиков ядра. BarsBy — BarsBy*.
+	Bars   []DayBar `json:"bars"`
+	BarsBy string   `json:"barsBy"`
+	// Violations — нарушения ребёнка за период, новые сверху, не больше StatsListLimit (журнал, R22).
+	Violations []JournalEntry `json:"violations"`
+	// Bonus — записи копилки ребёнка за период, новые сверху, не больше StatsListLimit (FR-22).
+	Bonus []BonusEntry `json:"bonus"`
+	// StatsSinceDay — с какого дня ведётся статистика (YYYY-MM-DD, FR-38): день очистки, иначе
+	// первый день учёта, иначе сегодня. StatsSinceText — «Статистика ведётся с 11 ноября 2026».
+	StatsSinceDay  string `json:"statsSinceDay"`
+	StatsSinceText string `json:"statsSinceText"`
+}
+
+// Разбивка столбиков «По дням» (RM5-2).
+const (
+	BarsByDay   = "day"   // по дню: «Сегодня», «Неделя», «Месяц»
+	BarsByMonth = "month" // по месяцу: «Год», «Всё время»
+)
+
+// StatsListLimit — наибольшее число нарушений и записей копилки в ответе статистики (RM5-4).
+const StatsListLimit = 200
+
+// DayBar — столбик «По дням» (RM5-2, RM5-3): день или месяц, только время. Подпись и подсказку
+// собирает служба, окно только рисует.
+type DayBar struct {
+	Key    string `json:"key"`    // YYYY-MM-DD или YYYY-MM
+	Label  string `json:"label"`  // «пн 16», «ноя», «ноя 2025»
+	Title  string `json:"title"`  // «вт, 17 ноября: 2 ч 20 мин, учёба 0 мин»
+	TotalS int    `json:"totalS"` // в счёт лимита, с
+	StudyS int    `json:"studyS"` // учёба, с (D-7: в лимит не входит, отдельная часть столбика)
+	Today  bool   `json:"today"`  // сегодняшний день или месяц, в который входит сегодня
 }
 
 // ProgramTime — строка вкладки «Итогов» (D-58): программа или сайт, категория, в которой засчитаны

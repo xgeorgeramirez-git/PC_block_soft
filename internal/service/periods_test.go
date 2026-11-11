@@ -283,7 +283,7 @@ func TestMyTodayPeriodStoreErrors(t *testing.T) {
 	h.run(60, fgSample(pathMinecraft, ipc.CatNameOther))
 
 	h.store.mu.Lock()
-	h.store.failPeriod = true
+	h.store.failStats = true
 	h.store.mu.Unlock()
 	week := h.periodReply(ipc.PeriodWeek)
 	if week.GamesS != 60 || strings.Join(rowsOf(week.Programs, "games"), ", ") != "Minecraft Launcher=60" {
@@ -291,7 +291,7 @@ func TestMyTodayPeriodStoreErrors(t *testing.T) {
 	}
 
 	h.store.mu.Lock()
-	h.store.failPeriod, h.store.failUsage = false, true
+	h.store.failStats, h.store.failUsage = false, true
 	h.store.mu.Unlock()
 	week = h.periodReply(ipc.PeriodWeek)
 	if week.GamesS != 1860 || sumOf(week.Programs, "games") != 1860 {
