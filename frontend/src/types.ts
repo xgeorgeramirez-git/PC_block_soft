@@ -315,14 +315,24 @@ export interface CardReply {
   message: string;
 }
 
+/** Фильтр «Что» журнала (FR-24, RM5-5): "" - «Все события»; виды групп знает служба. */
+export type JournalGroup = "" | "violations" | "time" | "programs" | "settings" | "system";
+
+/** Журнал: childId 0 - все дети; fromMs <= atMs < toMs (0 - без границы); «Показать ещё» -
+ *  beforeAtMs/beforeId последней полученной записи; limit 0 - 200, не больше 1000. */
 export interface ListEventsRequest {
   childId: number;
   fromMs: number;
   toMs: number;
+  group: JournalGroup;
+  beforeAtMs: number;
+  beforeId: number;
   limit: number;
 }
 
 export interface JournalEntry {
+  /** Номер записи: ключ списка и курсор «Показать ещё». */
+  id: number;
   atMs: number;
   tzOffsetMin: number;
   childId: number;
@@ -333,6 +343,8 @@ export interface JournalEntry {
 
 export interface ListEventsReply {
   events: JournalEntry[];
+  /** Есть записи старше последней: показать «Показать ещё». */
+  more: boolean;
 }
 
 export interface ChangePasswordRequest {

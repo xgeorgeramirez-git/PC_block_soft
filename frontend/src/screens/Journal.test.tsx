@@ -2,14 +2,13 @@ import { afterEach, describe, expect, it } from "vitest";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import Journal from "./Journal";
-import { installBackend, uninstallBackend, type MockBackend } from "../__mocks__/backend";
-import type { JournalEntry } from "../types";
+import { installBackend, uninstallBackend, type MockBackend, type MockEventInput } from "../__mocks__/backend";
 
 // FR-24 (M1: список), сценарий 8.3.7: события простыми словами, пустой журнал не краш.
 
 let mock: MockBackend;
 
-const event = (over: Partial<JournalEntry>): JournalEntry => ({
+const event = (over: Partial<MockEventInput>): MockEventInput => ({
   atMs: Date.UTC(2026, 9, 19, 18, 14),
   tzOffsetMin: 180,
   childId: 1,

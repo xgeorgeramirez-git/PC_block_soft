@@ -262,6 +262,29 @@ describe("журнал и удаление", () => {
     expect(await api.listEvents({ limit: 1 })).toHaveLength(1);
   });
 
+  // Ловит (FR-24, RM5-5): мок не отбирает по группе «Что», повторяет записи на следующей странице,
+  // врёт про «Показать ещё» или не даёт записям номера.
+  it("журнал: группа «Что», курсор «Показать ещё» и more", async () => {
+    const t = Date.now();
+    const ev = (atMs: number, kind: string) => ({ atMs, tzOffsetMin: 180, childId: 1, childName: "Миша", kind, text: kind });
+    installBackend({
+      sessionActive: true,
+      events: [ev(t - 1000, "bypass"), ev(t - 2000, "extra_time"), ev(t - 3000, "site_forbidden_try"), ev(t - 4000, "old_kind"), ev(t - 5000, "bypass")],
+    });
+    const first = await api.listEventsPage({ group: "violations", limit: 2 });
+    expect(first.events.map((e) => e.kind)).toEqual(["bypass", "site_forbidden_try"]);
+    expect(first.more).toBe(true);
+    expect(new Set(first.events.map((e) => e.id)).size).toBe(2);
+    const last = first.events[first.events.length - 1];
+    const second = await api.listEventsPage({ group: "violations", limit: 2, beforeAtMs: last.atMs, beforeId: last.id });
+    expect(second.events.map((e) => e.atMs)).toEqual([t - 5000]);
+    expect(second.more).toBe(false);
+    expect((await api.listEventsPage({ group: "time" })).events.map((e) => e.kind)).toEqual(["extra_time"]);
+    expect((await api.listEventsPage({ group: "system" })).events).toEqual([]);
+    expect((await api.listEvents()).map((e) => e.kind)).toContain("old_kind");
+    await expect(api.listEventsPage({ group: "nope" as never })).rejects.toMatchObject({ message: "Не удалось разобрать запрос. Попробуйте ещё раз" });
+  });
+
   it("удаление: ненастроенная программа - без пароля, настроенная - по паролю или «забыл»", async () => {
     installBackend({ configured: false });
     await expect(api.uninstallCheck("", false)).resolves.toEqual({ allowed: true });

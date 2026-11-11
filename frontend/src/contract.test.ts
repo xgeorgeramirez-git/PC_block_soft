@@ -64,6 +64,7 @@ const CASES: [string, string, (req: any) => Promise<unknown>][] = [
   ["SetDiag", "SetDiag", (r) => api.setDiag(r.verbose)],
   ["ListEvents", "ListEvents", (r) => api.listEvents(r)],
   ["ListEvents", "ListEvents#empty", (r) => api.listEvents(r)],
+  ["ListEvents", "ListEvents#page", (r) => api.listEventsPage(r)],
   ["ChangePassword", "ChangePassword", (r) => api.changePassword(r.oldPassword, r.newPassword)],
   ["SetChildren", "SetChildren", (r) => api.setChildren(r)],
   ["SetChildren", "SetChildren#empty", (r) => api.setChildren(r)],
@@ -130,7 +131,7 @@ describe("успешные ответы контракта", () => {
     // Запрос обёртки совпадает с примером запроса (пустой объект, если запроса нет).
     expect(sent[0].payload).toEqual(ex.request ?? {});
     // Ответ - нагрузка примера (null в массивах уже заменены на списки).
-    expect(got).toEqual(payloadOf(command, ex.reply.payload));
+    expect(got).toEqual(key === "ListEvents#page" ? ex.reply.payload : payloadOf(command, ex.reply.payload));
   });
 });
 

@@ -516,3 +516,24 @@ func TestListEventsCursorMore(t *testing.T) {
 		}
 	}
 }
+
+// Ловит (RM5-5): «Нарушения» журнала разошлись с VIOLATION_KINDS окна (frontend/src/lib/journal.ts):
+// «Нарушения сегодня: N» на главной и фильтр журнала считают разное.
+func TestViolationGroupMatchesWindow(t *testing.T) {
+	src, err := os.ReadFile(filepath.Join("..", "..", "frontend", "src", "lib", "journal.ts"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, rest, ok := strings.Cut(string(src), "VIOLATION_KINDS = [")
+	list, _, ok2 := strings.Cut(rest, "]")
+	if !ok || !ok2 {
+		t.Fatal("в journal.ts не найден VIOLATION_KINDS")
+	}
+	var win []string
+	for _, k := range strings.Split(list, ",") {
+		win = append(win, strings.Trim(strings.TrimSpace(k), `"`))
+	}
+	if got, want := strings.Join(win, ","), strings.Join(journalGroups[ipc.JournalGroupViolations], ","); got != want {
+		t.Errorf("VIOLATION_KINDS окна %s; группа «Нарушения» службы %s", got, want)
+	}
+}

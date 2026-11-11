@@ -20,6 +20,8 @@ import type {
   DayBar,
   Interval,
   JournalEntry,
+  JournalGroup,
+  ListEventsReply,
   MyRule,
   MyTodayReply,
   Reply,
@@ -187,7 +189,8 @@ export interface MockOptions {
   sessionIdleS?: number;
   accounts?: Account[];
   children?: MockChild[];
-  events?: JournalEntry[];
+  /** Журнал на старте, новые сверху; без id - номера выдаются по порядку (верхняя запись - наибольший). */
+  events?: MockEventInput[];
   notices?: string[];
   /**
    * Чей сеанс у окна ребёнка (MyToday): childId; null - сеанс не ребёнка (родитель в своей учётке).
@@ -203,6 +206,38 @@ export interface MockOptions {
   pending?: PendingProgramDTO[];
   /** Списки «Сайтов» на старте (FR-21); по умолчанию - как в примере контракта ListSites. */
   sites?: SiteDTO[];
+}
+
+/** Запись журнала на старте мока: id необязателен. */
+export type MockEventInput = Omit<JournalEntry, "id"> & { id?: number };
+
+/** Группы фильтра «Что» журнала - как journalGroups службы (internal/service/journalgroups.go), плюс
+ *  виды, которые пишет только мок («settings», «bonus_spend»). Вид не из групп - только «Все события». */
+export const MOCK_JOURNAL_GROUPS: Record<Exclude<JournalGroup, "">, readonly string[]> = {
+  violations: ["bypass", "program_forbidden_try", "site_forbidden_try"],
+  time: [
+    "extra_time", "extra_undone", "pause", "pause_end", "no_forbidden", "day_closed",
+    "bonus_spent", "bonus_granted", "bonus_grant", "bonus_undo", "bonus_clear", "bonus_reduce",
+    "promo_redeem", "promo_create", "promo_generate", "promo_history_cleared", "rest_break", "rest_ended",
+    "bonus_spend",
+  ],
+  programs: [
+    "program_decided", "program_undone", "program_hidden", "program_shown", "program_renamed", "program_pending",
+    "program_auto_closed", "program_closed_games", "program_closed_study_only",
+    "site_closed_video", "site_closed_study_only", "site_unread", "site_added", "site_moved", "site_removed",
+    "site_adult_filter", "brave_restored",
+  ],
+  settings: [
+    "setup_done", "password_failed", "password_changed", "password_reset", "uninstall_forgot",
+    "settings_changed", "children_changed", "child_admin", "child_admin_off", "stats_cleared", "journal_cleared",
+    "block_cleared", "settings",
+  ],
+  system: ["safe_mode", "internal_error", "db_recovered"],
+};
+
+/** Номера записей журнала на старте: без id - по порядку снизу вверх (новые сверху - больше). */
+function withEventIds(events: MockEventInput[]): JournalEntry[] {
+  return events.map((e, i) => ({ ...e, id: e.id ?? events.length - i }));
 }
 
 export interface MockState {
@@ -821,7 +856,7 @@ function makeState(opts: MockOptions): MockState {
     sessionExpiresMs: 0,
     accounts: opts.accounts ?? mockAccounts(),
     children,
-    events: opts.events ?? [],
+    events: withEventIds(opts.events ?? []),
     notices: opts.notices ?? [],
     myChildId: opts.myChildId === undefined ? (children[0]?.childId ?? null) : opts.myChildId,
     firstRunSeen: false,
@@ -887,6 +922,7 @@ export function createBackend(opts: MockOptions = {}): MockBackend {
   };
   const addEvent = (now: number, child: MockChild | undefined, kind: string, text: string) => {
     state.events.unshift({
+      id: state.events.reduce((m, e) => Math.max(m, e.id), 0) + 1,
       atMs: now,
       tzOffsetMin: localOffsetMin(new Date(now)),
       childId: child?.childId ?? 0,
@@ -1265,15 +1301,26 @@ export function createBackend(opts: MockOptions = {}): MockBackend {
       return okReply({ verbose: state.verboseLogs, logsPath: MOCK_LOGS_PATH });
     },
 
+    // Журнал (FR-24, RM5-5): ребёнок, период fromMs <= atMs < toMs, группа «Что», курсор
+    // (beforeAtMs, beforeId) строго раньше; новые сверху; more - есть записи старше страницы.
     ListEvents: (req) => {
-      const limit = Math.min(req.limit > 0 ? req.limit : 200, 500);
-      const events = state.events
+      const group: string = req.group ?? "";
+      const known = Object.hasOwn(MOCK_JOURNAL_GROUPS, group);
+      const kinds: readonly string[] | null | undefined =
+        group === "" ? null : known ? MOCK_JOURNAL_GROUPS[group as Exclude<JournalGroup, "">] : undefined;
+      if (kinds === undefined) return fail("Не удалось разобрать запрос. Попробуйте ещё раз");
+      const limit = Math.min(req.limit > 0 ? req.limit : 200, 1000);
+      const before = Number(req.beforeAtMs ?? 0);
+      const beforeId = Number(req.beforeId ?? 0);
+      const matched = state.events
         .filter((e) => (req.childId ? e.childId === req.childId : true))
         .filter((e) => (req.fromMs ? e.atMs >= req.fromMs : true))
-        .filter((e) => (req.toMs ? e.atMs <= req.toMs : true))
-        .sort((a, b) => b.atMs - a.atMs)
-        .slice(0, limit);
-      return okReply({ events });
+        .filter((e) => (req.toMs ? e.atMs < req.toMs : true))
+        .filter((e) => (kinds ? kinds.includes(e.kind) : true))
+        .filter((e) => (before ? e.atMs < before || (e.atMs === before && e.id < beforeId) : true))
+        .sort((a, b) => b.atMs - a.atMs || b.id - a.id);
+      const reply: ListEventsReply = { events: matched.slice(0, limit), more: matched.length > limit };
+      return okReply(reply);
     },
 
     ChangePassword: (req) => {

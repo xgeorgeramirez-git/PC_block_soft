@@ -19,6 +19,7 @@ import type {
   GetTodayReply,
   HelloReply,
   JournalEntry,
+  ListEventsReply,
   ListEventsRequest,
   LoginDenied,
   LoginReply,
@@ -270,15 +271,25 @@ export function setDiag(verbose: boolean): Promise<DiagReply> {
   return call("SetDiag", { verbose });
 }
 
-export async function listEvents(req: Partial<ListEventsRequest> = {}): Promise<JournalEntry[]> {
+/** Страница журнала (FR-24, RM5-5): ребёнок, период, группа «Что», курсор «Показать ещё»; more -
+ *  есть записи старше последней. */
+export async function listEventsPage(req: Partial<ListEventsRequest> = {}): Promise<ListEventsReply> {
   const body: ListEventsRequest = {
     childId: req.childId ?? 0,
     fromMs: req.fromMs ?? 0,
     toMs: req.toMs ?? 0,
+    group: req.group ?? "",
+    beforeAtMs: req.beforeAtMs ?? 0,
+    beforeId: req.beforeId ?? 0,
     limit: req.limit ?? 0,
   };
-  const r = await call<object, { events?: JournalEntry[] | null }>("ListEvents", body);
-  return r.events ?? [];
+  const r = await call<object, { events?: JournalEntry[] | null; more?: boolean }>("ListEvents", body);
+  return { events: r.events ?? [], more: r.more ?? false };
+}
+
+/** Записи журнала с фильтром - как listEventsPage, без признака «Показать ещё». */
+export async function listEvents(req: Partial<ListEventsRequest> = {}): Promise<JournalEntry[]> {
+  return (await listEventsPage(req)).events;
 }
 
 export async function changePassword(oldPassword: string, newPassword: string): Promise<void> {
