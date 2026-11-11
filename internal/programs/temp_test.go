@@ -13,6 +13,15 @@ var tempEntries = []Entry{
 	// LocalLow не корень профиля (RM3-13) — и его «temp» не временная папка Windows.
 	{Path: `c:\users\danila\appdata\locallow\temp\game\g.exe`, Name: "G", Category: "games",
 		Publisher: "G Inc.", Fingerprint: "3:3"},
+	// Данные Магазина (Local\Packages) — не корень профиля и не временная папка.
+	{Path: `c:\users\danila\appdata\local\packages\p\x.exe`, Name: "P", Category: "games",
+		Publisher: "P Inc.", Fingerprint: "3:3"},
+	// «local\temp» не внутри AppData — не временная папка Windows.
+	{Path: `c:\users\danila\foo\local\temp\a\x.exe`, Name: "Foo", Category: "games",
+		Publisher: "Foo Inc.", Fingerprint: "3:3"},
+	// Roaming\Temp — обычный корень профиля (RM3-13): его решение не переходит в Local\Temp.
+	{Path: `c:\users\danila\appdata\roaming\temp\roblox\robloxplayerinstaller.exe`, Name: "RoamingInstaller", Category: "blocked",
+		Publisher: "Roblox Corporation", Fingerprint: "3:3"},
 }
 
 // Ловит: решение родителя по файлу во временной папке теряется при перезаписи файла (новый
@@ -51,8 +60,14 @@ func TestClassifyTempFolder(t *testing.T) {
 			Result{Verdict: VerdictAllow, Category: "games", Known: true, Name: "Loose"}},
 		{"файл прямо в Temp перезаписан", temp + `loose.exe`, "8:8", "Loose Inc.",
 			Result{Verdict: VerdictUnknown, Name: "Loose", WasCategory: "games"}},
-		{"Temp в Roaming — не временная папка", `c:\users\danila\appdata\roaming\temp\roblox\robloxplayerinstaller.exe`, "1:1", "Roblox Corporation",
-			Result{Verdict: VerdictUnknown, Name: "robloxplayerinstaller"}},
+		{"Packages перезаписан — подмена", `c:\users\danila\appdata\local\packages\p\x.exe`, "4:4", "P Inc.",
+			Result{Verdict: VerdictUnknown, Name: "P", WasCategory: "games"}},
+		{"local\\temp вне AppData перезаписан — подмена", `c:\users\danila\foo\local\temp\a\x.exe`, "4:4", "Foo Inc.",
+			Result{Verdict: VerdictUnknown, Name: "Foo", WasCategory: "games"}},
+		{"запрет в Roaming\\Temp не переходит в Local\\Temp", `c:\users\миша\appdata\local\temp\roblox\robloxplayerinstaller.exe`, "1:1", "Roblox Corporation",
+			Result{Verdict: VerdictAllow, Category: "games", Name: "robloxplayerinstaller"}},
+		{"игра из Local\\Temp не переходит в Roaming\\Temp", `c:\users\миша\appdata\roaming\temp\roblox\robloxplayerinstaller.exe`, "1:1", "Roblox Corporation",
+			Result{Verdict: VerdictForbidden, Category: "blocked", Name: "robloxplayerinstaller"}},
 		{"LocalLow\\Temp перезаписан — подмена", `c:\users\danila\appdata\locallow\temp\game\g.exe`, "4:4", "G Inc.",
 			Result{Verdict: VerdictUnknown, Name: "G", WasCategory: "games"}},
 		// B-53: установщик Brave/Chromium распаковывается в папку со случайным именем — решения

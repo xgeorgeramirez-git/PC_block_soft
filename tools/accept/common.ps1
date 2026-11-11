@@ -23,6 +23,9 @@ $script:ParentPassword = "PcbAccept-2026"
 $script:TestUserName = "pcbtest"
 $script:TestUserPassword = "Pcb!Test-2026x"
 $script:DefaultData = Join-Path $env:ProgramData "PCBlock"
+# В CI RUNNER_TEMP вне C:\Users (D:\a\_temp). При ручном прогоне без него папка %TEMP% лежит в
+# AppData\Local\Temp: для тестовых копий с издателем Microsoft там действует правило FB-19 (то же
+# имя и издатель сохраняют решение), поэтому сценарии подмены файла вручную гонять с RUNNER_TEMP вне профиля.
 $script:TempRoot = if ($env:RUNNER_TEMP) { $env:RUNNER_TEMP } else { [IO.Path]::GetTempPath() }
 $script:RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 $script:LogPath = if ($env:PCB_ACCEPT_LOG) { $env:PCB_ACCEPT_LOG } else { Join-Path $script:TempRoot "ci.log" }
