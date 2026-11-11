@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { clearBonus, getBonus, getBonusRate, getToday, grantBonus, reduceBonus, undoBonus } from "../api";
+import BonusHistory from "../components/BonusHistory";
 import Dialog from "../components/Dialog";
 import GrantBonusForm from "../components/GrantBonusForm";
 import Notice from "../components/Notice";
 import PromoAdmin from "../components/PromoAdmin";
-import { autoBonusRule, autoBonusText, historyText, isAutoBonus } from "../lib/bonus";
+import { autoBonusRule, autoBonusText, isAutoBonus } from "../lib/bonus";
 import { CallError, errorText } from "../lib/errors";
 import { formatEventTime, formatLimit, genitiveName } from "../lib/format";
 import { clampDigits } from "../lib/numinput";
@@ -351,22 +352,5 @@ function BonusFeedback({ feedback, onUndo }: { feedback: Feedback; onUndo: (bonu
         </button>
       ) : null}
     </div>
-  );
-}
-
-function BonusHistory({ entries }: { entries: BonusEntry[] }) {
-  if (entries.length === 0) {
-    return <p className="panel-text">Начислений и трат пока нет.</p>;
-  }
-  return (
-    <ul className="bonus-history">
-      {entries.map((e, i) => (
-        <li key={i} className="bonus-history-item">
-          <span>{formatEventTime(e.atMs, e.tzOffsetMin)}</span>
-          <span>{historyText(e)}</span>
-          <span>{`Баланс: ${formatLimit(e.balanceAfter)}`}</span>
-        </li>
-      ))}
-    </ul>
   );
 }
