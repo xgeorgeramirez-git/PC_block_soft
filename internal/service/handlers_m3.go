@@ -13,21 +13,6 @@ import (
 // Команды «Программ» (веха M3: R12, R13, FR-2, FR-20, RM3-1, RM3-10, RM3-12). Права проверены в
 // Handle (parentToken; ScanPrograms — повышенный администратор до настройки).
 
-// Виды событий журнала о программах (R22). program_decided и program_undone пишут обработчики
-// родителя, остальные — наблюдатель (T4a). Нарушение из них только program_forbidden_try (R13).
-const (
-	evProgramDecided         = "program_decided"
-	evProgramUndone          = "program_undone"
-	evProgramHidden          = "program_hidden"  // вы скрыли программу (D-57)
-	evProgramShown           = "program_shown"   // вы снова показали программу (D-57)
-	evProgramRenamed         = "program_renamed" // вы переименовали программу (D-59)
-	evProgramPending         = "program_pending"
-	evProgramForbiddenTry    = "program_forbidden_try"
-	evProgramAutoClosed      = "program_auto_closed" // запрещённая запустилась сама и закрыта (D-65): не нарушение
-	evProgramClosedGames     = "program_closed_games"
-	evProgramClosedStudyOnly = "program_closed_study_only"
-)
-
 const (
 	maxProgramsPerChange = 200 // путей в одной массовой смене категории (FR-20)
 	maxScanPrograms      = 300 // строк в шаге мастера «Программы» (FR-2)

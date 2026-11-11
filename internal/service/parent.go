@@ -65,7 +65,7 @@ func (s *Service) checkPassword(pw string, real time.Time, childID int64) (bool,
 	if err := s.cfg.Store.SetAuth(a); err != nil {
 		s.logRate("setauth", "не записан неверный ввод пароля: %v", err)
 	}
-	s.journal.Write(childID, "password_failed", map[string]any{"text": "Неверный пароль родителя"})
+	s.journal.Write(childID, evPasswordFailed, map[string]any{"text": "Неверный пароль родителя"})
 	if until > 0 {
 		sec := secondsLeft(until, nowMs)
 		return false, ipc.FailWith(pauseText(sec), ipc.FieldPassword, ipc.LoginDenied{PauseS: sec})

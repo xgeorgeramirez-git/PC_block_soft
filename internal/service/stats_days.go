@@ -165,8 +165,8 @@ func (s *Service) dayStartMs(from string) int64 {
 	return t.UnixMilli()
 }
 
-// violationKinds — виды событий-нарушений за период (R22; тот же набор, что VIOLATION_KINDS окна).
-var violationKinds = []string{core.EvBypass, evProgramForbiddenTry, evSiteForbiddenTry}
+// violationKinds — виды событий-нарушений за период: группа «Нарушения» журнала (RM5-5).
+var violationKinds = journalGroups[ipc.JournalGroupViolations]
 
 // periodViolations — нарушения ребёнка с fromMs, новые сверху, не больше ipc.StatsListLimit; текст —
 // как в журнале (eventText). От очистки статистики не зависят (журнал отдельно, D-73). Ошибка — [].
@@ -177,13 +177,11 @@ func (s *Service) periodViolations(cs *childState, fromMs int64) []ipc.JournalEn
 		s.logRate("violations", "не удалось прочитать нарушения у %s: %v", cs.child.Name, err)
 		return out
 	}
-	name := s.names[cs.child.ID]
 	for _, e := range evs {
 		if e.ChildID != cs.child.ID {
 			continue
 		}
-		out = append(out, ipc.JournalEntry{AtMs: e.AtMs, TzOffsetMin: e.TzOffsetMin, ChildID: e.ChildID, ChildName: name,
-			Kind: e.Kind, Text: eventText(e.Kind, name, e.Details)})
+		out = append(out, s.journalEntryOf(e))
 		if len(out) >= ipc.StatsListLimit {
 			break
 		}

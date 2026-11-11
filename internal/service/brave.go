@@ -124,9 +124,6 @@ func braveDropKey(key string, wantKeys map[string]bool) (string, bool) {
 	return key, true
 }
 
-// evBraveRestored — сверка нашла ветку правил Brave изменённой и вернула её (T5-7).
-const evBraveRestored = "brave_restored"
-
 // braveRules — правила Brave по последнему удачному чтению списков. Под s.mu.
 func (s *Service) braveRules() BraveRules {
 	return BraveRules{Blocked: append([]string(nil), s.braveBlocked...)}

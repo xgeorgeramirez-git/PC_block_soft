@@ -149,19 +149,6 @@ func (s *Service) retrySites(real time.Time) {
 	}
 }
 
-// События журнала родителя о сайтах (S-9, S-10). Нарушение — только site_forbidden_try: вкладка
-// на переднем плане у ребёнка, «запустилась сама» (R13) к ней не относится.
-const (
-	evSiteForbiddenTry    = "site_forbidden_try"     // запрещённый или «18+»: подробности domain, kind
-	evSiteClosedVideo     = "site_closed_video"      // время на видео и соцсети закончилось (R6)
-	evSiteClosedStudyOnly = "site_closed_study_only" // «Оставить только учёбу» (R8)
-	evSiteUnread          = "site_unread"            // адрес вкладки не читается (RM4-1, RK5)
-	evSiteAdded           = "site_added"             // родитель добавил домен: domain, kind
-	evSiteMoved           = "site_moved"             // родитель перенёс домен в другой список: domain, kind
-	evSiteRemoved         = "site_removed"           // родитель удалил домен: domain, kind (прежний)
-	evSiteAdultFilter     = "site_adult_filter"      // «Блокировать сайты 18+» ребёнку: on
-)
-
 // siteListName — название списка в сообщениях и журнале: винительный («в «Учёбу»») и родительный
 // («из «Запрещённых»») падежи (S-10).
 type siteListName struct{ acc, gen string }

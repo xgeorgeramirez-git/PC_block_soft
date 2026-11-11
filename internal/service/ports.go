@@ -439,6 +439,7 @@ func (j StoreJournal) Write(childID int64, kind string, details map[string]any) 
 		now = now.In(j.Loc)
 	}
 	_, off := now.Zone()
+	//eventkind:dynamic параметр Journal.Write: вид проверяют места вызова (TestEventKindsSourceScan)
 	err := j.Store.AppendEvent(StoredEvent{
 		ChildID: childID, AtMs: now.UnixMilli(), TzOffsetMin: off / 60, Kind: kind, Details: details,
 	})

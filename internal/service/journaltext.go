@@ -55,7 +55,7 @@ func eventText(kind, name string, d map[string]any) string {
 		} else {
 			body = fmt.Sprintf("доп. время +%d мин", m)
 		}
-	case "extra_undone":
+	case evExtraUndone:
 		body = "изменение доп. времени отменено"
 	case core.EvBypass:
 		body = "попытка обойти защиту"
@@ -74,21 +74,21 @@ func eventText(kind, name string, d map[string]any) string {
 		}
 	case core.EvDayClosed:
 		body = fmt.Sprintf("итог дня %s: %s", dayText(detStr(d, "day")), core.FormatDuration(detInt(d, "total_s")))
-	case "child_admin":
+	case evChildAdmin:
 		body = "учётка получила права администратора, ограничения не действуют"
-	case "child_admin_off":
+	case evChildAdminOff:
 		body = "права администратора сняты, ограничения снова действуют"
-	case "password_failed":
+	case evPasswordFailed:
 		body = "неверный пароль родителя"
-	case "password_changed":
+	case evPasswordChanged:
 		body = "пароль родителя изменён"
-	case "password_reset":
+	case evPasswordReset:
 		body = "пароль родителя сброшен администратором"
-	case "setup_done":
+	case evSetupDone:
 		body = "программа настроена"
-	case "db_recovered":
+	case evDBRecovered:
 		body = "не удалось прочитать правила, ограничения не действовали, прежние данные сохранены"
-	case "uninstall_forgot":
+	case evUninstallForgot:
 		body = "удаление программы без пароля, пароль забыт"
 	case evProgramDecided:
 		body = decidedText(d)

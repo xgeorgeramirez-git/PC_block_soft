@@ -1946,6 +1946,9 @@
       "childId": 0,
       "fromMs": 1759913600000,
       "toMs": 0,
+      "group": "",
+      "beforeAtMs": 0,
+      "beforeId": 0,
       "limit": 50
     },
     "reply": {
@@ -1953,6 +1956,7 @@
       "payload": {
         "events": [
           {
+            "id": 42,
             "atMs": 1760000000000,
             "tzOffsetMin": 180,
             "childId": 1,
@@ -1961,6 +1965,7 @@
             "text": "Миша: попытка обойти защиту. Экран заблокирован"
           },
           {
+            "id": 41,
             "atMs": 1759996400000,
             "tzOffsetMin": 180,
             "childId": 1,
@@ -1968,7 +1973,8 @@
             "kind": "extra_time",
             "text": "Миша: доп. время +30 мин"
           }
-        ]
+        ],
+        "more": true
       }
     }
   },
@@ -1977,12 +1983,44 @@
       "childId": 0,
       "fromMs": 0,
       "toMs": 0,
+      "group": "time",
+      "beforeAtMs": 0,
+      "beforeId": 0,
       "limit": 0
     },
     "reply": {
       "ok": true,
       "payload": {
-        "events": []
+        "events": [],
+        "more": false
+      }
+    }
+  },
+  "ListEvents#page": {
+    "request": {
+      "childId": 1,
+      "fromMs": 1757408000000,
+      "toMs": 0,
+      "group": "violations",
+      "beforeAtMs": 1760000000000,
+      "beforeId": 42,
+      "limit": 200
+    },
+    "reply": {
+      "ok": true,
+      "payload": {
+        "events": [
+          {
+            "id": 17,
+            "atMs": 1759992800000,
+            "tzOffsetMin": 180,
+            "childId": 1,
+            "childName": "Миша",
+            "kind": "site_forbidden_try",
+            "text": "Миша: попытка открыть запрещённое: сайт example.com"
+          }
+        ],
+        "more": false
       }
     }
   },
@@ -2570,6 +2608,7 @@
         "barsBy": "day",
         "violations": [
           {
+            "id": 9,
             "atMs": 1759996400000,
             "tzOffsetMin": 180,
             "childId": 1,

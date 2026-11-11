@@ -59,7 +59,7 @@ func (s *Service) hClearBonus(c *callCtx) ipc.Reply {
 	if err != nil {
 		return ipc.Fail(textSaveFailed)
 	}
-	s.journal.Write(cs.child.ID, "bonus_clear", map[string]any{
+	s.journal.Write(cs.child.ID, evBonusClear, map[string]any{
 		"was": bal, "text": fmt.Sprintf("Копилка обнулена родителем (было %d мин)", bal),
 	})
 	return ipc.OK(ipc.BonusChangeReply{BalanceAfter: after, Message: "Копилка обнулена"})
@@ -92,7 +92,7 @@ func (s *Service) hReduceBonus(c *callCtx) ipc.Reply {
 	if err != nil {
 		return ipc.Fail(textSaveFailed)
 	}
-	s.journal.Write(cs.child.ID, "bonus_reduce", map[string]any{
+	s.journal.Write(cs.child.ID, evBonusReduce, map[string]any{
 		"minutes": take, "balance": after, "text": fmt.Sprintf("Копилка убавлена родителем на %d мин", take),
 	})
 	return ipc.OK(ipc.BonusChangeReply{
@@ -118,7 +118,7 @@ func (s *Service) hCreatePromo(c *callCtx) ipc.Reply {
 		// Самая частая причина — такой код уже есть (UNIQUE); показываем у поля кода.
 		return ipc.FailField("Такой код уже есть, придумайте другой", ipc.FieldCode)
 	}
-	s.journal.Write(0, "promo_create", map[string]any{
+	s.journal.Write(0, evPromoCreate, map[string]any{
 		"code": p.CodeDisplay, "minutes": p.Minutes,
 		"text": fmt.Sprintf("Создан промокод «%s» на %d мин", p.CodeDisplay, p.Minutes),
 	})

@@ -337,7 +337,7 @@ func (s *Service) Start(real time.Time) error {
 
 // startRecovered пишет событие и запоминает предупреждение родителю после замены испорченной базы.
 func (s *Service) startRecovered() {
-	s.journal.Write(0, "db_recovered", map[string]any{
+	s.journal.Write(0, evDBRecovered, map[string]any{
 		"copy": s.cfg.BrokenCopy,
 		"text": textRecoveredNotice,
 	})
@@ -504,11 +504,11 @@ func (s *Service) checkAdmin(cs *childState, real time.Time) {
 	}
 	cs.admin = admin
 	if admin {
-		s.journal.Write(cs.child.ID, "child_admin", map[string]any{"text": "Учётка получила права администратора: ограничения не действуют"})
+		s.journal.Write(cs.child.ID, evChildAdmin, map[string]any{"text": "Учётка получила права администратора: ограничения не действуют"})
 		s.cfg.Logf("Детская учётка %s стала администратором, ограничения сняты", cs.child.Name)
 		return
 	}
-	s.journal.Write(cs.child.ID, "child_admin_off", map[string]any{"text": "Права администратора сняты: ограничения снова действуют"})
+	s.journal.Write(cs.child.ID, evChildAdminOff, map[string]any{"text": "Права администратора сняты: ограничения снова действуют"})
 }
 
 func (s *Service) applyPolicy(sid string, disabled bool) {
@@ -597,6 +597,7 @@ func (s *Service) writeEvents(childID int64, evs []core.Event, extra map[string]
 		for k, v := range extra {
 			details[k] = v
 		}
+		//eventkind:dynamic core.Event.Kind: литералы событий ядра проверяет TestEventKindsSourceScan, путь — TestDynamicEventKindsFromCore
 		s.journal.Write(childID, e.Kind, details)
 	}
 }

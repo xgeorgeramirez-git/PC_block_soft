@@ -491,17 +491,34 @@ const (
 	MaxEventsLimit     = 1000
 )
 
-// ListEventsRequest — журнал событий. ChildID 0 — все дети; FromMs/ToMs 0 — без границы;
-// Limit 0 — DefaultEventsLimit, не больше MaxEventsLimit; сначала новые.
+// Группы фильтра «Что» журнала (FR-24, 8.3.7 п.2, RM5-5); виды событий групп — в службе
+// (journalGroups). Неизвестная группа — отказ.
+const (
+	JournalGroupAll        = ""           // «Все события»: без отбора по виду
+	JournalGroupViolations = "violations" // «Нарушения»
+	JournalGroupTime       = "time"       // «Время и копилка»
+	JournalGroupPrograms   = "programs"   // «Программы и сайты»
+	JournalGroupSettings   = "settings"   // «Пароль и настройки»
+	JournalGroupSystem     = "system"     // «Работа программы»
+)
+
+// ListEventsRequest — журнал событий. ChildID 0 — все дети; FromMs/ToMs 0 — без границы
+// (FromMs <= at < ToMs); Group — JournalGroup*; Limit 0 — DefaultEventsLimit, не больше
+// MaxEventsLimit; сначала новые. Следующая страница («Показать ещё») — курсор BeforeAtMs/BeforeID
+// последней полученной записи (её AtMs и ID): строго старше неё; BeforeAtMs 0 — с новых.
 type ListEventsRequest struct {
-	ChildID int64 `json:"childId"`
-	FromMs  int64 `json:"fromMs"`
-	ToMs    int64 `json:"toMs"`
-	Limit   int   `json:"limit"`
+	ChildID    int64  `json:"childId"`
+	FromMs     int64  `json:"fromMs"`
+	ToMs       int64  `json:"toMs"`
+	Group      string `json:"group"`
+	BeforeAtMs int64  `json:"beforeAtMs"`
+	BeforeID   int64  `json:"beforeId"`
+	Limit      int    `json:"limit"`
 }
 
 // JournalEntry — событие журнала простыми словами (R22, ТЗ 8.3.7).
 type JournalEntry struct {
+	ID          int64  `json:"id"`   // номер записи: ключ списка и курсор следующей страницы
 	AtMs        int64  `json:"atMs"` // UTC мс
 	TzOffsetMin int    `json:"tzOffsetMin"`
 	ChildID     int64  `json:"childId"` // 0 — событие не про ребёнка
@@ -510,9 +527,10 @@ type JournalEntry struct {
 	Text        string `json:"text"` // «Миша: попытка обойти защиту. Экран заблокирован»
 }
 
-// ListEventsReply — ответ ListEvents.
+// ListEventsReply — ответ ListEvents. More — есть записи старше последней («Показать ещё»).
 type ListEventsReply struct {
 	Events []JournalEntry `json:"events"`
+	More   bool           `json:"more"`
 }
 
 // ClearChildRequest — ClearStats и ClearJournal: чью статистику или журнал очистить (FR-38).

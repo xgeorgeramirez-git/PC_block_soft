@@ -302,10 +302,15 @@ func examples() map[string]example {
 			Card: card(okStatus(), 0, false), Message: "Блокировка снята",
 		}),
 		CmdListEvents: ok(ListEventsRequest{ChildID: 0, FromMs: t0 - 86_400_000, ToMs: 0, Limit: 50}, ListEventsReply{Events: []JournalEntry{
-			{AtMs: t0, TzOffsetMin: 180, ChildID: 1, ChildName: "Миша", Kind: core.EvBypass, Text: "Миша: попытка обойти защиту. Экран заблокирован"},
-			{AtMs: t0 - 3_600_000, TzOffsetMin: 180, ChildID: 1, ChildName: "Миша", Kind: core.EvExtraTime, Text: "Миша: доп. время +30 мин"},
-		}}),
-		"ListEvents#empty": ok(ListEventsRequest{}, ListEventsReply{}),
+			{ID: 42, AtMs: t0, TzOffsetMin: 180, ChildID: 1, ChildName: "Миша", Kind: core.EvBypass, Text: "Миша: попытка обойти защиту. Экран заблокирован"},
+			{ID: 41, AtMs: t0 - 3_600_000, TzOffsetMin: 180, ChildID: 1, ChildName: "Миша", Kind: core.EvExtraTime, Text: "Миша: доп. время +30 мин"},
+		}, More: true}),
+		// «Показать ещё» (RM5-5): группа «Нарушения», курсор — последняя запись прошлой страницы.
+		"ListEvents#page": ok(ListEventsRequest{ChildID: 1, FromMs: t0 - 30*86_400_000, Group: JournalGroupViolations, BeforeAtMs: t0, BeforeID: 42, Limit: 200},
+			ListEventsReply{Events: []JournalEntry{
+				{ID: 17, AtMs: t0 - 7_200_000, TzOffsetMin: 180, ChildID: 1, ChildName: "Миша", Kind: "site_forbidden_try", Text: "Миша: попытка открыть запрещённое: сайт example.com"},
+			}, More: false}),
+		"ListEvents#empty": ok(ListEventsRequest{Group: JournalGroupTime}, ListEventsReply{Events: []JournalEntry{}}),
 		CmdChangePassword:  ok(ChangePasswordRequest{OldPassword: "секрет-123", NewPassword: "новый-секрет"}, Empty{}),
 		CmdSetChildren: ok(SetChildrenRequest{
 			Add:    []ChildAdd{{SID: "S-1-5-21-111-222-333-1002", Name: "Даша"}},
@@ -374,7 +379,7 @@ func examples() map[string]example {
 			},
 			BarsBy: BarsByDay,
 			Violations: []JournalEntry{
-				{AtMs: t0 - 3_600_000, TzOffsetMin: 180, ChildID: 1, ChildName: "Миша", Kind: "program_forbidden_try", Text: "Миша: попытка запустить запрещённую программу «Chrome»"},
+				{ID: 9, AtMs: t0 - 3_600_000, TzOffsetMin: 180, ChildID: 1, ChildName: "Миша", Kind: "program_forbidden_try", Text: "Миша: попытка запустить запрещённую программу «Chrome»"},
 			},
 			Bonus: []BonusEntry{
 				{AtMs: t0 - 7_200_000, TzOffset: 180, DeltaMin: -15, Reason: "взято из копилки", Balance: 25},

@@ -17,18 +17,19 @@ import (
 
 // fakeStore — хранилище в памяти. Поля fail* включают ошибки, чтобы проверять безопасное поведение (R18).
 type fakeStore struct {
-	mu       sync.Mutex
-	children map[int64]*Child
-	removed  map[int64]bool
-	nextID   int64
-	limits   map[int64][7]core.DayLimit
-	days     map[string]core.DayState // "id|день"
-	saves    []savedDay               // история SaveDayState
-	events   []StoredEvent
-	lastEvID int64 // номер последнего события: после DeleteChildEvents номера не повторяются (как id в базе)
-	auth     *Auth
-	settings map[string]string
-	closed   bool
+	mu        sync.Mutex
+	children  map[int64]*Child
+	removed   map[int64]bool
+	nextID    int64
+	limits    map[int64][7]core.DayLimit
+	days      map[string]core.DayState // "id|день"
+	saves     []savedDay               // история SaveDayState
+	events    []StoredEvent
+	lastEvID  int64        // номер последнего события: после DeleteChildEvents номера не повторяются (как id в базе)
+	evQueries []EventQuery // запросы ListEvents по порядку (фильтр уходит в хранилище, RM5-5)
+	auth      *Auth
+	settings  map[string]string
+	closed    bool
 
 	schedule map[int64][]core.Interval // интервалы по ребёнку (M2)
 	bonus    map[int64][]BonusRecord   // история копилки по ребёнку (M2)
@@ -1025,6 +1026,7 @@ func (f *fakeStore) AppendEvent(e StoredEvent) error {
 func (f *fakeStore) ListEvents(q EventQuery) ([]StoredEvent, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.evQueries = append(f.evQueries, q)
 	kinds := map[string]bool{}
 	for _, k := range q.Kinds {
 		kinds[k] = true
