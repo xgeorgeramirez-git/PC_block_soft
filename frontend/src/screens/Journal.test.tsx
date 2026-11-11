@@ -63,6 +63,9 @@ describe("Journal", () => {
       childId: 0,
       fromMs: 0,
       toMs: 0,
+      group: "",
+      beforeAtMs: 0,
+      beforeId: 0,
       limit: 1000,
     });
   });
