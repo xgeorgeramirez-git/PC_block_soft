@@ -18,6 +18,7 @@ import {
   tabRows,
   tabSeconds,
   todayRuleWeekday,
+  usageRows,
 } from "./mytoday";
 import { formatDuration } from "./format";
 import type { ChildStatus, MyTodayReply, ProgramTime } from "../types";
@@ -70,6 +71,12 @@ function reply(over: Partial<ChildStatus> = {}, today: string[] = []): MyTodayRe
     extraMin: 0,
     bonusSpentMin: 0,
     programs: [],
+    bars: [],
+    barsBy: "day",
+    violations: [],
+    bonus: [],
+    statsSinceDay: "",
+    statsSinceText: "",
   };
 }
 
@@ -475,5 +482,73 @@ describe("периоды «Итогов»", () => {
     expect(periodEmpty({ ...reply({ usedS: 0 }), period: "today" })).toBe(false);
     expect(periodEmpty({ ...reply({ usedS: 0 }), period: "all", allS: 60 })).toBe(false);
     expect(periodEmpty({ ...reply({ usedS: 0 }), period: "month", extraMin: 15 })).toBe(false);
+  });
+});
+
+// «Программы» и «Сайты» за период (8.2.6 п.5, RM5-4): строки G15 (testdata/golden/G15.json) за неделю.
+describe("usageRows: таблицы «Программы» и «Сайты»", () => {
+  const G15_WEEK: ProgramTime[] = [
+    { path: "c:\\games\\game.exe", name: "game.exe", category: "games", seconds: 285 * 60, kind: "program" },
+    { path: "youtube.com", name: "youtube.com", category: "video_social", seconds: 220 * 60, kind: "site" },
+    { path: "c:\\school\\study.exe", name: "study.exe", category: "study", seconds: 95 * 60, kind: "program" },
+    { path: "c:\\tools\\other.exe", name: "other.exe", category: "other", seconds: 248 * 60, kind: "program" },
+  ];
+  const week = (programs: ProgramTime[]): MyTodayReply => ({ ...reply(), period: "week", programs });
+  const cells = (rows: ReturnType<typeof usageRows>) => rows.map((r) => [r.name, r.time, r.share]);
+
+  // Ловит (S21): порядок не по времени, доля от «Всего» за период, а не от суммы таблицы.
+  it("G15 «Программы»: game 4 ч 45 мин 45 %, other 4 ч 08 мин 39 %, study 1 ч 35 мин 15 %", () => {
+    expect(cells(usageRows(week(G15_WEEK), "program"))).toEqual([
+      ["game.exe", "4 ч 45 мин", "45%"],
+      ["other.exe", "4 ч 08 мин", "39%"],
+      ["study.exe", "1 ч 35 мин", "15%"],
+    ]);
+  });
+
+  it("G15 «Сайты»: youtube.com 3 ч 40 мин 100 %", () => {
+    expect(cells(usageRows(week(G15_WEEK), "site"))).toEqual([["youtube.com", "3 ч 40 мин", "100%"]]);
+  });
+
+  // Ловит (RM5-4): программа сменила категорию за период и стоит двумя строками.
+  it("программа в двух категориях - одна строка 15 мин", () => {
+    const rows = usageRows(
+      week([
+        { path: "c:\\x\\app.exe", name: "app", category: "games", seconds: 600, kind: "program" },
+        { path: "c:\\x\\app.exe", name: "app", category: "other", seconds: 300, kind: "program" },
+      ]),
+      "program",
+    );
+    expect(cells(rows)).toEqual([["app", "15 мин", "100%"]]);
+  });
+
+  // Ловит: «Остальное время» (время без программы) - строкой таблицы, а сайт - в «Программах».
+  it("«Остальное время» не строка; сайт не в «Программах»; без kind с путём - программа", () => {
+    const r = week([
+      { path: "", name: "Остальное время", category: "other", seconds: 900 },
+      { path: "c:\\x\\old.exe", name: "old", category: "games", seconds: 120 },
+      { path: "vk.com", name: "vk.com", category: "video_social", seconds: 60, kind: "site" },
+    ]);
+    expect(cells(usageRows(r, "program"))).toEqual([["old", "2 мин", "100%"]]);
+    expect(cells(usageRows(r, "site"))).toEqual([["vk.com", "1 мин", "100%"]]);
+  });
+
+  it("при равном времени - по имени; нулевые строки выкинуты; меньше минуты словами", () => {
+    const rows = usageRows(
+      week([
+        { path: "c:\\b.exe", name: "Бета", category: "other", seconds: 30, kind: "program" },
+        { path: "c:\\a.exe", name: "Альфа", category: "other", seconds: 30, kind: "program" },
+        { path: "c:\\z.exe", name: "Ноль", category: "other", seconds: 0, kind: "program" },
+      ]),
+      "program",
+    );
+    expect(cells(rows)).toEqual([
+      ["Альфа", "меньше 1 мин", "50%"],
+      ["Бета", "меньше 1 мин", "50%"],
+    ]);
+  });
+
+  it("пусто - пустой список", () => {
+    expect(usageRows(week([]), "program")).toEqual([]);
+    expect(usageRows(week([]), "site")).toEqual([]);
   });
 });

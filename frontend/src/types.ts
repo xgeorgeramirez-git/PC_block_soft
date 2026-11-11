@@ -452,17 +452,17 @@ export interface MyTodayReply {
    * Столбики «По дням» за период (M5, RM5-2, RM5-3): из того же чтения дней, что «Итоги», сумма столбиков
    * равна «Итогам». Подпись и подсказку собирает служба. У старой службы нет - api.ts даёт [].
    */
-  bars?: DayBar[];
+  bars: DayBar[];
   /** Разбивка столбиков: по дню («Сегодня», «Неделя», «Месяц») или по месяцу («Год», «Всё время»). */
-  barsBy?: BarsBy;
+  barsBy: BarsBy;
   /** Нарушения ребёнка за период, новые сверху, не больше 200 (тексты журнала). */
-  violations?: JournalEntry[];
+  violations: JournalEntry[];
   /** Записи копилки за период, новые сверху, не больше 200 (текст строки - lib/bonus.ts). */
-  bonus?: BonusEntry[];
+  bonus: BonusEntry[];
   /** С какого дня ведётся статистика, YYYY-MM-DD (FR-38). */
-  statsSinceDay?: string;
+  statsSinceDay: string;
   /** «Статистика ведётся с 11 ноября 2026». */
-  statsSinceText?: string;
+  statsSinceText: string;
 }
 
 /** Разбивка столбиков «По дням» (internal/ipc.BarsBy*). */

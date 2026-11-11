@@ -179,6 +179,48 @@ export function tabRows(reply: MyTodayReply, tab: TotalsTab): TabRow[] {
   }));
 }
 
+/** Строка таблицы «Программы» или «Сайты»: название, время и доля от суммы таблицы. */
+export interface UsageRow {
+  key: string;
+  name: string;
+  time: string;
+  share: string;
+}
+
+/**
+ * Таблица «Программы» (kind "program"; строка с путём без kind - тоже программа) или «Сайты» (kind "site")
+ * за период (8.2.6 п.5, RM5-4): строка - сумма секунд одного path из всех категорий (программа могла
+ * сменить категорию); строки «Остальное время» (path "") не входят. Доля - от суммы строк этой таблицы,
+ * каждая округлена сама (сумма 99-101 % допустима). Самые долгие сверху, при равенстве по имени, затем
+ * по path. Скрытых и запрещённых служба не отдаёт (PL-38): окно их не фильтрует повторно.
+ */
+export function usageRows(reply: MyTodayReply, kind: "program" | "site"): UsageRow[] {
+  const merged = new Map<string, { name: string; seconds: number }>();
+  for (const p of reply.programs) {
+    if (p.path === "") continue;
+    const k = p.kind === "site" ? "site" : "program";
+    if (k !== kind) continue;
+    const cur = merged.get(p.path);
+    if (cur) cur.seconds += p.seconds;
+    else merged.set(p.path, { name: p.name, seconds: p.seconds });
+  }
+  const rows = [...merged.entries()].filter(([, v]) => v.seconds > 0);
+  const total = rows.reduce((n, [, v]) => n + v.seconds, 0);
+  rows.sort(([ka, a], [kb, b]) => {
+    if (a.seconds !== b.seconds) return b.seconds - a.seconds;
+    const na = a.name.toLowerCase();
+    const nb = b.name.toLowerCase();
+    if (na !== nb) return na < nb ? -1 : 1;
+    return ka < kb ? -1 : 1;
+  });
+  return rows.map(([key, v]) => ({
+    key,
+    name: v.name,
+    time: rowTime(v.seconds),
+    share: `${total > 0 ? Math.round((v.seconds * 100) / total) : 0}%`,
+  }));
+}
+
 /** Остаток в минутах тем же правилом, что у значка и табло: вверх (B-5). */
 function upToMinute(seconds: number): number {
   return Math.ceil(Math.max(0, seconds) / 60) * 60;
