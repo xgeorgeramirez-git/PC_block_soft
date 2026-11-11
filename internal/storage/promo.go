@@ -50,6 +50,59 @@ func (s *Store) CreatePromo(codeDisplay string, minutes int) (Promo, error) {
 	return Promo{ID: id, CodeNorm: norm, CodeDisplay: codeDisplay, Minutes: minutes, CreatedAtMs: at}, nil
 }
 
+// CreatePromos добавляет коды одной транзакцией (FR-35, RM5-12): каждый codeDisplay уже проверен службой;
+// code_norm = core.NormalizePromoCode. Любой повтор (UNIQUE: с базой, в том числе с использованным
+// кодом, или внутри пачки), пустой код или минуты вне 1..600 — ErrInvalid, ничего не создано.
+// Возвращает созданные коды в порядке codesDisplay; пустая пачка — [].
+func (s *Store) CreatePromos(codesDisplay []string, minutes int) ([]Promo, error) {
+	if !core.PromoMinutesValid(minutes) {
+		return nil, fmt.Errorf("%w: минуты промокода %d, допустимо от 1 до 600", ErrInvalid, minutes)
+	}
+	for _, c := range codesDisplay {
+		if core.NormalizePromoCode(c) == "" {
+			return nil, fmt.Errorf("%w: пустой промокод", ErrInvalid)
+		}
+	}
+	at := nowMs()
+	tx, err := s.db.Begin()
+	if err != nil {
+		return nil, fmt.Errorf("storage: создать промокоды: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	out := make([]Promo, 0, len(codesDisplay))
+	for _, c := range codesDisplay {
+		norm := core.NormalizePromoCode(c)
+		var id int64
+		err := tx.QueryRow(`INSERT INTO promo_codes (code_norm, code_display, minutes, created_at)
+			VALUES (?, ?, ?, ?) RETURNING id`, norm, c, minutes, at).Scan(&id)
+		if err != nil {
+			if isUniqueViolation(err) {
+				return nil, fmt.Errorf("%w: код %q уже есть", ErrInvalid, c)
+			}
+			return nil, fmt.Errorf("storage: создать промокоды: %w", err)
+		}
+		out = append(out, Promo{ID: id, CodeNorm: norm, CodeDisplay: c, Minutes: minutes, CreatedAtMs: at})
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("storage: создать промокоды: %w", err)
+	}
+	return out, nil
+}
+
+// ClearUsedPromos удаляет использованные коды (used_at IS NOT NULL): «Очистить историю» (RM5-14).
+// Действующие остаются; удалённый код можно создать заново. Возвращает число удалённых.
+func (s *Store) ClearUsedPromos() (int, error) {
+	res, err := s.db.Exec(`DELETE FROM promo_codes WHERE used_at IS NOT NULL`)
+	if err != nil {
+		return 0, fmt.Errorf("storage: очистить историю промокодов: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("storage: очистить историю промокодов: %w", err)
+	}
+	return int(n), nil
+}
+
 // RedeemPromo одноразово помечает действующий промокод использованным ребёнком childID и
 // возвращает его минуты и отображаемый код (R26, D-50). Поиск и пометка — одним атомарным
 // UPDATE по условию used_at IS NULL, поэтому повторный ввод того же кода (или гонка двух
@@ -72,11 +125,12 @@ func (s *Store) RedeemPromo(childID int64, code string, atMs int64) (minutes int
 	return minutes, display, true, nil
 }
 
-// ListPromos возвращает все промокоды, новые сверху (FR-35): родитель видит действующие
-// (UsedAtMs == nil) и использованные (с моментом и ребёнком). Пусто — пустой список, не nil.
+// ListPromos возвращает все промокоды (FR-35, RM5-11): сначала действующие (UsedAtMs == nil), новые
+// сверху, затем использованные (с моментом и ребёнком) — по моменту использования, новые сверху.
+// Пусто — пустой список, не nil.
 func (s *Store) ListPromos() ([]Promo, error) {
 	rows, err := s.db.Query(`SELECT id, code_norm, code_display, minutes, created_at, used_at, used_by_child
-		FROM promo_codes ORDER BY id DESC`)
+		FROM promo_codes ORDER BY used_at IS NOT NULL, coalesce(used_at, created_at) DESC, id DESC`)
 	if err != nil {
 		return nil, fmt.Errorf("storage: список промокодов: %w", err)
 	}
