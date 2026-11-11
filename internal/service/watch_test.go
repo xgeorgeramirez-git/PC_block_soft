@@ -592,3 +592,41 @@ func TestWatchEmptyRootsClosesNothing(t *testing.T) {
 		t.Error("при обоих корнях незнакомая программа не закрыта")
 	}
 }
+
+// Ловит (журнал службы заказчика 25.10–11.11.2026: 1550 строк из 1843): строка о процессах другого
+// пользователя в сеансе ребёнка пишется каждую минуту одинаковой; или, наоборот, не пишется,
+// когда число процессов изменилось и прошёл час.
+func TestWatchOtherUserLogOnChangeHourly(t *testing.T) {
+	w := newWatcher()
+	h := watchHarness(t, w)
+	const marker = "идут от имени другого пользователя"
+	count := func() int { return strings.Count(h.logText(), marker) }
+	w.startAs(childSession, `c:\users\миша\downloads\setup.exe`, parentSID, true)
+	for i := 0; i < 90; i++ { // полтора часа, проход раз в минуту, число то же
+		h.watch()
+		h.real.Advance(time.Minute)
+	}
+	if n := count(); n != 1 {
+		t.Fatalf("за 1,5 ч при том же числе процессов строк %d, want 1", n)
+	}
+	w.startAs(childSession, `c:\users\миша\downloads\setup2.exe`, parentSID, true)
+	h.watch()
+	if n := count(); n != 2 {
+		t.Fatalf("число изменилось, прошло больше часа: строк %d, want 2", n)
+	}
+	w.startAs(childSession, `c:\users\миша\downloads\setup3.exe`, parentSID, true)
+	for i := 0; i < 30; i++ { // число снова изменилось, но час ещё не прошёл
+		h.real.Advance(time.Minute)
+		h.watch()
+	}
+	if n := count(); n != 2 {
+		t.Fatalf("строка чаще раза в час: строк %d, want 2", n)
+	}
+	for i := 0; i < 31; i++ {
+		h.real.Advance(time.Minute)
+		h.watch()
+	}
+	if n := count(); n != 3 || !strings.Contains(h.logText(), "наблюдатель: 3 процессов") {
+		t.Fatalf("через час после изменения: строк %d, want 3 с числом 3\n%s", n, h.logText())
+	}
+}

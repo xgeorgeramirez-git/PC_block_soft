@@ -545,7 +545,10 @@ func (s *Service) applyWatch(acts []watchAct, notes []string, unreadable, others
 		s.logRate(fmt.Sprint("watch-unreadable|", session), "наблюдатель: у %d процессов сеанса %d путь не прочитан, они не трогаются", n, session)
 	}
 	for session, n := range others {
-		s.logRate(fmt.Sprint("watch-otheruser|", session), "наблюдатель: %d процессов в сеансе %d идут от имени другого пользователя или пользователь не прочитан, они не трогаются", n, session)
+		// Не чаще раза в час и только при новом числе: иначе строка каждую минуту забивает журнал
+		// (у заказчика 1550 строк из 1843 за две недели).
+		s.logCountRate(fmt.Sprint("watch-otheruser|", session), n, real, otherUserLogEvery,
+			"наблюдатель: %d процессов в сеансе %d идут от имени другого пользователя или пользователь не прочитан, они не трогаются", n, session)
 	}
 	s.pruneWatchLimits(real)
 	for i := range acts {

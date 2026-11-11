@@ -23,13 +23,16 @@ const (
 	braveLogEvery   = 10 * time.Minute // «правила Brave восстановлены» в журнал родителя не чаще, на ребёнка
 	rulesRetryEvery = 60 * time.Second // повторное чтение правил, которые не удалось прочитать (R18)
 	errLogEvery     = 60 * time.Second // одна и та же ошибка пишется в журнал работы не чаще
-	parentIdle      = 10 * time.Minute // родительская сессия заканчивается без действий (R19)
-	guardBindLife   = 30 * time.Second // окно после верного пароля на экране блокировки
-	undoLife        = 10 * time.Second // «Отменить» после добавления времени
-	warnLife        = 20 * time.Second // непринятое предупреждение стареет
-	bypassLogWindow = 60 * time.Second // одинаковая попытка обхода пишется в журнал не чаще (D-41)
-	bypassGrace     = 5 * time.Second  // гибель стража, значка или окна записывается обходом не раньше (FB-1)
-	closingLife     = 30 * time.Second // сообщение стража «закрываюсь» действует столько, если страж жив
+	// otherUserLogEvery — строка о процессах другого пользователя в сеансе ребёнка пишется в журнал
+	// работы не чаще и только при новом числе процессов (logCountRate).
+	otherUserLogEvery = time.Hour
+	parentIdle        = 10 * time.Minute // родительская сессия заканчивается без действий (R19)
+	guardBindLife     = 30 * time.Second // окно после верного пароля на экране блокировки
+	undoLife          = 10 * time.Second // «Отменить» после добавления времени
+	warnLife          = 20 * time.Second // непринятое предупреждение стареет
+	bypassLogWindow   = 60 * time.Second // одинаковая попытка обхода пишется в журнал не чаще (D-41)
+	bypassGrace       = 5 * time.Second  // гибель стража, значка или окна записывается обходом не раньше (FB-1)
+	closingLife       = 30 * time.Second // сообщение стража «закрываюсь» действует столько, если страж жив
 )
 
 // Ключи настроек в хранилище.
@@ -172,6 +175,7 @@ type Service struct {
 	loaded      bool // список детей прочитан из базы
 	verbose     bool // «Подробные логи для диагностики» включены (FR-25, D-42)
 	errAt       map[string]time.Time
+	logCount    map[string]int // последнее записанное число по ключу logCountRate
 
 	// Программы (M3): классификатор в памяти (RM3-11), готов ли список (снимок сделан и прочитан,
 	// RM3-10), когда пробовали в последний раз, последняя операция для «Отменить».
@@ -260,7 +264,7 @@ func New(cfg Config) (*Service, error) {
 		children: map[int64]*childState{}, sessions: map[uint32]*sessState{},
 		parents: map[string]*parentSession{}, binds: map[uint32]*guardBind{},
 		guardCmd: map[uint32][]ipc.GuardCommand{}, guardUI: map[uint32]*guardView{},
-		errAt: map[string]time.Time{}, names: map[int64]string{},
+		errAt: map[string]time.Time{}, logCount: map[string]int{}, names: map[int64]string{},
 		classifier: programs.NewClassifier(cfg.Roots, programs.DefaultCatalog),
 	}
 	if s.journal == nil {
@@ -576,6 +580,16 @@ func (s *Service) logRate(key, format string, args ...any) {
 		return
 	}
 	s.errAt[key] = s.real
+	s.cfg.Logf(format, args...)
+}
+
+// logCountRate пишет строку о числе n в журнал работы: в первый раз, затем только при новом n и не
+// чаще every по настоящим часам real. Одинаковое число не повторяется совсем.
+func (s *Service) logCountRate(key string, n int, real time.Time, every time.Duration, format string, args ...any) {
+	if last, ok := s.errAt[key]; ok && (s.logCount[key] == n || (real.Sub(last) < every && !real.Before(last))) {
+		return
+	}
+	s.errAt[key], s.logCount[key] = real, n
 	s.cfg.Logf(format, args...)
 }
 
