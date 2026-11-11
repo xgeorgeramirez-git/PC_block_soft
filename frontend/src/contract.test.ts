@@ -101,6 +101,8 @@ const CASES: [string, string, (req: any) => Promise<unknown>][] = [
   ["ScanPrograms", "ScanPrograms#empty", () => api.scanPrograms()],
   ["SetNoForbidden", "SetNoForbidden", (r) => api.setNoForbidden(r.childId, r.on)],
   ["ClearBonus", "ClearBonus", (r) => api.clearBonus(r.childId)],
+  ["ClearStats", "ClearStats", (r) => api.clearStats(r.childId)],
+  ["ClearJournal", "ClearJournal", (r) => api.clearJournal(r.childId)],
   ["ReduceBonus", "ReduceBonus", (r) => api.reduceBonus(r.childId, r.minutes)],
   ["CreatePromo", "CreatePromo", (r) => api.createPromo(r.code, r.minutes)],
   ["ListPromos", "ListPromos", () => api.listPromos()],
@@ -173,6 +175,8 @@ describe("отказы контракта", () => {
     ["AddSite", "AddSite#invalid", (r) => api.addSite(r.domain, r.kind)],
     ["AddSite", "AddSite#dup", (r) => api.addSite(r.domain, r.kind)],
     ["AddSite", "AddSite#full", (r) => api.addSite(r.domain, r.kind)],
+    ["ClearStats", "ClearStats#noChild", (r) => api.clearStats(r.childId)],
+    ["ClearJournal", "ClearJournal#noChild", (r) => api.clearJournal(r.childId)],
   ];
 
   it.each([...denied, ...extra])("%s: пример %s - отказ с текстом и полем", async (_command, key, run) => {
@@ -243,6 +247,8 @@ describe("полнота", () => {
       "AddSite",
       "RemoveSite",
       "SetAdultFilter",
+      "ClearStats",
+      "ClearJournal",
     ]) {
       expect(examples[command], `нет примера ${command}`).toBeDefined();
       expect(wrapped.has(command), `нет обёртки ${command}`).toBe(true);

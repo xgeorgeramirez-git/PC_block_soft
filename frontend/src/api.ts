@@ -47,6 +47,7 @@ import type {
   UndoBonusReply,
   SetNoForbiddenReply,
   BonusChangeReply,
+  ClearReply,
   CreatePromoReply,
   ListPromosReply,
   RedeemPromoReply,
@@ -419,6 +420,16 @@ export function setNoForbidden(childId: number, on: boolean): Promise<SetNoForbi
 /** Обнулить копилку ребёнка (FR-22, D-46). */
 export function clearBonus(childId: number): Promise<BonusChangeReply> {
   return call("ClearBonus", { childId });
+}
+
+/** «Очистить статистику» ребёнка (FR-38): учёт лимита на сегодня не меняется. */
+export function clearStats(childId: number): Promise<ClearReply> {
+  return call("ClearStats", { childId });
+}
+
+/** «Очистить журнал» ребёнка (FR-38): события без ребёнка остаются. */
+export function clearJournal(childId: number): Promise<ClearReply> {
+  return call("ClearJournal", { childId });
 }
 
 /** Убавить копилку на minutes минут, не ниже нуля (FR-22, D-46). */

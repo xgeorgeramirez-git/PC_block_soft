@@ -193,6 +193,11 @@ export interface BonusChangeReply {
   message: string;
 }
 
+/** Ответ ClearStats и ClearJournal (FR-38): «Статистика Миши очищена», «Журнал Миши очищен». */
+export interface ClearReply {
+  message: string;
+}
+
 export interface PromoView {
   codeDisplay: string;
   minutes: number;

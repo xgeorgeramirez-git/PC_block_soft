@@ -6,7 +6,7 @@
 // Файл собирается и в браузерный сценарий Playwright (e2e/helpers.ts): экспорты доступны
 // там как PCBlockMock.installBackend(...).
 import contract from "../../../internal/ipc/testdata/contract.json";
-import { formatDuration, formatHour, formatLimit, localOffsetMin, weekdayOfMs, weekdayShort } from "../lib/format";
+import { formatDuration, formatHour, formatLimit, genitiveName, localOffsetMin, weekdayOfMs, weekdayShort } from "../lib/format";
 import { isViolation } from "../lib/journal";
 import { normalizeLimits } from "../lib/limits";
 import { breakEqual, DEFAULT_BREAK, validateBreak } from "../lib/rest";
@@ -96,6 +96,18 @@ export interface MockChild {
   history?: MockDay[];
   /** «Блокировать сайты 18+» (R14); нет поля - включено, как у нового ребёнка. */
   adultFilter?: boolean;
+  /** Снимок последней «Очистить статистику» (FR-38, RM5-8): момент и счётчики дня на момент очистки. */
+  statsReset?: MockStatsReset;
+}
+
+/** Снимок очистки статистики: сегодня в «Итогах» - счётчики минус снимок, учёт лимита прежний. */
+export interface MockStatsReset {
+  clearedAtMs: number;
+  usedS: number;
+  gamesS: number;
+  studyS: number;
+  videoS: number;
+  extraMin: number;
 }
 
 /** Прошлый день ребёнка в подменной программе (периоды «Итогов», D-61). */
@@ -607,13 +619,21 @@ function myToday(child: MockChild | undefined, nowMs: number, period: StatsPerio
   const past = (child.history ?? []).filter((d) => d.day >= from && d.day < todayDay);
   // Начало периода в мс (местная полночь); «Всё время» - без границы, как служба (dayStartMs).
   const fromMs = from === "0001-01-01" ? 0 : new Date(Number(from.slice(0, 4)), Number(from.slice(5, 7)) - 1, Number(from.slice(8, 10))).getTime();
-  // «Статистика ведётся с» - первый день истории до сегодня, иначе сегодня (без очистки, RM5-8).
-  const since = [...(child.history ?? []).map((d) => d.day).filter((d) => d < todayDay), todayDay].sort()[0];
+  // «Статистика ведётся с» - дата очистки; без очистки - первый день истории до сегодня, иначе сегодня (RM5-8).
+  const reset = child.statsReset;
+  const since = reset
+    ? isoDay(reset.clearedAtMs)
+    : [...(child.history ?? []).map((d) => d.day).filter((d) => d < todayDay), todayDay].sort()[0];
+  // Сегодня - счётчики дня минус снимок очистки этого дня (не ниже нуля), как служба (liveMinusReset).
+  const resetToday = reset && isoDay(reset.clearedAtMs) === todayDay ? reset : undefined;
+  const live = (v: number, snap: number | undefined) => Math.max(0, v - (snap ?? 0));
+  const liveUsedS = live(status.usedS, resetToday?.usedS);
+  const liveStudyS = live(child.studyUsedS ?? 0, resetToday?.studyS);
   const sum = (pick: (d: MockDay) => number | undefined) => past.reduce((n, d) => n + (pick(d) ?? 0), 0);
-  const usedS = status.usedS + sum((d) => d.totalS);
-  const gamesS = (child.gamesUsedS ?? 0) + sum((d) => d.gamesS);
-  const studyS = (child.studyUsedS ?? 0) + sum((d) => d.studyS);
-  const videoS = (child.videoUsedS ?? 0) + sum((d) => d.videoS);
+  const usedS = liveUsedS + sum((d) => d.totalS);
+  const gamesS = live(child.gamesUsedS ?? 0, resetToday?.gamesS) + sum((d) => d.gamesS);
+  const studyS = liveStudyS + sum((d) => d.studyS);
+  const videoS = live(child.videoUsedS ?? 0, resetToday?.videoS) + sum((d) => d.videoS);
   // «Прочее» и «Всего» - как у службы (stats.go): общее время без игр и видео и общее плюс учёба.
   const otherS = Math.max(0, usedS - gamesS - videoS);
   const merged = new Map<string, ProgramTime>();
@@ -640,10 +660,10 @@ function myToday(child: MockChild | undefined, nowMs: number, period: StatsPerio
     studyS,
     otherS,
     allS: usedS + studyS,
-    extraMin: (child.extraMin ?? 0) + sum((d) => d.extraMin),
+    extraMin: live(child.extraMin ?? 0, resetToday?.extraMin) + sum((d) => d.extraMin),
     bonusSpentMin: sum((d) => d.bonusSpentMin),
     programs,
-    ...mockBars(period, from, todayDay, past, status.usedS, child.studyUsedS ?? 0),
+    ...mockBars(period, from, todayDay, past, liveUsedS, liveStudyS),
     violations: events
       .filter((e) => e.childId === child.childId && isViolation(e.kind) && e.atMs >= fromMs)
       .sort((a, b) => b.atMs - a.atMs)
@@ -774,6 +794,8 @@ const PARENT_COMMANDS = new Set([
   "AddSite",
   "RemoveSite",
   "SetAdultFilter",
+  "ClearStats",
+  "ClearJournal",
 ]);
 
 /** Нормализация промокода как в ядре (R26): без пробелов по краям и без учёта регистра. */
@@ -1315,6 +1337,35 @@ export function createBackend(opts: MockOptions = {}): MockBackend {
       child.bonusLedger = [{ atMs: now, tzOffsetMin: localOffsetMin(new Date(now)), deltaMin: -was, reason: "Обнулено родителем", balanceAfter: 0 }, ...(child.bonusLedger ?? [])];
       addEvent(now, child, "bonus_clear", `Копилка обнулена родителем (было ${was} мин)`);
       return okReply({ balanceAfter: 0, message: "Копилка обнулена" });
+    },
+
+    // «Очистить статистику» (FR-38, RM5-8): прошлые дни и время программ удалены, сегодня - с момента
+    // очистки (снимок счётчиков); остаток, доп. время и копилка прежние (D-73).
+    ClearStats: (req, now) => {
+      const child = childById(req.childId);
+      if (!child) return fail("Такого ребёнка нет в списке");
+      const status = statusOf(child, now);
+      child.history = [];
+      child.programsToday = [];
+      child.statsReset = {
+        clearedAtMs: now,
+        usedS: status.usedS,
+        gamesS: child.gamesUsedS ?? 0,
+        studyS: child.studyUsedS ?? 0,
+        videoS: child.videoUsedS ?? 0,
+        extraMin: child.extraMin ?? 0,
+      };
+      addEvent(now, child, "stats_cleared", `${child.name}: статистика очищена`);
+      return okReply({ message: `Статистика ${genitiveName(child.name)} очищена` });
+    },
+
+    // «Очистить журнал» (FR-38, RM5-9): события ребёнка удалены, события без ребёнка остаются.
+    ClearJournal: (req, now) => {
+      const child = childById(req.childId);
+      if (!child) return fail("Такого ребёнка нет в списке");
+      state.events = state.events.filter((e) => e.childId !== child.childId);
+      addEvent(now, child, "journal_cleared", `${child.name}: журнал очищен`);
+      return okReply({ message: `Журнал ${genitiveName(child.name)} очищен` });
     },
 
     ReduceBonus: (req, now) => {
