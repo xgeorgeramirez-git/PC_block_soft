@@ -110,10 +110,15 @@ func (s *Service) hCreatePromo(c *callCtx) ipc.Reply {
 	if strings.TrimSpace(req.Code) == "" {
 		return ipc.FailField("Введите код", ipc.FieldCode)
 	}
+	// RM5-11: новый код — только A–Z и цифры, 3–16 знаков; хранится заглавными.
+	display, valid := core.CheckNewPromoCode(req.Code)
+	if !valid {
+		return ipc.FailField("Только латинские буквы A-Z и цифры", ipc.FieldCode)
+	}
 	if !core.PromoMinutesValid(req.Minutes) {
 		return ipc.FailField("Можно от 1 до 600 минут", ipc.FieldMinutes)
 	}
-	p, err := s.cfg.Store.CreatePromo(req.Code, req.Minutes)
+	p, err := s.cfg.Store.CreatePromo(display, req.Minutes)
 	if err != nil {
 		// Самая частая причина — такой код уже есть (UNIQUE); показываем у поля кода.
 		return ipc.FailField("Такой код уже есть, придумайте другой", ipc.FieldCode)
@@ -128,6 +133,8 @@ func (s *Service) hCreatePromo(c *callCtx) ipc.Reply {
 	})
 }
 
+// hListPromos — действующие (новые сверху) и использованные (по моменту использования, новые
+// сверху, RM5-11): порядок задаёт хранилище, служба его не меняет.
 func (s *Service) hListPromos(c *callCtx) ipc.Reply {
 	list, err := s.cfg.Store.ListPromos()
 	if err != nil {
@@ -183,10 +190,12 @@ func (s *Service) hRedeemPromo(c *callCtx) ipc.Reply {
 }
 
 // promoViewOf приводит запись промокода к виду для окна; usedByName — имя ребёнка в
-// использованных (пусто для действующих).
+// использованных (пусто для действующих). Код — заглавными (RM5-11): коды до 0.5.0 в базе
+// могут быть строчными и с кириллицей, база их не переписывает (SQLite upper() не знает
+// кириллицу), поэтому переводит служба по Unicode.
 func promoViewOf(p PromoRecord, usedByName string) ipc.PromoView {
 	return ipc.PromoView{
-		CodeDisplay: p.CodeDisplay, Minutes: p.Minutes, CreatedAtMs: p.CreatedAtMs,
+		CodeDisplay: strings.ToUpper(p.CodeDisplay), Minutes: p.Minutes, CreatedAtMs: p.CreatedAtMs,
 		UsedAtMs: p.UsedAtMs, UsedByChild: p.UsedByChild, UsedByName: usedByName,
 	}
 }

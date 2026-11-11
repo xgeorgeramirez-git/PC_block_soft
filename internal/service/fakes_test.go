@@ -31,9 +31,10 @@ type fakeStore struct {
 	settings  map[string]string
 	closed    bool
 
-	schedule map[int64][]core.Interval // интервалы по ребёнку (M2)
-	bonus    map[int64][]BonusRecord   // история копилки по ребёнку (M2)
-	promos   []*fakePromo              // промокоды (R26, D-50)
+	schedule         map[int64][]core.Interval // интервалы по ребёнку (M2)
+	bonus            map[int64][]BonusRecord   // история копилки по ребёнку (M2)
+	promos           []*fakePromo              // промокоды (R26, D-50)
+	failCreatePromos bool                      // CreatePromos возвращает ошибку, ничего не создав (RM5-12)
 
 	failLimits   bool // GetDayLimits возвращает ошибку
 	failSave     bool // SaveDayState возвращает ошибку
@@ -932,6 +933,9 @@ func (f *fakeStore) ListPromos() ([]PromoRecord, error) {
 func (f *fakeStore) CreatePromos(codesDisplay []string, minutes int) ([]PromoRecord, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.failCreatePromos {
+		return nil, errFake
+	}
 	if !core.PromoMinutesValid(minutes) {
 		return nil, errFake
 	}

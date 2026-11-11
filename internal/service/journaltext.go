@@ -141,6 +141,11 @@ func eventText(kind, name string, d map[string]any) string {
 		body = "статистика очищена"
 	case evJournalCleared:
 		body = "журнал очищен"
+	case evPromoGenerate:
+		// Коды — в подробностях codes, в текст журнала не идут (RM5-12).
+		body = promoGenerateText(detInt(d, "count"), detInt(d, "minutes"))
+	case evPromoHistoryCleared:
+		body = fmt.Sprintf("история промокодов очищена (%d)", detInt(d, "count"))
 	case evBraveRestored:
 		body = "правила Brave восстановлены"
 	case core.EvRestBreak, core.EvRestEnded:

@@ -95,7 +95,8 @@ func wantAllowed(cmd, kind, tok string, test, configured bool) bool {
 	case ipc.CmdGetToday, ipc.CmdGetChildRules, ipc.CmdSaveLimits, ipc.CmdAddExtra, ipc.CmdReduceExtra, ipc.CmdClearExtra, ipc.CmdUndoExtra,
 		ipc.CmdClearBlock, ipc.CmdListEvents, ipc.CmdChangePassword, ipc.CmdSetChildren, ipc.CmdParentStats, ipc.CmdGetDiag, ipc.CmdSetDiag,
 		ipc.CmdOpenLogs, ipc.CmdSetNoForbidden, ipc.CmdClearBonus, ipc.CmdReduceBonus, ipc.CmdCreatePromo, ipc.CmdListPromos,
-		ipc.CmdGetBonusRate, ipc.CmdSetBonusRate, ipc.CmdEndBreak, ipc.CmdClearStats, ipc.CmdClearJournal:
+		ipc.CmdGetBonusRate, ipc.CmdSetBonusRate, ipc.CmdEndBreak, ipc.CmdClearStats, ipc.CmdClearJournal,
+		ipc.CmdGeneratePromos, ipc.CmdClearPromoHistory:
 		// Родительские (parentToken): нужен свой токен (R19).
 		return user && own
 	case ipc.CmdRedeemPromo:
