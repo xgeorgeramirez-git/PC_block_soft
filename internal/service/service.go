@@ -426,7 +426,34 @@ func (s *Service) addChild(c Child, real time.Time) *childState {
 	}
 	s.children[c.ID] = cs
 	s.names[c.ID] = c.Name
+	s.catchUpBonus(cs)
 	return cs
+}
+
+// catchUpBonus начисляет автобонус за прошлые дни, которые ядро не закрыло (FB-21, D-82, R25):
+// компьютер выключили до полуночи, и сутки сменились без работающей службы. Дни — строки базы с
+// bonus_granted = 0 строго до сегодня (сегодняшний и вчерашний, если ядро в нём, закрывает ядро
+// через ClosedDay; пометка в строке не даёт начислить дважды). Правила не прочитаны (безопасный
+// режим) — лимиты неизвестны, дни ждут следующего запуска; сбой чтения — то же (R18).
+func (s *Service) catchUpBonus(cs *childState) {
+	if cs.rules.Broken {
+		return
+	}
+	days, err := s.cfg.Store.UngrantedDays(cs.child.ID, s.today())
+	if err != nil {
+		s.logRate(fmt.Sprint("catchup", cs.child.ID), "автобонус: не прочитаны прошлые дни у %s, повтор при следующем запуске: %v", cs.child.Name, err)
+		return
+	}
+	for i := range days {
+		d := &days[i]
+		s.grantDailyBonus(cs, d)
+		if !d.BonusGranted {
+			continue // сбой копилки: день ждёт следующего запуска
+		}
+		if err := s.cfg.Store.SaveDayState(cs.child.ID, *d); err != nil {
+			s.logRate(fmt.Sprint("catchupsave", cs.child.ID), "автобонус: не помечен день %s у %s: %v", d.Day, cs.child.Name, err)
+		}
+	}
 }
 
 // readRules читает правила ребёнка целиком: лимиты (общий и игр), расписание и режим «Когда

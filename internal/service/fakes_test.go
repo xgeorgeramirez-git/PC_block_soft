@@ -53,6 +53,8 @@ type fakeStore struct {
 	failUsage   bool                       // DayUsage и PeriodUsage отвечают ошибкой (FB-10)
 	failStats   bool                       // DaysSeries отвечает ошибкой (M5, RM5-4)
 	failReset   bool                       // GetStatsReset отвечает ошибкой (M5, RM5-8)
+	failUngrant bool                       // UngrantedDays отвечает ошибкой (FB-21)
+	failBalance bool                       // GetBonusBalance отвечает ошибкой (FB-21)
 	seriesCalls int                        // сколько раз прочитан ряд дней (одно чтение на ответ, RM5-4)
 	resets      map[int64]StatsReset       // снимок очистки статистики по ребёнку (RM5-8)
 	now         func() int64               // момент записи копилки, UTC мс; nil — 0
@@ -657,6 +659,9 @@ func (f *fakeStore) ClearStats(id int64, day core.DayState, r StatsReset) error 
 func (f *fakeStore) UngrantedDays(id int64, before string) ([]core.DayState, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.failUngrant {
+		return nil, errFake
+	}
 	out := []core.DayState{}
 	for k, st := range f.days {
 		if day, ok := fakeDayOf(k, id); ok && day < before && !st.BonusGranted {
@@ -842,6 +847,9 @@ func (f *fakeStore) AppendBonus(id int64, deltaMin int, reason string) (int, err
 func (f *fakeStore) GetBonusBalance(id int64) (int, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.failBalance {
+		return 0, errFake
+	}
 	if h := f.bonus[id]; len(h) > 0 {
 		return h[len(h)-1].Balance, nil
 	}
