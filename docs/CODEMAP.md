@@ -19,7 +19,7 @@
 | `internal/service/winhost` | 29 (10) | winhost — Windows-обвязка службы PCBlock: всё, что внутри internal/service |
 | `internal/sites` | 5 (5) | sites — домены сайтов: нормализация ввода родителя и поля адреса Brave, punycode, свои списки родителя и встроенный список «18+». |
 | `internal/sound` | 3 (1) | sound — звук предупреждения заказчика (D-55, FR-9). Файл заказчика |
-| `internal/storage` | 8 (14) | storage — хранилище программы: SQLite в режиме WAL (ТЗ 3.1, 3.4, 4), драйвер на чистом Go. |
+| `internal/storage` | 8 (15) | storage — хранилище программы: SQLite в режиме WAL (ТЗ 3.1, 3.4, 4), драйвер на чистом Go. |
 | `internal/systray` | 20 (12) | systray — значок у часов и мини-панель: надпись остатка, подсказка, цвет статуса, |
 | `internal/ui` | 3 (1) | ui — окно программы на Wails: запуск окна и методы, доступные интерфейсу. |
 | `internal/version` | 1 (2) | version хранит номер версии программы. |
