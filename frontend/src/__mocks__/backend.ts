@@ -274,6 +274,8 @@ export interface MockState {
   verboseLogs: boolean;
   /** Промокоды (R26, D-50). */
   promos: MockPromo[];
+  /** Состояние детерминированного генератора «Придумать коды»: одинаковые коды в каждом прогоне снимков. */
+  promoSeed: number;
   /** Настройка автобонуса N (R25, D-49). */
   bonusRate: number;
   /** Сколько раз просили открыть папку логов (FR-25, D-48). */
@@ -831,10 +833,40 @@ const PARENT_COMMANDS = new Set([
   "SetAdultFilter",
   "ClearStats",
   "ClearJournal",
+  "GeneratePromos",
+  "ClearPromoHistory",
 ]);
 
 /** Нормализация промокода как в ядре (R26): без пробелов по краям и без учёта регистра. */
 const promoNorm = (code: string) => code.trim().toLowerCase();
+
+/** Новый код как core.CheckNewPromoCode (RM5-11): только A-Z, a-z, 0-9, 3-16 знаков. */
+const PROMO_NEW_CODE = /^[A-Za-z0-9]{3,16}$/;
+
+/** Составы «Придумать коды», как promoAlphabets службы (RM5-12). */
+const PROMO_ALPHABETS: Record<string, string> = {
+  digits: "0123456789",
+  letters: "ABCDEFGHIJKLMNOPQRSTUVWXYZ",
+  mixed: "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789",
+};
+
+/** Форма слова по числу, как pluralRu службы: «1 код», «2 кода», «5 кодов», «11 кодов». */
+function pluralRu(n: number, one: string, few: string, many: string): string {
+  const m = Math.abs(n);
+  if (m % 100 >= 11 && m % 100 <= 14) return many;
+  if (m % 10 === 1) return one;
+  if (m % 10 >= 2 && m % 10 <= 4) return few;
+  return many;
+}
+
+/** Строка журнала «Придумать коды», как promoGenerateText службы. */
+function promoGenerateText(n: number, minutes: number): string {
+  const verb = n % 10 === 1 && n % 100 !== 11 ? "Придуман" : "Придумано";
+  return `${verb} ${n} ${pluralRu(n, "промокод", "промокода", "промокодов")} на ${minutes} мин`;
+}
+
+/** Промокод для окна, как promoViewOf службы: код заглавными. */
+const promoView = (p: MockPromo): MockPromo => ({ ...p, codeDisplay: p.codeDisplay.toUpperCase() });
 
 function makeState(opts: MockOptions): MockState {
   const configured = opts.configured ?? true;
@@ -869,6 +901,7 @@ function makeState(opts: MockOptions): MockState {
     bonusUndo: new Map(),
     verboseLogs: false,
     promos: opts.promos ?? [],
+    promoSeed: 20261111,
     bonusRate: 5,
     openLogsCount: 0,
     programs: (opts.programs ?? exampleProgramsReply().programs).map((p) => ({ ...p })),
@@ -1430,8 +1463,10 @@ export function createBackend(opts: MockOptions = {}): MockBackend {
     },
 
     CreatePromo: (req, now) => {
-      const code = String(req.code ?? "").trim();
-      if (!code) return fail("Введите код", "code");
+      const raw = String(req.code ?? "").trim();
+      if (!raw) return fail("Введите код", "code");
+      if (!PROMO_NEW_CODE.test(raw)) return fail("Только латинские буквы A-Z и цифры", "code");
+      const code = raw.toUpperCase();
       if (!Number.isInteger(req.minutes) || req.minutes < 1 || req.minutes > 600) return fail("Можно от 1 до 600 минут", "minutes");
       if (state.promos.some((p) => promoNorm(p.codeDisplay) === promoNorm(code))) {
         return fail("Такой код уже есть, придумайте другой", "code");
@@ -1439,15 +1474,70 @@ export function createBackend(opts: MockOptions = {}): MockBackend {
       const promo: MockPromo = { codeDisplay: code, minutes: req.minutes, createdAtMs: now };
       state.promos.push(promo);
       addEvent(now, undefined, "promo_create", `Создан промокод «${code}» на ${req.minutes} мин`);
-      return okReply({ promo, message: `Промокод «${code}» на ${req.minutes} ${minutesWord(req.minutes)} готов` });
+      return okReply({ promo: promoView(promo), message: `Промокод «${code}» на ${req.minutes} ${minutesWord(req.minutes)} готов` });
     },
 
+    // Как служба (RM5-11): действующие новые сверху, использованные по моменту использования, новые
+    // сверху; позже добавленный при равном моменте - выше; коды заглавными.
     ListPromos: () => {
       const name = (id?: number) => (id ? (childById(id)?.name ?? "") : "");
+      const newestFirst = (key: (p: MockPromo) => number) =>
+        state.promos
+          .map((p, i) => ({ p, i }))
+          .sort((a, b) => key(b.p) - key(a.p) || b.i - a.i)
+          .map(({ p }) => p);
       return okReply({
-        active: state.promos.filter((p) => !p.usedAtMs),
-        used: state.promos.filter((p) => p.usedAtMs).map((p) => ({ ...p, usedByName: name(p.usedByChild) })),
+        active: newestFirst((p) => p.createdAtMs)
+          .filter((p) => !p.usedAtMs)
+          .map(promoView),
+        used: newestFirst((p) => p.usedAtMs ?? 0)
+          .filter((p) => p.usedAtMs)
+          .map((p) => ({ ...promoView(p), usedByName: name(p.usedByChild) })),
       });
+    },
+
+    // «Придумать коды» (FR-35, RM5-12): пределы у своего поля; коды не совпадают с базой (и с
+    // использованными) и между собой. Коды детерминированные (генератор с постоянным началом),
+    // чтобы снимки экранов не менялись от прогона к прогону.
+    GeneratePromos: (req, now) => {
+      const count = Number(req.count);
+      const length = Number(req.length);
+      const minutes = Number(req.minutes);
+      if (!Number.isInteger(count) || count < 1 || count > 50) return fail("Можно от 1 до 50 кодов", "count");
+      if (!Number.isInteger(length) || length < 4 || length > 12) return fail("Длина от 4 до 12 знаков", "length");
+      const alpha = PROMO_ALPHABETS[String(req.charset)];
+      if (!alpha) return fail("Не удалось разобрать запрос. Попробуйте ещё раз");
+      if (!Number.isInteger(minutes) || minutes < 1 || minutes > 600) return fail("Можно от 1 до 600 минут", "minutes");
+      const taken = new Set(state.promos.map((p) => promoNorm(p.codeDisplay)));
+      const codes: string[] = [];
+      let seed = state.promoSeed;
+      for (let attempt = 0; attempt < count * 100 && codes.length < count; attempt++) {
+        let code = "";
+        for (let i = 0; i < length; i++) {
+          seed = (seed * 48271) % 2147483647; // MINSTD: произведение меньше 2^53, без потери точности
+          code += alpha[Math.floor(((seed - 1) / 2147483646) * alpha.length)];
+        }
+        if (taken.has(promoNorm(code))) continue;
+        taken.add(promoNorm(code));
+        codes.push(code);
+      }
+      if (codes.length < count) return fail("Не получилось придумать столько разных кодов. Увеличьте длину");
+      state.promoSeed = seed;
+      const created: MockPromo[] = codes.map((codeDisplay) => ({ codeDisplay, minutes, createdAtMs: now }));
+      state.promos.push(...created);
+      addEvent(now, undefined, "promo_generate", promoGenerateText(codes.length, minutes));
+      return okReply({
+        promos: created.map(promoView),
+        message: `Готово: ${codes.length} ${pluralRu(codes.length, "код", "кода", "кодов")} на ${minutes} мин`,
+      });
+    },
+
+    // «Очистить историю» промокодов (RM5-14): использованные удалены, действующие остаются.
+    ClearPromoHistory: (_req, now) => {
+      const n = state.promos.filter((p) => p.usedAtMs).length;
+      state.promos = state.promos.filter((p) => !p.usedAtMs);
+      addEvent(now, undefined, "promo_history_cleared", `История промокодов очищена (${n})`);
+      return okReply({ message: "История промокодов очищена" });
     },
 
     RedeemPromo: (req, now) => {

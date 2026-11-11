@@ -125,7 +125,7 @@ describe("Вкладка «Бонусы» (R25, D-49)", () => {
 });
 
 describe("Промокоды (FR-35, R26, D-50)", () => {
-  // Ловит: созданный код не попадает в «Действующие».
+  // Ловит: созданный код не попадает в «Действующие» или показан не заглавными (RM5-11).
   it("создать промокод: появляется в «Действующих»", async () => {
     const user = setup();
     await misha();
@@ -135,9 +135,9 @@ describe("Промокоды (FR-35, R26, D-50)", () => {
     await user.clear(minutes);
     await user.type(minutes, "30");
     await user.click(screen.getByRole("button", { name: "Создать промокод" }));
-    expect(await screen.findByText("Промокод «a1234» на 30 минут готов")).toBeTruthy();
+    expect(await screen.findByText("Промокод «A1234» на 30 минут готов")).toBeTruthy();
     const active = screen.getByRole("list", { name: "Действующие промокоды" });
-    expect(within(active).getByText("a1234")).toBeTruthy();
+    expect(within(active).getByText("A1234")).toBeTruthy();
     expect(within(active).getByText("30 мин")).toBeTruthy();
     expect((screen.getByLabelText("Код") as HTMLInputElement).value).toBe("");
   });
@@ -153,7 +153,7 @@ describe("Промокоды (FR-35, R26, D-50)", () => {
     expect(screen.getByLabelText("Код").getAttribute("aria-invalid")).toBe("true");
   });
 
-  // Ловит: родитель не видит, кто и когда использовал код.
+  // Ловит: родитель не видит, кто и когда использовал код; старый код строчными не переведён в заглавные.
   it("«Использованные»: когда и каким ребёнком", async () => {
     const used = NOW.getTime() - 3600_000;
     const user = setup({
@@ -162,7 +162,7 @@ describe("Промокоды (FR-35, R26, D-50)", () => {
     await misha();
     await user.click(screen.getByRole("tab", { name: "Бонусы" }));
     const list = await screen.findByRole("list", { name: "Использованные промокоды" });
-    expect(within(list).getByText("pizza")).toBeTruthy();
+    expect(within(list).getByText("PIZZA")).toBeTruthy();
     expect(within(list).getByText(/Миша/)).toBeTruthy();
     expect(within(screen.getByRole("region", { name: "Промокоды" })).getByText("Действующих кодов нет")).toBeTruthy();
   });

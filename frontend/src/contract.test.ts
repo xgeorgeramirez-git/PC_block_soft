@@ -109,6 +109,8 @@ const CASES: [string, string, (req: any) => Promise<unknown>][] = [
   ["ListPromos", "ListPromos", () => api.listPromos()],
   ["ListPromos", "ListPromos#empty", () => api.listPromos()],
   ["RedeemPromo", "RedeemPromo", (r) => api.redeemPromo(r.childId, r.code)],
+  ["GeneratePromos", "GeneratePromos", (r) => api.generatePromos(r)],
+  ["ClearPromoHistory", "ClearPromoHistory", () => api.clearPromoHistory()],
   ["GetBonusRate", "GetBonusRate", () => api.getBonusRate()],
   ["SetBonusRate", "SetBonusRate", (r) => api.setBonusRate(r.minutes)],
   ["ListSites", "ListSites", () => api.listSites()],
@@ -172,6 +174,8 @@ describe("отказы контракта", () => {
     ["AskMore", "AskMore#denied", (r) => api.askMore(r.childId, r.minutes, r.password)],
     ["SpendBonus", "SpendBonus#forbidden", (r) => api.spendBonus(r.childId, r.minutes)],
     ["CreatePromo", "CreatePromo#dup", (r) => api.createPromo(r.code, r.minutes)],
+    ["CreatePromo", "CreatePromo#latin", (r) => api.createPromo(r.code, r.minutes)],
+    ["GeneratePromos", "GeneratePromos#count", (r) => api.generatePromos(r)],
     ["RedeemPromo", "RedeemPromo#bad", (r) => api.redeemPromo(r.childId, r.code)],
     ["AddSite", "AddSite#invalid", (r) => api.addSite(r.domain, r.kind)],
     ["AddSite", "AddSite#dup", (r) => api.addSite(r.domain, r.kind)],
@@ -250,6 +254,8 @@ describe("полнота", () => {
       "SetAdultFilter",
       "ClearStats",
       "ClearJournal",
+      "GeneratePromos",
+      "ClearPromoHistory",
     ]) {
       expect(examples[command], `нет примера ${command}`).toBeDefined();
       expect(wrapped.has(command), `нет обёртки ${command}`).toBe(true);

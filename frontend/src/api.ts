@@ -50,6 +50,9 @@ import type {
   BonusChangeReply,
   ClearReply,
   CreatePromoReply,
+  GeneratePromosRequest,
+  GeneratePromosReply,
+  ClearPromoHistoryReply,
   ListPromosReply,
   RedeemPromoReply,
   OpenLogsReply,
@@ -456,6 +459,16 @@ export function createPromo(code: string, minutes: number): Promise<CreatePromoR
 /** Списки действующих и использованных промокодов (R26, D-50). */
 export function listPromos(): Promise<ListPromosReply> {
   return call("ListPromos", {});
+}
+
+/** «Придумать коды» (FR-35, RM5-12): пачка разных кодов на одно число минут, вся или ничего. */
+export function generatePromos(req: GeneratePromosRequest): Promise<GeneratePromosReply> {
+  return call("GeneratePromos", { count: req.count, length: req.length, charset: req.charset, minutes: req.minutes });
+}
+
+/** «Очистить историю» промокодов (RM5-14): использованные удаляются, действующие остаются. */
+export function clearPromoHistory(): Promise<ClearPromoHistoryReply> {
+  return call("ClearPromoHistory", {});
 }
 
 /** Ребёнок вводит промокод — экран блокировки и раздел «Бонусы» (R26, D-50). */

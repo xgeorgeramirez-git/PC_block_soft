@@ -199,6 +199,7 @@ export interface ClearReply {
 }
 
 export interface PromoView {
+  /** Код заглавными (RM5-11): новые так и хранятся, старые служба переводит при показе. */
   codeDisplay: string;
   minutes: number;
   createdAtMs: number;
@@ -215,6 +216,28 @@ export interface CreatePromoReply {
 export interface ListPromosReply {
   active: PromoView[];
   used: PromoView[];
+}
+
+/** Состав знаков «Придумать коды» (RM5-12): цифры, буквы A-Z или буквы и цифры. */
+export type PromoCharset = "digits" | "letters" | "mixed";
+
+/** Запрос «Придумать коды» (FR-35, RM5-12): 1-50 кодов, длина 4-12, минуты 1-600. */
+export interface GeneratePromosRequest {
+  count: number;
+  length: number;
+  charset: PromoCharset;
+  minutes: number;
+}
+
+/** Ответ «Придумать коды»: новые коды и «Готово: 20 кодов на 15 мин». */
+export interface GeneratePromosReply {
+  promos: PromoView[];
+  message: string;
+}
+
+/** Ответ «Очистить историю» промокодов (RM5-14): «История промокодов очищена». */
+export interface ClearPromoHistoryReply {
+  message: string;
 }
 
 export interface RedeemPromoReply {
