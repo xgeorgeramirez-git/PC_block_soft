@@ -17,3 +17,6 @@
 | T4 пакеты окна | a0d216c74e671cb37 | reader | done | пакеты M5-T5, M5-T6b; formatDayAt, ссылка без тире | — |
 | T2a+T2b служба | aedfea6561fec7570 | writer | done | 328f6c7, ee06a3d, 5f46794, 243a2c9; ci b3d8306 зелёный | 0 |
 | T2c+T7c(служба) | a9e5ae6eb3c55714f | writer | done | 6b9ea3b, 67dc9d7, b87ce6b, d2428b5; эскалация: безопасный режим в полночь теряет бонус → T3 | 0 |
+| T3 журнал | a63a9c5157e9aa767 | writer | done | 8046fca, 9b344c2, 34b0b23, 364e37d, cb9d500; безопасный режим и дата бонуса | 0 |
+| T3b промокоды | a48c5aca9252df350 | writer | done | 0bb7ab7, 14ffeb7, 8e96aa6, cb23424, 66fd785; «A-Z» дефисом | 0 |
+| T5 окно статистики | a79625cc714ee6e67 | writer | done | 27ce8f1…c147305 (10 коммитов); снимки s21-*, s22-*, s48-* | 0 |
