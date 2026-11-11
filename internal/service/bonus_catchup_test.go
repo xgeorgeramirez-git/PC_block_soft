@@ -1,6 +1,7 @@
 package service
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -61,7 +62,10 @@ func TestBonusCatchUpS51(t *testing.T) {
 	if evs[0].ChildID != id || evs[0].Details["day"] != tue24 || detInt(evs[0].Details, "minutes") != 40 {
 		t.Errorf("запись журнала %+v; want вторник +40", evs[0])
 	}
-	if txt := eventText(evs[0].Kind, "Миша", evs[0].Details); txt != "Миша: Бонус за свободное время 2026-11-24: +40 мин" {
+	if txt := detStr(evs[0].Details, "text"); txt != "Бонус за свободное время 24 ноября: +40 мин" {
+		t.Errorf("текст в подробностях %q; want дата словами", txt)
+	}
+	if txt := eventText(evs[0].Kind, "Миша", evs[0].Details); txt != "Миша: бонус за свободное время 24 ноября: +40 мин" {
 		t.Errorf("текст журнала %q", txt)
 	}
 	row := st.days[dayKey(id, tue24)]
@@ -218,5 +222,20 @@ func TestBonusSafeModeMidnightWaitsForCatchUp(t *testing.T) {
 	}
 	if !st.days[dayKey(id, tue24)].BonusGranted {
 		t.Error("вторник не помечен после догоняющего начисления")
+	}
+}
+
+// Ловит (FB-21): строка автобонуса в журнале с датой «2026-11-24» вместо «24 ноября», в том числе
+// у записей прежних версий (в подробностях текст с датой цифрами, день и минуты есть).
+func TestBonusGrantedJournalText(t *testing.T) {
+	old := map[string]any{}
+	if err := json.Unmarshal([]byte(`{"minutes":40,"balance":40,"day":"2026-11-24","text":"Бонус за свободное время 2026-11-24: +40 мин"}`), &old); err != nil {
+		t.Fatal(err)
+	}
+	if got := eventText(core.EvBonusGranted, "Миша", old); got != "Миша: бонус за свободное время 24 ноября: +40 мин" {
+		t.Errorf("запись прежней версии: %q", got)
+	}
+	if got := eventText(core.EvBonusGranted, "", map[string]any{"text": "Бонус за свободное время: +5 мин"}); got != "Бонус за свободное время: +5 мин" {
+		t.Errorf("без дня: %q; want текст как есть", got)
 	}
 }

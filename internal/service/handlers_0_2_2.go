@@ -280,6 +280,6 @@ func (s *Service) grantDailyBonus(cs *childState, day *core.DayState) {
 	day.BonusGranted = true
 	s.journal.Write(cs.child.ID, core.EvBonusGranted, map[string]any{
 		"minutes": add, "balance": after, "day": day.Day,
-		"text": fmt.Sprintf("Бонус за свободное время %s: +%d мин", day.Day, add),
+		"text": bonusGrantedText(day.Day, add),
 	})
 }

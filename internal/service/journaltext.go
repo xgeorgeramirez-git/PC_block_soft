@@ -38,6 +38,11 @@ func dayText(day string) string {
 	return fmt.Sprintf("%d %s", t.Day(), months[t.Month()-1])
 }
 
+// bonusGrantedText — строка журнала автобонуса (R25): «Бонус за свободное время 24 ноября: +40 мин».
+func bonusGrantedText(day string, minutes int) string {
+	return fmt.Sprintf("Бонус за свободное время %s: +%d мин", dayText(day), minutes)
+}
+
 // eventText собирает строку журнала простыми словами (R22, ТЗ 8.3.7): «Миша: доп. время +30 мин».
 // Событие не про ребёнка начинается с заглавной буквы без имени.
 func eventText(kind, name string, d map[string]any) string {
@@ -61,6 +66,12 @@ func eventText(kind, name string, d map[string]any) string {
 		body = "блокировка снята родителем"
 	case core.EvSafeMode:
 		body = "правила не прочитаны, ограничения не действуют"
+	case core.EvBonusGranted:
+		// Дата словами и у записей прежних версий, где в тексте «2026-11-24» (FB-21).
+		body = detStr(d, "text")
+		if day := detStr(d, "day"); day != "" {
+			body = decapitalize(bonusGrantedText(day, detInt(d, "minutes")))
+		}
 	case core.EvDayClosed:
 		body = fmt.Sprintf("итог дня %s: %s", dayText(detStr(d, "day")), core.FormatDuration(detInt(d, "total_s")))
 	case "child_admin":
