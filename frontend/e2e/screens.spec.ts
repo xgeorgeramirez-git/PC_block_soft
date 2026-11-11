@@ -2,6 +2,7 @@ import { test, expect, type Page } from "@playwright/test";
 import { mockScript } from "./mockBundle";
 import type { MockChild, MockOptions } from "../src/__mocks__/backend";
 import { DEFAULT_VIDEO_SITES } from "../src/lib/sites";
+import { G15_NOW, g15Events, g15Fields } from "../src/__mocks__/g15";
 import type { SiteDTO } from "../src/types";
 
 // Окно родителя в браузере с подменной программой (src/__mocks__/backend.ts).
@@ -948,7 +949,7 @@ for (const [w, h] of [
     await tabsState(page, "Учёба", `статистика родителя за год ${w} x ${h}`, "за год");
     await noHorizontalScroll(page);
     await settled(page);
-    if (w === 960) await page.screenshot({ path: `${SCREENS}/s31-parent-stats-year.png`, fullPage: true });
+    // Снимок года у родителя - s21-parent-stats-year (неделя G15, «По дням» по месяцам): один снимок года.
     // «Всё время»: «Всего» 2 ч 30 мин (50 + 60 + 40), как в S42.
     await page.getByRole("tablist", { name: "Период" }).getByRole("tab", { name: "Всё время", exact: true }).click();
     await expect(tabs.getByRole("tab", { name: "Всего", exact: true }).locator(".totals-tab-value")).toHaveText("2 ч 30 мин");
@@ -2349,4 +2350,250 @@ test("m4 статистика родителя: видео", async ({ page }) =>
   await noHorizontalScroll(page);
   await settled(page);
   await page.screenshot({ path: `${SCREENS}/m4-parent-stats-video.png`, fullPage: true });
+});
+
+// --- M5: разделы статистики за период, «По дням», очистка (S21, S22, S48; 8.2.6, 8.3.7) -----------
+
+/** Ребёнок эталонной недели G15 (вс 22.11.2026): пн 16 … сб 21 из «базы», сегодня game.exe 10 мин. */
+const g15 = (over: Partial<MockChild> = {}) => child({ ...g15Fields(), ...over });
+
+/** Родитель: окно статистики Миши через карточку «Сегодня». */
+async function openParentStats(page: Page, children: MockChild[], events = g15Events()) {
+  await mockProgram(page, { mode: "parent", sessionActive: true, children, events });
+  await page.goto("/");
+  await page.getByRole("article", { name: "Миша" }).getByRole("button", { name: "Статистика" }).click();
+  await expect(page.getByRole("region", { name: "Итоги" })).toBeVisible();
+}
+
+async function choosePeriod(page: Page, name: string, used: string) {
+  await page.getByRole("tablist", { name: "Период" }).getByRole("tab", { name, exact: true }).click();
+  await expect(page.getByRole("region", { name: "Итоги" }).locator(".stat-row").filter({ hasText: used })).toBeVisible();
+}
+
+const barHits = (page: Page) => page.getByRole("region", { name: "По дням" }).getByRole("group", { name: "Столбики: стрелки влево и вправо" }).getByRole("img");
+
+/** Прокрутка вбок только у графика: сколько он шире своей области (0 - помещается). */
+const chartOverflow = (page: Page) =>
+  page.locator(".daybars-scroll").evaluate((el) => ({ scroll: el.scrollWidth, client: el.clientWidth, left: el.scrollLeft }));
+
+/**
+ * Столбики и подписи «По дням» не налезают друг на друга, подписи внутри области графика, подсказка (если
+ * есть) целиком в кадре окна. Всё в одной строке ошибки (журналы Actions недоступны).
+ */
+async function barsFit(page: Page, where: string) {
+  const report = await page.locator("figure.daybars").evaluate((fig) => {
+    const r = (el: Element) => {
+      const b = el.getBoundingClientRect();
+      return { l: b.left, r: b.right, t: b.top, b: b.bottom };
+    };
+    const scroll = r(fig.querySelector(".daybars-scroll")!);
+    const labels = [...fig.querySelectorAll(".daybars-label")]
+      .filter((l) => (l.textContent ?? "") !== "")
+      .map((l) => {
+        const range = document.createRange();
+        range.selectNodeContents(l);
+        const b = range.getBoundingClientRect();
+        return { text: l.textContent ?? "", l: b.left, r: b.right };
+      });
+    const tip = fig.querySelector(".daybars-tip");
+    const content = r(document.querySelector("main.content")!);
+    return { scroll, labels, tip: tip ? { ...r(tip), text: tip.textContent ?? "" } : null, content, vw: window.innerWidth, vh: window.innerHeight };
+  });
+  const problems: string[] = [];
+  report.labels.forEach((l, i) => {
+    const next = report.labels[i + 1];
+    if (next && l.r > next.l + 0.5) problems.push(`подписи «${l.text}» и «${next.text}» налезают`);
+  });
+  if (report.tip) {
+    const t = report.tip;
+    if (t.l < report.content.l - 0.5 || t.r > report.content.r + 0.5 || t.r > report.vw + 0.5) problems.push(`подсказка «${t.text}» за краем окна`);
+    if (t.t < report.scroll.t - 0.5) problems.push(`подсказка «${t.text}» обрезана сверху`);
+  }
+  expect(problems, `${where}: ${problems.join("; ")} | ${JSON.stringify(report)}`).toEqual([]);
+}
+
+// s21 — статистика родителя за неделю G15 (S21): «Итоги», «По дням» 7 столбиков (среда пустая), «Программы»,
+// «Сайты», «Нарушения», «Копилка»; подпись «Статистика ведётся с»; светлая и тёмная тема.
+for (const scheme of ["light", "dark"] as const) {
+  test(`s21 статистика родителя: неделя G15, тема ${scheme}`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: scheme });
+    await page.clock.setFixedTime(G15_NOW);
+    await page.setViewportSize({ width: 960, height: 900 });
+    await openParentStats(page, [g15()]);
+    await choosePeriod(page, "Неделя", "Использовано за неделю");
+    await expect(page.getByText("Статистика ведётся с 16 ноября 2026", { exact: true })).toBeVisible();
+    await expect(barHits(page)).toHaveCount(7);
+    await expect(barHits(page).nth(1)).toHaveAttribute("aria-label", "вт, 17 ноября: 2 ч 20 мин, учёба 0 мин");
+    await expect(page.locator("svg.daybars-svg")).toHaveAttribute("aria-label", "По дням за неделю: 12 ч 33 мин в счёт лимита, учёба 1 ч 35 мин");
+    await expect(page.locator("svg.daybars-svg line.daybar-empty")).toHaveCount(1);
+    await expect(page.getByRole("table", { name: "Программы" }).locator("tbody tr")).toHaveText(["game.exe4 ч 45 мин45%", "other.exe4 ч 08 мин39%", "study.exe1 ч 35 мин15%"]);
+    await expect(page.getByRole("table", { name: "Сайты" }).locator("tbody tr")).toHaveText(["youtube.com3 ч 40 мин100%"]);
+    await expect(page.getByRole("list", { name: "Нарушения" }).getByRole("listitem")).toHaveCount(1);
+    await expect(page.getByRole("region", { name: "Копилка" }).getByText("Сейчас в копилке: 25 мин", { exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Очистить статистику" })).toBeVisible();
+    expect((await chartOverflow(page)).scroll).toBeLessThanOrEqual((await chartOverflow(page)).client);
+    await barsFit(page, `неделя, тема ${scheme}`);
+    await noHorizontalScroll(page);
+    await wholePage(page);
+    await page.screenshot({ path: `${SCREENS}/s21-parent-stats-week${scheme === "dark" ? "-dark" : ""}.png`, fullPage: true });
+  });
+}
+
+// s21 — год G15: столбики по месяцам январь…ноябрь, пустые месяцы - отметкой, ноябрь 12 ч 33 мин.
+test("s21 статистика родителя: год G15 по месяцам", async ({ page }) => {
+  await page.clock.setFixedTime(G15_NOW);
+  await page.setViewportSize({ width: 960, height: 900 });
+  await openParentStats(page, [g15()]);
+  await choosePeriod(page, "Год", "Использовано за год");
+  await expect(barHits(page)).toHaveCount(11);
+  await expect(barHits(page).last()).toHaveAttribute("aria-label", "ноябрь 2026: 12 ч 33 мин, учёба 1 ч 35 мин");
+  await expect(page.locator(".daybars-label")).toHaveText(["янв", "фев", "мар", "апр", "май", "июн", "июл", "авг", "сен", "окт", "ноя"]);
+  await expect(page.locator("svg.daybars-svg line.daybar-empty")).toHaveCount(10);
+  await barsFit(page, "год");
+  await noHorizontalScroll(page);
+  await wholePage(page);
+  await page.screenshot({ path: `${SCREENS}/s21-parent-stats-year.png`, fullPage: true });
+});
+
+/** Октябрь 2026 с временем через день: 31 столбик «Месяца» на 31.10.2026. */
+const october = () =>
+  Array.from({ length: 30 }, (_, i) => i + 1)
+    .filter((d) => d % 2 === 1)
+    .map((d) => ({ day: `2026-10-${String(d).padStart(2, "0")}`, totalS: (30 + (d % 7) * 20) * 60, gamesS: 1800 }));
+const OCT31 = new Date(2026, 9, 31, 15, 0, 0);
+
+// s21 — 31 столбик месяца помещается без прокрутки вбок и в 960, и в 800 px, и в окне ребёнка 640 px.
+for (const [w, h, mode] of [
+  [960, 900, "parent"],
+  [800, 640, "parent"],
+  [640, 520, "mystats"],
+] as const) {
+  test(`s21 статистика: месяц 31 столбик в окне ${w} x ${h} (${mode})`, async ({ page }) => {
+    await page.clock.setFixedTime(OCT31);
+    await page.setViewportSize({ width: w, height: h });
+    const kid = child({ usedS: 1200, gamesUsedS: 0, history: october() });
+    if (mode === "parent") {
+      await openParentStats(page, [kid], []);
+    } else {
+      await mockProgram(page, { mode: "mystats", children: [kid], myChildId: 1 });
+      await page.goto("/");
+    }
+    await choosePeriod(page, "Месяц", "Использовано за месяц");
+    await expect(barHits(page)).toHaveCount(31);
+    await expect(page.locator(".daybars-label").filter({ hasText: /\S/ })).toHaveText(["чт 1", "чт 8", "чт 15", "чт 22", "чт 29"]);
+    const o = await chartOverflow(page);
+    expect(o.scroll, `график шире своей области: ${JSON.stringify(o)}`).toBeLessThanOrEqual(o.client);
+    await barHits(page).nth(0).hover();
+    await barsFit(page, `месяц, первый столбик, ${w} x ${h}`);
+    await barHits(page).nth(30).hover();
+    await barsFit(page, `месяц, последний столбик, ${w} x ${h}`);
+    await page.mouse.move(1, 1);
+    await noHorizontalScroll(page);
+    if (w === 960) await page.screenshot({ path: `${SCREENS}/s21-parent-stats-month31.png`, fullPage: true });
+  });
+}
+
+// s21 — «Всё время» за 36 месяцев: прокручивается вбок только график (сегодня виден справа), окно - нет.
+test("s21 статистика родителя: всё время 36 месяцев", async ({ page }) => {
+  await page.clock.setFixedTime(G15_NOW);
+  await page.setViewportSize({ width: 960, height: 900 });
+  const months = Array.from({ length: 35 }, (_, i) => {
+    const d = new Date(2023, 11 + i, 10, 12);
+    return { day: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-10`, totalS: (600 + (i % 6) * 900) * 60, studyS: (i % 3) * 1200 };
+  });
+  await openParentStats(page, [g15({ history: months })], []);
+  await choosePeriod(page, "Всё время", "Использовано за всё время");
+  await expect(barHits(page)).toHaveCount(36);
+  await expect(barHits(page).first()).toHaveAttribute("aria-label", /^декабрь 2023: /);
+  await expect(page.locator(".daybars-label").first()).toHaveText("дек 2023");
+  const o = await chartOverflow(page);
+  expect(o.scroll, "36 месяцев должны прокручиваться внутри графика").toBeGreaterThan(o.client);
+  expect(o.left + o.client, `график не прокручен к сегодняшнему месяцу: ${JSON.stringify(o)}`).toBeGreaterThanOrEqual(o.scroll - 1);
+  await expect(barHits(page).last()).toBeInViewport();
+  await barsFit(page, "всё время");
+  await noHorizontalScroll(page);
+  await page.screenshot({ path: `${SCREENS}/s21-parent-stats-all36.png`, fullPage: true });
+});
+
+// s21 — подсказка с клавиатуры (WCAG 2.1.1, 1.4.13): Tab на «сегодня», стрелкой влево до вторника,
+// подсказка «вт, 17 ноября: …» над графиком и целиком в окне; Esc прячет.
+test("s21 статистика родителя: подсказка столбика с клавиатуры", async ({ page }) => {
+  await page.clock.setFixedTime(G15_NOW);
+  await page.setViewportSize({ width: 960, height: 900 });
+  await openParentStats(page, [g15()]);
+  await choosePeriod(page, "Неделя", "Использовано за неделю");
+  // Раздел целиком в кадре: подсказка стоит над графиком, фокус не должен прокрутить её за край.
+  await page.getByRole("region", { name: "По дням" }).scrollIntoViewIfNeeded();
+  // Столбик «сегодня» - единственный столбик в порядке Tab (tabIndex 0).
+  await expect(barHits(page).nth(6)).toHaveAttribute("tabindex", "0");
+  await barHits(page).nth(6).focus();
+  await expect(page.locator(".daybars-tip")).toHaveText("вс, 22 ноября: 10 мин, учёба 0 мин");
+  for (let i = 0; i < 5; i++) await page.keyboard.press("ArrowLeft");
+  await expect(barHits(page).nth(1)).toBeFocused();
+  const tip = page.locator(".daybars-tip");
+  await expect(tip).toHaveText("вт, 17 ноября: 2 ч 20 мин, учёба 0 мин");
+  await expect(tip).toBeInViewport({ ratio: 1 });
+  const [tb, area] = await Promise.all([boxOf(tip), boxOf(page.locator(".daybars-area"))]);
+  expect(tb.bottom, "подсказка накрывает столбики").toBeLessThanOrEqual(area.top + 0.5);
+  await barsFit(page, "подсказка вторника");
+  await noHorizontalScroll(page);
+  await page.screenshot({ path: `${SCREENS}/s21-parent-stats-tip.png` });
+  await page.keyboard.press("Escape");
+  await expect(tip).toHaveCount(0);
+  await expect(barHits(page).nth(1)).toBeFocused();
+});
+
+// s22 — «Моя статистика» за неделю G15 (S22): те же разделы о себе, без выбора ребёнка, очистки и полей
+// (кроме промокода); окно 800 x 640 не прокручивается целиком, шапка на месте (PL-25).
+for (const scheme of ["light", "dark"] as const) {
+  test(`s22 моя статистика: неделя G15, тема ${scheme}`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: scheme });
+    await page.clock.setFixedTime(G15_NOW);
+    await page.setViewportSize({ width: 800, height: 640 });
+    await mockProgram(page, { mode: "mystats", children: [g15()], myChildId: 1, events: g15Events() });
+    await page.goto("/");
+    await choosePeriod(page, "Неделя", "Использовано за неделю");
+    await expect(page.getByText("Статистика ведётся с 16 ноября 2026", { exact: true })).toBeVisible();
+    await expect(barHits(page)).toHaveCount(7);
+    await expect(page.getByRole("table", { name: "Программы" }).locator("tbody tr")).toHaveCount(3);
+    await expect(page.getByRole("list", { name: "Нарушения" }).getByRole("listitem")).toHaveCount(1);
+    await expect(page.getByRole("textbox")).toHaveCount(1);
+    await expect(page.getByRole("combobox")).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Очистить статистику" })).toHaveCount(0);
+    await expect(page.getByRole("group", { name: "Ребёнок" })).toHaveCount(0);
+    const head = await page.locator("header.topbar").evaluate((el) => el.getBoundingClientRect().bottom);
+    expect(await page.locator("main.content").evaluate((el) => el.getBoundingClientRect().top)).toBeGreaterThanOrEqual(head - 0.5);
+    expect(await page.evaluate(() => document.scrollingElement?.scrollTop ?? 0)).toBe(0);
+    await barsFit(page, `окно ребёнка, тема ${scheme}`);
+    await noHorizontalScroll(page);
+    await wholePage(page);
+    await inFrame(page, page.getByRole("button", { name: "Настройки для родителя" }));
+    await page.screenshot({ path: `${SCREENS}/s22-my-stats-week${scheme === "dark" ? "-dark" : ""}.png`, fullPage: true });
+  });
+}
+
+// s48 — «Очистить статистику» (FR-38, 8.3.7 п.3): окно подтверждения с фокусом на «Отмена», затем
+// «Статистика Миши очищена», «Итоги» нули и «Статистика ведётся с 22 ноября 2026».
+test("s48 очистка статистики: подтверждение и результат", async ({ page }) => {
+  await page.clock.setFixedTime(G15_NOW);
+  await page.setViewportSize({ width: 960, height: 900 });
+  await openParentStats(page, [g15(), child({ childId: 2, sid: "S-1-5-21-111-222-333-1002", name: "Даша", usedS: 600 })]);
+  await page.getByRole("group", { name: "Ребёнок" }).getByRole("button", { name: "Миша" }).click();
+  await choosePeriod(page, "Неделя", "Использовано за неделю");
+  await page.getByRole("button", { name: "Очистить статистику" }).click();
+  const dialog = page.getByRole("dialog", { name: "Удалить всю статистику Миши?" });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByText("Остаток на сегодня и копилка не изменятся. Это нельзя отменить.", { exact: true })).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "Отмена" })).toBeFocused();
+  await noHorizontalScroll(page);
+  await page.screenshot({ path: `${SCREENS}/s48-clear-stats-dialog.png` });
+  await dialog.getByRole("button", { name: "Удалить" }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(page.locator(".stat-clear-status")).toHaveText("Статистика Миши очищена");
+  await expect(page.getByText("Статистика ведётся с 22 ноября 2026", { exact: true })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Итоги" }).getByText("За этот период пока нет данных", { exact: true })).toBeVisible();
+  await page.getByRole("tablist", { name: "Период" }).getByRole("tab", { name: "Сегодня", exact: true }).click();
+  await expect(page.getByRole("region", { name: "Итоги" }).locator(".stat-row").filter({ hasText: "Использовано сегодня" })).toHaveText("Использовано сегодня0 мин");
+  await noHorizontalScroll(page);
+  await page.screenshot({ path: `${SCREENS}/s48-clear-stats-done.png`, fullPage: true });
 });
