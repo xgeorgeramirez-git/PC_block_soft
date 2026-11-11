@@ -110,6 +110,7 @@ var AllCommands = []string{
 	CmdListSites, CmdAddSite, CmdRemoveSite, CmdSetAdultFilter, CmdTestSeedPrograms, // M4 (commands_m4.go)
 
 	CmdClearStats, CmdClearJournal, // M5 (FR-38)
+	CmdGeneratePromos, CmdClearPromoHistory, // M5 (FR-35, commands_m5.go)
 }
 
 // Имена полей, к которым служба привязывает ошибку (Reply.Field, L-121).

@@ -424,6 +424,15 @@
       "error": "Такого ребёнка нет в списке"
     }
   },
+  "ClearPromoHistory": {
+    "request": {},
+    "reply": {
+      "ok": true,
+      "payload": {
+        "message": "История промокодов очищена"
+      }
+    }
+  },
   "ClearStats": {
     "request": {
       "childId": 1
@@ -547,11 +556,11 @@
       "ok": true,
       "payload": {
         "promo": {
-          "codeDisplay": "a1234",
+          "codeDisplay": "A1234",
           "minutes": 30,
           "createdAtMs": 1760000000000
         },
-        "message": "Промокод «a1234» на 30 минут готов"
+        "message": "Промокод «A1234» на 30 минут готов"
       }
     }
   },
@@ -563,6 +572,17 @@
     "reply": {
       "ok": false,
       "error": "Такой код уже есть, придумайте другой",
+      "field": "code"
+    }
+  },
+  "CreatePromo#latin": {
+    "request": {
+      "code": "код!",
+      "minutes": 30
+    },
+    "reply": {
+      "ok": false,
+      "error": "Только латинские буквы A-Z и цифры",
       "field": "code"
     }
   },
@@ -748,6 +768,50 @@
     "reply": {
       "ok": true,
       "payload": {}
+    }
+  },
+  "GeneratePromos": {
+    "request": {
+      "count": 3,
+      "length": 6,
+      "charset": "mixed",
+      "minutes": 15
+    },
+    "reply": {
+      "ok": true,
+      "payload": {
+        "promos": [
+          {
+            "codeDisplay": "K7Q2ZD",
+            "minutes": 15,
+            "createdAtMs": 1760000000000
+          },
+          {
+            "codeDisplay": "P4M9XA",
+            "minutes": 15,
+            "createdAtMs": 1760000000000
+          },
+          {
+            "codeDisplay": "3TRW8B",
+            "minutes": 15,
+            "createdAtMs": 1760000000000
+          }
+        ],
+        "message": "Готово: 3 кода на 15 мин"
+      }
+    }
+  },
+  "GeneratePromos#count": {
+    "request": {
+      "count": 51,
+      "length": 6,
+      "charset": "digits",
+      "minutes": 15
+    },
+    "reply": {
+      "ok": false,
+      "error": "Можно от 1 до 50 кодов",
+      "field": "count"
     }
   },
   "GetBonus": {
@@ -2123,14 +2187,14 @@
       "payload": {
         "active": [
           {
-            "codeDisplay": "b5678",
+            "codeDisplay": "B5678",
             "minutes": 60,
             "createdAtMs": 1760000000000
           }
         ],
         "used": [
           {
-            "codeDisplay": "a1234",
+            "codeDisplay": "A1234",
             "minutes": 30,
             "createdAtMs": 1760000000000,
             "usedAtMs": 1760003600000,

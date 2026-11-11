@@ -34,7 +34,7 @@ type BonusChangeReply struct {
 	Message      string `json:"message"`
 }
 
-// CreatePromoRequest — родитель создаёт промокод: код (буквы/цифры) и минуты 1..600 (R26, D-50).
+// CreatePromoRequest — родитель создаёт промокод: код (A–Z, 0–9, 3–16 знаков, RM5-11) и минуты 1..600 (R26, D-50).
 type CreatePromoRequest struct {
 	Code    string `json:"code"`
 	Minutes int    `json:"minutes"`
@@ -48,7 +48,7 @@ type CreatePromoReply struct {
 
 // PromoView — промокод в списке родителя (R26, D-50).
 type PromoView struct {
-	CodeDisplay string `json:"codeDisplay"`           // как ввёл родитель
+	CodeDisplay string `json:"codeDisplay"`           // заглавными (RM5-11): новые коды так и хранятся, старые служба переводит при показе
 	Minutes     int    `json:"minutes"`               //
 	CreatedAtMs int64  `json:"createdAtMs"`           //
 	UsedAtMs    int64  `json:"usedAtMs,omitempty"`    // 0 — действующий; иначе момент использования

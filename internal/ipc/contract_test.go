@@ -280,15 +280,26 @@ func examples() map[string]example {
 		"ClearJournal#noChild": fail(ClearChildRequest{ChildID: 9}, "Такого ребёнка нет в списке", "", nil),
 		CmdReduceBonus:         ok(ReduceBonusRequest{ChildID: 1, Minutes: 30}, BonusChangeReply{BalanceAfter: 45, Message: "Убавлено 30 минут. Баланс 45 мин"}),
 		CmdCreatePromo: ok(CreatePromoRequest{Code: "a1234", Minutes: 30}, CreatePromoReply{
-			Promo:   PromoView{CodeDisplay: "a1234", Minutes: 30, CreatedAtMs: t0},
-			Message: "Промокод «a1234» на 30 минут готов",
+			Promo:   PromoView{CodeDisplay: "A1234", Minutes: 30, CreatedAtMs: t0},
+			Message: "Промокод «A1234» на 30 минут готов",
 		}),
-		"CreatePromo#dup": fail(CreatePromoRequest{Code: "a1234", Minutes: 15}, "Такой код уже есть, придумайте другой", FieldCode, nil),
+		"CreatePromo#latin": fail(CreatePromoRequest{Code: "код!", Minutes: 30}, "Только латинские буквы A-Z и цифры", FieldCode, nil),
+		"CreatePromo#dup":   fail(CreatePromoRequest{Code: "a1234", Minutes: 15}, "Такой код уже есть, придумайте другой", FieldCode, nil),
 		CmdListPromos: ok(Empty{}, ListPromosReply{
-			Active: []PromoView{{CodeDisplay: "b5678", Minutes: 60, CreatedAtMs: t0}},
-			Used:   []PromoView{{CodeDisplay: "a1234", Minutes: 30, CreatedAtMs: t0, UsedAtMs: t0 + 3_600_000, UsedByChild: 1, UsedByName: "Миша"}},
+			Active: []PromoView{{CodeDisplay: "B5678", Minutes: 60, CreatedAtMs: t0}},
+			Used:   []PromoView{{CodeDisplay: "A1234", Minutes: 30, CreatedAtMs: t0, UsedAtMs: t0 + 3_600_000, UsedByChild: 1, UsedByName: "Миша"}},
 		}),
 		"ListPromos#empty": ok(Empty{}, ListPromosReply{Active: []PromoView{}, Used: []PromoView{}}),
+		CmdGeneratePromos: ok(GeneratePromosRequest{Count: 3, Length: 6, Charset: CharsetMixed, Minutes: 15}, GeneratePromosReply{
+			Promos: []PromoView{
+				{CodeDisplay: "K7Q2ZD", Minutes: 15, CreatedAtMs: t0},
+				{CodeDisplay: "P4M9XA", Minutes: 15, CreatedAtMs: t0},
+				{CodeDisplay: "3TRW8B", Minutes: 15, CreatedAtMs: t0},
+			},
+			Message: "Готово: 3 кода на 15 мин",
+		}),
+		"GeneratePromos#count": fail(GeneratePromosRequest{Count: 51, Length: 6, Charset: CharsetDigits, Minutes: 15}, "Можно от 1 до 50 кодов", FieldCount, nil),
+		CmdClearPromoHistory:   ok(Empty{}, ClearPromoHistoryReply{Message: "История промокодов очищена"}),
 		CmdRedeemPromo: ok(RedeemPromoRequest{ChildID: 1, Code: "a1234"}, RedeemPromoReply{
 			Card: card(okStatus(), 30, false), AddedMin: 30, Message: "Добавлено 30 минут",
 		}),
@@ -600,8 +611,8 @@ func TestContractHasEveryCommand(t *testing.T) {
 			t.Errorf("пример для %s есть, а в AllCommands её нет", c)
 		}
 	}
-	if len(AllCommands) != 73 {
-		t.Errorf("команд %d, ждали 73 (2 команды M5: ClearStats, ClearJournal; 5 команд M4: ListSites, AddSite, RemoveSite, SetAdultFilter, тестовая TestSeedPrograms; тестовая TestSeedDay и EndBreak из раунда 0.3.2; 46 из M1/M2/0.2.1 без команд Помощника, 9 из фидбек-раунда 0.2.2: OpenLogs, SetNoForbidden, ClearBonus, ReduceBonus, CreatePromo, ListPromos, RedeemPromo, GetBonusRate, SetBonusRate, GuardClosing из раунда 0.2.3, тестовая TestSession из 0.2.5 и 5 программ M3: ListPrograms, DecideProgram, SetProgramsCategory, UndoProgram, ScanPrograms; SetProgramsHidden и RenameProgram из раунда 0.3.1)", len(AllCommands))
+	if len(AllCommands) != 75 {
+		t.Errorf("команд %d, ждали 75 (4 команды M5: ClearStats, ClearJournal, GeneratePromos, ClearPromoHistory; 5 команд M4: ListSites, AddSite, RemoveSite, SetAdultFilter, тестовая TestSeedPrograms; тестовая TestSeedDay и EndBreak из раунда 0.3.2; 46 из M1/M2/0.2.1 без команд Помощника, 9 из фидбек-раунда 0.2.2: OpenLogs, SetNoForbidden, ClearBonus, ReduceBonus, CreatePromo, ListPromos, RedeemPromo, GetBonusRate, SetBonusRate, GuardClosing из раунда 0.2.3, тестовая TestSession из 0.2.5 и 5 программ M3: ListPrograms, DecideProgram, SetProgramsCategory, UndoProgram, ScanPrograms; SetProgramsHidden и RenameProgram из раунда 0.3.1)", len(AllCommands))
 	}
 }
 
