@@ -1,0 +1,54 @@
+{
+  "name": "G15",
+  "source": "docs/04_Эталоны_учёта.md G15. Эталонная неделя статистики (S21, FR-23, D-69, D-78): общий лимит пн–чт 120 мин, пт 180, сб–вс 240, игры без отдельного лимита (на статистику лимит не влияет); часы вс 22.11.2026 15:00; ср 18.11 — строка дня с нулями; game.exe — «Игры», study.exe — «Учёба», other.exe — «Прочее», сайт youtube.com — «Видео и соцсети»; сегодня — из ядра",
+  "tz_offset_min": 180,
+  "now": "2026-11-22T15:00:00+03:00",
+  "limits_min": {
+    "mon": 120,
+    "tue": 120,
+    "wed": 120,
+    "thu": 120,
+    "fri": 180,
+    "sat": 240,
+    "sun": 240
+  },
+  "subjects": {
+    "games": "game.exe",
+    "study": "study.exe",
+    "other": "other.exe",
+    "video_social": "youtube.com"
+  },
+  "days": [
+    {"day": "2026-11-16", "extra_min": 0, "used_min": 95, "games_min": 50, "video_min": 20, "study_min": 30, "other_min": 25},
+    {"day": "2026-11-17", "extra_min": 30, "used_min": 140, "games_min": 60, "video_min": 30, "study_min": 0, "other_min": 50},
+    {"day": "2026-11-18", "extra_min": 0, "used_min": 0, "games_min": 0, "video_min": 0, "study_min": 0, "other_min": 0},
+    {"day": "2026-11-19", "extra_min": 15, "used_min": 128, "games_min": 45, "video_min": 40, "study_min": 45, "other_min": 43},
+    {"day": "2026-11-20", "extra_min": 0, "used_min": 180, "games_min": 60, "video_min": 60, "study_min": 20, "other_min": 60},
+    {"day": "2026-11-21", "extra_min": 0, "used_min": 200, "games_min": 60, "video_min": 70, "study_min": 0, "other_min": 70},
+    {"day": "2026-11-22", "today": true, "extra_min": 0, "used_min": 10, "games_min": 10, "video_min": 0, "study_min": 0, "other_min": 0}
+  ],
+  "expect": {
+    "week": {"used_min": 753, "games_min": 285, "video_min": 220, "study_min": 95, "other_min": 248, "all_min": 848, "extra_min": 45},
+    "bars_week": [
+      {"key": "2026-11-16", "label": "пн 16", "total_min": 95, "study_min": 30, "title": "пн, 16 ноября: 1 ч 35 мин, учёба 30 мин"},
+      {"key": "2026-11-17", "label": "вт 17", "total_min": 140, "study_min": 0, "title": "вт, 17 ноября: 2 ч 20 мин, учёба 0 мин"},
+      {"key": "2026-11-18", "label": "ср 18", "total_min": 0, "study_min": 0, "title": "ср, 18 ноября: 0 мин, учёба 0 мин"},
+      {"key": "2026-11-19", "label": "чт 19", "total_min": 128, "study_min": 45, "title": "чт, 19 ноября: 2 ч 08 мин, учёба 45 мин"},
+      {"key": "2026-11-20", "label": "пт 20", "total_min": 180, "study_min": 20, "title": "пт, 20 ноября: 3 ч 00 мин, учёба 20 мин"},
+      {"key": "2026-11-21", "label": "сб 21", "total_min": 200, "study_min": 0, "title": "сб, 21 ноября: 3 ч 20 мин, учёба 0 мин"},
+      {"key": "2026-11-22", "label": "вс 22", "total_min": 10, "study_min": 0, "title": "вс, 22 ноября: 10 мин, учёба 0 мин", "today": true}
+    ],
+    "programs": [
+      {"name": "game.exe", "min": 285, "pct": 45},
+      {"name": "other.exe", "min": 248, "pct": 39},
+      {"name": "study.exe", "min": 95, "pct": 15}
+    ],
+    "sites": [
+      {"name": "youtube.com", "min": 220, "pct": 100}
+    ],
+    "year": {
+      "bars": 11,
+      "nov": {"key": "2026-11", "label": "ноя", "total_min": 753, "study_min": 95, "title": "ноябрь 2026: 12 ч 33 мин, учёба 1 ч 35 мин"}
+    }
+  }
+}

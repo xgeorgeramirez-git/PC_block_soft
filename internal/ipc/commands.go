@@ -772,19 +772,32 @@ const (
 // тестовый режим, приёмка S42): в CI нет прошлых дней, а ждать неделю нельзя. День — строго до
 // сегодняшнего по часам ядра: сегодняшний день ведёт ядро.
 type TestSeedDayRequest struct {
-	ChildID int64           `json:"childId"`
-	Day     string          `json:"day"`    // YYYY-MM-DD
-	TotalS  int             `json:"totalS"` // общее время в счёт лимита, с (игры и прочее)
-	GamesS  int             `json:"gamesS"`
-	StudyS  int             `json:"studyS"`
-	Usage   []TestSeedUsage `json:"usage"`
+	ChildID  int64  `json:"childId"`
+	Day      string `json:"day"`    // YYYY-MM-DD
+	TotalS   int    `json:"totalS"` // общее время в счёт лимита, с (игры и прочее)
+	GamesS   int    `json:"gamesS"`
+	StudyS   int    `json:"studyS"`
+	VideoS   int    `json:"videoS"`   // «Видео и соцсети», с (входит в TotalS)
+	ExtraMin int    `json:"extraMin"` // доп. время дня, мин
+	// BonusPending — день ещё ждёт автобонуса (приёмка S51, D-82). По умолчанию засеянный день
+	// помечен как уже рассмотренный: засеянная статистика бонусов не даёт.
+	BonusPending bool            `json:"bonusPending"`
+	Usage        []TestSeedUsage `json:"usage"`
 }
 
-// TestSeedUsage — строка учёта по программе за прошлый день (usage_daily).
+// Виды строки TestSeedUsage (usage_daily.kind, RM4-7).
+const (
+	SeedKindProgram = "program" // программа, путь exe (по умолчанию)
+	SeedKindSite    = "site"    // сайт, домен
+)
+
+// TestSeedUsage — строка учёта по программе или сайту за прошлый день (usage_daily). У сайта Path —
+// домен или адрес (служба оставит домен, как пишет сайт сама).
 type TestSeedUsage struct {
 	Path     string `json:"path"`
-	Category string `json:"category"` // ProgramCat*
+	Category string `json:"category"` // ProgramCat* или video_social
 	Seconds  int    `json:"seconds"`
+	Kind     string `json:"kind"` // SeedKind*; «» — программа
 }
 
 // TestClockRequest — поставить часы ядра на паузу или продолжить их (Ruling 4).

@@ -6,6 +6,7 @@ import (
 	"pcblock/internal/core"
 	"pcblock/internal/ipc"
 	"pcblock/internal/programs"
+	"pcblock/internal/sites"
 )
 
 // Периоды «Итогов» статистики (FB-13, D-61, 8.2.6 п.2): «Сегодня», «Неделя» с понедельника, «Месяц» с
@@ -109,11 +110,13 @@ func (s *Service) periodBonusSpent(cs *childState, from string) int {
 }
 
 // seedCategories — категории учёта, которые принимает TestSeedDay.
-var seedCategories = map[string]bool{programs.CatGames: true, programs.CatStudy: true, programs.CatOther: true}
+var seedCategories = map[string]bool{programs.CatGames: true, programs.CatStudy: true, programs.CatOther: true, usageCatVideo: true}
 
-// hTestSeedDay записывает итоги прошлого дня и учёт по программам за него (только тестовый режим,
-// приёмка S42): тем же путём, что служба сохраняет день (SaveDayAndUsage). Сегодняшний и будущий дни
-// не принимаются: сегодняшний ведёт ядро, иначе он посчитался бы дважды.
+// hTestSeedDay записывает итоги прошлого дня и учёт по программам и сайтам за него (только тестовый
+// режим, приёмка S42, S21 по G15, S51): тем же путём, что служба сохраняет день (SaveDayAndUsage).
+// Сегодняшний и будущий дни не принимаются: сегодняшний ведёт ядро, иначе он посчитался бы дважды.
+// Путь программы — ключ, как у службы (programKey); сайт — домен, как служба пишет сайт (R23).
+// День помечается рассмотренным для автобонуса (bonus_granted), если в запросе нет bonusPending.
 func (s *Service) hTestSeedDay(c *callCtx) ipc.Reply {
 	var req ipc.TestSeedDayRequest
 	if c.msg.Into(&req) != nil {
@@ -124,22 +127,36 @@ func (s *Service) hTestSeedDay(c *callCtx) ipc.Reply {
 		return ipc.Fail(textNoSuchChild)
 	}
 	if t, err := time.Parse(time.DateOnly, req.Day); err != nil || t.Format(time.DateOnly) != req.Day ||
-		req.Day >= core.DayOf(s.cfg.Clock.Now().In(s.cfg.Loc)) || req.TotalS < 0 || req.GamesS < 0 || req.StudyS < 0 {
+		req.Day >= core.DayOf(s.cfg.Clock.Now().In(s.cfg.Loc)) ||
+		req.TotalS < 0 || req.GamesS < 0 || req.StudyS < 0 || req.VideoS < 0 || req.ExtraMin < 0 {
 		return bad()
 	}
 	rows := make([]UsageRow, 0, len(req.Usage))
 	for _, u := range req.Usage {
-		path := s.programKey(u.Path)
-		if path == "" || !seedCategories[u.Category] || u.Seconds < 0 {
+		if !seedCategories[u.Category] || u.Seconds < 0 {
 			return bad()
 		}
-		rows = append(rows, UsageRow{Day: req.Day, Category: u.Category, Kind: usageKindProgram, Subject: path, Seconds: u.Seconds})
+		var kind, subject string
+		switch u.Kind {
+		case "", ipc.SeedKindProgram:
+			kind, subject = usageKindProgram, s.programKey(u.Path)
+		case ipc.SeedKindSite:
+			kind, subject = usageKindSite, sites.FromOmnibox(u.Path)
+		default:
+			return bad()
+		}
+		if subject == "" {
+			return bad()
+		}
+		rows = append(rows, UsageRow{Day: req.Day, Category: u.Category, Kind: kind, Subject: subject, Seconds: u.Seconds})
 	}
-	st := core.DayState{Day: req.Day, TotalS: req.TotalS, GamesS: req.GamesS, StudyS: req.StudyS}
+	st := core.DayState{Day: req.Day, TotalS: req.TotalS, GamesS: req.GamesS, VideoS: req.VideoS, StudyS: req.StudyS,
+		ExtraMin: req.ExtraMin, BonusGranted: !req.BonusPending}
 	if err := s.cfg.Store.SaveDayAndUsage(cs.child.ID, st, rows); err != nil {
 		s.cfg.Logf("тестовый день %s у %s не записан: %v", req.Day, cs.child.Name, err)
 		return ipc.Fail(textSaveFailed)
 	}
-	s.cfg.Logf("Тестовый день %s у %s: общее %d с, игры %d с, учёба %d с, программ %d", req.Day, cs.child.Name, req.TotalS, req.GamesS, req.StudyS, len(rows))
+	s.cfg.Logf("Тестовый день %s у %s: общее %d с, игры %d с, видео %d с, учёба %d с, доп. %d мин, ждёт бонуса %v, строк учёта %d",
+		req.Day, cs.child.Name, req.TotalS, req.GamesS, req.VideoS, req.StudyS, req.ExtraMin, req.BonusPending, len(rows))
 	return ipc.OK(ipc.Empty{})
 }

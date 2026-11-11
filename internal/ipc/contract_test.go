@@ -410,8 +410,12 @@ func examples() map[string]example {
 		CmdTestGuard:   ok(TestGuardRequest{SessionID: 2, Action: TestGuardAction{Action: TestClick, Target: ButtonParentPassword}}, Empty{}),
 		CmdTestClock:   ok(TestClockRequest{Paused: true}, TestClockReply{Paused: true, NowMs: t0, Speed: 60}),
 		CmdTestSession: ok(TestSessionRequest{Event: TestSessionLogoff, SessionID: 7, SID: "S-1-5-21-1-2-3-1001"}, Empty{}),
-		CmdTestSeedDay: ok(TestSeedDayRequest{ChildID: 1, Day: "2026-10-19", TotalS: 1800, GamesS: 1800,
-			Usage: []TestSeedUsage{{Path: `c:\games\game.exe`, Category: ProgramCatGames, Seconds: 1800}}}, Empty{}),
+		CmdTestSeedDay: ok(TestSeedDayRequest{ChildID: 1, Day: "2026-10-19", TotalS: 3000, GamesS: 1800, VideoS: 1200, ExtraMin: 30,
+			Usage: []TestSeedUsage{
+				{Path: `c:\games\game.exe`, Category: ProgramCatGames, Seconds: 1800, Kind: SeedKindProgram},
+				{Path: "youtube.com", Category: "video_social", Seconds: 1200, Kind: SeedKindSite},
+			}}, Empty{}),
+		"TestSeedDay#bonusPending": ok(TestSeedDayRequest{ChildID: 1, Day: "2026-11-17", TotalS: 2400, GamesS: 2400, BonusPending: true}, Empty{}),
 		CmdGuardState: ok(nil, GuardStateReply{
 			Warnings:  []ShownWarning{{AtMs: t0 - 60_000, Threshold: 1, Text: "Осталась 1 минута: 0:59"}},
 			Sounds:    []ShownSound{{AtMs: t0 - 60_000, Threshold: 1, OK: true}},
