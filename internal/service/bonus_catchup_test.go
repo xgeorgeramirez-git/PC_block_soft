@@ -26,6 +26,7 @@ func catchupStore(t *testing.T) (*fakeStore, int64) {
 	h := newHarness(t, configured(), withChild(childSID, "Миша", 120))
 	id := h.childID(childSID)
 	h.store.days[dayKey(id, tue24)] = core.DayState{Day: tue24, TotalS: 40 * 60, GamesS: 40 * 60}
+	h.store.settings[settingAutobonusFrom] = "2026-11-23" // 0.5.0 стоит с понедельника
 	return h.store, id
 }
 
@@ -234,6 +235,57 @@ func TestBonusGrantAtomicWithDayMark(t *testing.T) {
 	startAt(t, st, time.Date(2026, 11, 25, 10, 0, 0, 0, tzMSK))
 	if bal, evs := bonusOf(t, st, id); bal != 40 || len(evs) != 1 || evs[0].Details["day"] != tue24 {
 		t.Errorf("после перезапуска: копилка %d, записи %+v; want 40 и одна запись за вторник", bal, evs)
+	}
+}
+
+// Ловит (D-82, ревью M5): первый запуск 0.5.0 сразу после полуночи начисляет бонус за вчерашний
+// день, прожитый на прежней версии (граница «до установки» взята не по поясу службы, а по часам
+// базы); отметка не ставится на свежей базе без детей; следующий день после установки не
+// начисляется; дни до установки остаются без отметки и проверяются при каждом запуске.
+func TestAutobonusFromFirstStart(t *testing.T) {
+	// Свежая база: ключ ставится при первом запуске, даже без детей.
+	h := newHarness(t, withClockAt(time.Date(2026, 11, 24, 0, 30, 0, 0, tzMSK)))
+	h.start()
+	if v := h.store.settings[settingAutobonusFrom]; v != tue24 {
+		t.Errorf("свежая база: %s = %q, want %q", settingAutobonusFrom, v, tue24)
+	}
+
+	// Обновление с 0.4.1: в базе вчерашний понедельник без автобонуса (прежняя версия его не начисляла).
+	h = newHarness(t, configured(), withChild(childSID, "Миша", 120))
+	st, id := h.store, h.childID(childSID)
+	st.days[dayKey(id, "2026-11-23")] = core.DayState{Day: "2026-11-23", TotalS: 40 * 60}
+	startAt(t, st, time.Date(2026, 11, 24, 0, 30, 0, 0, tzMSK))
+	if bal, evs := bonusOf(t, st, id); bal != 0 || len(evs) != 0 {
+		t.Errorf("первый запуск 0.5.0 во вторник 00:30: копилка %d, записей %d; want 0 (понедельник прожит на 0.4.1)", bal, len(evs))
+	}
+	if v := st.settings[settingAutobonusFrom]; v != tue24 {
+		t.Errorf("%s = %q, want %q (день службы, не базы)", settingAutobonusFrom, v, tue24)
+	}
+	if !st.days[dayKey(id, "2026-11-23")].BonusGranted {
+		t.Error("понедельник до установки не помечен рассмотренным")
+	}
+
+	// Вторник прожит на 0.5.0, полночь при выключенном компьютере: в среду бонус начисляется.
+	st.days[dayKey(id, tue24)] = core.DayState{Day: tue24, TotalS: 40 * 60}
+	startAt(t, st, time.Date(2026, 11, 25, 9, 0, 0, 0, tzMSK))
+	if bal, evs := bonusOf(t, st, id); bal != 40 || len(evs) != 1 || evs[0].Details["day"] != tue24 {
+		t.Errorf("запуск в среду: копилка %d, записи %+v; want 40 за вторник", bal, evs)
+	}
+	if v := st.settings[settingAutobonusFrom]; v != tue24 {
+		t.Errorf("после второго запуска %s = %q, want прежний %q", settingAutobonusFrom, v, tue24)
+	}
+
+	// Сбой чтения настроек: ни бонуса, ни отметки; после восстановления — начисление.
+	st, id = catchupStore(t)
+	st.failGetSetting = true
+	startAt(t, st, thu1000)
+	if bal, _ := bonusOf(t, st, id); bal != 0 || st.days[dayKey(id, tue24)].BonusGranted {
+		t.Errorf("сбой настроек: копилка %d, вторник помечен %v; want 0 и нет", bal, st.days[dayKey(id, tue24)].BonusGranted)
+	}
+	st.failGetSetting = false
+	startAt(t, st, thu1000.Add(time.Hour))
+	if bal, _ := bonusOf(t, st, id); bal != 40 {
+		t.Errorf("после восстановления настроек копилка %d, want 40", bal)
 	}
 }
 

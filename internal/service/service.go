@@ -41,6 +41,9 @@ const (
 	settingFirstRunPrefix = "firstrun.seen."
 	settingVerboseLogs    = "diag.verbose"      // «Подробные логи для диагностики» (FR-25, D-42)
 	settingBonusRate      = "bonus.rate_per_10" // автобонус N: минут за каждые 10 мин остатка (R25, D-49)
+	// settingAutobonusFrom — первый день, за который служба начисляет пропущенный автобонус (D-82):
+	// день первого запуска 0.5.0 по поясу службы; дни до него прожиты на прежней версии.
+	settingAutobonusFrom = "bonus.autobonus_from_day"
 )
 
 // SessionEvent — событие сеанса Windows, которое диспетчер служб передаёт службе.
@@ -316,6 +319,7 @@ func (s *Service) Start(real time.Time) error {
 	if s.cfg.Recovered {
 		s.startRecovered()
 	}
+	s.autobonusFrom() // свежая база и первый запуск после обновления: граница автобонуса (D-82)
 	s.loadChildren(real)
 	s.ensurePrograms(real)
 	s.loadAdult()
@@ -431,14 +435,43 @@ func (s *Service) addChild(c Child, real time.Time) *childState {
 	return cs
 }
 
+// autobonusFrom — первый день, за который начисляется пропущенный автобонус (D-82): ключ
+// settingAutobonusFrom; нет ключа (свежая база или первый запуск после обновления) — сегодняшний
+// день по часам и поясу службы записывается и возвращается. Сбой чтения — ok = false: дни ждут
+// следующего запуска (R18); сбой записи — граница сегодня (до неё начислять нечего), ключ
+// запишется при следующем запуске.
+func (s *Service) autobonusFrom() (day string, ok bool) {
+	v, found, err := s.cfg.Store.GetSetting(settingAutobonusFrom)
+	if err != nil {
+		s.logRate("autobonusfrom", "автобонус: не прочитана граница пропущенных дней, повтор при следующем запуске: %v", err)
+		return "", false
+	}
+	if found {
+		if t, err := time.Parse(time.DateOnly, v); err == nil && t.Format(time.DateOnly) == v {
+			return v, true
+		}
+	}
+	today := s.today()
+	if err := s.cfg.Store.SetSetting(settingAutobonusFrom, today); err != nil {
+		s.logRate("autobonusfrom2", "автобонус: не записана граница пропущенных дней: %v", err)
+	}
+	return today, true
+}
+
 // catchUpBonus закрывает прошлые дни, которые ядро не закрыло (FB-21, D-82, R25; B-42): компьютер
 // выключили до полуночи, и сутки сменились без работающей службы. Сначала итог дня дотягивается
 // до полуночи по последней минуте (PastDayAtMidnight), затем начисляется автобонус. Дни — строки базы с
 // bonus_granted = 0 строго до сегодня (сегодняшний и вчерашний, если ядро в нём, закрывает ядро
-// через ClosedDay; пометка в строке не даёт начислить дважды). Правила не прочитаны (безопасный
-// режим) — лимиты неизвестны, дни ждут следующего запуска; сбой чтения — то же (R18).
+// через ClosedDay; пометка в строке не даёт начислить дважды). Дни раньше autobonusFrom прожиты
+// на прежней версии: помечаются рассмотренными без бонуса (задним числом не начисляется, D-82).
+// Правила не прочитаны (безопасный режим) — лимиты неизвестны, дни ждут следующего запуска; сбой
+// чтения — то же (R18).
 func (s *Service) catchUpBonus(cs *childState) {
 	if cs.rules.Broken {
+		return
+	}
+	from, ok := s.autobonusFrom()
+	if !ok {
 		return
 	}
 	days, err := s.cfg.Store.UngrantedDays(cs.child.ID, s.today())
@@ -448,6 +481,13 @@ func (s *Service) catchUpBonus(cs *childState) {
 	}
 	for i := range days {
 		d := &days[i]
+		if d.Day < from {
+			d.BonusGranted = true
+			if err := s.cfg.Store.SaveDayState(cs.child.ID, *d); err != nil {
+				s.logRate(fmt.Sprint("catchupold", cs.child.ID), "автобонус: не помечен день %s до установки у %s: %v", d.Day, cs.child.Name, err)
+			}
+			continue
+		}
 		// Сначала итог дня (B-42): последняя минута шла по часам до полуночи, пока службы не было;
 		// бонус считается уже по дотянутому общему времени.
 		pulled := d.LastMinuteEndMs != nil

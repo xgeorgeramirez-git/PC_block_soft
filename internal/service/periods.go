@@ -130,7 +130,8 @@ var seedCategories = map[string]bool{programs.CatGames: true, programs.CatStudy:
 // режим, приёмка S42, S21 по G15, S51): тем же путём, что служба сохраняет день (SaveDayAndUsage).
 // Сегодняшний и будущий дни не принимаются: сегодняшний ведёт ядро, иначе он посчитался бы дважды.
 // Путь программы — ключ, как у службы (programKey); сайт — домен, как служба пишет сайт (R23).
-// День помечается рассмотренным для автобонуса (bonus_granted), если в запросе нет bonusPending.
+// День помечается рассмотренным для автобонуса (bonus_granted), если в запросе нет bonusPending;
+// с bonusPending граница пропущенных дней settingAutobonusFrom сдвигается на этот день, если он раньше.
 func (s *Service) hTestSeedDay(c *callCtx) ipc.Reply {
 	var req ipc.TestSeedDayRequest
 	if c.msg.Into(&req) != nil {
@@ -169,6 +170,16 @@ func (s *Service) hTestSeedDay(c *callCtx) ipc.Reply {
 	if err := s.cfg.Store.SaveDayAndUsage(cs.child.ID, st, rows); err != nil {
 		s.cfg.Logf("тестовый день %s у %s не записан: %v", req.Day, cs.child.Name, err)
 		return ipc.Fail(textSaveFailed)
+	}
+	// День ждёт автобонуса (S51): граница пропущенных дней (D-82) сдвигается на него, иначе засев
+	// после первого запуска оказался бы «до установки» и бонуса не дал бы.
+	if req.BonusPending {
+		if from, ok := s.autobonusFrom(); ok && req.Day < from {
+			if err := s.cfg.Store.SetSetting(settingAutobonusFrom, req.Day); err != nil {
+				s.cfg.Logf("тестовый день %s у %s: граница автобонуса не сдвинута: %v", req.Day, cs.child.Name, err)
+				return ipc.Fail(textSaveFailed)
+			}
+		}
 	}
 	s.cfg.Logf("Тестовый день %s у %s: общее %d с, игры %d с, видео %d с, учёба %d с, доп. %d мин, ждёт бонуса %v, строк учёта %d",
 		req.Day, cs.child.Name, req.TotalS, req.GamesS, req.VideoS, req.StudyS, req.ExtraMin, req.BonusPending, len(rows))

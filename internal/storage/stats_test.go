@@ -14,8 +14,8 @@ import (
 // очистка статистики и журнала, фильтры журнала, дни без автобонуса (T7c, D-82).
 
 // Ловит: миграция 010 на базе 0.4.x (001–009 с данными) теряет детей, дни или события; создаёт
-// stats_reset с данными или без индексов журнала; помечает автобонусом сегодняшний день или не
-// помечает прошлые (D-82: дни до установки 0.5.0 задним числом не начисляются).
+// stats_reset с данными или без индексов журнала; меняет bonus_granted по часам базы (date('now',
+// 'localtime') — не пояс службы; границу «до установки 0.5.0» ставит служба, D-82).
 func TestMigration010OnFilled009Base(t *testing.T) {
 	all, err := loadMigrations(migrationsFS, "migrations")
 	if err != nil {
@@ -31,7 +31,7 @@ func TestMigration010OnFilled009Base(t *testing.T) {
 	if err := applyMigrations(db, v009, 100); err != nil {
 		t.Fatalf("миграции 001–009: %v", err)
 	}
-	// День базы — местный (date('now','localtime')): тест берёт его у самой базы, чтобы не разойтись у полуночи.
+	// Вчера и сегодня по часам базы: миграция не должна их различать (границу ставит служба).
 	var today, yesterday string
 	if err := db.QueryRow(`SELECT date('now','localtime'), date('now','localtime','-1 day')`).Scan(&today, &yesterday); err != nil {
 		t.Fatal(err)
@@ -61,9 +61,9 @@ func TestMigration010OnFilled009Base(t *testing.T) {
 	if !reflect.DeepEqual(after, before) {
 		t.Errorf("данные после миграции = %v, want %v", after, before)
 	}
-	wantBonus := [][]string{{"1", "2026-11-02", "1"}, {"1", yesterday, "1"}, {"1", today, "0"}, {"2", "2026-11-03", "1"}}
+	wantBonus := [][]string{{"1", "2026-11-02", "0"}, {"1", yesterday, "0"}, {"1", today, "0"}, {"2", "2026-11-03", "1"}}
 	if got := rowStrings(t, db, `SELECT child_id, day, bonus_granted FROM day_state ORDER BY child_id, day`); !reflect.DeepEqual(got, wantBonus) {
-		t.Errorf("bonus_granted после миграции = %v, want прошлые 1, сегодня 0: %v", got, wantBonus)
+		t.Errorf("bonus_granted после миграции = %v, want как до неё: %v", got, wantBonus)
 	}
 	if n := count(t, db, "stats_reset"); n != 0 {
 		t.Errorf("строк stats_reset %d, want 0", n)

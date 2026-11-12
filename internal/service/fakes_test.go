@@ -36,6 +36,7 @@ type fakeStore struct {
 	promos           []*fakePromo              // промокоды (R26, D-50)
 	failCreatePromos bool                      // CreatePromos возвращает ошибку, ничего не создав (RM5-12)
 	failListPromos   bool                      // ListPromos возвращает ошибку
+	failGetSetting   bool                      // GetSetting возвращает ошибку
 
 	failLimits   bool // GetDayLimits возвращает ошибку
 	failSave     bool // SaveDayState возвращает ошибку
@@ -1139,6 +1140,9 @@ func (f *fakeStore) SetAuth(a Auth) error {
 func (f *fakeStore) GetSetting(key string) (string, bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.failGetSetting {
+		return "", false, errFake
+	}
 	v, ok := f.settings[key]
 	return v, ok, nil
 }
