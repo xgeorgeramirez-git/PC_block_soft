@@ -271,6 +271,41 @@ describe("MyStats: периоды", () => {
   });
 });
 
+describe("MyStats: сбой периода", () => {
+  // Ловит (ревью окна M5): при сбое загрузки вкладка показывает новый период, а под ней цифры прошлого.
+  it("сбой периода - вкладка и цифры одного периода", async () => {
+    vi.setSystemTime(S42_NOW);
+    const user = setup({ children: [s42Child()] });
+    const box = await screen.findByRole("region", { name: "Итоги" });
+    await within(box).findByText("Использовано сегодня");
+    mock.override("MyToday", "reject", 1);
+    await user.click(screen.getByRole("tab", { name: "Неделя" }));
+    expect(await screen.findByText("Не удалось получить данные. Попробуй через минуту")).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "Сегодня" }).getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByRole("tab", { name: "Неделя" }).getAttribute("aria-selected")).toBe("false");
+    expect(screen.getByRole("tabpanel", { name: "Сегодня" })).toBeTruthy();
+    expect(within(box).getByText("Использовано сегодня")).toBeTruthy();
+    expect(within(box).queryByText("Использовано за неделю")).toBeNull();
+    // Повтор той же вкладки идёт уже без сбоя.
+    await user.click(screen.getByRole("tab", { name: "Неделя" }));
+    await within(box).findByText("Использовано за неделю");
+    expect(screen.getByRole("tab", { name: "Неделя" }).getAttribute("aria-selected")).toBe("true");
+    expect(screen.queryByText("Не удалось получить данные. Попробуй через минуту")).toBeNull();
+  });
+
+  // Ловит: после сбоя «Обновить» спрашивает период, которого на экране нет.
+  it("после сбоя «Обновить» спрашивает показанный период", async () => {
+    const user = setup();
+    await user.click(await screen.findByRole("tab", { name: "Год" }));
+    await screen.findByText("Использовано за год");
+    mock.override("MyToday", "reject", 1);
+    await user.click(screen.getByRole("tab", { name: "Месяц" }));
+    await screen.findByText("Не удалось получить данные. Попробуй через минуту");
+    await user.click(screen.getByRole("button", { name: "Обновить" }));
+    await vi.waitFor(() => expect(mock.calls.filter((c) => c.command === "MyToday").at(-1)?.payload).toEqual({ period: "year" }));
+  });
+});
+
 describe("MyStats: Итоги", () => {
   // Ловит: рядом стояли «Осталось всего 10 мин», «Сегодня осталось 10 мин из 2 ч» и «Всего 1 ч 50 мин»
   // без пояснения. Остаток называется один раз (сверху), в «Итогах» только «Использовано сегодня».

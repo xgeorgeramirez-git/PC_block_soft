@@ -1,4 +1,4 @@
-import { useRef, type KeyboardEvent } from "react";
+import { useEffect, useRef, type KeyboardEvent } from "react";
 import { PERIODS } from "../lib/mytoday";
 import type { StatsPeriod } from "../types";
 
@@ -18,6 +18,14 @@ export default function PeriodTabs({
   panelId: string;
 }) {
   const tabs = useRef(new Map<StatsPeriod, HTMLButtonElement>());
+  // Выбор вернулся к прежней вкладке (сбой загрузки периода): фокус с вкладок не теряется, а идёт на
+  // выбранную - единственную в порядке Tab.
+  useEffect(() => {
+    const el = tabs.current.get(value);
+    const focused = document.activeElement;
+    if (!el || focused === el) return;
+    if ([...tabs.current.values()].some((t) => t === focused)) el.focus();
+  }, [value]);
   const onKey = (e: KeyboardEvent<HTMLButtonElement>, index: number) => {
     const last = PERIODS.length - 1;
     let next: number;

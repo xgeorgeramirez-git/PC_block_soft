@@ -57,6 +57,8 @@ export default function MyStats() {
   const periodRef = useRef<StatsPeriod>("today");
   // Номер последнего запроса: поздний ответ прошлого периода не перекрывает выбранный.
   const seq = useRef(0);
+  // Период цифр на экране: при сбое вкладка возвращается к нему, вкладка и цифры - одного периода.
+  const shown = useRef<StatsPeriod | null>(null);
 
   const loadStats = useCallback(async (p: StatsPeriod) => {
     const my = ++seq.current;
@@ -64,10 +66,19 @@ export default function MyStats() {
     setError("");
     try {
       const reply = await myToday(p);
-      if (alive.current && my === seq.current) setData(reply);
+      if (alive.current && my === seq.current) {
+        shown.current = reply.period;
+        setData(reply);
+      }
     } catch (e) {
       // Сбой связи говорит «Не удалось получить данные»; слова самой программы оставляем (L-112).
-      if (alive.current && my === seq.current) setError(LOAD_ERROR_FOR(e));
+      if (alive.current && my === seq.current) {
+        setError(LOAD_ERROR_FOR(e));
+        if (shown.current) {
+          periodRef.current = shown.current;
+          setPeriod(shown.current);
+        }
+      }
     } finally {
       if (alive.current && my === seq.current) setBusy(false);
     }
