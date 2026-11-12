@@ -750,6 +750,26 @@ func (e *Engine) effective(st DayState, now time.Time) DayState {
 	return st
 }
 
+// PastDayAtMidnight — прошлый день st, сутки которого сменились без работающей службы (B-42, G13):
+// последняя минута шла по часам до его полуночи (R2, D-60), как при смене суток в ядре (advance),
+// — общее время дотягивается до момента полуночи, секунды после неё уже новый день (R16); момент
+// последней минуты снимается: день закрыт. Лимит — по правилам ядра на день недели st.Day. В
+// безопасном режиме (правила не прочитаны) лимит не известен — строка как есть, с моментом.
+func (e *Engine) PastDayAtMidnight(st DayState) DayState {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if st.LastMinuteEndMs == nil || e.rules.Broken {
+		return st
+	}
+	day, err := time.ParseInLocation(time.DateOnly, st.Day, e.loc)
+	if err != nil {
+		return st
+	}
+	st = e.effective(st, day.AddDate(0, 0, 1))
+	st.LastMinuteEndMs = nil
+	return st
+}
+
 // pullUp дотягивает накопленное общее время до последней минуты на момент now (R2, D-60).
 // Момент, который уже наступил, после дотяжки снимается: время вышло и учтено целиком, а
 // дальше (доп. время, новые правила) время снова идёт по R2 до следующего порога 1 мин.
