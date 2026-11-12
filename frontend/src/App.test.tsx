@@ -311,7 +311,7 @@ describe("меню окна родителя", () => {
     await user.click(item);
     expect(item.getAttribute("aria-current")).toBe("page");
     const versions = (await screen.findAllByRole("heading", { level: 3 })).map((h) => h.textContent);
-    expect(versions[0]).toBe("Версия 0.5.0. Статистика по дням, очистка и промокоды");
+    expect(versions[0]).toBe("Версия 0.5.1. Уточнён текст об очистке статистики");
     expect(screen.queryByRole("heading", { name: "Помощь" })).toBeNull();
   });
 
