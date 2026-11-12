@@ -463,3 +463,44 @@ func TestGenitiveName(t *testing.T) {
 		}
 	}
 }
+
+// Ловит (D-82, R25, ревью M5): очистка статистики удаляет прошлый день, ждущий автобонуса, и бонус
+// за него теряется навсегда; в безопасном режиме (правила не прочитаны) строка удаляется или
+// попадает в «Итоги» после очистки; после восстановления правил бонус не начисляется.
+func TestClearStatsKeepsPendingBonus(t *testing.T) {
+	// Правила прочитаны: перед очисткой служба начисляет ждущий бонус.
+	st, id := catchupStore(t)
+	h := startAt(t, st, thu1000)
+	st.mu.Lock()
+	st.days[dayKey(id, wed25)] = core.DayState{Day: wed25, TotalS: 60 * 60} // ждёт бонуса (появился после запуска)
+	st.mu.Unlock()
+	tok := h.login(adminPeer())
+	h.clearStats(tok, id)
+	bal, evs := bonusOf(t, st, id)
+	if bal != 70 || len(evs) != 2 || evs[1].Details["day"] != wed25 {
+		t.Errorf("после очистки: копилка %d, записи %+v; want 70 (40 за вторник при запуске и 30 за среду перед очисткой)", bal, evs)
+	}
+	if _, ok := h.dayRow(id, wed25); ok {
+		t.Error("строка среды после начисления и очистки осталась")
+	}
+
+	// Безопасный режим: начислить нельзя — строка остаётся с bonus_granted = 0, в «Итоги» не попадает.
+	st, id = catchupStore(t)
+	st.failSchedule = true
+	h = startAt(t, st, thu1000)
+	tok = h.login(adminPeer())
+	h.clearStats(tok, id)
+	if row, ok := h.dayRow(id, tue24); !ok || row.BonusGranted || row.TotalS != 40*60 {
+		t.Fatalf("безопасный режим: строка вторника %+v (есть %v); want сохранена без отметки", row, ok)
+	}
+	st.failSchedule = false
+	for _, p := range []string{ipc.PeriodWeek, ipc.PeriodMonth, ipc.PeriodAll} {
+		if my := h.parentPeriod(tok, id, p); my.UsedS != 0 {
+			t.Errorf("%s после очистки: %d с; want 0 (вторник до очистки)", p, my.UsedS)
+		}
+	}
+	startAt(t, st, thu1000.Add(time.Hour))
+	if bal, evs := bonusOf(t, st, id); bal != 40 || len(evs) != 1 || evs[0].Details["day"] != tue24 {
+		t.Errorf("запуск с правилами после очистки: копилка %d, записи %+v; want 40 за вторник", bal, evs)
+	}
+}

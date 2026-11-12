@@ -83,8 +83,8 @@ func (s *Store) GetStatsReset(childID int64) (r StatsReset, ok bool, err error) 
 }
 
 // ClearStats одной транзакцией (RM5-8): DELETE usage_daily ребёнка (все дни); DELETE day_state ребёнка
-// с day < r.Day; saveDayState(day) — строка дня ядра текущими счётчиками и всеми флагами (day.Day ==
-// r.Day, иначе ErrInvalid); INSERT … ON CONFLICT (child_id) DO UPDATE stats_reset = r (r.ClearedAtMs —
+// с day < r.Day и bonus_granted = 1 (ждущие автобонуса остаются, D-82); saveDayState(day) — строка
+// дня ядра текущими счётчиками и всеми флагами (day.Day == r.Day, иначе ErrInvalid); INSERT … ON CONFLICT (child_id) DO UPDATE stats_reset = r (r.ClearedAtMs —
 // часы ядра, передаёт служба). Не дата — ErrInvalid; сбой — откат всего.
 func (s *Store) ClearStats(childID int64, day core.DayState, r StatsReset) error {
 	if err := checkDay(r.Day); err != nil {
@@ -101,7 +101,9 @@ func (s *Store) ClearStats(childID int64, day core.DayState, r StatsReset) error
 	if _, err := tx.Exec(`DELETE FROM usage_daily WHERE child_id = ?`, childID); err != nil {
 		return fmt.Errorf("storage: очистить статистику: %w", err)
 	}
-	if _, err := tx.Exec(`DELETE FROM day_state WHERE child_id = ? AND day < ?`, childID, r.Day); err != nil {
+	// Дни, ждущие автобонуса (bonus_granted = 0, D-82), остаются: бонус за них начислит служба при
+	// запуске с правилами; статистика после очистки их не показывает (отсекает по r.Day).
+	if _, err := tx.Exec(`DELETE FROM day_state WHERE child_id = ? AND day < ? AND bonus_granted = 1`, childID, r.Day); err != nil {
 		return fmt.Errorf("storage: очистить статистику: %w", err)
 	}
 	if err := saveDayState(tx, childID, day); err != nil {

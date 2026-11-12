@@ -27,6 +27,9 @@ func (s *Service) hClearStats(c *callCtx) ipc.Reply {
 	if cs == nil {
 		return ipc.Fail(textNoSuchChild)
 	}
+	// Прошлые дни, ждущие автобонуса (D-82), сначала начисляются: очистка удаляет только
+	// рассмотренные дни. В безопасном режиме catchUpBonus ничего не делает, строки остаются.
+	s.catchUpBonus(cs)
 	day, _ := cs.eng.State()
 	snap := day
 	if day.Day == "" {

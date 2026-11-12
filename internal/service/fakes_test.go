@@ -636,7 +636,7 @@ func (f *fakeStore) GetStatsReset(id int64) (StatsReset, bool, error) {
 	return r, ok, nil
 }
 
-// ClearStats — как storage.ClearStats: весь учёт ребёнка, его дни до r.Day, строка дня ядра и снимок;
+// ClearStats — как storage.ClearStats: весь учёт ребёнка, его рассмотренные для автобонуса дни до r.Day, строка дня ядра и снимок;
 // день строки не день снимка или сбой записи (failSave) — ничего не изменилось.
 func (f *fakeStore) ClearStats(id int64, day core.DayState, r StatsReset) error {
 	f.mu.Lock()
@@ -650,7 +650,7 @@ func (f *fakeStore) ClearStats(id int64, day core.DayState, r StatsReset) error 
 		}
 	}
 	for k := range f.days {
-		if d, ok := fakeDayOf(k, id); ok && d < r.Day {
+		if d, ok := fakeDayOf(k, id); ok && d < r.Day && f.days[k].BonusGranted {
 			delete(f.days, k)
 		}
 	}
@@ -2045,7 +2045,8 @@ func TestFakeStoreMatchesStorageM5(t *testing.T) {
 	}
 
 	// Очистка статистики.
-	_ = f.SaveDayState(1, core.DayState{Day: "2026-11-09", TotalS: 10})
+	_ = f.SaveDayState(1, core.DayState{Day: "2026-11-08", TotalS: 5}) // ждёт автобонуса: остаётся (D-82)
+	_ = f.SaveDayState(1, core.DayState{Day: "2026-11-09", TotalS: 10, BonusGranted: true})
 	_ = f.SaveDayState(1, core.DayState{Day: "2026-11-10", TotalS: 20})
 	_ = f.SaveDayState(2, core.DayState{Day: "2026-11-09", TotalS: 30})
 	_ = f.AddUsage(1, "2026-11-10", "games", "program", `c:\g.exe`, 20)
@@ -2058,7 +2059,7 @@ func TestFakeStoreMatchesStorageM5(t *testing.T) {
 	if err := f.ClearStats(1, day, r); err != nil {
 		t.Fatal(err)
 	}
-	if rows, _ := f.DaysSeries(1, "2026-01-01", "2027-01-01"); fmt.Sprint(rows) != "[{2026-11-10 25 0 0 0 0}]" {
+	if rows, _ := f.DaysSeries(1, "2026-01-01", "2027-01-01"); fmt.Sprint(rows) != "[{2026-11-08 5 0 0 0 0} {2026-11-10 25 0 0 0 0}]" {
 		t.Errorf("дни после очистки = %v", rows)
 	}
 	if u, _ := f.PeriodUsage(1, "2026-01-01", "2027-01-01"); len(u) != 0 {

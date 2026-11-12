@@ -192,7 +192,8 @@ type Store interface {
 	DaysSeries(childID int64, fromDay, beforeDay string) ([]DayRow, error)
 	FirstStatsDay(childID int64) (string, bool, error)     // самый ранний день ребёнка; нет строк — false
 	GetStatsReset(childID int64) (StatsReset, bool, error) // снимок последней очистки; не очищали — false
-	// ClearStats — одной транзакцией (RM5-8): весь учёт по программам и сайтам ребёнка, дни до r.Day,
+	// ClearStats — одной транзакцией (RM5-8): весь учёт по программам и сайтам ребёнка, дни до r.Day
+	// с bonus_granted = 1 (ждущие автобонуса остаются, D-82; «Итоги» их отсекают по r.Day),
 	// строка дня ядра day (day.Day == r.Day) со всеми флагами и снимок r; ошибка — ничего не изменилось.
 	ClearStats(childID int64, day core.DayState, r StatsReset) error
 	// UngrantedDays — дни ребёнка без автобонуса (bonus_granted = 0) строго до beforeDay, по

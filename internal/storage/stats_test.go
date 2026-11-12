@@ -246,6 +246,26 @@ func TestClearStats(t *testing.T) {
 	}
 }
 
+// Ловит (D-82, ревью M5): очистка удаляет прошлый день, ждущий автобонуса (bonus_granted = 0,
+// безопасный режим), — бонус за него теряется; или оставляет рассмотренные дни.
+func TestClearStatsKeepsUngrantedDays(t *testing.T) {
+	s, misha, _ := statsFixture(t)
+	pending := core.DayState{Day: "2026-11-08", TotalS: 2400, GamesS: 600}
+	if err := s.SaveDayState(misha, pending); err != nil {
+		t.Fatal(err)
+	}
+	r := StatsReset{ClearedAtMs: 1, Day: "2026-11-11"}
+	if err := s.ClearStats(misha, core.DayState{Day: "2026-11-11"}, r); err != nil {
+		t.Fatalf("ClearStats: %v", err)
+	}
+	if got := rowStrings(t, s.db, fmt.Sprintf(`SELECT day, bonus_granted FROM day_state WHERE child_id = %d ORDER BY day`, misha)); !reflect.DeepEqual(got, [][]string{{"2026-11-08", "0"}, {"2026-11-11", "0"}}) {
+		t.Errorf("дни Миши после очистки = %v, want ждущий 2026-11-08 и день ядра 2026-11-11", got)
+	}
+	if got, err := s.UngrantedDays(misha, "2026-11-11"); err != nil || !reflect.DeepEqual(got, []core.DayState{pending}) {
+		t.Errorf("UngrantedDays после очистки = %+v, %v; want %+v", got, err, pending)
+	}
+}
+
 // Ловит (RM5-8): ошибка в начале или посередине очистки удаляет часть данных (нет одной транзакции).
 func TestClearStatsAllOrNothing(t *testing.T) {
 	s, misha, _ := statsFixture(t)
