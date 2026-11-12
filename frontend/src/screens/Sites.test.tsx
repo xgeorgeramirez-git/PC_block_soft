@@ -156,7 +156,10 @@ describe("Сайты: вид", () => {
     setup({ children: [] });
     expect(await screen.findByText("Детей пока нет. Добавьте их в разделе «Настройки» → «Детские учётки»")).toBeTruthy();
     expect(screen.queryByRole("group", { name: "Блокировать сайты 18+" })).toBeNull();
-    expect(screen.queryAllByRole("checkbox")).toEqual([]);
+    // Переключателей «18+» нет нигде вне списка: флажки отметки строк (B-49) — только в панели списка.
+    const panel = screen.getByRole("tabpanel");
+    expect(screen.queryAllByRole("checkbox").filter((c) => !panel.contains(c))).toEqual([]);
+    expect(document.querySelectorAll("input[data-child]")).toHaveLength(0);
     expect(tabTexts()).toEqual(["Запрещённые 1", "Учёба 1", "Видео и соцсети 1"]);
   });
 
@@ -513,7 +516,8 @@ describe("Сайты: несколько сайтов за раз", () => {
     expect([rowBox("a.test").checked, rowBox("b.test").checked]).toEqual([false, false]);
     await user.click(rowBox("a.test"));
     expect(all.indeterminate).toBe(true);
-    await user.click(tab("Учёба 1"));
+    // В наборе только «Запрещённые»: «Учёба» пустая.
+    await user.click(tab("Учёба 0"));
     await user.click(tab("Запрещённые 3"));
     expect(rowBox("a.test").checked).toBe(false);
   });
