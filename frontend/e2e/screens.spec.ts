@@ -2220,11 +2220,12 @@ test("m5 флажки: тёмная тема, пустые и отмеченны
   const look = await page.evaluate(() =>
     [...document.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')].map((el) => {
       const cs = getComputedStyle(el);
-      return { appearance: cs.appearance, border: cs.borderTopWidth, w: el.getBoundingClientRect().width };
+      // Ширина из стиля, а не из рамки: строки списка вне экрана не рисуются (content-visibility, B-51).
+      return { appearance: cs.appearance, border: cs.borderTopWidth, width: cs.width };
     }),
   );
   expect(look.length).toBeGreaterThan(3);
-  for (const l of look) expect(l).toEqual({ appearance: "none", border: "2px", w: 18 });
+  for (const l of look) expect(l).toEqual({ appearance: "none", border: "2px", width: "18px" });
   await siteRowsFit(page);
   await wholePage(page);
   await page.screenshot({ path: `${SCREENS}/m5-checkboxes-dark.png`, fullPage: true });
