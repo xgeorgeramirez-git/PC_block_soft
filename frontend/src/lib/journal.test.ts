@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { isViolation, startOfDayMs } from "./journal";
+import { JOURNAL_GROUPS, VIOLATION_KINDS, isViolation, journalPeriodStartMs, startOfDayMs } from "./journal";
+import { MOCK_JOURNAL_GROUPS } from "../__mocks__/backend";
 
 describe("журнал", () => {
   // Ловит: «Нарушения сегодня» считает доп. время или снятие блокировки нарушением.
@@ -48,5 +49,32 @@ describe("журнал", () => {
     const midnight = new Date(2026, 9, 19, 0, 0, 0, 0).getTime();
     expect(startOfDayMs(midnight)).toBe(midnight);
     expect(startOfDayMs(midnight - 1)).toBe(new Date(2026, 9, 18, 0, 0, 0, 0).getTime());
+  });
+
+  // Ловит (8.3.7 п.2, RM5-5): в «Что» пропала группа, подпись разошлась с ТЗ или код не тот, что ждёт
+  // служба (неизвестная группа - отказ «Не удалось разобрать запрос»).
+  it("фильтр «Что»: шесть пунктов ТЗ, коды групп службы", () => {
+    expect(JOURNAL_GROUPS.map((g) => g.label)).toEqual([
+      "Все события",
+      "Нарушения",
+      "Время и копилка",
+      "Программы и сайты",
+      "Пароль и настройки",
+      "Работа программы",
+    ]);
+    expect(JOURNAL_GROUPS.map((g) => g.id)).toEqual(["", "violations", "time", "programs", "settings", "system"]);
+    expect(Object.keys(MOCK_JOURNAL_GROUPS).sort()).toEqual(["programs", "settings", "system", "time", "violations"]);
+    // «Нарушения сегодня» на главной и группа «Нарушения» журнала считают одно и то же.
+    expect([...MOCK_JOURNAL_GROUPS.violations]).toEqual([...VIOLATION_KINDS]);
+  });
+
+  it("начало периода журнала: полночь, 1-е число месяца, «Всё» без границы", () => {
+    const now = new Date(2026, 10, 12, 15, 40, 0).getTime();
+    expect(journalPeriodStartMs("today", now)).toBe(new Date(2026, 10, 12, 0, 0, 0, 0).getTime());
+    expect(journalPeriodStartMs("month", now)).toBe(new Date(2026, 10, 1, 0, 0, 0, 0).getTime());
+    expect(journalPeriodStartMs("all", now)).toBe(0);
+    // 1-е число в 00:00 - уже этот месяц.
+    const first = new Date(2026, 10, 1, 0, 0, 0, 0).getTime();
+    expect(journalPeriodStartMs("month", first)).toBe(first);
   });
 });
