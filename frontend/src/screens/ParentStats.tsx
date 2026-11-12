@@ -20,7 +20,9 @@ interface PickChild {
 export default function ParentStats({ initialChildId }: { initialChildId?: number }) {
   const [children, setChildren] = useState<PickChild[]>([]);
   const [childId, setChildId] = useState<number | null>(initialChildId ?? null);
-  const [data, setData] = useState<MyTodayReply | null>(null);
+  // Ответ вместе с ребёнком, для которого он пришёл: пока он не совпал с выбранным, цифр прежнего
+  // ребёнка на экране нет (и кнопки очистки, которая спросила бы про нового).
+  const [shown, setShown] = useState<{ childId: number; data: MyTodayReply } | null>(null);
   const [error, setError] = useState("");
   const [period, setPeriod] = useState<StatsPeriod>("today");
   const [busy, setBusy] = useState(false);
@@ -31,6 +33,8 @@ export default function ParentStats({ initialChildId }: { initialChildId?: numbe
   const alive = useRef(true);
   // Номер последнего запроса: поздний ответ прошлого периода или ребёнка не перекрывает выбранный.
   const seq = useRef(0);
+  const periodRef = useRef<StatsPeriod>("today");
+  const shownRef = useRef<{ childId: number; data: MyTodayReply } | null>(null);
 
   useEffect(() => {
     alive.current = true;
@@ -55,17 +59,35 @@ export default function ParentStats({ initialChildId }: { initialChildId?: numbe
     setError("");
     try {
       const reply = await parentStats(id, p);
-      if (alive.current && my === seq.current) setData(reply);
+      if (alive.current && my === seq.current) {
+        shownRef.current = { childId: id, data: reply };
+        setShown(shownRef.current);
+      }
     } catch (e) {
-      if (alive.current && my === seq.current) setError(errorText(e));
+      if (alive.current && my === seq.current) {
+        setError(errorText(e));
+        // Сбой периода у того же ребёнка: вкладка возвращается к периоду цифр на экране.
+        const cur = shownRef.current;
+        if (cur && cur.childId === id) {
+          periodRef.current = cur.data.period;
+          setPeriod(cur.data.period);
+        }
+      }
     } finally {
       if (alive.current && my === seq.current) setBusy(false);
     }
   }, []);
 
+  // Ребёнок выбран или сменился - его статистика за выбранный период; период меняет choosePeriod.
   useEffect(() => {
-    if (childId != null) void load(childId, period);
-  }, [childId, period, load]);
+    if (childId != null) void load(childId, periodRef.current);
+  }, [childId, load]);
+
+  const choosePeriod = (p: StatsPeriod) => {
+    periodRef.current = p;
+    setPeriod(p);
+    if (childId != null) void load(childId, p);
+  };
 
   const pickChild = (id: number) => {
     setChildId(id);
@@ -75,6 +97,7 @@ export default function ParentStats({ initialChildId }: { initialChildId?: numbe
   };
 
   const name = children.find((c) => c.childId === childId)?.name ?? "";
+  const data = shown && shown.childId === childId ? shown.data : null;
 
   const doClear = async () => {
     if (childId == null || clearing) return;
@@ -85,7 +108,7 @@ export default function ParentStats({ initialChildId }: { initialChildId?: numbe
       if (!alive.current) return;
       setConfirm(false);
       setClearMsg(r.message);
-      await load(childId, period);
+      await load(childId, periodRef.current);
     } catch (e) {
       // Ничего не удалено: данные экрана прежние, причина простыми словами.
       if (!alive.current) return;
@@ -103,7 +126,7 @@ export default function ParentStats({ initialChildId }: { initialChildId?: numbe
         <span className="read-only-badge">Только просмотр</span>
         <span className="topbar-spacer" />
         {childId != null ? (
-          <button type="button" className="btn btn-small" onClick={() => void load(childId, period)}>
+          <button type="button" className="btn btn-small" onClick={() => void load(childId, periodRef.current)}>
             Обновить
           </button>
         ) : null}
@@ -141,7 +164,8 @@ export default function ParentStats({ initialChildId }: { initialChildId?: numbe
         </>
       ) : null}
 
-      {error ? (
+      {/* Сбой при цифрах на экране (период): уведомление над ними. Без цифр - на их месте с «Повторить». */}
+      {error && (data !== null || children.length === 0) ? (
         <Notice tone="warn" urgent>
           {error}
         </Notice>
@@ -155,12 +179,25 @@ export default function ParentStats({ initialChildId }: { initialChildId?: numbe
       {children.length === 0 ? (
         error ? null : <p className="panel-text">Пока нет ни одного ребёнка</p>
       ) : data === null ? (
-        // Пока данных нет, нет и вкладок периода: им не на что ссылаться (B-46).
-        error ? null : <p className="panel-text">Загружаю данные…</p>
+        // Пока данных выбранного ребёнка нет, нет и вкладок периода: им не на что ссылаться (B-46).
+        error ? (
+          <div className="panel">
+            <Notice tone="warn" urgent>
+              {error}
+            </Notice>
+            {childId != null ? (
+              <button type="button" className="btn" onClick={() => void load(childId, periodRef.current)}>
+                Повторить
+              </button>
+            ) : null}
+          </div>
+        ) : (
+          <p className="panel-text">Загружаю данные…</p>
+        )
       ) : (
         <>
           <StatsSince data={data} />
-          <Totals data={data} busy={busy} periods={{ value: period, onChange: setPeriod }} />
+          <Totals data={data} busy={busy} periods={{ value: period, onChange: choosePeriod }} />
           <Rules data={data} />
         </>
       )}

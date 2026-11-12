@@ -149,6 +149,59 @@ describe("ParentStats", () => {
   });
 });
 
+// Ревью окна M5: на экране всегда цифры выбранного ребёнка и выбранного периода, даже при сбое.
+describe("ParentStats: ответ не того ребёнка и сбои", () => {
+  const LINK_DOWN = "Программа не отвечает. Попробуйте ещё раз через минуту";
+
+  // Ловит: до ответа о новом ребёнке видны цифры прежнего и «Очистить статистику», которая спросит про нового.
+  it("смена ребёнка до ответа: «Загружаю данные», цифр прежнего и кнопки очистки нет", async () => {
+    const user = setup(1);
+    await screen.findByRole("region", { name: "Итоги" });
+    expect(screen.getByRole("button", { name: "Очистить статистику" })).toBeTruthy();
+    const real = mock.handler("ParentStats");
+    mock.override("ParentStats", (p: { childId: number }) => (p.childId === 2 ? new Promise<never>(() => {}) : real(p)));
+    await user.click(within(screen.getByRole("group", { name: "Ребёнок" })).getByRole("button", { name: "Даша" }));
+    expect(await screen.findByText("Загружаю данные…")).toBeTruthy();
+    expect(screen.queryByRole("region", { name: "Итоги" })).toBeNull();
+    expect(screen.queryByRole("region", { name: "Мои правила" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Очистить статистику" })).toBeNull();
+  });
+
+  // Ловит: сбой при смене ребёнка оставляет на экране цифры прежнего без «Повторить».
+  it("сбой при смене ребёнка: уведомление и «Повторить» на месте цифр, кнопки очистки нет", async () => {
+    const user = setup(1);
+    await screen.findByRole("region", { name: "Итоги" });
+    mock.override("ParentStats", "reject", 1);
+    await user.click(within(screen.getByRole("group", { name: "Ребёнок" })).getByRole("button", { name: "Даша" }));
+    expect(await screen.findByText(LINK_DOWN)).toBeTruthy();
+    expect(screen.getAllByText(LINK_DOWN)).toHaveLength(1);
+    expect(screen.queryByRole("region", { name: "Итоги" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Очистить статистику" })).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Повторить" }));
+    expect(await screen.findByRole("region", { name: "Итоги" })).toBeTruthy();
+    expect(mock.calls.filter((c) => c.command === "ParentStats").at(-1)?.payload).toEqual({ childId: 2, period: "today" });
+    expect(screen.getByRole("button", { name: "Очистить статистику" })).toBeTruthy();
+    expect(screen.queryByText(LINK_DOWN)).toBeNull();
+  });
+
+  // Ловит: при сбое периода вкладка показывает новый период, а под ней цифры прежнего.
+  it("сбой периода - вкладка и цифры одного периода", async () => {
+    const user = setup(1);
+    const box = await screen.findByRole("region", { name: "Итоги" });
+    await within(box).findByText("Использовано сегодня");
+    mock.override("ParentStats", "reject", 1);
+    await user.click(screen.getByRole("tab", { name: "Неделя" }));
+    expect(await screen.findByText(LINK_DOWN)).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "Сегодня" }).getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByRole("tab", { name: "Неделя" }).getAttribute("aria-selected")).toBe("false");
+    expect(within(box).getByText("Использовано сегодня")).toBeTruthy();
+    // «Обновить» спрашивает показанный период, а не тот, что не загрузился.
+    await user.click(screen.getByRole("button", { name: "Обновить" }));
+    await vi.waitFor(() => expect(mock.calls.filter((c) => c.command === "ParentStats").at(-1)?.payload).toEqual({ childId: 1, period: "today" }));
+    await vi.waitFor(() => expect(screen.queryByText(LINK_DOWN)).toBeNull());
+  });
+});
+
 // Разделы за период у родителя на неделе G15 (S21) и «Очистить статистику» (FR-38, 8.3.7 п.3, S48).
 describe("ParentStats: G15 и очистка статистики", () => {
   function g15Setup(twoChildren = false) {
