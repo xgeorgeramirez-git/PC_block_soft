@@ -340,6 +340,10 @@ func (a storeAdapter) AppendBonus(childID int64, deltaMin int, reason string) (i
 	return a.s.AppendBonus(childID, deltaMin, reason)
 }
 
+func (a storeAdapter) GrantDayBonus(childID int64, day core.DayState, deltaMin int, reason string) (int, error) {
+	return a.s.GrantDayBonus(childID, day, deltaMin, reason)
+}
+
 func (a storeAdapter) GetBonusBalance(childID int64) (int, error) {
 	return a.s.GetBonusBalance(childID)
 }

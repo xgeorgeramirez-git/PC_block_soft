@@ -256,15 +256,18 @@ func (s *Service) bonusRate() int {
 // grantDailyBonus начисляет автобонус за прошедший (закрытый) день (R25, D-49): один раз за
 // день, только в дни, когда игра была разрешена, с потолком копилки 600. Вызывается из
 // afterDecision на смене суток и из catchUpBonus при запуске; помечает day.BonusGranted, чтобы
-// повторно не начислять. Безопасный режим (правила не прочитаны, R18): лимит дня не известен —
-// день не рассматривается и не помечается, его догонит catchUpBonus при запуске с правилами (FB-21).
-func (s *Service) grantDailyBonus(cs *childState, day *core.DayState) {
+// повторно не начислять. Начисление и отметка строки дня — одной транзакцией (GrantDayBonus):
+// сбой между ними не даёт второго бонуса при следующем запуске. saved — строка дня уже записана
+// (с отметкой); иначе, если day.BonusGranted, её сохраняет вызывающий. Безопасный режим (правила
+// не прочитаны, R18): лимит дня не известен — день не рассматривается и не помечается, его догонит
+// catchUpBonus при запуске с правилами (FB-21).
+func (s *Service) grantDailyBonus(cs *childState, day *core.DayState) (saved bool) {
 	if day == nil || day.Day == "" || day.BonusGranted || cs.rules.Broken {
-		return
+		return false
 	}
 	t, err := time.Parse(time.DateOnly, day.Day)
 	if err != nil {
-		return
+		return false
 	}
 	wd := core.WeekdayOf(t)
 	limit := cs.rules.Week[int(wd)-1]
@@ -272,26 +275,27 @@ func (s *Service) grantDailyBonus(cs *childState, day *core.DayState) {
 	bonus := core.DailyBonusMinutes(limit, day.ExtraMin, day.TotalS, s.bonusRate(), allows)
 	if bonus <= 0 {
 		day.BonusGranted = true // за этот день начислять нечего — помечаем как обработанный
-		return
+		return false
 	}
 	bal, err := s.cfg.Store.GetBonusBalance(cs.child.ID)
 	if err != nil {
 		s.logRate(fmt.Sprint("autobonus", cs.child.ID), "автобонус: не прочитан баланс копилки %d: %v", cs.child.ID, err)
-		return // не помечаем — транзиентная ошибка, R18
+		return false // не помечаем — транзиентная ошибка, R18
 	}
 	add := core.AddBonusWithinCeiling(bal, bonus)
 	if add <= 0 {
 		day.BonusGranted = true // копилка полна — начислять некуда, день обработан
-		return
+		return false
 	}
-	after, err := s.cfg.Store.AppendBonus(cs.child.ID, add, fmt.Sprintf("Бонус за свободное время: %d мин", add))
+	after, err := s.cfg.Store.GrantDayBonus(cs.child.ID, *day, add, fmt.Sprintf("Бонус за свободное время: %d мин", add))
 	if err != nil {
-		s.logRate(fmt.Sprint("autobonus2", cs.child.ID), "автобонус: не начислено в копилку %d: %v", cs.child.ID, err)
-		return
+		s.logRate(fmt.Sprint("autobonus2", cs.child.ID), "автобонус: не начислено в копилку %d, день ждёт следующего запуска: %v", cs.child.ID, err)
+		return false
 	}
 	day.BonusGranted = true
 	s.journal.Write(cs.child.ID, core.EvBonusGranted, map[string]any{
 		"minutes": add, "balance": after, "day": day.Day,
 		"text": bonusGrantedText(day.Day, add),
 	})
+	return true
 }

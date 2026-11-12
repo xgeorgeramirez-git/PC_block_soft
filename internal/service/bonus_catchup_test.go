@@ -192,6 +192,51 @@ func TestBonusCatchUpSeedDay(t *testing.T) {
 	}
 }
 
+// Ловит (R25 «один раз», ревью M5): начисление в копилку и отметка дня — двумя записями; сбой
+// записи между ними (диск, выключение) оставляет бонус без отметки, и следующий запуск начисляет
+// его снова. Оба пути: догоняющее начисление при запуске и закрытие дня ядром в полночь.
+func TestBonusGrantAtomicWithDayMark(t *testing.T) {
+	// Догоняющее начисление при запуске в четверг.
+	st, id := catchupStore(t)
+	st.failSave = true
+	startAt(t, st, thu1000)
+	if bal, evs := bonusOf(t, st, id); bal != 0 || len(evs) != 0 {
+		t.Errorf("запуск со сбоем записи: копилка %d, записей %d; want 0 (ни бонуса, ни отметки)", bal, len(evs))
+	}
+	if st.days[dayKey(id, tue24)].BonusGranted {
+		t.Error("запуск со сбоем записи: вторник помечен без бонуса")
+	}
+	st.failSave = false
+	startAt(t, st, thu1000.Add(time.Hour))
+	startAt(t, st, thu1000.Add(2*time.Hour))
+	if bal, evs := bonusOf(t, st, id); bal != 40 || len(evs) != 1 {
+		t.Errorf("после восстановления: копилка %d, записей %d; want ровно 40 и 1", bal, len(evs))
+	}
+	if !st.days[dayKey(id, tue24)].BonusGranted {
+		t.Error("после восстановления вторник не помечен")
+	}
+
+	// Закрытие дня ядром: полночь при работающей службе со сбоем записи, затем перезапуск.
+	st, id = catchupStore(t)
+	h := startAt(t, st, time.Date(2026, 11, 24, 23, 59, 0, 0, tzMSK))
+	h.childLogsIn()
+	st.mu.Lock()
+	st.failSave = true
+	st.mu.Unlock()
+	h.run(70, idleSample)
+	if bal, _ := bonusOf(t, st, id); bal != 0 {
+		t.Errorf("полночь со сбоем записи: копилка %d, want 0", bal)
+	}
+	st.mu.Lock()
+	st.failSave = false
+	st.mu.Unlock()
+	startAt(t, st, time.Date(2026, 11, 25, 9, 0, 0, 0, tzMSK))
+	startAt(t, st, time.Date(2026, 11, 25, 10, 0, 0, 0, tzMSK))
+	if bal, evs := bonusOf(t, st, id); bal != 40 || len(evs) != 1 || evs[0].Details["day"] != tue24 {
+		t.Errorf("после перезапуска: копилка %d, записи %+v; want 40 и одна запись за вторник", bal, evs)
+	}
+}
+
 // Ловит (FB-21, D-82, R18): полночь прошла при работающей службе в безопасном режиме (правила не
 // прочитались, лимиты не известны) — день помечен рассмотренным без бонуса, и догоняющее начисление
 // при следующем запуске с нормальными правилами его уже не видит; строка дня не сохранена.

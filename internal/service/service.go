@@ -452,7 +452,9 @@ func (s *Service) catchUpBonus(cs *childState) {
 		// бонус считается уже по дотянутому общему времени.
 		pulled := d.LastMinuteEndMs != nil
 		*d = cs.eng.PastDayAtMidnight(*d)
-		s.grantDailyBonus(cs, d)
+		if s.grantDailyBonus(cs, d) {
+			continue // начислено и помечено одной транзакцией
+		}
 		if !d.BonusGranted && !pulled {
 			continue // сбой копилки: день ждёт следующего запуска
 		}

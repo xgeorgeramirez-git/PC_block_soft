@@ -847,6 +847,33 @@ func (f *fakeStore) AppendBonus(id int64, deltaMin int, reason string) (int, err
 	return after, nil
 }
 
+// GrantDayBonus — как storage.GrantDayBonus: начисление в копилку и строка дня с BonusGranted одной
+// транзакцией; сбой записи (failSave) или отказ копилки — ни того, ни другого.
+func (f *fakeStore) GrantDayBonus(id int64, day core.DayState, deltaMin int, reason string) (int, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.failSave || reason == "" || deltaMin <= 0 || day.Day == "" {
+		return 0, errFake
+	}
+	cur := 0
+	if h := f.bonus[id]; len(h) > 0 {
+		cur = h[len(h)-1].Balance
+	}
+	after := cur + deltaMin
+	if after > 600 {
+		return 0, errFake
+	}
+	at := timeNowService()
+	if f.now != nil {
+		at = f.now()
+	}
+	f.bonus[id] = append(f.bonus[id], BonusRecord{AtMs: at, DeltaMin: deltaMin, Reason: reason, Balance: after})
+	day.BonusGranted = true
+	f.days[dayKey(id, day.Day)] = day
+	f.saves = append(f.saves, savedDay{id, day})
+	return after, nil
+}
+
 func (f *fakeStore) GetBonusBalance(id int64) (int, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()

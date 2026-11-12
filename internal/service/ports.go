@@ -170,6 +170,9 @@ type Store interface {
 	SetSchedule(childID int64, intervals []core.Interval) error
 	AppendBonus(childID int64, deltaMin int, reason string) (balanceAfter int, err error)
 	GetBonusBalance(childID int64) (int, error)
+	// GrantDayBonus — автобонус за день одной транзакцией (R25 «один раз»): начисление deltaMin в
+	// копилку и строка дня day с bonus_granted = 1; сбой — ни того, ни другого.
+	GrantDayBonus(childID int64, day core.DayState, deltaMin int, reason string) (balanceAfter int, err error)
 	ListBonus(childID int64) ([]BonusRecord, error)
 	CreatePromo(codeDisplay string, minutes int) (PromoRecord, error)
 	RedeemPromo(childID int64, code string, atMs int64) (minutes int, display string, ok bool, err error)
