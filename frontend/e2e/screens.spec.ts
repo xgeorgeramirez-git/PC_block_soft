@@ -2590,17 +2590,18 @@ async function barsFit(page: Page, where: string) {
       });
     // Подписи оси: прямоугольник текста, его рамка (обрезка overflow) и карточка «По дням».
     const area = r(fig.querySelector(".daybars-area")!);
+    const figBox = r(fig);
     const card = r(fig.closest(".card") ?? fig.closest("section") ?? fig);
     const ticks = [...fig.querySelectorAll(".daybars-tick")].map((t) => {
       const range = document.createRange();
       range.selectNodeContents(t);
       const b = range.getBoundingClientRect();
       const el = t as HTMLElement;
-      return { text: t.textContent ?? "", l: b.left, r: b.right, scroll: el.scrollWidth, client: el.clientWidth };
+      return { text: t.textContent ?? "", l: b.left, r: b.right, mid: (b.top + b.bottom) / 2, scroll: el.scrollWidth, client: el.clientWidth };
     });
     const tip = fig.querySelector(".daybars-tip");
     const content = r(document.querySelector("main.content")!);
-    return { scroll, area, card, ticks, labels, tip: tip ? { ...r(tip), text: tip.textContent ?? "" } : null, content, vw: window.innerWidth, vh: window.innerHeight };
+    return { scroll, area, fig: figBox, card, ticks, labels, tip: tip ? { ...r(tip), text: tip.textContent ?? "" } : null, content, vw: window.innerWidth, vh: window.innerHeight };
   });
   const problems: string[] = [];
   report.labels.forEach((l, i) => {
@@ -2608,11 +2609,17 @@ async function barsFit(page: Page, where: string) {
     if (next && l.r > next.l + 0.5) problems.push(`подписи «${l.text}» и «${next.text}» налезают`);
   });
   for (const t of report.ticks) {
-    if (t.l < report.scroll.l - 0.5) problems.push(`подпись оси «${t.text}» обрезана слева`);
-    if (t.r > report.area.l + 0.5) problems.push(`подпись оси «${t.text}» заходит на столбики`);
+    // Ось стоит на месте слева от прокручиваемой части: правый край подписи - не дальше левого края
+    // видимой области столбиков (.daybars-scroll), левый - внутри рисунка.
+    if (t.l < report.fig.l - 0.5) problems.push(`подпись оси «${t.text}» обрезана слева`);
+    if (t.r > report.scroll.l + 0.5) problems.push(`подпись оси «${t.text}» заходит на столбики`);
     if (t.l < report.card.l - 0.5 || t.r > report.card.r + 0.5) problems.push(`подпись оси «${t.text}» вне карточки`);
     if (t.scroll > t.client + 1) problems.push(`подпись оси «${t.text}» обрезана (${t.scroll} > ${t.client})`);
   }
+  // Ось на одной высоте со столбиками: «0» - у низа области графика, верхнее деление - у её верха.
+  const [zero, top] = [report.ticks[0], report.ticks[report.ticks.length - 1]];
+  if (zero && Math.abs(zero.mid - report.area.b) > 1.5) problems.push(`деление «${zero.text}» не у низа столбиков`);
+  if (top && Math.abs(top.mid - report.area.t) > 1.5) problems.push(`деление «${top.text}» не у верха области`);
   if (report.tip) {
     const t = report.tip;
     if (t.l < report.content.l - 0.5 || t.r > report.content.r + 0.5 || t.r > report.vw + 0.5) problems.push(`подсказка «${t.text}» за краем окна`);

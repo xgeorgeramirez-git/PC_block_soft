@@ -1094,24 +1094,35 @@ input[type="radio"]:disabled {
   margin: 0;
 }
 
+/* Ось слева стоит на месте, вбок прокручиваются только столбики и подписи дней (36 месяцев): ось - вне
+   .daybars-scroll, иначе при прокрутке подписи делений уезжают влево за край. Без sticky (PL-25).
+   Зазор между осью и столбиками - слева внутри .daybars-scroll: туда выходит подсказка первого столбика. */
+.daybars-frame {
+  display: flex;
+  align-items: flex-start;
+}
+
 .daybars-scroll {
+  flex: 1 1 auto;
+  min-width: 0;
   overflow-x: auto;
   overflow-y: hidden;
-  padding: 40px 8px 0 0;
+  padding: 40px 8px 0 var(--space-2);
 }
 
-/* Колонка оси - по самой длинной подписи («1 ч 30 мин», «12 ч»): подпись шире колонки ушла бы влево
-   за край .daybars-scroll, а прокрутка вбок обрезает то, что слева. Столбики и подписи дней - во второй
-   колонке, её наименьшая ширина - столбики не уже --col-min (иначе график прокручивается вбок). */
+/* Наименьшая ширина - столбики не уже --col-min, иначе график прокручивается вбок. */
 .daybars-plot {
-  display: grid;
-  grid-template-columns: max-content minmax(calc(var(--n) * var(--col-min)), 1fr);
+  min-width: calc(var(--n) * var(--col-min));
 }
 
+/* Колонка оси - по самой длинной подписи («1 ч 30 мин», «12 ч»), сверху тот же запас, что у графика
+   (40px), высота - высота области столбиков: деления на одной высоте с линиями сетки. */
 .daybars-axis {
+  flex: none;
   position: relative;
   height: 160px;
-  padding: 0 var(--space-2) 0 2px;
+  margin-top: 40px;
+  padding: 0 0 0 2px;
 }
 
 .daybars-axis-sizer {
@@ -1130,7 +1141,7 @@ input[type="radio"]:disabled {
 
 .daybars-tick {
   position: absolute;
-  right: var(--space-2);
+  right: 0;
   transform: translateY(-50%);
   color: var(--text-muted);
   font-size: 12px;
