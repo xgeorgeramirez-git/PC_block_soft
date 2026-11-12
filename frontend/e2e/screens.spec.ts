@@ -52,11 +52,18 @@ async function tallWindow(page: Page, height: number) {
  * области, после чего прокрутки нет и низ страницы в кадре. Ширина окна не меняется.
  */
 async function wholePage(page: Page) {
-  const scroller = page.locator("main.content");
-  const hidden = await scroller.evaluate((el) => Math.ceil(el.scrollHeight - el.clientHeight));
+  // Своя область прокрутки экрана («Программы», B-43) тоже считается: окно растёт на её остаток.
+  const hiddenNow = () =>
+    page.evaluate(() =>
+      Math.max(
+        0,
+        ...[...document.querySelectorAll("main.content, main.content .programs-scroll")].map((el) => el.scrollHeight - el.clientHeight),
+      ),
+    );
+  const hidden = Math.ceil(await hiddenNow());
   const size = page.viewportSize()!;
   if (hidden > 0) await page.setViewportSize({ width: size.width, height: size.height + hidden });
-  expect(await scroller.evaluate((el) => el.scrollHeight - el.clientHeight), "часть страницы не в кадре").toBeLessThanOrEqual(1);
+  expect(await hiddenNow(), "часть страницы не в кадре").toBeLessThanOrEqual(1);
 }
 
 /** Элемент целиком в окне (низ не обрезан). */
@@ -1291,21 +1298,29 @@ async function decisionButtonsEven(page: Page) {
   }
 }
 
-/** Зазор между соседними блоками страницы не меньше 16 px (замер, не на глаз). */
+/**
+ * Зазор между соседними блоками страницы не меньше 16 px (замер, не на глаз). Блоки сравниваются в
+ * своей системе прокрутки (B-43): снаружи - заголовок, сообщение (если есть) и область списков
+ * целиком; внутри области списков - её блоки между собой. Блоки внутри прокрученной области
+ * сдвинуты все вместе, поэтому сравнивать их с заголовком снаружи нельзя.
+ */
 async function blocksApart(page: Page) {
-  // Блоки: заголовок, сообщение (если есть) и блоки области списков (B-43: она прокручивается отдельно).
-  const parts = page.locator(
-    "main.content .programs-page > .page-head, main.content .programs-message > *, main.content .programs-scroll > *",
+  const gapsOk = async (parts: ReturnType<Page["locator"]>, where: string) => {
+    const n = await parts.count();
+    const boxes: Box[] = [];
+    for (let i = 0; i < n; i++) {
+      const b = await boxOf(parts.nth(i));
+      if (b.height > 0) boxes.push(b);
+    }
+    for (let i = 1; i < boxes.length; i++) {
+      expect(boxes[i].top - boxes[i - 1].bottom, `${where}: между блоками ${i - 1} и ${i} меньше 16 px`).toBeGreaterThanOrEqual(16 - 0.5);
+    }
+  };
+  await gapsOk(
+    page.locator("main.content .programs-page > .page-head, main.content .programs-message > *, main.content .programs-scroll"),
+    "экран",
   );
-  const n = await parts.count();
-  const boxes: Box[] = [];
-  for (let i = 0; i < n; i++) {
-    const b = await boxOf(parts.nth(i));
-    if (b.height > 0) boxes.push(b);
-  }
-  for (let i = 1; i < boxes.length; i++) {
-    expect(boxes[i].top - boxes[i - 1].bottom, `между блоками ${i - 1} и ${i} меньше 16 px`).toBeGreaterThanOrEqual(16 - 0.5);
-  }
+  await gapsOk(page.locator("main.content .programs-scroll > *"), "область списков");
 }
 
 /** Ничего не вылезает из ячеек таблицы и из строк «Ждут решения». */
