@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   formatClock,
   formatDateLong,
+  formatDayAt,
   formatDuration,
   formatEventTime,
   formatHour,
@@ -123,6 +124,14 @@ describe("даты и время", () => {
     expect(formatEventTime(at, 180)).toBe("19 окт, 21:14");
     expect(formatEventTime(at, 0)).toBe("19 окт, 18:14");
     expect(formatEventTime(at, -300)).toBe("19 окт, 13:14");
+  });
+  // Ловит: строка промокода сокращённым месяцем «11 ноя, 18:40» вместо «11 ноября в 18:40» (8.3.10) или в UTC.
+  it("день и время словами: «11 ноября в 18:40»", () => {
+    const at = Date.UTC(2026, 10, 11, 15, 40);
+    expect(formatDayAt(at, 180)).toBe("11 ноября в 18:40");
+    expect(formatDayAt(at, 0)).toBe("11 ноября в 15:40");
+    expect(formatDayAt(Date.UTC(2026, 0, 1, 21, 5), 180)).toBe("2 января в 00:05");
+    expect(formatDayAt(Date.UTC(2026, 4, 9, 7, 3), 0)).toBe("9 мая в 07:03");
   });
   it("полночь после сдвига пояса переносит дату", () => {
     const at = Date.UTC(2026, 9, 19, 21, 5);

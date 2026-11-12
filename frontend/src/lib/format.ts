@@ -98,6 +98,12 @@ export function formatEventTime(ms: number, tzOffsetMin: number): string {
   return `${d.getUTCDate()} ${MONTH_SHORT[d.getUTCMonth()]}, ${pad2(d.getUTCHours())}:${pad2(d.getUTCMinutes())}`;
 }
 
+/** День и время словами в поясе момента: «11 ноября в 18:40» (строки промокодов, 8.3.10). */
+export function formatDayAt(ms: number, tzOffsetMin: number): string {
+  const d = shifted(ms, tzOffsetMin);
+  return `${d.getUTCDate()} ${MONTH_GENITIVE[d.getUTCMonth()]} в ${pad2(d.getUTCHours())}:${pad2(d.getUTCMinutes())}`;
+}
+
 function pad2(n: number): string {
   return n < 10 ? `0${n}` : `${n}`;
 }
