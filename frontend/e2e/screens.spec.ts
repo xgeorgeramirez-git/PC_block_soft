@@ -224,23 +224,86 @@ test("s03 лимиты нескольких детей, панель не зак
   await page.screenshot({ path: `${SCREENS}/s03-limits-family.png`, fullPage: true });
 });
 
-// s04 — журнал и настройки.
-test("s04 журнал", async ({ page }) => {
-  const now = Date.now();
+// s04 — журнал (FR-24, 8.3.7 п.2): вкладки периода, фильтры «Ребёнок» и «Что», события простыми словами.
+const journalEvents = (now: number) => [
+  { atMs: now - 600_000, tzOffsetMin: 180, childId: 1, childName: "Миша", kind: "bypass", text: "Миша: попытка обойти защиту. Закрыт значок программы" },
+  { atMs: now - 1_800_000, tzOffsetMin: 180, childId: 2, childName: "Даша", kind: "site_forbidden_try", text: "Даша: попытка открыть запрещённое: сайт example.com" },
+  { atMs: now - 3_600_000, tzOffsetMin: 180, childId: 1, childName: "Миша", kind: "extra_time", text: "Миша: доп. время +30 мин" },
+  { atMs: now - 5_400_000, tzOffsetMin: 180, childId: 0, childName: "", kind: "password_failed", text: "Неверный пароль родителя" },
+];
+
+/** Часы журнала: середина дня, «Сегодня» на снимках не зависит от времени сборки. */
+const JOURNAL_NOW = new Date(2026, 10, 12, 15, 0, 0);
+
+async function openJournal(page: Page, over: MockOptions = {}) {
+  await page.clock.setFixedTime(JOURNAL_NOW);
   await mockProgram(page, {
     mode: "parent",
     sessionActive: true,
-    children: [child({})],
-    events: [
-      { atMs: now - 600_000, tzOffsetMin: 180, childId: 1, childName: "Миша", kind: "bypass", text: "Миша: попытка обойти защиту. Закрыт значок программы" },
-      { atMs: now - 3_600_000, tzOffsetMin: 180, childId: 1, childName: "Миша", kind: "extra_time", text: "Миша: доп. время +30 мин" },
-    ],
+    children: [child({}), child({ childId: 2, sid: "S-1-5-21-111-222-333-1002", name: "Даша", usedS: 600 })],
+    events: journalEvents(JOURNAL_NOW.getTime()),
+    ...over,
   });
   await page.goto("/");
   await page.getByRole("button", { name: "Журнал" }).click();
-  await expect(page.getByText("Миша: доп. время +30 мин")).toBeVisible();
+}
+
+for (const scheme of ["light", "dark"] as const) {
+  test(`s04 журнал${scheme === "dark" ? ", тёмная тема" : ""}`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: scheme });
+    await openJournal(page);
+    await expect(page.getByText("Миша: доп. время +30 мин")).toBeVisible();
+    await expect(page.getByRole("tab", { name: "Всё" })).toHaveAttribute("aria-selected", "true");
+    await expect(page.getByLabel("Ребёнок")).toHaveValue("0");
+    await expect(page.getByLabel("Что")).toHaveValue("");
+    // При «Все дети» кнопки очистки нет (8.3.7 п.3).
+    await expect(page.getByRole("button", { name: "Очистить журнал" })).toHaveCount(0);
+    await noHorizontalScroll(page);
+    await page.screenshot({ path: `${SCREENS}/s04-journal${scheme === "dark" ? "-dark" : ""}.png`, fullPage: true });
+  });
+}
+
+// s04 — ссылка «Нарушения сегодня» с главной: «Что: Нарушения», вкладка «Сегодня», выбран ребёнок -
+// справа «Очистить журнал». На 800 px строка фильтров не уходит вбок.
+test("s04 журнал: нарушения сегодня у одного ребёнка", async ({ page }) => {
+  await page.setViewportSize({ width: 800, height: 640 });
+  await openJournal(page);
+  await page.getByRole("button", { name: "Сегодня", exact: true }).click();
+  await page.getByRole("button", { name: /^Нарушения сегодня: / }).click();
+  await expect(page.getByLabel("Что")).toHaveValue("violations");
+  await expect(page.getByRole("tab", { name: "Сегодня" })).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByText("Даша: попытка открыть запрещённое: сайт example.com")).toBeVisible();
+  await expect(page.getByText("Миша: доп. время +30 мин")).toHaveCount(0);
+  await page.getByLabel("Ребёнок").selectOption({ label: "Миша" });
+  await expect(page.getByText("Даша: попытка открыть запрещённое: сайт example.com")).toHaveCount(0);
+  await expect(page.locator(".journal-item")).toHaveCount(1);
+  await expect(page.getByRole("button", { name: "Очистить журнал" })).toBeVisible();
   await noHorizontalScroll(page);
-  await page.screenshot({ path: `${SCREENS}/s04-journal.png`, fullPage: true });
+  await page.screenshot({ path: `${SCREENS}/s04-journal-violations.png`, fullPage: true });
+});
+
+// s04 — «Показать ещё» (RM5-5): 230 записей, на странице 200, кнопка дописывает старые.
+test("s04 журнал: «Показать ещё»", async ({ page }) => {
+  const base = JOURNAL_NOW.getTime() - 86_400_000;
+  const many = Array.from({ length: 230 }, (_, i) => ({
+    atMs: base - i * 60_000,
+    tzOffsetMin: 180,
+    childId: 1,
+    childName: "Миша",
+    kind: "extra_time",
+    text: `Миша: доп. время +5 мин (запись ${i + 1})`,
+  }));
+  await openJournal(page, { events: many });
+  await expect(page.getByText("Миша: доп. время +5 мин (запись 1)", { exact: true })).toBeVisible();
+  await expect(page.locator(".journal-item")).toHaveCount(200);
+  const moreBtn = page.getByRole("button", { name: "Показать ещё" });
+  await moreBtn.scrollIntoViewIfNeeded();
+  await expect(moreBtn).toBeInViewport();
+  await noHorizontalScroll(page);
+  await moreBtn.click();
+  await expect(page.locator(".journal-item")).toHaveCount(230);
+  await expect(page.getByText("Миша: доп. время +5 мин (запись 230)", { exact: true })).toBeVisible();
+  await expect(moreBtn).toHaveCount(0);
 });
 
 test("s05 настройки", async ({ page }) => {
@@ -2650,3 +2713,40 @@ test("s48 очистка статистики: подтверждение и р�
   await noHorizontalScroll(page);
   await page.screenshot({ path: `${SCREENS}/s48-clear-stats-done.png`, fullPage: true });
 });
+
+// s48 — «Очистить журнал» (FR-38, 8.3.7 п.3): окно открыто с клавиатуры, фокус и рамка на «Отмена»;
+// после «Удалить» - «Журнал Миши очищен», в журнале Миши одна запись, у Даши записи на месте.
+for (const scheme of ["light", "dark"] as const) {
+  test(`s48 очистка журнала: подтверждение и результат${scheme === "dark" ? ", тёмная тема" : ""}`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: scheme });
+    await openJournal(page);
+    await page.getByLabel("Ребёнок").selectOption({ label: "Миша" });
+    await expect(page.locator(".journal-item")).toHaveCount(2);
+    await page.getByRole("button", { name: "Очистить журнал" }).focus();
+    await page.keyboard.press("Enter");
+    const dialog = page.getByRole("dialog", { name: "Удалить весь журнал Миши?" });
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByText("Это нельзя отменить.", { exact: true })).toBeVisible();
+    await expect(dialog.getByRole("button", { name: "Отмена" })).toBeFocused();
+    expect(await dialog.getByRole("button", { name: "Отмена" }).evaluate((el) => el.matches(":focus-visible")), "рамка фокуса на «Отмена» не видна").toBe(true);
+    await noHorizontalScroll(page);
+    const dark = scheme === "dark" ? "-dark" : "";
+    await page.screenshot({ path: `${SCREENS}/s48-clear-journal-dialog${dark}.png` });
+    // Esc закрывает окно, ничего не удаляя; фокус возвращается на кнопку.
+    await page.keyboard.press("Escape");
+    await expect(dialog).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Очистить журнал" })).toBeFocused();
+    await expect(page.locator(".journal-item")).toHaveCount(2);
+    await page.keyboard.press("Enter");
+    await dialog.getByRole("button", { name: "Удалить" }).click();
+    await expect(dialog).toHaveCount(0);
+    await expect(page.locator(".stat-clear-status")).toHaveText("Журнал Миши очищен");
+    await expect(page.locator(".journal-item")).toHaveCount(1);
+    await expect(page.locator(".journal-item .journal-text")).toHaveText("Миша: журнал очищен");
+    await noHorizontalScroll(page);
+    if (scheme === "light") await page.screenshot({ path: `${SCREENS}/s48-clear-journal-done.png`, fullPage: true });
+    await page.getByLabel("Ребёнок").selectOption({ label: "Даша" });
+    await expect(page.getByText("Даша: попытка открыть запрещённое: сайт example.com")).toBeVisible();
+    await expect(page.locator(".stat-clear-status")).toHaveText("");
+  });
+}
