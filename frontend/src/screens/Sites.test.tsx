@@ -285,16 +285,16 @@ describe("Сайты: удаление и «Отменить»", () => {
     expect(document.activeElement).toBe(screen.getByRole("button", { name: "Удалить example.com" }));
   });
 
-  // Ловит: «Отменить» мелкой ссылкой рядом с контурными «Удалить» (визуальная приёмка T8).
-  it("«Отменить» — контурная кнопка того же вида, что «Удалить»", async () => {
+  // Ловит: «Отменить» в «Сайтах» оформлен иначе, чем в «Программах» и «Копилке», и без срока
+  // (B-50, H1): общий UndoLine — ссылка и отсчёт секунд рядом.
+  it("«Отменить» — ссылка общего вида с отсчётом секунд", async () => {
     const user = setup();
     await screen.findByRole("tablist", { name: "Списки сайтов" });
-    const removeClass = screen.getByRole("button", { name: "Удалить example.com" }).className;
     await user.click(screen.getByRole("button", { name: "Удалить example.com" }));
     expect(await screen.findByText("Удалён example.com")).toBeTruthy();
     const undo = screen.getByRole("button", { name: "Отменить" });
-    expect(undo.className).toBe(removeClass);
-    expect(undo.className).toBe("btn btn-small");
+    expect(undo.className).toBe("link");
+    expect(undo.parentElement?.querySelector(".undo-left")?.textContent).toBe("10 с");
   });
 
   // Ловит: ошибка «Это не похоже на адрес сайта» висит рядом с «Удалён example.com».

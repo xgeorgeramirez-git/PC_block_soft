@@ -359,7 +359,6 @@ function BonusFeedback({
       key={feedback.seq}
       live={false}
       className="child-feedback"
-      undoClassName="btn btn-small"
       text={feedback.text}
       error={feedback.error}
       undoMs={undo?.ms}

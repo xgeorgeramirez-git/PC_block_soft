@@ -10,8 +10,6 @@ interface Props {
   /** «Отменить» недоступна, пока идёт другой запрос. */
   disabled?: boolean;
   className?: string;
-  /** Вид «Отменить»: по умолчанию ссылка; «Сайты» - контурная кнопка, как «Удалить» рядом. */
-  undoClassName?: string;
   /**
    * Своя живая область (role="status"). false - сообщение стоит внутри постоянной области
    * родителя, которая есть в DOM до сообщения (иначе диктор может пропустить первое).
@@ -20,7 +18,8 @@ interface Props {
 }
 
 /**
- * Сообщение о результате действия с кнопкой «Отменить» на 10 с («Добавлено 30 минут»,
+ * Сообщение о результате действия с кнопкой «Отменить» на 10 с (одно оформление во всех
+ * разделах: ссылка и отсчёт секунд рядом, B-50) («Добавлено 30 минут»,
  * «SuperGame: игра») и отсчётом секунд рядом с кнопкой. Пока фокус внутри сообщения, кнопка не пропадает: до неё можно дойти
  * клавишей Tab и нажать, не теряя фокус. Новое сообщение - новый ключ у родителя.
  */
@@ -31,7 +30,6 @@ export default function UndoLine({
   onUndo,
   disabled = false,
   className = "",
-  undoClassName = "link",
   live = true,
 }: Props) {
   const withUndo = Boolean(onUndo && undoMs && undoMs > 0);
@@ -79,7 +77,7 @@ export default function UndoLine({
     >
       <span>{text}</span>
       {showUndo ? (
-        <button type="button" className={undoClassName} disabled={disabled} onClick={() => onUndo?.()}>
+        <button type="button" className="link" disabled={disabled} onClick={() => onUndo?.()}>
           Отменить
         </button>
       ) : null}

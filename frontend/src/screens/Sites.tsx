@@ -222,7 +222,6 @@ export default function Sites() {
               key={f.seq}
               live={false}
               className="programs-feedback sites-feedback"
-              undoClassName="btn btn-small"
               text={f.text}
               undoMs={f.undo?.ms}
               disabled={busy !== null}
