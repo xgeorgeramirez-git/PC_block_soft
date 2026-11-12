@@ -206,6 +206,27 @@ describe("Journal", () => {
     await vi.waitFor(() => expect(texts()).toEqual(["Сегодняшнее"]));
   });
 
+  // Ловит (ревью окна M5): после смены вкладки или фильтра до ответа прежний список выглядит как новый.
+  it("смена фильтра до ответа: «Загружаю…», список занят и приглушён", async () => {
+    const user = setup({ events: [event({})] });
+    const list = await screen.findByRole("list", { name: "События" });
+    const loading = () => document.querySelector(".journal-loading") as HTMLElement;
+    expect(loading().getAttribute("role")).toBe("status");
+    expect(loading().textContent).toBe("");
+    expect(list.getAttribute("aria-busy")).toBe("false");
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((r) => (release = r));
+    const real = mock.handler("ListEvents");
+    mock.override("ListEvents", (p: unknown) => gate.then(() => real(p)), 1);
+    await user.click(screen.getByRole("tab", { name: "Сегодня" }));
+    expect(loading().textContent).toBe("Загружаю…");
+    expect(screen.getByRole("list", { name: "События" }).getAttribute("aria-busy")).toBe("true");
+    expect(screen.getByRole("list", { name: "События" }).className).toContain("journal-stale");
+    release();
+    await vi.waitFor(() => expect(loading().textContent).toBe(""));
+    expect(screen.queryByRole("list", { name: "События" })?.getAttribute("aria-busy") ?? "false").toBe("false");
+  });
+
   it("нет связи: простыми словами и «Повторить»", async () => {
     mock = installBackend({ sessionActive: true, events: [event({})] });
     mock.override("ListEvents", "reject", 1);

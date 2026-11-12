@@ -17,6 +17,9 @@ interface PickChild {
   name: string;
 }
 
+/** Признак загрузки нового фильтра (короткий, на месте, как у «Итогов»). */
+const LOADING = "Загружаю…";
+
 /** Страница журнала: столько записей за раз, дальше - «Показать ещё» (RM5-5). */
 const PAGE = 200;
 
@@ -46,6 +49,8 @@ export default function Journal({ violationsOnly = false }: Props) {
   const [events, setEvents] = useState<JournalEntry[] | null>(null);
   const [more, setMore] = useState(false);
   const [error, setError] = useState("");
+  // Идёт запрос нового фильтра: прежний список стоит приглушённым, рядом короткое «Загружаю…».
+  const [busy, setBusy] = useState(false);
   const [moreBusy, setMoreBusy] = useState(false);
   const [moreError, setMoreError] = useState("");
   const [confirm, setConfirm] = useState(false);
@@ -77,6 +82,7 @@ export default function Journal({ violationsOnly = false }: Props) {
     setError("");
     setMoreError("");
     setMoreBusy(false);
+    setBusy(true);
     try {
       const page = await listEventsPage(request(f));
       if (!alive.current || my !== seq.current) return;
@@ -84,6 +90,8 @@ export default function Journal({ violationsOnly = false }: Props) {
       setMore(page.more);
     } catch (e) {
       if (alive.current && my === seq.current) setError(errorText(e));
+    } finally {
+      if (alive.current && my === seq.current) setBusy(false);
     }
   }, []);
 
@@ -241,6 +249,10 @@ export default function Journal({ violationsOnly = false }: Props) {
       ) : null}
 
       <div id="journal-panel" role="tabpanel" aria-labelledby={`journal-period-${filter.period}`}>
+        {/* Живая область есть всегда (PL-44); при первой загрузке говорит строка «Загружаю журнал…». */}
+        <p className="journal-loading" role="status">
+          {busy && events !== null && !error ? LOADING : ""}
+        </p>
         {error ? (
           <div className="panel">
             <Notice tone="warn" urgent>
@@ -256,7 +268,7 @@ export default function Journal({ violationsOnly = false }: Props) {
           <p className="panel-text">За этот период таких событий нет</p>
         ) : (
           <>
-            <ul className="journal" aria-label="События">
+            <ul className={busy ? "journal journal-stale" : "journal"} aria-label="События" aria-busy={busy}>
               {events.map((e) => (
                 <li key={e.id} className="journal-item">
                   <time className="journal-time" dateTime={new Date(e.atMs).toISOString()}>

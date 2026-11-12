@@ -1904,6 +1904,21 @@ html:has(.shell-child) body {
 
 /* --- Журнал --------------------------------------------------------------------------- */
 
+/* Загрузка нового фильтра журнала: короткая строка над списком; пустая - без высоты. */
+.journal-loading {
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+.journal-loading:not(:empty) {
+  margin-bottom: var(--space-2);
+}
+
+/* Прежний список, пока идёт ответ на новый фильтр: приглушён, но читается. */
+.journal-stale {
+  opacity: 0.6;
+}
+
 .journal {
   max-width: 720px;
   margin: 0;
