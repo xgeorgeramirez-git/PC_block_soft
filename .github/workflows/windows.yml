@@ -63,21 +63,36 @@ jobs:
           echo "C:/Program Files (x86)/NSIS" >> "$GITHUB_PATH"
 
       # Полный список «18+» (RM4-3, D-67): зеркало UT1 на закреплённом коммите tools/adultlist/ut1.commit,
-      # только папка blacklists/adult, клон вне дерева репозитория. Инструмент перезаписывает встроенный
+      # только папка blacklists/adult, вне дерева репозитория. Инструмент перезаписывает встроенный
       # internal/sites/adult/adult.bin перед wails build (в ветку файл не коммитится: шаг «Биндинги»
       # добавляет только frontend/wailsjs/go). Три домена входа идут в TestAdultListFull.
+      # Кэш (B-52): папка списка по ключу коммита ut1.commit; при попадании клона нет, и выпуск не
+      # зависит от доступности зеркала. Новый коммит в ut1.commit — новый ключ, список качается заново.
+      - name: Кэш списка 18+ (UT1)
+        id: ut1-cache
+        uses: actions/cache@v5
+        with:
+          path: ${{ runner.temp }}/ut1-adult
+          key: ut1-adult-${{ runner.os }}-${{ hashFiles('tools/adultlist/ut1.commit') }}
       - name: Полный список 18+ (UT1 на закреплённом коммите)
         run: |
           exec > >(tee -a "$RUNNER_TEMP/ci.log") 2>&1
           commit=$(tr -d '[:space:]' < tools/adultlist/ut1.commit)
-          src="$RUNNER_TEMP/ut1"
-          git init -q "$src"
-          git -C "$src" remote add origin https://github.com/olbat/ut1-blacklists.git
-          git -C "$src" sparse-checkout set blacklists/adult
-          git -C "$src" fetch -q --depth 1 --filter=blob:none origin "$commit"
-          git -C "$src" checkout -q FETCH_HEAD
-          ls -la "$src/blacklists/adult"
-          go run ./tools/adultlist -src "$src/blacklists/adult" -out internal/sites/adult/adult.bin -sample "$RUNNER_TEMP/adult-sample.txt"
+          adult="$RUNNER_TEMP/ut1-adult"
+          if [ "${{ steps.ut1-cache.outputs.cache-hit }}" = "true" ] && [ -n "$(ls -A "$adult" 2>/dev/null)" ]; then
+            echo "::notice title=Список 18+::из кэша, коммит $commit"
+          else
+            src="$RUNNER_TEMP/ut1"
+            git init -q "$src"
+            git -C "$src" remote add origin https://github.com/olbat/ut1-blacklists.git
+            git -C "$src" sparse-checkout set blacklists/adult
+            git -C "$src" fetch -q --depth 1 --filter=blob:none origin "$commit"
+            git -C "$src" checkout -q FETCH_HEAD
+            rm -rf "$adult"
+            cp -r "$src/blacklists/adult" "$adult"
+          fi
+          ls -la "$adult"
+          go run ./tools/adultlist -src "$adult" -out internal/sites/adult/adult.bin -sample "$RUNNER_TEMP/adult-sample.txt"
           echo "PCB_ADULT_SAMPLE=$(paste -sd, "$RUNNER_TEMP/adult-sample.txt")" >> "$GITHUB_ENV"
 
       - name: Сборка программы и установщика
