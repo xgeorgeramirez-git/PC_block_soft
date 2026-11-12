@@ -1357,6 +1357,31 @@ test("s11 программы: ждут решения и список", async ({
   await page.screenshot({ path: `${SCREENS}/s11-programs.png`, fullPage: true });
 });
 
+// s11 — B-43: одно место сообщения. Список прокручен вниз, категория меняется в нижней строке:
+// сообщение с «Отменить» и отсчётом прилипло к верху области прокрутки и видно целиком.
+test("s11 программы: «Отменить» прилипает к верху при прокрутке", async ({ page }) => {
+  await tallWindow(page, 640);
+  await openPrograms(page, { pending: pendingPrograms(Date.now()), programs: programList() });
+  const select = page.getByRole("combobox", { name: "Категория для «Учи.ру»" });
+  await select.scrollIntoViewIfNeeded();
+  await select.selectOption("other");
+  const msg = page.locator(".programs-message .programs-feedback");
+  await expect(msg).toContainText("Учи.ру");
+  await expect(msg.getByRole("button", { name: "Отменить" })).toBeVisible();
+  await expect(msg.locator(".undo-left")).toHaveText(/^\d+ с$/);
+  const scrolled = await page.locator("main.content").evaluate((el) => el.scrollTop);
+  expect(scrolled, "список не прокручен: проверка липкости ничего не проверяет").toBeGreaterThan(0);
+  const content = await boxOf(page.locator("main.content"));
+  const box = await boxOf(msg);
+  expect(box.top, "сообщение выше области прокрутки").toBeGreaterThanOrEqual(content.top - 0.5);
+  expect(box.bottom, "сообщение ушло вниз за край").toBeLessThanOrEqual(content.top + 120);
+  // Выбор категории, к которому вернулся фокус, не закрыт прилипшим сообщением.
+  const sel = await boxOf(select);
+  expect(sel.top, "строка под прилипшим сообщением").toBeGreaterThanOrEqual(box.bottom - 0.5);
+  await noHorizontalScroll(page);
+  await page.screenshot({ path: `${SCREENS}/s11-programs-sticky-undo.png` });
+});
+
 // s11 — после «Игра»: сообщение «SuperGame: игра» с «Отменить», фильтр «Игры» и отмеченные строки.
 test("s11 программы: решение, фильтр и массовая смена", async ({ page }) => {
   await tallWindow(page, 1300);
