@@ -481,9 +481,9 @@ export function StatsSince({ data }: { data: MyTodayReply }) {
 function StatSub({ id, title, children }: { id: string; title: string; children: ReactNode }) {
   return (
     <section className="stat-sub" aria-labelledby={`sub-${id}`}>
-      <h3 id={`sub-${id}`} className="section-title">
+      <h4 id={`sub-${id}`} className="section-title">
         {title}
-      </h3>
+      </h4>
       {children}
     </section>
   );

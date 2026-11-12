@@ -917,6 +917,11 @@ p {
   padding-top: var(--space-4);
 }
 
+/* Заголовок раздела - h4 под h3 «Итоги»; вид тот же, что у .section-title (поле браузера сверху снято). */
+.stat-sub > .section-title {
+  margin-top: 0;
+}
+
 .stat-sub .stat-lead {
   margin-bottom: var(--space-2);
 }

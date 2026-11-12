@@ -304,6 +304,19 @@ describe("MyStats: сбой периода", () => {
     await user.click(screen.getByRole("button", { name: "Обновить" }));
     await vi.waitFor(() => expect(mock.calls.filter((c) => c.command === "MyToday").at(-1)?.payload).toEqual({ period: "year" }));
   });
+
+  // Ловит (WCAG 1.3.1): разделы периода - заголовки того же уровня, что «Итоги», а не под ним.
+  it("разделы периода - h4 под h3 «Итоги»", async () => {
+    vi.setSystemTime(G15_NOW);
+    const user = setup({ children: [g15Child()], events: g15Events() });
+    expect(await screen.findByRole("heading", { name: "Итоги", level: 3 })).toBeTruthy();
+    await user.click(screen.getByRole("tab", { name: "Неделя" }));
+    await screen.findByRole("tabpanel", { name: "Неделя" });
+    await screen.findByRole("heading", { name: "По дням", level: 4 });
+    for (const name of ["По дням", "Программы", "Сайты", "Нарушения", "Копилка"]) {
+      expect(screen.getByRole("heading", { name, level: 4 })).toBeTruthy();
+    }
+  });
 });
 
 describe("MyStats: Итоги", () => {
