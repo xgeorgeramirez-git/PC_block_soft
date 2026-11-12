@@ -30,7 +30,7 @@
   --font-mono: "Cascadia Mono", Consolas, "Courier New", monospace;
 
   color-scheme: light;
-  /* Флажки и переключатели в цвет кнопок, а не в синий цвет браузера. */
+  /* Прочие элементы браузера (ползунки и т. п.) в цвет кнопок, а не в синий цвет браузера. */
   accent-color: var(--primary);
 }
 
@@ -84,6 +84,98 @@ p {
 :focus-visible {
   outline: 2px solid var(--text);
   outline-offset: 2px;
+}
+
+/* Флажки и переключатели своим оформлением (ревью окна M5): рамка браузера в тёмной теме сливалась с
+   карточкой (ниже 3:1). Рамка 2 px цветом рамки поля (3,5:1 и больше к карточке и фону в обеих темах),
+   отметка цветом основной кнопки. Размер 18 px, как у флажков разделов; свой размер у раздела - ниже. */
+input[type="checkbox"],
+input[type="radio"] {
+  -webkit-appearance: none;
+  appearance: none;
+  display: inline-grid;
+  place-content: center;
+  flex: none;
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--field-border);
+  border-radius: 4px;
+  background: var(--surface);
+  vertical-align: middle;
+  cursor: pointer;
+}
+
+input[type="radio"] {
+  border-radius: 50%;
+}
+
+input[type="checkbox"]:checked,
+input[type="checkbox"]:indeterminate {
+  border-color: var(--primary);
+  background: var(--primary);
+}
+
+/* Галочка: уголок из двух сторон рамки, повёрнутый на 45 градусов. */
+input[type="checkbox"]:checked::before {
+  content: "";
+  width: 9px;
+  height: 5px;
+  border: solid var(--primary-text);
+  border-width: 0 0 2px 2px;
+  transform: translateY(-1px) rotate(-45deg);
+}
+
+/* «Выбрано не всё»: черта вместо галочки. */
+input[type="checkbox"]:indeterminate::before {
+  content: "";
+  width: 8px;
+  height: 2px;
+  background: var(--primary-text);
+}
+
+input[type="radio"]:checked {
+  border-color: var(--primary);
+}
+
+input[type="radio"]:checked::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--primary);
+}
+
+input[type="checkbox"]:focus-visible,
+input[type="radio"]:focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: 2px;
+}
+
+input[type="checkbox"]:disabled,
+input[type="radio"]:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Высокая контрастность Windows: заливка и галочка системными цветами, отметка не пропадает. */
+@media (forced-colors: active) {
+  input[type="checkbox"]:checked,
+  input[type="checkbox"]:indeterminate {
+    background: Highlight;
+    border-color: Highlight;
+  }
+
+  input[type="checkbox"]:checked::before {
+    border-color: HighlightText;
+  }
+
+  input[type="checkbox"]:indeterminate::before {
+    background: HighlightText;
+  }
+
+  input[type="radio"]:checked::before {
+    background: Highlight;
+  }
 }
 
 .visually-hidden {

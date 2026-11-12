@@ -2203,6 +2203,31 @@ test("m4 сайты: тёмная тема", async ({ page }) => {
   await page.screenshot({ path: `${SCREENS}/m4-sites-dark.png`, fullPage: true });
 });
 
+// m5-checkboxes-dark — флажки своим оформлением в тёмной теме (ревью окна M5): пустые «18+» у Даши и строк
+// списка, отмеченные «18+» у Миши и строка casino.example, «выбрано не всё» у «Выбрать всё в списке».
+// Рамка 2 px цветом рамки поля, а не рамка браузера (в тёмной теме сливалась с карточкой).
+test("m5 флажки: тёмная тема, пустые и отмеченные", async ({ page }) => {
+  await page.emulateMedia({ colorScheme: "dark" });
+  await page.setViewportSize({ width: 1200, height: 820 });
+  await openSites(page);
+  const group = page.getByRole("group", { name: "Блокировать сайты 18+" });
+  await expect(group.getByRole("checkbox", { name: "Миша", exact: true })).toBeChecked();
+  await expect(group.getByRole("checkbox", { name: "Даша", exact: true })).not.toBeChecked();
+  await page.getByRole("checkbox", { name: "Отметить «casino.example»", exact: true }).check();
+  await expect(page.getByText("Выбрано: 1", { exact: true })).toBeVisible();
+  const look = await page.evaluate(() =>
+    [...document.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')].map((el) => {
+      const cs = getComputedStyle(el);
+      return { appearance: cs.appearance, border: cs.borderTopWidth, w: el.getBoundingClientRect().width };
+    }),
+  );
+  expect(look.length).toBeGreaterThan(3);
+  for (const l of look) expect(l).toEqual({ appearance: "none", border: "2px", w: 18 });
+  await siteRowsFit(page);
+  await wholePage(page);
+  await page.screenshot({ path: `${SCREENS}/m5-checkboxes-dark.png`, fullPage: true });
+});
+
 // m4-sites-960 — наименьшее окно 960 x 620: без прокрутки вбок, поле и «Добавить» в одну строку.
 test("m4 сайты: узкое окно", async ({ page }) => {
   await page.setViewportSize({ width: 960, height: 620 });

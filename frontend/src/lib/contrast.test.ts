@@ -168,3 +168,42 @@ describe("приглушённая второстепенная кнопка", (
     expect(ratio(dark[fg], dark[bg])).toBeGreaterThanOrEqual(4.5);
   });
 });
+
+// Флажки и переключатели (ревью окна M5): рамка браузера в тёмной теме ниже 3:1 к карточке. Своё
+// оформление: рамка 2 px цветом рамки поля, отметка цветом основной кнопки, видимый фокус (WCAG 1.4.11).
+describe("флажки и переключатели своим оформлением", () => {
+  const base = blockOf(css, /(^|\n)input\[type="checkbox"\],\s*input\[type="radio"\]\s*\{/);
+  const checkedBox = blockOf(css, /(^|\n)input\[type="checkbox"\]:checked,\s*input\[type="checkbox"\]:indeterminate\s*\{/);
+  const checkedRadio = blockOf(css, /(^|\n)input\[type="radio"\]:checked\s*\{/);
+  const radioDot = blockOf(css, /(^|\n)input\[type="radio"\]:checked::before\s*\{/);
+  const focus = blockOf(css, /(^|\n)input\[type="checkbox"\]:focus-visible,\s*input\[type="radio"\]:focus-visible\s*\{/);
+
+  it("без оформления браузера: рамка 2 px цветом рамки поля на поверхности", () => {
+    expect(base).toMatch(/(^|[;\s])appearance\s*:\s*none\s*;/);
+    expect(base).toMatch(/border\s*:\s*2px\s+solid\s+var\(--field-border\)\s*;/);
+    expect(base).toMatch(/background\s*:\s*var\(--surface\)\s*;/);
+  });
+
+  it.each(["surface", "bg"])("рамка пустого флажка к фону %s не меньше 3:1 в обеих темах", (bg) => {
+    expect(ratio(light["field-border"], light[bg])).toBeGreaterThanOrEqual(3);
+    expect(ratio(dark["field-border"], dark[bg])).toBeGreaterThanOrEqual(3);
+  });
+
+  it("отметка - цвет основной кнопки, не меньше 3:1 к поверхности и фону в обеих темах", () => {
+    expect(checkedBox).toMatch(/background\s*:\s*var\(--primary\)\s*;/);
+    expect(checkedBox).toMatch(/border-color\s*:\s*var\(--primary\)\s*;/);
+    expect(checkedRadio).toMatch(/border-color\s*:\s*var\(--primary\)\s*;/);
+    expect(radioDot).toMatch(/background\s*:\s*var\(--primary\)\s*;/);
+    for (const bg of ["surface", "bg"]) {
+      expect(ratio(light.primary, light[bg])).toBeGreaterThanOrEqual(3);
+      expect(ratio(dark.primary, dark[bg])).toBeGreaterThanOrEqual(3);
+    }
+    // Галочка на залитом флажке - цвет текста основной кнопки.
+    const tick = blockOf(css, /(^|\n)input\[type="checkbox"\]:checked::before\s*\{/);
+    expect(tick).toMatch(/var\(--primary-text\)/);
+  });
+
+  it("фокус с клавиатуры виден: кольцо 2 px основным текстом", () => {
+    expect(focus).toMatch(/outline\s*:\s*2px\s+solid\s+var\(--text\)\s*;/);
+  });
+});
