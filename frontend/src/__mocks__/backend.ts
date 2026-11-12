@@ -851,11 +851,11 @@ const promoNorm = (code: string) => code.trim().toLowerCase();
 /** Новый код как core.CheckNewPromoCode (RM5-11): только A-Z, a-z, 0-9, 3-16 знаков. */
 const PROMO_NEW_CODE = /^[A-Za-z0-9]{3,16}$/;
 
-/** Составы «Придумать коды», как promoAlphabets службы (RM5-12). */
+/** Составы «Придумать коды», как promoAlphabets службы (RM5-12): с буквами без I, O, 0, 1. */
 const PROMO_ALPHABETS: Record<string, string> = {
   digits: "0123456789",
-  letters: "ABCDEFGHIJKLMNOPQRSTUVWXYZ",
-  mixed: "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789",
+  letters: "ABCDEFGHJKLMNPQRSTUVWXYZ",
+  mixed: "ABCDEFGHJKLMNPQRSTUVWXYZ23456789",
 };
 
 /** Форма слова по числу, как pluralRu службы: «1 код», «2 кода», «5 кодов», «11 кодов». */

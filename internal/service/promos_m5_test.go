@@ -139,8 +139,8 @@ func TestListPromosUsedNewestFirst(t *testing.T) {
 func TestGenPromoCodes(t *testing.T) {
 	alphabets := map[string]string{
 		ipc.CharsetDigits:  "0123456789",
-		ipc.CharsetLetters: "ABCDEFGHIJKLMNOPQRSTUVWXYZ",
-		ipc.CharsetMixed:   "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789",
+		ipc.CharsetLetters: "ABCDEFGHJKLMNPQRSTUVWXYZ",
+		ipc.CharsetMixed:   "ABCDEFGHJKLMNPQRSTUVWXYZ23456789",
 	}
 	taken := map[string]bool{"aaaa": true, "0000": true}
 	for cs, alpha := range alphabets {
@@ -207,6 +207,32 @@ func TestGenPromoCodes(t *testing.T) {
 	}
 }
 
+// Ловит (ТЗ 8.3.10, FR-35): в придуманных кодах с буквами попадаются похожие знаки I, O, 0, 1,
+// и ребёнок путает их при вводе; или из «Только цифры» пропала какая-то цифра.
+func TestGenPromoCodesNoLookalikes(t *testing.T) {
+	for _, cs := range []string{ipc.CharsetLetters, ipc.CharsetMixed} {
+		codes, ok := genPromoCodes(mrand.New(mrand.NewSource(11)), 1000, 12, cs, nil)
+		if !ok || len(codes) != 1000 {
+			t.Fatalf("%s: ok=%v, кодов %d; want 1000", cs, ok, len(codes))
+		}
+		for _, c := range codes {
+			if strings.ContainsAny(c, "IO01") {
+				t.Fatalf("%s: код %q с похожим знаком I, O, 0 или 1", cs, c)
+			}
+		}
+	}
+	codes, ok := genPromoCodes(mrand.New(mrand.NewSource(11)), 1000, 12, ipc.CharsetDigits, nil)
+	if !ok || len(codes) != 1000 {
+		t.Fatalf("digits: ok=%v, кодов %d; want 1000", ok, len(codes))
+	}
+	all := strings.Join(codes, "")
+	for _, d := range "0123456789" {
+		if !strings.ContainsRune(all, d) {
+			t.Errorf("digits: в 1000 кодах нет цифры %q", d)
+		}
+	}
+}
+
 // Ловит (RM5-12, Review Focus 5): придуманный код совпал со старым кодом базы, записанным
 // строчными, или с использованным кодом (UNIQUE общая), потому что сравнение без нормализации.
 func TestGeneratePromosSkipsTakenNormalized(t *testing.T) {
@@ -219,9 +245,9 @@ func TestGeneratePromosSkipsTakenNormalized(t *testing.T) {
 	}
 	var rr ipc.RedeemPromoReply
 	h.ok(childPeer(), "", ipc.CmdRedeemPromo, ipc.RedeemPromoRequest{ChildID: id, Code: "aaaa"}, &rr)
-	// В составе mixed байт i — знак i: Z=25, 9=35, A=0, B=1. Первая попытка «ZZ99», вторая «AAAA»
-	// (использованный), третья «BBBB».
-	withPromoRand(t, bytes.NewReader([]byte{25, 25, 35, 35, 0, 0, 0, 0, 1, 1, 1, 1}))
+	// В составе mixed (без I, O, 0, 1) байт i — знак i: Z=23, 9=31, A=0, B=1. Первая попытка «ZZ99»,
+	// вторая «AAAA» (использованный), третья «BBBB».
+	withPromoRand(t, bytes.NewReader([]byte{23, 23, 31, 31, 0, 0, 0, 0, 1, 1, 1, 1}))
 	var rep ipc.GeneratePromosReply
 	h.ok(adminPeer(), tok, ipc.CmdGeneratePromos, ipc.GeneratePromosRequest{Count: 1, Length: 4, Charset: ipc.CharsetMixed, Minutes: 10}, &rep)
 	if got := codesOf(rep.Promos); !reflect.DeepEqual(got, []string{"BBBB"}) {

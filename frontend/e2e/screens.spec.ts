@@ -2848,7 +2848,7 @@ for (const scheme of ["light", "dark"] as const) {
     await expect(page.locator(".promo-status")).toHaveText("Готово: 10 кодов на 30 мин");
     const fresh = gen.getByRole("list", { name: "Новые коды" });
     await expect(fresh.getByRole("listitem")).toHaveCount(10);
-    for (const code of await fresh.getByRole("listitem").allTextContents()) expect(code).toMatch(/^[A-Z0-9]{6}$/);
+    for (const code of await fresh.getByRole("listitem").allTextContents()) expect(code).toMatch(/^[A-HJ-NP-Z2-9]{6}$/);
     await expect(gen.getByRole("button", { name: "Скопировать все" })).toBeVisible();
     await expect(page.getByRole("tab", { name: "Действующие (30)" })).toHaveAttribute("aria-selected", "true");
     // Коды выделяются мышью (их можно скопировать вручную, если буфер обмена не дал).

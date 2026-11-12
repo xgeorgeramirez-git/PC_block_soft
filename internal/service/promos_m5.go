@@ -15,11 +15,12 @@ import (
 var promoRand io.Reader = rand.Reader
 
 // promoAlphabets — состав знаков придуманных кодов (RM5-12): наличие и буквы, и цифры в каждом
-// коде mixed не гарантируется.
+// коде mixed не гарантируется. В составах с буквами нет похожих знаков I, O, 0 и 1, чтобы ребёнок
+// не ошибся при вводе (ТЗ 8.3.10, FR-35); «Только цифры» — все десять цифр.
 var promoAlphabets = map[string]string{
 	ipc.CharsetDigits:  "0123456789",
-	ipc.CharsetLetters: "ABCDEFGHIJKLMNOPQRSTUVWXYZ",
-	ipc.CharsetMixed:   "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789",
+	ipc.CharsetLetters: "ABCDEFGHJKLMNPQRSTUVWXYZ",
+	ipc.CharsetMixed:   "ABCDEFGHJKLMNPQRSTUVWXYZ23456789",
 }
 
 // promoMaxRejects — сколько байт подряд вне честного диапазона терпит выбор знака: у исправного

@@ -629,3 +629,20 @@ describe("программы: пустая смена категории (B-41)"
     expect(mixed.undoId).not.toBe("");
   });
 });
+
+describe("«Придумать коды»: состав знаков, как у службы (ТЗ 8.3.10)", () => {
+  // Ловит: мок придумывает коды с похожими знаками I, O, 0, 1, а служба нет (или «Только цифры» без
+  // какой-то цифры) - снимки и тесты экрана показывают не то, что увидит родитель.
+  it("с буквами нет I, O, 0, 1; в «Только цифры» все десять цифр", async () => {
+    installBackend({ sessionActive: true });
+    for (const charset of ["letters", "mixed"] as const) {
+      for (let i = 0; i < 20; i++) {
+        const r = await api.generatePromos({ count: 50, length: 12, charset, minutes: 10 });
+        for (const p of r.promos) expect(p.codeDisplay).toMatch(/^[A-HJ-NP-Z2-9]{12}$/);
+      }
+    }
+    const digits = await api.generatePromos({ count: 50, length: 12, charset: "digits", minutes: 10 });
+    const all = digits.promos.map((p) => p.codeDisplay).join("");
+    for (const d of "0123456789") expect(all).toContain(d);
+  });
+});
