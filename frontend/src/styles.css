@@ -2464,8 +2464,13 @@ html:has(.shell-child) body {
   display: flex;
   align-items: center;
   gap: var(--space-4);
-  padding: var(--space-2) 0;
+  /* 4 px по бокам: строка с content-visibility обрезает рисунок по своему краю, кольцо фокуса
+     (2 px + отступ 2 px) у флажка и «Удалить» у края иначе срезалось бы. */
+  padding: var(--space-2) var(--space-1);
   border-bottom: 1px solid var(--line);
+  /* До 1000 строк (B-51): строка вне экрана не рисуется; высота обычной строки запомнена заранее. */
+  content-visibility: auto;
+  contain-intrinsic-block-size: auto 49px;
 }
 
 .sites-domain {
