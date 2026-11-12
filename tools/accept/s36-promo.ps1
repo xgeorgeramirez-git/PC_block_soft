@@ -38,7 +38,7 @@ Invoke-Scenario "S36" "Промокод: ребёнок вводит код на
     Assert-Reply (Send-Parent "CreatePromo" @{ code = "zz9"; minutes = 15 }) "CreatePromo zz9"
     $dup = Send-Parent "CreatePromo" @{ code = " a1234 "; minutes = 10 }
     Assert-That (-not $dup.ok -and $dup.field -eq "code") "Повтор кода принят или ошибка не у поля code: ok=$($dup.ok) field=$($dup.field)"
-    $zero = Send-Parent "CreatePromo" @{ code = "q1"; minutes = 0 }
+    $zero = Send-Parent "CreatePromo" @{ code = "q12"; minutes = 0 }
     Assert-That (-not $zero.ok -and $zero.field -eq "minutes") "Ноль минут принят или ошибка не у поля minutes: ok=$($zero.ok) field=$($zero.field)"
     $l = Send-Parent "ListPromos"
     Assert-Reply $l "ListPromos"

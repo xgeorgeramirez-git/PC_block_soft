@@ -136,8 +136,14 @@ Invoke-Scenario "S21" "Эталонная неделя G15: «Итоги», ст
     $w = $script:Week
     $t = $script:Today
     Write-Log "Итоги недели: использовано $($w.usedS) с, игры $($w.gamesS), видео $($w.videoS), учёба $($w.studyS), прочее $($w.otherS), всего $($w.allS), доп. $($w.extraMin) мин; строки: $(Format-Rows $w)"
-    # Прошлые дни G15 точно в секундах (литералы эталона × 60) плюс сегодня из ядра (PL-31).
-    $past = @{ usedS = 45180; gamesS = 16500; videoS = 13200; studyS = 5700; otherS = 14880 }
+    # Прошлые дни G15 точно в секундах: сумма дней эталона без сегодня × 60 (данные и ожидание из одного
+    # файла, PL-22) плюс сегодня из ядра (PL-31). Итог недели G15 уже включает сегодня, его брать нельзя.
+    $pastDays = @($script:G15.days | Where-Object { -not $_.today })
+    $past = @{}
+    foreach ($pair in @(@('usedS', 'used_min'), @('gamesS', 'games_min'), @('videoS', 'video_min'), @('studyS', 'study_min'), @('otherS', 'other_min'))) {
+      $past[$pair[0]] = 60 * [int](($pastDays | Measure-Object -Property $pair[1] -Sum).Sum)
+    }
+    Assert-That ($past.usedS -eq 44580) "Сумма прошлых дней G15 $($past.usedS) с, ждали 44580 (743 мин)"
     foreach ($k in $past.Keys) {
       $want = $past[$k] + [int]$t.$k
       Assert-That ([int]$w.$k -eq $want) "Неделя: $k $($w.$k) с, ждали $want (G15 $($past[$k]) + сегодня $($t.$k))"
