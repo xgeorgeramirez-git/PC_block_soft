@@ -191,6 +191,67 @@
       }
     }
   },
+  "AddSites": {
+    "request": {
+      "text": "https://www.Example.com/page\nvk.com\r\nпросто текст\n\nschool.example",
+      "kind": "blocked"
+    },
+    "reply": {
+      "ok": true,
+      "payload": {
+        "message": "Добавлено сайтов: 1. Перенесено сюда из других списков: 1. Уже были в списке: 1",
+        "added": [
+          "example.com",
+          "vk.com"
+        ],
+        "rejected": [
+          "просто текст"
+        ],
+        "fieldError": "Это не похоже на адрес сайта",
+        "sites": {
+          "sites": [
+            {
+              "domain": "example.com",
+              "kind": "blocked"
+            },
+            {
+              "domain": "school.example",
+              "kind": "study"
+            },
+            {
+              "domain": "youtube.com",
+              "kind": "video_social"
+            }
+          ],
+          "children": [
+            {
+              "childId": 1,
+              "name": "Миша",
+              "on": true
+            },
+            {
+              "childId": 2,
+              "name": "Даша",
+              "on": false
+            }
+          ],
+          "blockedMax": 1000,
+          "adultSource": "Список сайтов для взрослых: UT1, Университет Тулуза Капитоль, лицензия CC BY-SA 4.0"
+        }
+      }
+    }
+  },
+  "AddSites#invalid": {
+    "request": {
+      "text": "просто текст\nещё текст",
+      "kind": "blocked"
+    },
+    "reply": {
+      "ok": false,
+      "error": "Эти строки не похожи на адрес сайта",
+      "field": "domain"
+    }
+  },
   "AskMore": {
     "request": {
       "childId": 1,
@@ -3344,6 +3405,61 @@
         "message": "Удалён example.com",
         "domain": "example.com",
         "kind": "blocked",
+        "undoUntilMs": 1760000010000,
+        "sites": {
+          "sites": [
+            {
+              "domain": "example.com",
+              "kind": "blocked"
+            },
+            {
+              "domain": "school.example",
+              "kind": "study"
+            },
+            {
+              "domain": "youtube.com",
+              "kind": "video_social"
+            }
+          ],
+          "children": [
+            {
+              "childId": 1,
+              "name": "Миша",
+              "on": true
+            },
+            {
+              "childId": 2,
+              "name": "Даша",
+              "on": false
+            }
+          ],
+          "blockedMax": 1000,
+          "adultSource": "Список сайтов для взрослых: UT1, Университет Тулуза Капитоль, лицензия CC BY-SA 4.0"
+        }
+      }
+    }
+  },
+  "RemoveSites": {
+    "request": {
+      "domains": [
+        "example.com",
+        "school.example"
+      ]
+    },
+    "reply": {
+      "ok": true,
+      "payload": {
+        "message": "Удалено сайтов: 2",
+        "removed": [
+          {
+            "domain": "example.com",
+            "kind": "blocked"
+          },
+          {
+            "domain": "school.example",
+            "kind": "study"
+          }
+        ],
         "undoUntilMs": 1760000010000,
         "sites": {
           "sites": [

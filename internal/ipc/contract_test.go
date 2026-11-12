@@ -518,6 +518,14 @@ func examples() map[string]example {
 		CmdRemoveSite: ok(RemoveSiteRequest{Domain: "example.com"}, RemoveSiteReply{
 			Message: "Удалён example.com", Domain: "example.com", Kind: SiteKindBlocked, UndoUntilMs: t0 + 10_000, Sites: sitesReply(),
 		}),
+		CmdAddSites: ok(AddSitesRequest{Text: "https://www.Example.com/page\nvk.com\r\nпросто текст\n\nschool.example", Kind: SiteKindBlocked},
+			AddSitesReply{Message: "Добавлено сайтов: 1. Перенесено сюда из других списков: 1. Уже были в списке: 1", Added: []string{"example.com", "vk.com"},
+				Rejected: []string{"просто текст"}, FieldError: "Это не похоже на адрес сайта", Sites: sitesReply()}),
+		"AddSites#invalid": fail(AddSitesRequest{Text: "просто текст\nещё текст", Kind: SiteKindBlocked}, "Эти строки не похожи на адрес сайта", FieldDomain, nil),
+		CmdRemoveSites: ok(RemoveSitesRequest{Domains: []string{"example.com", "school.example"}}, RemoveSitesReply{
+			Message: "Удалено сайтов: 2", Removed: []SiteDTO{{Domain: "example.com", Kind: SiteKindBlocked}, {Domain: "school.example", Kind: SiteKindStudy}},
+			UndoUntilMs: t0 + 10_000, Sites: sitesReply(),
+		}),
 		CmdSetAdultFilter: ok(SetAdultFilterRequest{ChildID: 2, On: false},
 			SetAdultFilterReply{Message: "Даша: сайты 18+ не блокируются", Sites: sitesReply()}),
 		"Setup#sites": ok(SetupRequest{
@@ -611,8 +619,8 @@ func TestContractHasEveryCommand(t *testing.T) {
 			t.Errorf("пример для %s есть, а в AllCommands её нет", c)
 		}
 	}
-	if len(AllCommands) != 75 {
-		t.Errorf("команд %d, ждали 75 (4 команды M5: ClearStats, ClearJournal, GeneratePromos, ClearPromoHistory; 5 команд M4: ListSites, AddSite, RemoveSite, SetAdultFilter, тестовая TestSeedPrograms; тестовая TestSeedDay и EndBreak из раунда 0.3.2; 46 из M1/M2/0.2.1 без команд Помощника, 9 из фидбек-раунда 0.2.2: OpenLogs, SetNoForbidden, ClearBonus, ReduceBonus, CreatePromo, ListPromos, RedeemPromo, GetBonusRate, SetBonusRate, GuardClosing из раунда 0.2.3, тестовая TestSession из 0.2.5 и 5 программ M3: ListPrograms, DecideProgram, SetProgramsCategory, UndoProgram, ScanPrograms; SetProgramsHidden и RenameProgram из раунда 0.3.1)", len(AllCommands))
+	if len(AllCommands) != 77 {
+		t.Errorf("команд %d, ждали 77 (6 команд M5: ClearStats, ClearJournal, GeneratePromos, ClearPromoHistory, AddSites, RemoveSites; 5 команд M4: ListSites, AddSite, RemoveSite, SetAdultFilter, тестовая TestSeedPrograms; тестовая TestSeedDay и EndBreak из раунда 0.3.2; 46 из M1/M2/0.2.1 без команд Помощника, 9 из фидбек-раунда 0.2.2: OpenLogs, SetNoForbidden, ClearBonus, ReduceBonus, CreatePromo, ListPromos, RedeemPromo, GetBonusRate, SetBonusRate, GuardClosing из раунда 0.2.3, тестовая TestSession из 0.2.5 и 5 программ M3: ListPrograms, DecideProgram, SetProgramsCategory, UndoProgram, ScanPrograms; SetProgramsHidden и RenameProgram из раунда 0.3.1)", len(AllCommands))
 	}
 }
 

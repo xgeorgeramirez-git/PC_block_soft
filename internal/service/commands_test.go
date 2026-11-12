@@ -124,7 +124,7 @@ func wantAllowed(cmd, kind, tok string, test, configured bool) bool {
 	case ipc.CmdListPrograms, ipc.CmdDecideProgram, ipc.CmdSetProgramsCategory, ipc.CmdUndoProgram, ipc.CmdSetProgramsHidden, ipc.CmdRenameProgram:
 		// «Программы» (FR-20): только родитель своим токеном; ребёнок не читает и не меняет.
 		return user && own
-	case ipc.CmdListSites, ipc.CmdAddSite, ipc.CmdRemoveSite, ipc.CmdSetAdultFilter:
+	case ipc.CmdListSites, ipc.CmdAddSite, ipc.CmdRemoveSite, ipc.CmdSetAdultFilter, ipc.CmdAddSites, ipc.CmdRemoveSites:
 		// «Сайты» (FR-21): только родитель своим токеном; ребёнок не читает и не меняет списки.
 		return user && own
 	case ipc.CmdScanPrograms:

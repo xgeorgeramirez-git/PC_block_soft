@@ -313,3 +313,110 @@ func TestSetupSitesBeforeAuth(t *testing.T) {
 		t.Errorf("видео при оборванной настройке %q, want записано до пароля", got)
 	}
 }
+
+// Ловит (8.3.5 п.2, B-49): вставка нескольких адресов по одному в строке не делится по строкам,
+// адрес страницы не сводится к домену, повтор в пачке пишется дважды, уже бывший в списке
+// считается добавленным, перенос не отмечен, не-адрес теряется (окно должно вернуть его в поле),
+// журнал не по сайту, списки службы не перечитаны (вкладка не закрывается).
+func TestAddSites(t *testing.T) {
+	h := siteHarness(t)
+	tok := h.login(adminPeer())
+	var rep ipc.AddSitesReply
+	text := "https://www.New.example/page?x=1\r\nyoutube.com\n\n  просто текст  \nexample.com\nnew.example\n"
+	h.ok(adminPeer(), tok, ipc.CmdAddSites, ipc.AddSitesRequest{Text: text, Kind: "blocked"}, &rep)
+	want := ipc.AddSitesReply{
+		Message:    "Добавлено сайтов: 1. Перенесено сюда из других списков: 1. Уже были в списке: 1",
+		Added:      []string{"new.example", "youtube.com"},
+		Rejected:   []string{"просто текст"},
+		FieldError: "Это не похоже на адрес сайта",
+	}
+	rep.Sites = ipc.ListSitesReply{}
+	if jsonOf(t, rep) != jsonOf(t, want) {
+		t.Errorf("AddSites\n got %s\nwant %s", jsonOf(t, rep), jsonOf(t, want))
+	}
+	if h.store.sites["new.example"] != "blocked" || h.store.sites["youtube.com"] != "blocked" || h.store.sites["example.com"] != "blocked" {
+		t.Errorf("списки после вставки %v", h.store.sites)
+	}
+	if got := h.journalTexts(evSiteAdded); jsonOf(t, got) != jsonOf(t, []string{"Вы добавили сайт new.example в «Запрещённые»"}) {
+		t.Errorf("журнал добавления %q", got)
+	}
+	if got := h.journalTexts(evSiteMoved); jsonOf(t, got) != jsonOf(t, []string{"Вы перенесли сайт youtube.com в «Запрещённые»"}) {
+		t.Errorf("журнал переноса %q", got)
+	}
+	if p := h.poll(braveSample("new.example")); !hasCloseTab(p, "new.example") {
+		t.Errorf("после вставки вкладка не закрывается: %+v", p.Commands)
+	}
+	expectFieldFail(t, h.fail(adminPeer(), tok, ipc.CmdAddSites, ipc.AddSitesRequest{Text: "просто текст\nещё текст", Kind: "blocked"}),
+		"Эти строки не похожи на адрес сайта", "domain")
+	expectFieldFail(t, h.fail(adminPeer(), tok, ipc.CmdAddSites, ipc.AddSitesRequest{Text: "просто текст\n", Kind: "blocked"}),
+		"Это не похоже на адрес сайта", "domain")
+	expectFieldFail(t, h.fail(adminPeer(), tok, ipc.CmdAddSites, ipc.AddSitesRequest{Text: " \n\n", Kind: "blocked"}),
+		"Это не похоже на адрес сайта", "domain")
+	if r := h.fail(adminPeer(), tok, ipc.CmdAddSites, ipc.AddSitesRequest{Text: "x.ru", Kind: "video"}); r.Error != ipc.TextBadRequest {
+		t.Errorf("неизвестный список: %q", r.Error)
+	}
+	many := ""
+	for i := 0; i <= ipc.MaxSitesPerCall; i++ {
+		many += fmt.Sprintf("m%d.example\n", i)
+	}
+	expectFieldFail(t, h.fail(adminPeer(), tok, ipc.CmdAddSites, ipc.AddSitesRequest{Text: many, Kind: "study"}),
+		"Можно вставить не больше 1000 адресов за раз", "domain")
+	if _, ok := h.store.sites["m0.example"]; ok {
+		t.Error("слишком длинная вставка частично записана")
+	}
+}
+
+// Ловит (R14): вставка в почти полные «Запрещённые» проходит за 1000 или не говорит, сколько
+// не поместилось; повтор в пачке занимает место дважды.
+func TestAddSitesBlockedLimit(t *testing.T) {
+	h := newHarness(t, configured(), withChild(childSID, "Миша", 120), func(h *harness) {
+		for i := 0; i < 998; i++ {
+			h.store.sites[fmt.Sprintf("s%d.example", i)] = "blocked"
+		}
+	})
+	h.start()
+	tok := h.login(adminPeer())
+	var rep ipc.AddSitesReply
+	h.ok(adminPeer(), tok, ipc.CmdAddSites, ipc.AddSitesRequest{Text: "a.example\na.example\ns1.example\nb.example\nc.example\nd.example", Kind: "blocked"}, &rep)
+	if rep.Message != "Добавлено сайтов: 2. Уже были в списке: 1. Не поместились (2): в списке запрещённых уже 1000 сайтов" ||
+		jsonOf(t, rep.Added) != jsonOf(t, []string{"a.example", "b.example"}) {
+		t.Errorf("вставка у предела: %q, %v", rep.Message, rep.Added)
+	}
+	if n, _ := h.store.CountSiteRules("blocked"); n != 1000 {
+		t.Errorf("в «Запрещённых» %d", n)
+	}
+}
+
+// Ловит (8.3.5 п.2, B-49): отмеченные сайты не удаляются одним действием, ответ не говорит, из
+// каких списков (для «Отменить»), журнал не по сайту, удалённый ещё закрывается; пустой запрос
+// принимается; все уже удалены — нет отказа.
+func TestRemoveSites(t *testing.T) {
+	h := siteHarness(t)
+	tok := h.login(adminPeer())
+	var rm ipc.RemoveSitesReply
+	h.ok(adminPeer(), tok, ipc.CmdRemoveSites, ipc.RemoveSitesRequest{Domains: []string{"example.com", "school.example", "gone.example"}}, &rm)
+	if rm.Message != "Удалено сайтов: 2" || rm.UndoUntilMs != realT0.Add(10*time.Second).UnixMilli() ||
+		jsonOf(t, rm.Removed) != jsonOf(t, []ipc.SiteDTO{{Domain: "example.com", Kind: "blocked"}, {Domain: "school.example", Kind: "study"}}) {
+		t.Errorf("удаление: %+v", rm)
+	}
+	if siteKindOf(rm.Sites, "example.com") != "" || siteKindOf(rm.Sites, "school.example") != "" {
+		t.Error("в ответе удалённые всё ещё в списках")
+	}
+	if p := h.poll(braveSample("example.com")); len(p.Commands) != 0 {
+		t.Errorf("после удаления команды %+v", p.Commands)
+	}
+	want := []string{"Вы удалили сайт example.com из «Запрещённых»", "Вы удалили сайт school.example из «Учёбы»"}
+	if got := h.journalTexts(evSiteRemoved); jsonOf(t, got) != jsonOf(t, want) {
+		t.Errorf("журнал удаления %q", got)
+	}
+	if r := h.fail(adminPeer(), tok, ipc.CmdRemoveSites, ipc.RemoveSitesRequest{Domains: []string{"example.com"}}); r.Error != "Этого сайта уже нет в списках" {
+		t.Errorf("повтор удаления: %q", r.Error)
+	}
+	if r := h.fail(adminPeer(), tok, ipc.CmdRemoveSites, ipc.RemoveSitesRequest{Domains: []string{}}); r.Error != ipc.TextBadRequest {
+		t.Errorf("пустой запрос: %q", r.Error)
+	}
+	h.ok(adminPeer(), tok, ipc.CmdRemoveSites, ipc.RemoveSitesRequest{Domains: []string{"youtube.com"}}, &rm)
+	if rm.Message != "Удалён youtube.com" {
+		t.Errorf("один сайт: %q", rm.Message)
+	}
+}

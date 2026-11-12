@@ -108,6 +108,7 @@ var AllCommands = []string{
 	CmdEndBreak,    // фидбек-раунд 0.3.2 (FB-14, commands_0_3_2.go)
 
 	CmdListSites, CmdAddSite, CmdRemoveSite, CmdSetAdultFilter, CmdTestSeedPrograms, // M4 (commands_m4.go)
+	CmdAddSites, CmdRemoveSites, // M5: несколько сайтов за раз (B-49, commands_m4.go)
 
 	CmdClearStats, CmdClearJournal, // M5 (FR-38)
 	CmdGeneratePromos, CmdClearPromoHistory, // M5 (FR-35, commands_m5.go)

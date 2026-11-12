@@ -291,6 +291,8 @@ func init() {
 		ipc.CmdListSites:        {parentToken(false), (*Service).hListSites},
 		ipc.CmdAddSite:          {parentToken(true), (*Service).hAddSite},
 		ipc.CmdRemoveSite:       {parentToken(true), (*Service).hRemoveSite},
+		ipc.CmdAddSites:         {parentToken(true), (*Service).hAddSites},
+		ipc.CmdRemoveSites:      {parentToken(true), (*Service).hRemoveSites},
 		ipc.CmdSetAdultFilter:   {parentToken(true), (*Service).hSetAdultFilter},
 		ipc.CmdTestSeedPrograms: {testMode(admins()), (*Service).hTestSeedPrograms},
 	}
