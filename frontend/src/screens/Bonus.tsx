@@ -4,6 +4,7 @@ import BonusHistory from "../components/BonusHistory";
 import Dialog from "../components/Dialog";
 import GrantBonusForm from "../components/GrantBonusForm";
 import Notice from "../components/Notice";
+import UndoLine from "../components/UndoLine";
 import { autoBonusRule, autoBonusText, isAutoBonus } from "../lib/bonus";
 import { CallError, errorText } from "../lib/errors";
 import { formatEventTime, formatLimit, genitiveName } from "../lib/format";
@@ -167,7 +168,7 @@ export default function Bonus({ onOpenPromos }: { onOpenPromos?: () => void } = 
           </button>
         </div>
       ) : items === null ? (
-        <p className="panel-text">Загружаю данные</p>
+        <p className="panel-text">Загружаю данные…</p>
       ) : tab === "piggy" ? (
         <div role="tabpanel" aria-label="Копилка">
           {items.length === 0 ? (
@@ -206,9 +207,16 @@ export default function Bonus({ onOpenPromos }: { onOpenPromos?: () => void } = 
                     </button>
                     {it.balance <= 0 ? <span className="field-hint">Копилка пуста: убавлять нечего</span> : null}
                   </div>
-                  {feedback[it.card.childId] ? (
-                    <BonusFeedback feedback={feedback[it.card.childId]} onUndo={(id) => void undo(it.card.childId, id)} />
-                  ) : null}
+                  {/* Живая область есть всегда (PL-44, B-38); «Отменить» - общий UndoLine (B-33). */}
+                  <div role="status">
+                    {feedback[it.card.childId] ? (
+                      <BonusFeedback
+                        feedback={feedback[it.card.childId]}
+                        disabled={busy === it.card.childId}
+                        onUndo={(id) => void undo(it.card.childId, id)}
+                      />
+                    ) : null}
+                  </div>
                   <BonusHistory entries={it.entries} />
                 </article>
               ))}
@@ -301,6 +309,8 @@ function ConfirmDialog({ confirm, onCancel, onApply }: { confirm: Confirm; onCan
             className="field-input"
             type="text"
             inputMode="numeric"
+            autoComplete="off"
+            spellCheck={false}
             pattern="[0-9]*"
             maxLength={3}
             value={own}
@@ -334,28 +344,27 @@ function AutoBonusList({ name, entries }: { name: string; entries: BonusEntry[] 
   );
 }
 
-function BonusFeedback({ feedback, onUndo }: { feedback: Feedback; onUndo: (bonusId: string) => void }) {
-  const [canUndo, setCanUndo] = useState(Boolean(feedback.undo));
-  useEffect(() => {
-    if (!feedback.undo) return;
-    const id = setTimeout(() => setCanUndo(false), feedback.undo.ms);
-    return () => clearTimeout(id);
-  }, [feedback]);
-  if (feedback.error) {
-    return (
-      <p className="field-error" role="alert">
-        {feedback.text}
-      </p>
-    );
-  }
+function BonusFeedback({
+  feedback,
+  disabled,
+  onUndo,
+}: {
+  feedback: Feedback;
+  disabled: boolean;
+  onUndo: (bonusId: string) => void;
+}) {
+  const undo = feedback.undo;
   return (
-    <div className="child-feedback" role="status">
-      <span>{feedback.text}</span>
-      {canUndo && feedback.undo ? (
-        <button type="button" className="btn btn-small" onClick={() => onUndo(feedback.undo!.bonusId)}>
-          Отменить
-        </button>
-      ) : null}
-    </div>
+    <UndoLine
+      key={feedback.seq}
+      live={false}
+      className="child-feedback"
+      undoClassName="btn btn-small"
+      text={feedback.text}
+      error={feedback.error}
+      undoMs={undo?.ms}
+      disabled={disabled}
+      onUndo={undo ? () => onUndo(undo.bonusId) : undefined}
+    />
   );
 }

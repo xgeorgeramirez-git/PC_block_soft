@@ -50,8 +50,6 @@ interface Feedback {
   seq: number;
   text: string;
   error: boolean;
-  /** Где сообщение: над «Ждут решения» или над таблицей, рядом с тем, что нажали. */
-  where: "top" | "list";
   undo?: { undoId: string; ms: number };
 }
 
@@ -118,14 +116,13 @@ export default function Programs({ initialFilter = "all" }: Props) {
     placeFocus(root.current, req);
   });
 
-  const say = (where: Feedback["where"], text: string, error = false, undo?: Feedback["undo"]) => {
+  const say = (text: string, error = false, undo?: Feedback["undo"]) => {
     seq.current += 1;
-    setFeedback({ seq: seq.current, where, text, error, undo });
+    setFeedback({ seq: seq.current, text, error, undo });
   };
 
   /** Один запрос за раз: пока ответа нет, повторное нажатие ничего не отправляет. */
   const run = async (what: Busy, action: () => Promise<FocusTo | null>, onError: FocusTo | null) => {
-    const where: Feedback["where"] = what.kind === "decide" ? "top" : what.kind === "undo" ? (feedback?.where ?? "top") : "list";
     if (busyRef.current) return;
     busyRef.current = true;
     setBusyState(what);
@@ -134,7 +131,7 @@ export default function Programs({ initialFilter = "all" }: Props) {
       focusTo.current = next;
     } catch (e) {
       if (alive.current) {
-        say(where, errorText(e), true);
+        say(errorText(e), true);
         focusTo.current = onError;
       }
     } finally {
@@ -152,12 +149,11 @@ export default function Programs({ initialFilter = "all" }: Props) {
   };
 
   const sayDecided = (
-    where: Feedback["where"],
     reply: { message: string; undoId: string; undoUntilMs: number },
     fallback: string,
   ) => {
     const left = Math.min(reply.undoUntilMs - Date.now(), UNDO_MS);
-    say(where, reply.message || fallback, false, reply.undoId && left > 0 ? { undoId: reply.undoId, ms: left } : undefined);
+    say(reply.message || fallback, false, reply.undoId && left > 0 ? { undoId: reply.undoId, ms: left } : undefined);
   };
 
   const decide = (p: PendingProgramDTO, category: ParentCategory, index: number) =>
@@ -168,7 +164,7 @@ export default function Programs({ initialFilter = "all" }: Props) {
         if (!alive.current) return null;
         applyReply(reply.programs);
         lastOp.current = { kind: "one", path: p.path };
-        sayDecided("top", reply, decisionMessage(p.name, category));
+        sayDecided(reply, decisionMessage(p.name, category));
         return { to: "pending", index };
       },
       { to: "path", path: p.path, category },
@@ -182,7 +178,7 @@ export default function Programs({ initialFilter = "all" }: Props) {
         if (!alive.current) return null;
         applyReply(reply.programs);
         lastOp.current = { kind: "one", path: p.path };
-        sayDecided("list", reply, decisionMessage(p.name, category));
+        sayDecided(reply, decisionMessage(p.name, category));
         return { to: "path", path: p.path, index };
       },
       { to: "path", path: p.path, index },
@@ -202,7 +198,7 @@ export default function Programs({ initialFilter = "all" }: Props) {
           return next;
         });
         lastOp.current = { kind: "one", path: p.path };
-        sayDecided("list", reply, hiddenMessage(p.name, hidden));
+        sayDecided(reply, hiddenMessage(p.name, hidden));
         return { to: "path", path: p.path, index };
       },
       { to: "path", path: p.path, index },
@@ -218,7 +214,7 @@ export default function Programs({ initialFilter = "all" }: Props) {
     if (draft.trim() === p.name) {
       // Ничего не изменилось: без запроса и без «Отменить» (как служба).
       setEditing(null);
-      say("list", NAME_UNCHANGED);
+      say(NAME_UNCHANGED);
       focusTo.current = { to: "rename", path: p.path };
       return;
     }
@@ -231,7 +227,7 @@ export default function Programs({ initialFilter = "all" }: Props) {
           applyReply(reply.programs);
           setEditing(null);
           lastOp.current = { kind: "one", path: p.path };
-          sayDecided("list", reply, "Название изменено");
+          sayDecided(reply, "Название изменено");
           return { to: "rename", path: p.path };
         } catch (e) {
           if (!alive.current) return null;
@@ -260,7 +256,7 @@ export default function Programs({ initialFilter = "all" }: Props) {
         setSelected(new Set());
         setBulkCategory("");
         lastOp.current = { kind: "bulk" };
-        sayDecided("list", reply, "");
+        sayDecided(reply, "");
         return { to: "selectAll" };
       },
       { to: "selectAll" },
@@ -277,20 +273,20 @@ export default function Programs({ initialFilter = "all" }: Props) {
         setSelected(new Set());
         setBulkCategory("");
         lastOp.current = { kind: "bulk" };
-        sayDecided("list", reply, "");
+        sayDecided(reply, "");
         return { to: "selectAll" };
       },
       { to: "selectAll" },
     );
 
-  const undo = (undoId: string, where: Feedback["where"]) =>
+  const undo = (undoId: string) =>
     void run(
       { kind: "undo" },
       async () => {
         const reply = await undoProgram(undoId);
         if (!alive.current) return null;
         applyReply(reply.programs);
-        say(where, reply.message);
+        say(reply.message);
         const op = lastOp.current;
         lastOp.current = null;
         return op?.kind === "one" ? { to: "path", path: op.path } : { to: "selectAll" };
@@ -342,19 +338,27 @@ export default function Programs({ initialFilter = "all" }: Props) {
   const ariaSort = (key: ProgramSort["key"]) =>
     sort.key === key ? (sort.dir === "asc" ? "ascending" : "descending") : "none";
 
-  /** Одно сообщение на экране: там, где было действие. */
-  const message = (where: Feedback["where"]) =>
-    feedback && feedback.where === where ? (
-      <UndoLine
-        key={feedback.seq}
-        className="programs-feedback"
-        text={feedback.text}
-        error={feedback.error}
-        undoMs={feedback.undo?.ms}
-        disabled={busy !== null}
-        onUndo={feedback.undo ? () => undo(feedback.undo!.undoId, where) : undefined}
-      />
-    ) : null;
+  /**
+   * Одно сообщение на экране и одно место для него (B-43): под заголовком, а при прокрутке длинного
+   * списка оно прилипает к верху окна, и «Отменить» с отсчётом видно, где бы ни было действие.
+   * Живая область есть всегда (PL-44): диктор читает сообщение, как только оно появилось.
+   */
+  const message = (
+    <div className="programs-message" role="status">
+      {feedback ? (
+        <UndoLine
+          key={feedback.seq}
+          live={false}
+          className="programs-feedback"
+          text={feedback.text}
+          error={feedback.error}
+          undoMs={feedback.undo?.ms}
+          disabled={busy !== null}
+          onUndo={feedback.undo ? () => undo(feedback.undo!.undoId) : undefined}
+        />
+      ) : null}
+    </div>
+  );
 
   const now = Date.now();
   const tz = localOffsetMin();
@@ -367,7 +371,7 @@ export default function Programs({ initialFilter = "all" }: Props) {
         </h2>
       </div>
 
-      {message("top")}
+      {message}
 
       {loadError ? (
         <div className="panel">
@@ -379,7 +383,7 @@ export default function Programs({ initialFilter = "all" }: Props) {
           </button>
         </div>
       ) : data === null ? (
-        <p className="panel-text">Загружаю данные</p>
+        <p className="panel-text">Загружаю данные…</p>
       ) : (
         <>
           {pending.length > 0 ? (
@@ -422,6 +426,8 @@ export default function Programs({ initialFilter = "all" }: Props) {
                       id="programs-search"
                       type="search"
                       className="field-input"
+                      autoComplete="off"
+                      spellCheck={false}
                       value={query}
                       onChange={(e) => setQuery(e.target.value)}
                     />
@@ -440,8 +446,6 @@ export default function Programs({ initialFilter = "all" }: Props) {
                     ))}
                   </div>
                 </div>
-
-                {message("list")}
                 {shown.length === 0 && hiddenView && query.trim() === "" ? (
                   <div className="programs-empty">
                     <p className="panel-text">Скрытых программ нет</p>

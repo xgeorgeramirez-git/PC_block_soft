@@ -171,7 +171,7 @@ export default function Today({ onOpenJournal, onOpenSettings, onOpenChildren, o
           </button>
         </div>
       ) : cards === null ? (
-        <p className="panel-text">Загружаю данные</p>
+        <p className="panel-text">Загружаю данные…</p>
       ) : (
         <>
           {violations !== null || pendingPrograms > 0 ? (
@@ -303,6 +303,8 @@ function ChildCard({ card, feedback, busy, onAdd, onReduce, onClear, onUndo, onP
                     min={1}
                     max={240}
                     inputMode="numeric"
+                    autoComplete="off"
+                    spellCheck={false}
                     className="child-custom-input"
                     value={customMin}
                     disabled={busy}
@@ -349,16 +351,20 @@ function ChildCard({ card, feedback, busy, onAdd, onReduce, onClear, onUndo, onP
       </div>
 
 
-      {feedback ? (
-        <UndoLine
-          key={feedback.seq}
-          className="child-feedback"
-          text={feedback.text}
-          error={feedback.error}
-          undoMs={feedback.undo?.ms}
-          onUndo={feedback.undo ? () => onUndo(feedback.undo!.extraId) : undefined}
-        />
-      ) : null}
+      {/* Живая область есть всегда (PL-44, B-38): диктор читает сообщение, как только оно появилось. */}
+      <div role="status">
+        {feedback ? (
+          <UndoLine
+            key={feedback.seq}
+            live={false}
+            className="child-feedback"
+            text={feedback.text}
+            error={feedback.error}
+            undoMs={feedback.undo?.ms}
+            onUndo={feedback.undo ? () => onUndo(feedback.undo!.extraId) : undefined}
+          />
+        ) : null}
+      </div>
     </article>
   );
 }

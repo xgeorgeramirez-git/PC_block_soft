@@ -108,9 +108,9 @@ describe("Программы: загрузка и ошибки", () => {
   it("пока данные идут: «Загружаю данные»", async () => {
     setup();
     expect(screen.getByRole("heading", { name: "Программы" })).toBeTruthy();
-    expect(screen.getByText("Загружаю данные")).toBeTruthy();
+    expect(screen.getByText("Загружаю данные…")).toBeTruthy();
     expect(await screen.findByRole("heading", { name: "Ждут решения: 2" })).toBeTruthy();
-    expect(screen.queryByText("Загружаю данные")).toBeNull();
+    expect(screen.queryByText("Загружаю данные…")).toBeNull();
   });
 
   it("нет связи: простыми словами и «Повторить»", async () => {
@@ -378,6 +378,27 @@ describe("Программы: ждут решения", () => {
     expect(screen.getByText("SuperGame: игра")).toBeTruthy();
   });
 
+  // Ловит (B-43): у «Отменить» нет отсчёта, отсчёт попал в название кнопки или в живую область
+  // (диктор зачитывал бы каждую секунду).
+  it("рядом с «Отменить» отсчёт секунд: 10 с, через 3 с - 7 с; кнопка называется «Отменить»", async () => {
+    const user = setup();
+    await screen.findByRole("heading", { name: "Ждут решения: 2" });
+    await user.click(within(pendingItem("SuperGame")).getByRole("button", { name: "Игра" }));
+    await screen.findByText("SuperGame: игра");
+    const left = () => document.querySelector(".programs-message .undo-left");
+    expect(left()?.textContent).toBe("10 с");
+    expect(left()?.getAttribute("aria-hidden")).toBe("true");
+    act(() => {
+      vi.advanceTimersByTime(3_000);
+    });
+    expect(left()?.textContent).toBe("7 с");
+    expect(screen.getByRole("button", { name: "Отменить" }).textContent).toBe("Отменить");
+    act(() => {
+      vi.advanceTimersByTime(7_100);
+    });
+    expect(left()).toBeNull();
+  });
+
   it("пока фокус на «Отменить», кнопка не пропадает; ушёл фокус после 10 с: пропала", async () => {
     const user = setup();
     await screen.findByRole("heading", { name: "Ждут решения: 2" });
@@ -486,6 +507,28 @@ describe("Программы: все программы", () => {
     await user.click(within(nameHead).getByRole("button"));
     expect(rowNames()).toEqual(["Учи.ру", "Minecraft Launcher", "Brave"]);
     expect(nameHead.getAttribute("aria-sort")).toBe("descending");
+  });
+
+  // Ловит (B-43, B-38): сообщение о действии в таблице стоит в другом месте, чем о решении сверху,
+  // или живой области нет до первого сообщения (диктор пропустит первое).
+  it("одно место сообщения: живая область есть до действия, сообщение строки - в ней же, над «Ждут решения»", async () => {
+    const user = setup();
+    await screen.findByRole("region", { name: "Все программы" });
+    const slots = document.querySelectorAll(".programs-message");
+    expect(slots).toHaveLength(1);
+    const slot = slots[0] as HTMLElement;
+    expect(slot.getAttribute("role")).toBe("status");
+    expect(slot.textContent).toBe("");
+    const pendingTitle = screen.getByRole("heading", { name: "Ждут решения: 2" });
+    expect(slot.compareDocumentPosition(pendingTitle) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    await user.selectOptions(within(rowOf("Brave")).getByRole("combobox", { name: "Категория для «Brave»" }), "study");
+    const msg = await screen.findByText("Brave: учёба");
+    expect(slot.contains(msg)).toBe(true);
+    expect(within(slot).getByRole("button", { name: "Отменить" })).toBeTruthy();
+    expect(document.querySelectorAll('.programs-page [role="status"]')).toHaveLength(1);
+    await user.click(within(pendingItem("SuperGame")).getByRole("button", { name: "Игра" }));
+    expect(slot.contains(await screen.findByText("SuperGame: игра"))).toBe(true);
+    expect(screen.queryByText("Brave: учёба")).toBeNull();
   });
 
   it("категория меняется выбором в строке: сообщение с «Отменить»", async () => {

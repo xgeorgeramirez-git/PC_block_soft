@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, within } from "@testing-library/react";
+import { act, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import Bonus from "./Bonus";
 import { installBackend, mockChild, uninstallBackend, type MockBackend } from "../__mocks__/backend";
@@ -141,5 +141,41 @@ describe("Вкладка «Бонусы»: ссылка на «Промокод�
     await user.click(within(link).getByRole("button", { name: "Открыть" }));
     expect(onOpenPromos).toHaveBeenCalledTimes(1);
     expect(mock.count("ListPromos")).toBe(0);
+  });
+});
+
+describe("Копилка: «Отменить» начисление (B-33)", () => {
+  // Ловит: копилка показывает отмену своим кодом - без живой области до сообщения, без отсчёта,
+  // без удержания кнопки, пока на ней фокус.
+  it("живая область есть до начисления; «Отменить» с отсчётом, держится в фокусе, отменяет", async () => {
+    const user = setup();
+    const card = await misha();
+    const live = within(card).getByRole("status");
+    expect(live.textContent).toBe("");
+    await user.type(within(card).getByLabelText("За что"), "за уборку");
+    await user.click(within(card).getByRole("button", { name: "Начислить" }));
+    expect(await within(live).findByText("Начислено 30 минут. Баланс 75 мин")).toBeTruthy();
+    expect(within(card).getAllByRole("status")).toHaveLength(1);
+    const undo = within(live).getByRole("button", { name: "Отменить" });
+    expect(live.querySelector(".undo-left")?.textContent).toBe("10 с");
+    act(() => undo.focus());
+    act(() => {
+      vi.advanceTimersByTime(12_000);
+    });
+    expect(within(live).getByRole("button", { name: "Отменить" })).toBe(undo);
+    expect(live.querySelector(".undo-left")).toBeNull();
+    act(() => undo.blur());
+    expect(within(live).queryByRole("button", { name: "Отменить" })).toBeNull();
+  });
+
+  it("«Отменить» в течение 10 с отменяет начисление", async () => {
+    const user = setup();
+    const card = await misha();
+    await user.type(within(card).getByLabelText("За что"), "за уборку");
+    await user.click(within(card).getByRole("button", { name: "Начислить" }));
+    await user.click(await within(card).findByRole("button", { name: "Отменить" }));
+    expect(await within(card).findByText("Начисление отменено")).toBeTruthy();
+    expect(mock.count("UndoBonus")).toBe(1);
+    await vi.waitFor(() => expect(balanceOf(card)).toBe("Баланс: 45 мин"));
   });
 });

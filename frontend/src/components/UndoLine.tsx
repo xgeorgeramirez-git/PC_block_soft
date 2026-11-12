@@ -21,7 +21,7 @@ interface Props {
 
 /**
  * Сообщение о результате действия с кнопкой «Отменить» на 10 с («Добавлено 30 минут»,
- * «SuperGame: игра»). Пока фокус внутри сообщения, кнопка не пропадает: до неё можно дойти
+ * «SuperGame: игра») и отсчётом секунд рядом с кнопкой. Пока фокус внутри сообщения, кнопка не пропадает: до неё можно дойти
  * клавишей Tab и нажать, не теряя фокус. Новое сообщение - новый ключ у родителя.
  */
 export default function UndoLine({
@@ -37,12 +37,26 @@ export default function UndoLine({
   const withUndo = Boolean(onUndo && undoMs && undoMs > 0);
   const [expired, setExpired] = useState(!withUndo);
   const [focused, setFocused] = useState(false);
+  /** Сколько целых секунд осталось у «Отменить» (B-43): видно, сколько ещё можно передумать. */
+  const [left, setLeft] = useState(withUndo ? Math.ceil((undoMs ?? 0) / 1000) : 0);
   const box = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!withUndo) return;
     const id = setTimeout(() => setExpired(true), undoMs);
-    return () => clearTimeout(id);
+    // Первый шаг - на остаток доли секунды, дальше ровно по секунде: «7 с» сменяется на «6 с», когда
+    // до конца осталось 6 с.
+    const ms = undoMs ?? 0;
+    let tick: ReturnType<typeof setInterval> | undefined;
+    const first = setTimeout(() => {
+      setLeft((n) => n - 1);
+      tick = setInterval(() => setLeft((n) => Math.max(0, n - 1)), 1000);
+    }, ms % 1000 || 1000);
+    return () => {
+      clearTimeout(id);
+      clearTimeout(first);
+      if (tick) clearInterval(tick);
+    };
   }, [withUndo, undoMs]);
 
   if (error) {
@@ -68,6 +82,10 @@ export default function UndoLine({
         <button type="button" className={undoClassName} disabled={disabled} onClick={() => onUndo?.()}>
           Отменить
         </button>
+      ) : null}
+      {/* Отсчёт только для глаз: диктор не зачитывает каждую секунду живой области. */}
+      {showUndo && !expired && left > 0 ? (
+        <span className="undo-left" aria-hidden="true">{`${left} с`}</span>
       ) : null}
     </div>
   );

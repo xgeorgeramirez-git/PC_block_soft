@@ -1891,6 +1891,29 @@ html:has(.shell-child) body {
   border-left-color: var(--status-danger);
 }
 
+/* Одно место сообщения «Программ» (B-43): прилипает к верху области прокрутки, поверх списка. */
+.programs-message {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+
+.programs-message .programs-feedback {
+  box-shadow: 0 2px 8px rgb(0 0 0 / 0.12);
+}
+
+/* Прилипшее сообщение не закрывает строку, к которой перешёл фокус. */
+.content:has(.programs-message:not(:empty)) {
+  scroll-padding-top: 4rem;
+}
+
+/* Отсчёт у «Отменить» (B-43): мелко и приглушённо, цифры одной ширины, строка не прыгает. */
+.undo-left {
+  color: var(--text-muted);
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+
 /* Легенда кнопок решения (B-39): видимый заголовок, строки мелко и приглушённо, в две колонки,
    когда хватает ширины. */
 .pending-legend-title {
@@ -2094,6 +2117,9 @@ html:has(.shell-child) body {
   width: 100%;
   border-collapse: collapse;
   table-layout: fixed;
+  /* B-38: длинный список вне экрана не рисуется, пока до него не прокрутили. */
+  content-visibility: auto;
+  contain-intrinsic-block-size: auto 480px;
 }
 
 /* Колонки «Отметка», «Категория», «За неделю», «Скрыть» — ровно по своему содержимому, всё
@@ -2293,6 +2319,13 @@ html:has(.shell-child) body {
   color: inherit;
   font: inherit;
   cursor: pointer;
+}
+
+/* Наведение (B-38): заголовок колонки темнеет и подчёркивается: видно, что по нему сортируют. */
+.sort-button:hover {
+  color: var(--text);
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 
 .sort-mark {
