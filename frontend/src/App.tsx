@@ -15,6 +15,7 @@ import ParentStats from "./screens/ParentStats";
 import Programs from "./screens/Programs";
 import ResetPassword from "./screens/ResetPassword";
 import Bonus from "./screens/Bonus";
+import Promos from "./screens/Promos";
 import Sites from "./screens/Sites";
 import Settings from "./screens/Settings";
 import Today from "./screens/Today";
@@ -190,7 +191,7 @@ function SimpleScreen({ mode }: { mode: "reset-password" | "uninstall-gate" | "m
   }
 }
 
-type Screen = "today" | "children" | "programs" | "sites" | "bonus" | "stats" | "journal" | "settings" | "whatsnew";
+type Screen = "today" | "children" | "programs" | "sites" | "bonus" | "promos" | "stats" | "journal" | "settings" | "whatsnew";
 
 /** Основные разделы меню; «Что нового» стоит отдельно внизу (ТЗ 8.3.2 п.2). */
 const MENU: { id: Screen; label: string }[] = [
@@ -199,6 +200,7 @@ const MENU: { id: Screen; label: string }[] = [
   { id: "programs", label: "Программы" },
   { id: "sites", label: "Сайты" },
   { id: "bonus", label: "Копилка" },
+  { id: "promos", label: "Промокоды" },
   { id: "stats", label: "Статистика" },
   { id: "journal", label: "Журнал" },
   { id: "settings", label: "Настройки" },
@@ -296,7 +298,8 @@ function ParentWindow({ initialScreen, onLoggedOut }: { initialScreen: Screen; o
               ) : null}
               {screen === "programs" ? <Programs key={programsFilter} initialFilter={programsFilter} /> : null}
               {screen === "sites" ? <Sites /> : null}
-              {screen === "bonus" ? <Bonus /> : null}
+              {screen === "bonus" ? <Bonus onOpenPromos={() => go("promos")} /> : null}
+              {screen === "promos" ? <Promos /> : null}
               {screen === "stats" ? <ParentStats key={childToOpen} initialChildId={childToOpen} /> : null}
               {screen === "journal" ? <Journal key={String(violationsOnly)} violationsOnly={violationsOnly} /> : null}
               {screen === "settings" ? <Settings onOpenChildren={() => go("children")} /> : null}

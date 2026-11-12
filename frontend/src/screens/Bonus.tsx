@@ -4,7 +4,6 @@ import BonusHistory from "../components/BonusHistory";
 import Dialog from "../components/Dialog";
 import GrantBonusForm from "../components/GrantBonusForm";
 import Notice from "../components/Notice";
-import PromoAdmin from "../components/PromoAdmin";
 import { autoBonusRule, autoBonusText, isAutoBonus } from "../lib/bonus";
 import { CallError, errorText } from "../lib/errors";
 import { formatEventTime, formatLimit, genitiveName } from "../lib/format";
@@ -31,9 +30,10 @@ type Confirm = { kind: "clear" | "reduce"; childId: number; name: string; balanc
 
 /**
  * Копилка (FR-22, сценарий 8.3.6): баланс каждого ребёнка, начисление, обнулить и убавить
- * (D-46), история. Вкладка «Бонусы»: автобонусы (R25, D-49) и промокоды (FR-35, R26, D-50).
+ * (D-46), история. Вкладка «Бонусы»: автобонусы (R25, D-49) и ссылка на раздел «Промокоды» (RM5-13):
+ * сами коды живут в одном месте, без дублей.
  */
-export default function Bonus() {
+export default function Bonus({ onOpenPromos }: { onOpenPromos?: () => void } = {}) {
   const [tab, setTab] = useState<Tab>("piggy");
   const [confirm, setConfirm] = useState<Confirm | null>(null);
   const [rate, setRate] = useState<number | null>(null);
@@ -224,7 +224,12 @@ export default function Bonus() {
               <AutoBonusList key={it.card.childId} name={it.card.name} entries={it.entries} />
             ))}
           </section>
-          <PromoAdmin />
+          <section className="panel promo-link" aria-label="Промокоды">
+            <p className="panel-text">Промокоды теперь в отдельном разделе «Промокоды»</p>
+            <button type="button" className="btn" onClick={onOpenPromos}>
+              Открыть
+            </button>
+          </section>
         </div>
       )}
 

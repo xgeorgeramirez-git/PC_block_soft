@@ -4,7 +4,7 @@ import userEvent from "@testing-library/user-event";
 import Bonus from "./Bonus";
 import { installBackend, mockChild, uninstallBackend, type MockBackend } from "../__mocks__/backend";
 
-// FR-22 (D-46: обнулить и убавить), вкладка «Бонусы» (R25, D-49), промокоды (FR-35, R26, D-50).
+// FR-22 (D-46: обнулить и убавить), вкладка «Бонусы» (R25, D-49) и ссылка на раздел «Промокоды» (RM5-13).
 
 let mock: MockBackend;
 const NOW = new Date(2026, 9, 23, 12, 0, 0);
@@ -124,46 +124,22 @@ describe("Вкладка «Бонусы» (R25, D-49)", () => {
   });
 });
 
-describe("Промокоды (FR-35, R26, D-50)", () => {
-  // Ловит: созданный код не попадает в «Действующие» или показан не заглавными (RM5-11).
-  it("создать промокод: появляется в «Действующих»", async () => {
-    const user = setup();
+describe("Вкладка «Бонусы»: ссылка на «Промокоды» (RM5-13)", () => {
+  // Ловит: форма промокодов осталась в «Копилке» вторым местом для кодов или кнопка никуда не ведёт.
+  it("нет поля «Код», есть «Открыть», клик ведёт в раздел «Промокоды»", async () => {
+    mock = installBackend({ sessionActive: true, children: [mockChild({ bonusBalance: 45 })] });
+    const user = userEvent.setup({ advanceTimers: (ms) => vi.advanceTimersByTime(ms) });
+    const onOpenPromos = vi.fn();
+    render(<Bonus onOpenPromos={onOpenPromos} />);
     await misha();
     await user.click(screen.getByRole("tab", { name: "Бонусы" }));
-    await user.type(screen.getByLabelText("Код"), "a1234");
-    const minutes = screen.getByLabelText("Минут");
-    await user.clear(minutes);
-    await user.type(minutes, "30");
-    await user.click(screen.getByRole("button", { name: "Создать промокод" }));
-    expect(await screen.findByText("Промокод «A1234» на 30 минут готов")).toBeTruthy();
-    const active = screen.getByRole("list", { name: "Действующие промокоды" });
-    expect(within(active).getByText("A1234")).toBeTruthy();
-    expect(within(active).getByText("30 мин")).toBeTruthy();
-    expect((screen.getByLabelText("Код") as HTMLInputElement).value).toBe("");
-  });
-
-  // Ловит: повтор кода (другой регистр) создаёт второй такой же код.
-  it("повтор кода — ошибка у поля «Код»", async () => {
-    const user = setup({ promos: [{ codeDisplay: "A1234", minutes: 15, createdAtMs: NOW.getTime() }] });
-    await misha();
-    await user.click(screen.getByRole("tab", { name: "Бонусы" }));
-    await user.type(screen.getByLabelText("Код"), " a1234 ");
-    await user.click(screen.getByRole("button", { name: "Создать промокод" }));
-    expect(await screen.findByText("Такой код уже есть, придумайте другой")).toBeTruthy();
-    expect(screen.getByLabelText("Код").getAttribute("aria-invalid")).toBe("true");
-  });
-
-  // Ловит: родитель не видит, кто и когда использовал код; старый код строчными не переведён в заглавные.
-  it("«Использованные»: когда и каким ребёнком", async () => {
-    const used = NOW.getTime() - 3600_000;
-    const user = setup({
-      promos: [{ codeDisplay: "pizza", minutes: 20, createdAtMs: NOW.getTime() - 86400_000, usedAtMs: used, usedByChild: 1 }],
-    });
-    await misha();
-    await user.click(screen.getByRole("tab", { name: "Бонусы" }));
-    const list = await screen.findByRole("list", { name: "Использованные промокоды" });
-    expect(within(list).getByText("PIZZA")).toBeTruthy();
-    expect(within(list).getByText(/Миша/)).toBeTruthy();
-    expect(within(screen.getByRole("region", { name: "Промокоды" })).getByText("Действующих кодов нет")).toBeTruthy();
+    const panel = screen.getByRole("tabpanel", { name: "Бонусы" });
+    expect(within(panel).queryByLabelText("Код")).toBeNull();
+    expect(within(panel).queryByRole("list", { name: "Действующие промокоды" })).toBeNull();
+    const link = within(panel).getByRole("region", { name: "Промокоды" });
+    expect(within(link).getByText("Промокоды теперь в отдельном разделе «Промокоды»")).toBeTruthy();
+    await user.click(within(link).getByRole("button", { name: "Открыть" }));
+    expect(onOpenPromos).toHaveBeenCalledTimes(1);
+    expect(mock.count("ListPromos")).toBe(0);
   });
 });

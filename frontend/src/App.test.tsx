@@ -227,7 +227,7 @@ describe("мастер и вход", () => {
 });
 
 describe("меню окна родителя", () => {
-  it("«Сегодня», «Дети», «Программы», «Сайты», «Копилка», «Статистика», «Журнал», «Настройки» и внизу «Что нового»", async () => {
+  it("«Сегодня», «Дети», «Программы», «Сайты», «Копилка», «Промокоды», «Статистика», «Журнал», «Настройки» и внизу «Что нового»", async () => {
     const user = setup();
     await login(user);
     const nav = screen.getByRole("navigation", { name: "Разделы" });
@@ -237,6 +237,7 @@ describe("меню окна родителя", () => {
       "Программы",
       "Сайты",
       "Копилка",
+      "Промокоды",
       "Статистика",
       "Журнал",
       "Настройки",
@@ -255,6 +256,19 @@ describe("меню окна родителя", () => {
     expect(await screen.findByRole("heading", { name: "Сайты" })).toBeTruthy();
     expect(item.getAttribute("aria-current")).toBe("page");
     expect(await screen.findByRole("tablist", { name: "Списки сайтов" })).toBeTruthy();
+  });
+
+  // Ловит: раздела «Промокоды» нет в меню или кнопка «Открыть» из «Копилки» никуда не ведёт (RM5-13).
+  it("«Промокоды» после «Копилки»; «Копилка» → «Бонусы» → «Открыть» ведёт туда же", async () => {
+    const user = setup();
+    await login(user);
+    const nav = screen.getByRole("navigation", { name: "Разделы" });
+    await user.click(within(nav).getByRole("button", { name: "Копилка" }));
+    await user.click(await screen.findByRole("tab", { name: "Бонусы" }));
+    await user.click(await screen.findByRole("button", { name: "Открыть" }));
+    expect(await screen.findByRole("heading", { name: "Промокоды", level: 2 })).toBeTruthy();
+    expect(within(nav).getByRole("button", { name: "Промокоды" }).getAttribute("aria-current")).toBe("page");
+    expect(await screen.findByRole("tablist", { name: "Промокоды" })).toBeTruthy();
   });
 
   it("каждый пункт открывает свой раздел", async () => {

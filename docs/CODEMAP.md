@@ -56,7 +56,6 @@
 - `src/components/Notice.tsx`
 - `src/components/PausePicker.tsx`
 - `src/components/PeriodTabs.tsx`
-- `src/components/PromoAdmin.tsx`
 - `src/components/PromoRedeem.tsx`
 - `src/components/RestSettings.tsx`
 - `src/components/SaveBar.tsx`
@@ -93,6 +92,7 @@
 - `src/screens/MyStats.tsx`
 - `src/screens/ParentStats.tsx`
 - `src/screens/Programs.tsx`
+- `src/screens/Promos.tsx`
 - `src/screens/ResetPassword.tsx`
 - `src/screens/Settings.tsx`
 - `src/screens/Sites.tsx`
