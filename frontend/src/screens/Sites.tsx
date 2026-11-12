@@ -3,7 +3,7 @@ import { addSite, listSites, removeSite, setAdultFilter } from "../api";
 import Notice from "../components/Notice";
 import UndoLine from "../components/UndoLine";
 import { errorField, errorText } from "../lib/errors";
-import { NOT_DOMAIN_TEXT, SITE_HINT_TEXT, SITE_LISTS, filterSites, sitesOf, sourceDisplay } from "../lib/sites";
+import { NOT_DOMAIN_TEXT, SITE_HINT_TEXT, SITE_LISTS, SITE_SCOPE_TEXT, filterSites, sitesOf, sourceDisplay } from "../lib/sites";
 import type { ListSitesReply, SiteKind } from "../types";
 
 const UNDO_MS = 10_000;
@@ -36,7 +36,12 @@ type FocusTo =
  * добавление и удаление с «Отменить». Домен разбирает и все тексты даёт служба: экран кладёт
  * списки из её ответа и ничего не считает сам (T8-1, T8-2).
  */
-export default function Sites() {
+interface Props {
+  /** «Открыть лимиты» у «Видео и соцсетей»: раздел «Дети», вкладка «Лимиты» (B-50). */
+  onOpenLimits?: () => void;
+}
+
+export default function Sites({ onOpenLimits }: Props = {}) {
   const [data, setData] = useState<ListSitesReply | null>(null);
   const [loadError, setLoadError] = useState("");
   const [busy, setBusyState] = useState<Busy | null>(null);
@@ -314,7 +319,18 @@ export default function Sites() {
             </div>
 
             <div id={PANEL_ID} className="sites-panel" role="tabpanel" aria-labelledby={`sites-tab-${current.kind}`}>
-              <p className="programs-lead">{current.lead}</p>
+              <p className="programs-lead">
+                {current.lead}
+                {current.kind === "video_social" && onOpenLimits ? (
+                  <>
+                    {" "}
+                    <button type="button" className="link" onClick={onOpenLimits}>
+                      Открыть лимиты
+                    </button>
+                  </>
+                ) : null}
+              </p>
+              <p className="field-hint sites-scope">{SITE_SCOPE_TEXT}</p>
               {current.kind === "blocked" ? (
                 <p className="sites-limit">{`Сайтов: ${items.length} из ${data.blockedMax}`}</p>
               ) : null}

@@ -51,7 +51,7 @@ const GuardCmdCloseBraveWindow = "closeBraveWindow"
 
 // Виды плашек о закрытых сайтах и браузерах (BlockedPlate.Kind, RM4-9).
 const (
-	BlockedSite      = "site"      // «Сайт X закрыт: он в списке запрещённых»
+	BlockedSite      = "site"      // «Сайт X закрыт: он в списке запрещённых. Если он нужен, попроси родителей»
 	BlockedAdult     = "adult"     // сайт из списка «18+» (R14)
 	BlockedVideoOver = "videoOver" // время на видео и соцсети закончилось (R6)
 	BlockedBrowser   = "browser"   // «Этот браузер запрещён. Пользуйся Brave» (R15)

@@ -10,6 +10,7 @@ import type { SiteDTO } from "../types";
 // Мок отвечает как служба (T8-7): удалённый домен действительно пропадает.
 
 let mock: MockBackend;
+let openLimits: ReturnType<typeof vi.fn>;
 
 // чт, 5 ноября 2026, 12:00 по местному времени окна.
 const NOW = new Date(2026, 10, 5, 12, 0, 0);
@@ -23,7 +24,8 @@ function setup(opts: MockOptions = {}) {
     ...opts,
   });
   const user = userEvent.setup({ advanceTimers: (ms) => vi.advanceTimersByTime(ms) });
-  render(<Sites />);
+  openLimits = vi.fn();
+  render(<Sites onOpenLimits={openLimits} />);
   return user;
 }
 
@@ -59,6 +61,7 @@ const checkbox = (name: string) =>
 const addCalls = () => mock.calls.filter((c) => c.command === "AddSite").map((c) => c.payload);
 /** Живая область сообщений списка: всегда в панели вкладки, меняется только её текст. */
 const listStatus = () => within(screen.getByRole("tabpanel")).getByRole("status");
+const SCOPE = "Каждый сайт действует вместе со всеми адресами внутри него: например, youtube.com вместе с m.youtube.com и music.youtube.com";
 const HINT = "Можно вставить адрес страницы целиком: программа возьмёт из него только сайт. Например: youtube.com";
 
 beforeEach(() => {
@@ -99,8 +102,11 @@ describe("Сайты: вид", () => {
     expect(panel.getAttribute("aria-labelledby")).toBe(tab("Запрещённые 1").id);
     expect(screen.getByText("Сайтов: 1 из 1000")).toBeTruthy();
     expect(
-      screen.getByText("Эти сайты закрываются в Brave у всех детей. Сайт закрывается вместе со всеми его поддоменами"),
+      screen.getByText("Эти сайты закрываются в Brave у всех детей"),
     ).toBeTruthy();
+    // B-50 (H2): без слова «поддомены», простыми словами с примером, под пояснением каждого списка.
+    expect(screen.getByText(SCOPE)).toBeTruthy();
+    expect(screen.queryByText(/поддомен/)).toBeNull();
     expect(domains("Запрещённые: сайты")).toEqual(["example.com"]);
 
     await user.click(tab("Учёба 1"));
@@ -116,8 +122,12 @@ describe("Сайты: вид", () => {
     await user.click(tab("Видео и соцсети 1"));
     expect(domains("Видео и соцсети: сайты")).toEqual(["youtube.com"]);
     expect(
-      screen.getByText("Время на этих сайтах идёт в лимит «Видео и соцсети» (раздел «Дети», вкладка «Лимиты») и в общее время"),
+      screen.getByText("Время на этих сайтах идёт в лимит «Видео и соцсети» и в общее время"),
     ).toBeTruthy();
+    expect(screen.getByText(SCOPE)).toBeTruthy();
+    // B-50 (H6): ссылка «Открыть лимиты» ведёт в «Дети» (вкладка «Лимиты» открывается первой).
+    await user.click(screen.getByRole("button", { name: "Открыть лимиты" }));
+    expect(openLimits).toHaveBeenCalledTimes(1);
   });
 
   it("стрелки, Home и End переключают вкладки и переводят фокус", async () => {

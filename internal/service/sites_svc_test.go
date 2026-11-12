@@ -278,7 +278,7 @@ func TestSiteTabClosedWithPlate(t *testing.T) {
 	if len(cmds) != 2 || cmds[0].Kind != ipc.GuardCmdCloseTab || cmds[0].Domain != "m.example.com" || cmds[1].Kind != ipc.GuardCmdBlocked {
 		t.Fatalf("команды %s, want closeTab{m.example.com}, затем плашка", jsonOf(t, cmds))
 	}
-	wantPlate := []ipc.BlockedPlate{{Kind: "site", Text: "Сайт example.com закрыт: он в списке запрещённых", ShowS: 10, Path: ""}}
+	wantPlate := []ipc.BlockedPlate{{Kind: "site", Text: "Сайт example.com закрыт: он в списке запрещённых. Если он нужен, попроси родителей", ShowS: 10, Path: ""}}
 	if got := platesOf(rep); jsonOf(t, got) != jsonOf(t, wantPlate) {
 		t.Errorf("плашка %s, want %s", jsonOf(t, got), jsonOf(t, wantPlate))
 	}

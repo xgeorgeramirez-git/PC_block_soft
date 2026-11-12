@@ -2412,6 +2412,11 @@ html:has(.shell-child) body {
   padding: var(--space-2) var(--space-3);
 }
 
+/* «Сайт вместе с адресами внутри него» под пояснением списка (8.3.5 п.2, B-50). */
+.sites-scope {
+  margin: 0 0 var(--space-3);
+}
+
 .sites-limit {
   margin-bottom: var(--space-3);
   color: var(--text-muted);
