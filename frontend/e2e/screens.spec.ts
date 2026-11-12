@@ -2420,6 +2420,39 @@ async function barsFit(page: Page, where: string) {
   expect(problems, `${where}: ${problems.join("; ")} | ${JSON.stringify(report)}`).toEqual([]);
 }
 
+/**
+ * Плитки «Итогов» (возврат 2 T5): значение и подпись каждой плитки целиком внутри её рамки (ничего не
+ * обрезано и не торчит), плитки внутри карточки «Итогов». Всё в одной строке ошибки.
+ */
+async function tilesFit(page: Page, where: string) {
+  const report = await page.getByRole("region", { name: "Итоги" }).evaluate((box) => {
+    const r = (el: Element) => {
+      const b = el.getBoundingClientRect();
+      return { l: b.left, r: b.right, t: b.top, b: b.bottom };
+    };
+    const card = r(box);
+    return [...box.querySelectorAll('.totals-tab[role="tab"]')].map((t) => {
+      const parts = [...t.querySelectorAll(".totals-tab-label, .totals-tab-value")].map((p) => ({
+        text: p.textContent ?? "",
+        box: r(p),
+        scroll: (p as HTMLElement).scrollWidth,
+        client: (p as HTMLElement).clientWidth,
+      }));
+      return { text: t.textContent ?? "", box: r(t), scroll: (t as HTMLElement).scrollWidth, client: (t as HTMLElement).clientWidth, parts, card };
+    });
+  });
+  const problems: string[] = [];
+  for (const t of report) {
+    if (t.scroll > t.client + 1) problems.push(`плитка «${t.text}»: содержимое шире рамки (${t.scroll} > ${t.client})`);
+    if (t.box.l < t.card.l - 0.5 || t.box.r > t.card.r + 0.5) problems.push(`плитка «${t.text}» вне карточки`);
+    for (const p of t.parts) {
+      if (p.scroll > p.client + 1) problems.push(`«${p.text}» обрезано (${p.scroll} > ${p.client})`);
+      if (p.box.l < t.box.l - 0.5 || p.box.r > t.box.r + 0.5 || p.box.b > t.box.b + 0.5) problems.push(`«${p.text}» выходит за плитку «${t.text}»`);
+    }
+  }
+  expect(problems, `${where}: ${problems.join("; ")} | ${JSON.stringify(report.map((t) => [t.text, t.box, t.parts]))}`).toEqual([]);
+}
+
 // s21 — статистика родителя за неделю G15 (S21): «Итоги», «По дням» 7 столбиков (среда пустая), «Программы»,
 // «Сайты», «Нарушения», «Копилка»; подпись «Статистика ведётся с»; светлая и тёмная тема.
 for (const scheme of ["light", "dark"] as const) {
@@ -2441,6 +2474,7 @@ for (const scheme of ["light", "dark"] as const) {
     await expect(page.getByRole("button", { name: "Очистить статистику" })).toBeVisible();
     expect((await chartOverflow(page)).scroll).toBeLessThanOrEqual((await chartOverflow(page)).client);
     await barsFit(page, `неделя, тема ${scheme}`);
+    await tilesFit(page, `неделя 960, тема ${scheme}`);
     await noHorizontalScroll(page);
     await wholePage(page);
     await page.screenshot({ path: `${SCREENS}/s21-parent-stats-week${scheme === "dark" ? "-dark" : ""}.png`, fullPage: true });
@@ -2496,6 +2530,7 @@ for (const [w, h, mode] of [
     await barHits(page).nth(30).hover();
     await barsFit(page, `месяц, последний столбик, ${w} x ${h}`);
     await page.mouse.move(1, 1);
+    await tilesFit(page, `месяц ${w} x ${h} (${mode})`);
     await noHorizontalScroll(page);
     if (w === 960) await page.screenshot({ path: `${SCREENS}/s21-parent-stats-month31.png`, fullPage: true });
   });
@@ -2519,6 +2554,7 @@ test("s21 статистика родителя: всё время 36 месяц
   expect(o.left + o.client, `график не прокручен к сегодняшнему месяцу: ${JSON.stringify(o)}`).toBeGreaterThanOrEqual(o.scroll - 1);
   await expect(barHits(page).last()).toBeInViewport();
   await barsFit(page, "всё время");
+  await tilesFit(page, "всё время 36 месяцев");
   await noHorizontalScroll(page);
   await page.screenshot({ path: `${SCREENS}/s21-parent-stats-all36.png`, fullPage: true });
 });
@@ -2553,11 +2589,15 @@ test("s21 статистика родителя: подсказка столби
 
 // s22 — «Моя статистика» за неделю G15 (S22): те же разделы о себе, без выбора ребёнка, очистки и полей
 // (кроме промокода); окно 800 x 640 не прокручивается целиком, шапка на месте (PL-25).
-for (const scheme of ["light", "dark"] as const) {
-  test(`s22 моя статистика: неделя G15, тема ${scheme}`, async ({ page }) => {
+for (const [scheme, w, h] of [
+  ["light", 800, 640],
+  ["dark", 800, 640],
+  ["light", 640, 520],
+] as const) {
+  test(`s22 моя статистика: неделя G15, тема ${scheme}, окно ${w} x ${h}`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: scheme });
     await page.clock.setFixedTime(G15_NOW);
-    await page.setViewportSize({ width: 800, height: 640 });
+    await page.setViewportSize({ width: w, height: h });
     await mockProgram(page, { mode: "mystats", children: [g15()], myChildId: 1, events: g15Events() });
     await page.goto("/");
     await choosePeriod(page, "Неделя", "Использовано за неделю");
@@ -2572,8 +2612,10 @@ for (const scheme of ["light", "dark"] as const) {
     const head = await page.locator("header.topbar").evaluate((el) => el.getBoundingClientRect().bottom);
     expect(await page.locator("main.content").evaluate((el) => el.getBoundingClientRect().top)).toBeGreaterThanOrEqual(head - 0.5);
     expect(await page.evaluate(() => document.scrollingElement?.scrollTop ?? 0)).toBe(0);
-    await barsFit(page, `окно ребёнка, тема ${scheme}`);
+    await barsFit(page, `окно ребёнка ${w} x ${h}, тема ${scheme}`);
+    await tilesFit(page, `окно ребёнка ${w} x ${h}, тема ${scheme}`);
     await noHorizontalScroll(page);
+    if (w !== 800) return;
     await wholePage(page);
     await inFrame(page, page.getByRole("button", { name: "Настройки для родителя" }));
     await page.screenshot({ path: `${SCREENS}/s22-my-stats-week${scheme === "dark" ? "-dark" : ""}.png`, fullPage: true });
@@ -2588,11 +2630,14 @@ test("s48 очистка статистики: подтверждение и р�
   await openParentStats(page, [g15(), child({ childId: 2, sid: "S-1-5-21-111-222-333-1002", name: "Даша", usedS: 600 })]);
   await page.getByRole("group", { name: "Ребёнок" }).getByRole("button", { name: "Миша" }).click();
   await choosePeriod(page, "Неделя", "Использовано за неделю");
-  await page.getByRole("button", { name: "Очистить статистику" }).click();
+  // Окно открыто с клавиатуры: рамка фокуса (:focus-visible) на «Отмена» видна на снимке.
+  await page.getByRole("button", { name: "Очистить статистику" }).focus();
+  await page.keyboard.press("Enter");
   const dialog = page.getByRole("dialog", { name: "Удалить всю статистику Миши?" });
   await expect(dialog).toBeVisible();
   await expect(dialog.getByText("Остаток на сегодня и копилка не изменятся. Это нельзя отменить.", { exact: true })).toBeVisible();
   await expect(dialog.getByRole("button", { name: "Отмена" })).toBeFocused();
+  expect(await dialog.getByRole("button", { name: "Отмена" }).evaluate((el) => el.matches(":focus-visible")), "рамка фокуса на «Отмена» не видна").toBe(true);
   await noHorizontalScroll(page);
   await page.screenshot({ path: `${SCREENS}/s48-clear-stats-dialog.png` });
   await dialog.getByRole("button", { name: "Удалить" }).click();
