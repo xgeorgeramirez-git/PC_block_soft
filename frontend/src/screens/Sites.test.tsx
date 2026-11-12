@@ -10,7 +10,7 @@ import type { SiteDTO } from "../types";
 // Мок отвечает как служба (T8-7): удалённый домен действительно пропадает.
 
 let mock: MockBackend;
-let openLimits: ReturnType<typeof vi.fn>;
+let openLimits: ReturnType<typeof vi.fn<() => void>>;
 
 // чт, 5 ноября 2026, 12:00 по местному времени окна.
 const NOW = new Date(2026, 10, 5, 12, 0, 0);
@@ -24,7 +24,7 @@ function setup(opts: MockOptions = {}) {
     ...opts,
   });
   const user = userEvent.setup({ advanceTimers: (ms) => vi.advanceTimersByTime(ms) });
-  openLimits = vi.fn();
+  openLimits = vi.fn<() => void>();
   render(<Sites onOpenLimits={openLimits} />);
   return user;
 }
