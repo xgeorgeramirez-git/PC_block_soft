@@ -1118,7 +1118,10 @@ for (const [w, h] of [
 
 test("s06 бонусы ребёнка и промокод", async ({ page }) => {
   await tallWindow(page, 1000);
-  const now = Date.now();
+  // Полдень: автобонус (10 ч назад) - сегодня, он виден в «Копилке» периода «Сегодня» (по умолчанию).
+  const nowDate = new Date(2026, 9, 19, 12, 0, 0);
+  await page.clock.setFixedTime(nowDate);
+  const now = nowDate.getTime();
   await mockProgram(page, {
     mode: "mystats",
     children: [child({ bonusBalance: 45, bonusLedger: ledger(now) })],
@@ -1128,7 +1131,12 @@ test("s06 бонусы ребёнка и промокод", async ({ page }) => 
   await page.goto("/");
   const box = page.getByRole("region", { name: "Бонусы" });
   await expect(box.getByText("Копилка: 45 мин")).toBeVisible();
-  await expect(box.getByText("+15 мин за неизрасходованное время прошлого дня")).toBeVisible();
+  // История копилки - одно место: раздел «Копилка» панели периода (M5), в «Бонусах» её нет.
+  await expect(box.getByRole("list")).toHaveCount(0);
+  await expect(page.getByRole("tab", { name: "Сегодня", exact: true })).toHaveAttribute("aria-selected", "true");
+  const piggy = page.getByRole("tabpanel", { name: "Сегодня" }).getByRole("region", { name: "Копилка" });
+  await expect(piggy.getByText("+15 мин за неизрасходованное время прошлого дня")).toBeVisible();
+  await expect(page.getByText("+15 мин за неизрасходованное время прошлого дня")).toHaveCount(1);
   await box.getByRole("textbox", { name: "Промокод" }).fill("a1234");
   await box.getByRole("button", { name: "Ввести промокод" }).click();
   await expect(box.getByText("Добавлено 30 минут")).toBeVisible();
