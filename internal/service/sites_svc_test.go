@@ -278,7 +278,7 @@ func TestSiteTabClosedWithPlate(t *testing.T) {
 	if len(cmds) != 2 || cmds[0].Kind != ipc.GuardCmdCloseTab || cmds[0].Domain != "m.example.com" || cmds[1].Kind != ipc.GuardCmdBlocked {
 		t.Fatalf("команды %s, want closeTab{m.example.com}, затем плашка", jsonOf(t, cmds))
 	}
-	wantPlate := []ipc.BlockedPlate{{Kind: "site", Text: "Сайт example.com закрыт: он в списке запрещённых", ShowS: 10, Path: ""}}
+	wantPlate := []ipc.BlockedPlate{{Kind: "site", Text: "Сайт example.com закрыт: он в списке запрещённых. Если он нужен, попроси родителей", ShowS: 10, Path: ""}}
 	if got := platesOf(rep); jsonOf(t, got) != jsonOf(t, wantPlate) {
 		t.Errorf("плашка %s, want %s", jsonOf(t, got), jsonOf(t, wantPlate))
 	}
@@ -390,7 +390,7 @@ func TestSiteStudyOnly(t *testing.T) {
 func TestBraveWindowWithoutAddress(t *testing.T) {
 	h := siteHarness(t, withRules(0, -1, "study_only"))
 	unread := braveSample("")
-	unread.DomainUnread = true
+	unread.DomainUnread, unread.DomainNoAddress = true, true
 	for i := 1; i <= 5; i++ {
 		if c := closes(h.step(unread)); len(c) != 0 {
 			t.Fatalf("шаг %d: закрытия %s, want нет до 5 с", i, jsonOf(t, c))
@@ -555,6 +555,52 @@ func TestSiteGuardAndWatchConcurrent(t *testing.T) {
 		h.do(guardPeer(), "", ipc.CmdGuardPoll, ipc.GuardPollRequest{Sample: braveSample("news.example")})
 	}
 	<-done
+}
+
+// Ловит (B-55, PL-46): 5 с отсчитываются по «адреса нет», а не по любому сбою чтения. 4 с сбоев
+// UIA, затем «адреса нет» — окно не закрывается на первом «нет адреса», только через 5 с «нет»
+// подряд; сбой посреди «нет» начинает отсчёт заново; одни сбои окно не закрывают никогда, но
+// запись «не удалось прочитать адрес» в журнал родителя дают (адрес и правда не читается).
+func TestBraveCloseCountsNoAddressOnly(t *testing.T) {
+	h := siteHarness(t, withRules(0, -1, "study_only"))
+	failed := braveSample("")
+	failed.DomainUnread = true
+	none := braveSample("")
+	none.DomainUnread, none.DomainNoAddress = true, true
+	for i := 1; i <= 5; i++ {
+		if c := closes(h.step(failed)); len(c) != 0 {
+			t.Fatalf("сбой %d: закрытия %s, want нет", i, jsonOf(t, c))
+		}
+	}
+	for i := 1; i <= 5; i++ {
+		if c := closes(h.step(none)); len(c) != 0 {
+			t.Fatalf("после 4 с сбоев «нет адреса» %d: закрытия %s, want нет до 5 с «нет» подряд", i, jsonOf(t, c))
+		}
+	}
+	if c := closes(h.step(none)); len(c) != 1 {
+		t.Fatalf("5 с «нет адреса» подряд: закрытий %d, want 1", len(c))
+	}
+	h.step(braveSample("school.example"))
+	h.run(3, none)
+	h.step(failed)
+	for i := 1; i <= 5; i++ {
+		if c := closes(h.step(none)); len(c) != 0 {
+			t.Fatalf("сбой посреди «нет адреса», шаг %d: закрытия %s, want нет (отсчёт заново)", i, jsonOf(t, c))
+		}
+	}
+	if c := closes(h.step(none)); len(c) != 1 {
+		t.Errorf("после сбоя 5 с «нет адреса»: закрытий %d, want 1", len(c))
+	}
+
+	h2 := siteHarness(t, withRules(0, -1, "study_only"))
+	for i := 1; i <= 20; i++ {
+		if c := closes(h2.step(failed)); len(c) != 0 {
+			t.Fatalf("только сбои, шаг %d: закрытия %s, want нет", i, jsonOf(t, c))
+		}
+	}
+	if got := h2.eventTexts("site_unread"); jsonOf(t, got) != jsonOf(t, []string{"Миша: не удалось прочитать адрес сайта в Brave"}) {
+		t.Errorf("только сбои: журнал родителя %q, want одна запись", got)
+	}
 }
 
 // Ловит (ревью M4 F1-5): «не удалось прочитать адрес сайта в Brave» в журнале родителя после

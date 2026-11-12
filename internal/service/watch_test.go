@@ -347,19 +347,22 @@ func TestWatchUnknownIsUntouched(t *testing.T) {
 }
 
 // Ловит (R1, R11, R18, RM3-10): наблюдатель закрывает программы у ребёнка-администратора, во время
-// паузы, в безопасном режиме (правила не прочитаны) или пока список программ не готов.
+// паузы, в безопасном режиме (правила не прочитаны) или пока список программ не готов. В паузе
+// сеанс опрашивается только ради свойств файлов для учёта (B-30), у администратора и в безопасном
+// режиме — не опрашивается.
 func TestWatchHoldsOff(t *testing.T) {
 	cases := []struct {
-		name  string
-		setup func(h *harness)
-		opts  []hopt
+		name   string
+		setup  func(h *harness)
+		opts   []hopt
+		listed int
 	}{
-		{"администратор", nil, []hopt{func(h *harness) { h.admins.set(childSID, true) }}},
-		{"безопасный режим", nil, []hopt{func(h *harness) { h.store.failLimits = true }}},
+		{"администратор", nil, []hopt{func(h *harness) { h.admins.set(childSID, true) }}, 0},
+		{"безопасный режим", nil, []hopt{func(h *harness) { h.store.failLimits = true }}, 0},
 		{"пауза", func(h *harness) {
 			tok := h.login(adminPeer())
 			h.ok(adminPeer(), tok, ipc.CmdPause, ipc.PauseRequest{ChildID: h.childID(childSID), Preset: ipc.PauseHour1}, nil)
-		}, nil},
+		}, nil, 1},
 	}
 	for _, k := range cases {
 		t.Run(k.name, func(t *testing.T) {
@@ -375,8 +378,8 @@ func TestWatchHoldsOff(t *testing.T) {
 					t.Errorf("закрыт %s", p)
 				}
 			}
-			if n := w.listCount(); n != 0 {
-				t.Errorf("сеанс опрошен %d раз, want 0", n)
+			if n := w.listCount(); n != k.listed {
+				t.Errorf("сеанс опрошен %d раз, want %d", n, k.listed)
 			}
 		})
 	}

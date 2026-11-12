@@ -97,6 +97,32 @@ func TestNormalizeInput(t *testing.T) {
 	}
 }
 
+// B-51: полноширинные знаки U+FF01…U+FF5E — как обычные ASCII U+0021…U+007E, точки U+3002,
+// U+FF0E и U+FF61 — «.» (часть UTS46, достижимая на стандартной библиотеке; README).
+func TestFullwidthDomain(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"\uff59\uff4f\uff55\uff54\uff55\uff42\uff45\uff0e\uff43\uff4f\uff4d", "youtube.com"}, // ｙｏｕｔｕｂｅ．ｃｏｍ
+		{"\uff39\uff2f\uff35\uff34\uff35\uff22\uff25.com", "youtube.com"},                     // ＹＯＵＴＵＢＥ.com
+		{"youtube\u3002com", "youtube.com"},                                                   // идеографическая точка
+		{"youtube\uff61com", "youtube.com"},                                                   // полуширинная идеографическая точка
+		{"\uff48\uff54\uff54\uff50\uff53\uff1a\uff0f\uff0fvk.com\uff0fid1", "vk.com"},         // ｈｔｔｐｓ：／／vk.com／id1
+		{"\uff57\uff57\uff57\uff0eexample\uff0ecom", "example.com"},                           // ｗｗｗ．example．com
+		{"\uff11\uff19\uff12.168.0.1", "192.168.0.1"},                                         // полноширинные цифры
+		{"\u043f\u0440\u0438\u043c\u0435\u0440\u3002\u0440\u0444", "xn--e1afmkfd.xn--p1ai"},   // пример。рф
+		{"\uff41\u3000\uff42.ru", ""},                                                         // идеографический пробел — поисковая фраза
+	}
+	for _, c := range cases {
+		if got := FromOmnibox(c.in); got != c.want {
+			t.Errorf("FromOmnibox(%q) = %q, want %q", c.in, got, c.want)
+		}
+		if c.want != "" {
+			if got, err := NormalizeInput(c.in); err != nil || got != c.want {
+				t.Errorf("NormalizeInput(%q) = %q, %v; want %q", c.in, got, err, c.want)
+			}
+		}
+	}
+}
+
 // Метка, которая после кодирования длиннее 63 знаков: 60 кириллических букв.
 func TestNormalizeInputEncodedLength(t *testing.T) {
 	if _, err := NormalizeInput(strings.Repeat("я", 60) + ".рф"); !errors.Is(err, ErrNotDomain) {

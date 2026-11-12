@@ -105,9 +105,54 @@ func (s *Store) AppendBonus(childID int64, deltaMin int, reason string) (int, er
 		return 0, fmt.Errorf("storage: копилка: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
+	after, err := appendBonusTx(tx, childID, deltaMin, reason)
+	if err != nil {
+		return 0, err
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, fmt.Errorf("storage: копилка: %w", err)
+	}
+	return after, nil
+}
 
+// GrantDayBonus — автобонус за день одной транзакцией (R25 «один раз»): начисление deltaMin > 0 с
+// причиной reason в копилку (потолок 600, как AppendBonus) и строка дня day с bonus_granted = 1
+// (остальные поля как есть). Возвращает баланс после. Отказ или сбой — ни начисления, ни отметки:
+// следующий запуск рассмотрит день заново и начислит ровно один раз.
+func (s *Store) GrantDayBonus(childID int64, day core.DayState, deltaMin int, reason string) (int, error) {
+	if err := checkDay(day.Day); err != nil {
+		return 0, err
+	}
+	if reason == "" {
+		return 0, fmt.Errorf("%w: у начисления копилки нет причины", ErrInvalid)
+	}
+	if deltaMin <= 0 {
+		return 0, fmt.Errorf("%w: автобонус должен быть больше нуля", ErrInvalid)
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return 0, fmt.Errorf("storage: автобонус: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	after, err := appendBonusTx(tx, childID, deltaMin, reason)
+	if err != nil {
+		return 0, err
+	}
+	day.BonusGranted = true
+	if err := saveDayState(tx, childID, day); err != nil {
+		return 0, fmt.Errorf("storage: автобонус: отметить день: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, fmt.Errorf("storage: автобонус: %w", err)
+	}
+	return after, nil
+}
+
+// appendBonusTx — вставка в копилку внутри tx с проверкой баланса (0…600); причина и ненулевое
+// изменение уже проверены.
+func appendBonusTx(tx *sql.Tx, childID int64, deltaMin int, reason string) (int, error) {
 	var cur int
-	err = tx.QueryRow(`SELECT balance_after FROM bonus_ledger WHERE child_id = ?
+	err := tx.QueryRow(`SELECT balance_after FROM bonus_ledger WHERE child_id = ?
 		ORDER BY id DESC LIMIT 1`, childID).Scan(&cur)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return 0, fmt.Errorf("storage: копилка: %w", err)
@@ -121,9 +166,6 @@ func (s *Store) AppendBonus(childID int64, deltaMin int, reason string) (int, er
 	}
 	if _, err := tx.Exec(`INSERT INTO bonus_ledger (child_id, at, delta_min, reason, balance_after)
 		VALUES (?, ?, ?, ?, ?)`, childID, timeNow().UnixMilli(), deltaMin, reason, after); err != nil {
-		return 0, fmt.Errorf("storage: копилка: %w", err)
-	}
-	if err := tx.Commit(); err != nil {
 		return 0, fmt.Errorf("storage: копилка: %w", err)
 	}
 	return after, nil

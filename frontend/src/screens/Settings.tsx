@@ -127,6 +127,8 @@ function BonusRateSection() {
           min={0}
           max={600}
           inputMode="numeric"
+          autoComplete="off"
+          spellCheck={false}
           className="child-custom-input"
           value={value}
           disabled={minutes === null || busy}
@@ -427,7 +429,7 @@ function ChildrenSection({ list, accounts, loadError, onReload, onChanged }: Chi
           </button>
         </div>
       ) : list === null ? (
-        <p className="panel-text">Загружаю данные</p>
+        <p className="panel-text">Загружаю данные…</p>
       ) : (
         <>
           {message ? <Notice tone="ok">{message}</Notice> : null}

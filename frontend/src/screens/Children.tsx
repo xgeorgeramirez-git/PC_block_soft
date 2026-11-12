@@ -54,7 +54,7 @@ export default function Children({ onOpenSettings, onOpenPrograms }: Props) {
     );
   }
   if (children === null) {
-    return <p className="panel-text">Загружаю данные</p>;
+    return <p className="panel-text">Загружаю данные…</p>;
   }
   if (children.length === 0) {
     return (

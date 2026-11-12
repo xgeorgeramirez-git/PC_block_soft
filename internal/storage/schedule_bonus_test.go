@@ -148,3 +148,61 @@ func TestSaveLoadDayStatePauseUntil(t *testing.T) {
 		t.Fatalf("после снятия паузы PauseUntilMs = %v, want nil", *got.PauseUntilMs)
 	}
 }
+
+// Ловит (R25 «один раз», ревью M5): автобонус и отметка bonus_granted строки дня пишутся двумя
+// записями — сбой между ними оставляет начисление без отметки, и следующий запуск начисляет снова;
+// отметка теряет поля строки; отказ по потолку или причине всё же пишет строку дня.
+func TestGrantDayBonusAtomic(t *testing.T) {
+	s := openTemp(t)
+	id := mustChild(t, s, "S-1-5-21-7", "Миша")
+	last := int64(1_792_418_460_000)
+	day := core.DayState{Day: "2026-11-24", TotalS: 2400, GamesS: 600, ExtraMin: 10, NoForbidden: true, LastMinuteEndMs: &last}
+
+	bal, err := s.GrantDayBonus(id, day, 40, "Бонус за свободное время: 40 мин")
+	if err != nil || bal != 40 {
+		t.Fatalf("GrantDayBonus = %d, %v; want 40", bal, err)
+	}
+	want := day
+	want.BonusGranted = true
+	if got, err := s.LoadDayState(id, "2026-11-24"); err != nil || !reflect.DeepEqual(got, want) {
+		t.Errorf("строка дня = %+v, %v; want %+v (помечена, поля прежние)", got, err, want)
+	}
+	if list, _ := s.ListBonus(id); len(list) != 1 || list[0].DeltaMin != 40 || list[0].Reason != "Бонус за свободное время: 40 мин" || list[0].BalanceAfter != 40 {
+		t.Errorf("копилка = %+v; want одна запись +40", list)
+	}
+
+	// Отказы до записи: ни начисления, ни строки дня.
+	other := core.DayState{Day: "2026-11-25", TotalS: 60}
+	for _, tc := range []struct {
+		name   string
+		day    core.DayState
+		delta  int
+		reason string
+	}{
+		{"выше потолка", other, 561, "Бонус"},
+		{"без причины", other, 5, ""},
+		{"ноль", other, 0, "Бонус"},
+		{"не дата", core.DayState{Day: "25.11.2026"}, 5, "Бонус"},
+	} {
+		if _, err := s.GrantDayBonus(id, tc.day, tc.delta, tc.reason); !errors.Is(err, ErrInvalid) {
+			t.Errorf("%s: %v, want ErrInvalid", tc.name, err)
+		}
+	}
+	if n := countWhere(t, s, `SELECT count(*) FROM day_state WHERE child_id = ? AND day = '2026-11-25'`, id); n != 0 {
+		t.Errorf("после отказов строк среды %d, want 0", n)
+	}
+
+	// Сбой записи строки дня после вставки в копилку: откат обоих.
+	if _, err := s.db.Exec(`CREATE TRIGGER fail_day BEFORE INSERT ON day_state BEGIN SELECT RAISE(ABORT, 'диск'); END`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.GrantDayBonus(id, other, 5, "Бонус за свободное время: 5 мин"); err == nil {
+		t.Fatal("GrantDayBonus при сбое строки дня прошёл")
+	}
+	if bal, _ := s.GetBonusBalance(id); bal != 40 {
+		t.Errorf("после сбоя баланс %d, want 40 (начисление откатилось)", bal)
+	}
+	if list, _ := s.ListBonus(id); len(list) != 1 {
+		t.Errorf("после сбоя записей копилки %d, want 1", len(list))
+	}
+}

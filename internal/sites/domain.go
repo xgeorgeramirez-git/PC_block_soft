@@ -24,14 +24,14 @@ var nonWebSchemes = map[string]bool{
 }
 
 // FromOmnibox — домен из текста поля адреса Brave (RM4-1, RM4-4) или «». Только хост в нижнем
-// регистре: без схемы, пути, запроса, «#», порта, логина «user:pw@», начального «www.» (если после
+// регистре (полноширинные буквы и точки — как обычные, foldWidth): без схемы, пути, запроса, «#», порта, логина «user:pw@», начального «www.» (если после
 // него остаётся точка) и точки в конце; IDN — в punycode по меткам. Префикс «view-source:»
 // снимается, решает остаток. Служебные страницы (brave://, chrome://, about:, file:), схемы, кроме
 // http и https, поисковая фраза (пробел внутри или нет точки: «котики видео», «localhost»), IPv6
 // в скобках, метка длиннее 63 или домен длиннее 253 знаков после кодирования и всё, что не похоже
 // на имя хоста, — «» (PL-9: не знаю — ничего не утверждать). IPv4 — как есть.
 func FromOmnibox(text string) string {
-	s := strings.TrimSpace(text)
+	s := strings.TrimSpace(foldWidth(text))
 	for {
 		low := strings.ToLower(s)
 		if !strings.HasPrefix(low, "view-source:") {
@@ -81,6 +81,21 @@ func FromOmnibox(text string) string {
 		return ""
 	}
 	return encodeHost(s)
+}
+
+// foldWidth — полноширинные знаки U+FF01…U+FF5E → ASCII U+0021…U+007E, точки U+3002, U+FF0E
+// и U+FF61 → «.» (B-51; RFC 3490 3.1 и часть сопоставлений UTS46). Полный UTS46 на стандартной
+// библиотеке недостижим (README, «Отклонения от ТЗ»): прочие совместимые знаки остаются как есть.
+func foldWidth(s string) string {
+	return strings.Map(func(r rune) rune {
+		switch {
+		case r >= 0xFF01 && r <= 0xFF5E:
+			return r - 0xFF01 + 0x21
+		case r == 0x3002 || r == 0xFF61:
+			return '.'
+		}
+		return r
+	}, s)
 }
 
 // encodeHost — хост в нижнем регистре → ASCII по меткам или «», если это не имя хоста.

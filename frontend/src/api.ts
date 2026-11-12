@@ -19,6 +19,7 @@ import type {
   GetTodayReply,
   HelloReply,
   JournalEntry,
+  ListEventsReply,
   ListEventsRequest,
   LoginDenied,
   LoginReply,
@@ -47,7 +48,11 @@ import type {
   UndoBonusReply,
   SetNoForbiddenReply,
   BonusChangeReply,
+  ClearReply,
   CreatePromoReply,
+  GeneratePromosRequest,
+  GeneratePromosReply,
+  ClearPromoHistoryReply,
   ListPromosReply,
   RedeemPromoReply,
   OpenLogsReply,
@@ -62,8 +67,10 @@ import type {
   UndoProgramReply,
   WindowScreen,
   AddSiteReply,
+  AddSitesReply,
   ListSitesReply,
   RemoveSiteReply,
+  RemoveSitesReply,
   SetAdultFilterReply,
   SetupSites,
   SiteKind,
@@ -269,15 +276,25 @@ export function setDiag(verbose: boolean): Promise<DiagReply> {
   return call("SetDiag", { verbose });
 }
 
-export async function listEvents(req: Partial<ListEventsRequest> = {}): Promise<JournalEntry[]> {
+/** Страница журнала (FR-24, RM5-5): ребёнок, период, группа «Что», курсор «Показать ещё»; more -
+ *  есть записи старше последней. */
+export async function listEventsPage(req: Partial<ListEventsRequest> = {}): Promise<ListEventsReply> {
   const body: ListEventsRequest = {
     childId: req.childId ?? 0,
     fromMs: req.fromMs ?? 0,
     toMs: req.toMs ?? 0,
+    group: req.group ?? "",
+    beforeAtMs: req.beforeAtMs ?? 0,
+    beforeId: req.beforeId ?? 0,
     limit: req.limit ?? 0,
   };
-  const r = await call<object, { events?: JournalEntry[] | null }>("ListEvents", body);
-  return r.events ?? [];
+  const r = await call<object, { events?: JournalEntry[] | null; more?: boolean }>("ListEvents", body);
+  return { events: r.events ?? [], more: r.more ?? false };
+}
+
+/** Записи журнала с фильтром - как listEventsPage, без признака «Показать ещё». */
+export async function listEvents(req: Partial<ListEventsRequest> = {}): Promise<JournalEntry[]> {
+  return (await listEventsPage(req)).events;
 }
 
 export async function changePassword(oldPassword: string, newPassword: string): Promise<void> {
@@ -299,7 +316,8 @@ export async function myToday(period: StatsPeriod = "today"): Promise<MyTodayRep
 }
 
 /**
- * Пустые списки приходят как null, у старой службы нет итогов, периода и времени программ: приводим к [] и 0.
+ * Пустые списки приходят как null, у старой службы нет итогов, периода, времени программ, столбиков,
+ * нарушений и копилки за период: приводим к [], 0 и "".
  * Служба без периодов отвечает за сегодня: «Использовано» тогда берётся из статуса.
  */
 function myTodayOf(r: Partial<MyTodayReply>): MyTodayReply {
@@ -318,6 +336,12 @@ function myTodayOf(r: Partial<MyTodayReply>): MyTodayReply {
     extraMin: r.extraMin ?? 0,
     bonusSpentMin: r.bonusSpentMin ?? 0,
     programs: r.programs ?? [],
+    bars: r.bars ?? [],
+    barsBy: r.barsBy ?? "day",
+    violations: r.violations ?? [],
+    bonus: r.bonus ?? [],
+    statsSinceDay: r.statsSinceDay ?? "",
+    statsSinceText: r.statsSinceText ?? "",
   };
 }
 
@@ -414,6 +438,16 @@ export function clearBonus(childId: number): Promise<BonusChangeReply> {
   return call("ClearBonus", { childId });
 }
 
+/** «Очистить статистику» ребёнка (FR-38): учёт лимита на сегодня не меняется. */
+export function clearStats(childId: number): Promise<ClearReply> {
+  return call("ClearStats", { childId });
+}
+
+/** «Очистить журнал» ребёнка (FR-38): события без ребёнка остаются. */
+export function clearJournal(childId: number): Promise<ClearReply> {
+  return call("ClearJournal", { childId });
+}
+
 /** Убавить копилку на minutes минут, не ниже нуля (FR-22, D-46). */
 export function reduceBonus(childId: number, minutes: number): Promise<BonusChangeReply> {
   return call("ReduceBonus", { childId, minutes });
@@ -427,6 +461,16 @@ export function createPromo(code: string, minutes: number): Promise<CreatePromoR
 /** Списки действующих и использованных промокодов (R26, D-50). */
 export function listPromos(): Promise<ListPromosReply> {
   return call("ListPromos", {});
+}
+
+/** «Придумать коды» (FR-35, RM5-12): пачка разных кодов на одно число минут, вся или ничего. */
+export function generatePromos(req: GeneratePromosRequest): Promise<GeneratePromosReply> {
+  return call("GeneratePromos", { count: req.count, length: req.length, charset: req.charset, minutes: req.minutes });
+}
+
+/** «Очистить историю» промокодов (RM5-14): использованные удаляются, действующие остаются. */
+export function clearPromoHistory(): Promise<ClearPromoHistoryReply> {
+  return call("ClearPromoHistory", {});
 }
 
 /** Ребёнок вводит промокод — экран блокировки и раздел «Бонусы» (R26, D-50). */
@@ -533,6 +577,18 @@ export async function addSite(domain: string, kind: SiteKind): Promise<AddSiteRe
 export async function removeSite(domain: string): Promise<RemoveSiteReply> {
   const r = await call<object, RemoveSiteReply>("RemoveSite", { domain });
   return { ...r, sites: sitesOf(r.sites) };
+}
+
+/** Вставить несколько адресов (по одному в строке) в список (8.3.5 п.2, B-49). */
+export async function addSites(text: string, kind: SiteKind): Promise<AddSitesReply> {
+  const r = await call<object, AddSitesReply>("AddSites", { text, kind });
+  return { ...r, added: r.added ?? [], rejected: r.rejected ?? [], fieldError: r.fieldError ?? "", sites: sitesOf(r.sites) };
+}
+
+/** Удалить отмеченные домены; «Отменить» - addSites доменов removed в их списки. */
+export async function removeSites(domains: string[]): Promise<RemoveSitesReply> {
+  const r = await call<object, RemoveSitesReply>("RemoveSites", { domains });
+  return { ...r, removed: r.removed ?? [], sites: sitesOf(r.sites) };
 }
 
 /** «Блокировать сайты 18+» ребёнку. */

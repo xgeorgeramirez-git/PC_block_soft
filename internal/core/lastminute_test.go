@@ -313,3 +313,42 @@ func TestLastMinuteZeroNotBeforeEnd(t *testing.T) {
 		t.Fatalf("за 0,7 с до момента остаток %d Lock %v; want 1 без блокировки", d.RemainingS, d.Lock)
 	}
 }
+
+// Ловит (B-42, G13): прошлый день, закрытый без работающей службы (компьютер выключили во время
+// последней минуты), не дотягивается до своей полуночи; дотяжка идёт за полночь (секунды нового
+// дня); момент остаётся в строке; без лимита, в паузе через полночь и без отсчёта строка меняется.
+func TestPastDayAtMidnight(t *testing.T) {
+	c := &fakeClock{t: time.Date(2026, 10, 21, 10, 0, 0, 0, msk)} // среда: «сейчас» не влияет
+	ms := func(h, m, s int, day int) *int64 {
+		v := time.Date(2026, 10, day, h, m, s, 0, msk).UnixMilli()
+		return &v
+	}
+	pause := ms(0, 30, 0, 20)
+	cases := []struct {
+		name  string
+		rules Rules
+		st    DayState
+		want  int
+	}{
+		{"конец после полуночи: до полуночи 20 с", rulesMon(120), DayState{Day: monday, TotalS: 7150, GamesS: 6000, LastMinuteEndMs: ms(0, 0, 20, 20)}, 7180},
+		{"конец до полуночи: весь лимит", rulesMon(120), DayState{Day: monday, TotalS: 2400, LastMinuteEndMs: ms(23, 59, 30, 19)}, 7200},
+		{"конец ровно в полночь", rulesMon(120), DayState{Day: monday, TotalS: 7170, LastMinuteEndMs: ms(0, 0, 0, 20)}, 7200},
+		{"доп. время 10 мин", rulesMon(120), DayState{Day: monday, TotalS: 7740, ExtraMin: 10, LastMinuteEndMs: ms(0, 0, 50, 20)}, 7750},
+		{"общее уже больше", rulesMon(120), DayState{Day: monday, TotalS: 7190, LastMinuteEndMs: ms(0, 0, 50, 20)}, 7190},
+		{"без лимита", Rules{}, DayState{Day: monday, TotalS: 7150, LastMinuteEndMs: ms(0, 0, 20, 20)}, 7150},
+		{"пауза через полночь", rulesMon(120), DayState{Day: monday, TotalS: 7150, PauseUntilMs: pause, LastMinuteEndMs: ms(0, 0, 20, 20)}, 7150},
+		{"без отсчёта", rulesMon(120), DayState{Day: monday, TotalS: 2400}, 2400},
+	}
+	for _, k := range cases {
+		e := NewEngine(c, msk, k.rules, DayState{Day: "2026-10-21"}, "")
+		got := e.PastDayAtMidnight(k.st)
+		if got.TotalS != k.want || got.LastMinuteEndMs != nil || got.GamesS != k.st.GamesS || got.Day != monday {
+			t.Errorf("%s: %+v; want общее %d, игры %d, момента нет", k.name, got, k.want, k.st.GamesS)
+		}
+	}
+	broken := NewEngine(c, msk, Rules{Broken: true}, DayState{Day: "2026-10-21"}, "")
+	in := DayState{Day: monday, TotalS: 7150, LastMinuteEndMs: ms(0, 0, 20, 20)}
+	if got := broken.PastDayAtMidnight(in); got.TotalS != 7150 || got.LastMinuteEndMs == nil {
+		t.Errorf("безопасный режим: %+v; want строка без изменений (лимит не известен)", got)
+	}
+}

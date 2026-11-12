@@ -12,6 +12,8 @@
   --status-danger: #b3261e;
   --status-ok: #2c7a4b;
   --field-border: #7b848c;
+  /* Столбики «По дням» (D-78): нейтральный графит, не цвет статуса (ТЗ 8.0 п.3); на поверхности 6,2:1. */
+  --chart-bar: #59616a;
 
   --radius-control: 6px;
   --radius-panel: 8px;
@@ -24,9 +26,11 @@
 
   --font: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, sans-serif;
   --font-display: "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
+  /* Коды промокодов (8.3.10): моноширинный, чтобы «0» и «O», «1» и «I» не путались. */
+  --font-mono: "Cascadia Mono", Consolas, "Courier New", monospace;
 
   color-scheme: light;
-  /* Флажки и переключатели в цвет кнопок, а не в синий цвет браузера. */
+  /* Прочие элементы браузера (ползунки и т. п.) в цвет кнопок, а не в синий цвет браузера. */
   accent-color: var(--primary);
 }
 
@@ -40,6 +44,7 @@
     --primary: #eef1f4;
     --primary-text: #15181b;
     --field-border: #7d868e;
+    --chart-bar: #a3abb3;
     /* На тёмном фоне статусные цвета светлее: контраст текста не меньше 4,5:1 (NFR-14). */
     --status-warn: #e3a23b;
     --status-danger: #f2877d;
@@ -79,6 +84,98 @@ p {
 :focus-visible {
   outline: 2px solid var(--text);
   outline-offset: 2px;
+}
+
+/* Флажки и переключатели своим оформлением (ревью окна M5): рамка браузера в тёмной теме сливалась с
+   карточкой (ниже 3:1). Рамка 2 px цветом рамки поля (3,5:1 и больше к карточке и фону в обеих темах),
+   отметка цветом основной кнопки. Размер 18 px, как у флажков разделов; свой размер у раздела - ниже. */
+input[type="checkbox"],
+input[type="radio"] {
+  -webkit-appearance: none;
+  appearance: none;
+  display: inline-grid;
+  place-content: center;
+  flex: none;
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--field-border);
+  border-radius: 4px;
+  background: var(--surface);
+  vertical-align: middle;
+  cursor: pointer;
+}
+
+input[type="radio"] {
+  border-radius: 50%;
+}
+
+input[type="checkbox"]:checked,
+input[type="checkbox"]:indeterminate {
+  border-color: var(--primary);
+  background: var(--primary);
+}
+
+/* Галочка: уголок из двух сторон рамки, повёрнутый на 45 градусов. */
+input[type="checkbox"]:checked::before {
+  content: "";
+  width: 9px;
+  height: 5px;
+  border: solid var(--primary-text);
+  border-width: 0 0 2px 2px;
+  transform: translateY(-1px) rotate(-45deg);
+}
+
+/* «Выбрано не всё»: черта вместо галочки. */
+input[type="checkbox"]:indeterminate::before {
+  content: "";
+  width: 8px;
+  height: 2px;
+  background: var(--primary-text);
+}
+
+input[type="radio"]:checked {
+  border-color: var(--primary);
+}
+
+input[type="radio"]:checked::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--primary);
+}
+
+input[type="checkbox"]:focus-visible,
+input[type="radio"]:focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: 2px;
+}
+
+input[type="checkbox"]:disabled,
+input[type="radio"]:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Высокая контрастность Windows: заливка и галочка системными цветами, отметка не пропадает. */
+@media (forced-colors: active) {
+  input[type="checkbox"]:checked,
+  input[type="checkbox"]:indeterminate {
+    background: Highlight;
+    border-color: Highlight;
+  }
+
+  input[type="checkbox"]:checked::before {
+    border-color: HighlightText;
+  }
+
+  input[type="checkbox"]:indeterminate::before {
+    background: HighlightText;
+  }
+
+  input[type="radio"]:checked::before {
+    background: Highlight;
+  }
 }
 
 .visually-hidden {
@@ -428,6 +525,13 @@ p {
   border-radius: var(--radius-control);
   color: var(--text);
   font: inherit;
+}
+
+/* Подсказка в пустом поле: в тёмной теме цвет браузера по умолчанию почти не виден; приглушённый
+   текст палитры читается не хуже 4,5:1 в обеих темах, прозрачность браузера убрана. */
+::placeholder {
+  color: var(--text-muted);
+  opacity: 1;
 }
 
 .field-input:disabled {
@@ -798,11 +902,20 @@ p {
   font-size: 14px;
 }
 
+/* Значение плитки не обрезается и не выходит за рамку: длинное («1625 ч 00 мин») переносится между
+   «ч» и «мин» (части - .totals-tab-part), число с единицей не разрывается. */
 .totals-tab-value {
+  max-width: 100%;
   font-family: var(--font-display);
   font-size: 18px;
   font-weight: 600;
+  line-height: 1.25;
   font-variant-numeric: tabular-nums;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.totals-tab-part {
   white-space: nowrap;
 }
 
@@ -878,6 +991,305 @@ p {
 .totals-share {
   min-width: 4ch;
   color: var(--text-muted);
+}
+
+/* --- Разделы карточки периода (8.2.6 п.4-7, M5) ----------------------------------------- */
+
+/* «Статистика ведётся с …» над карточкой «Итогов» (8.2.6 п.10). */
+.stats-since {
+  margin: 0 0 var(--space-2);
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+/* Раздел внутри панели периода: отделён линией, как блок, а не отдельная карточка в карточке. */
+.stat-sub {
+  border-top: 1px solid var(--line);
+  margin-top: var(--space-6);
+  padding-top: var(--space-4);
+}
+
+/* Заголовок раздела - h4 под h3 «Итоги»; вид тот же, что у .section-title (поле браузера сверху снято). */
+.stat-sub > .section-title {
+  margin-top: 0;
+}
+
+.stat-sub .stat-lead {
+  margin-bottom: var(--space-2);
+}
+
+/* Нарушения в карточке: та же разметка, что у журнала, без своей рамки (рамка уже у карточки). */
+.stat-journal {
+  max-width: none;
+  background: none;
+  border: 0;
+  border-radius: 0;
+}
+
+.stat-journal .journal-item {
+  padding: var(--space-2) 0;
+}
+
+.stat-more {
+  margin-top: var(--space-2);
+}
+
+/* «Программы» и «Сайты»: название сжимается и обрезается помощником, время и доля - ровно справа. */
+.usage-table {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+}
+
+.usage-col-time {
+  width: 7.5rem;
+}
+
+.usage-col-share {
+  width: 4.5rem;
+}
+
+.usage-table th,
+.usage-table td {
+  padding: var(--space-1) var(--space-2);
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  vertical-align: middle;
+}
+
+.usage-table th {
+  color: var(--text-muted);
+  font-size: 14px;
+  font-weight: 400;
+}
+
+.usage-table th:first-child,
+.usage-table td:first-child {
+  padding-left: 0;
+}
+
+.usage-table th:last-child,
+.usage-table td:last-child {
+  padding-right: 0;
+}
+
+.usage-table .usage-num {
+  text-align: right;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.usage-share {
+  color: var(--text-muted);
+}
+
+.usage-name {
+  min-width: 0;
+}
+
+/* «По дням» (D-69, D-78): график в своей области. Вбок прокручивается только .daybars-scroll (36 месяцев),
+   документ и .content - нет. Сверху запас под подсказку столбика: прокрутка вбок обрезает и по высоте. */
+.daybars {
+  position: relative;
+  margin: 0;
+}
+
+/* Ось слева стоит на месте, вбок прокручиваются только столбики и подписи дней (36 месяцев): ось - вне
+   .daybars-scroll, иначе при прокрутке подписи делений уезжают влево за край. Без sticky (PL-25).
+   Зазор между осью и столбиками - слева внутри .daybars-scroll: туда выходит подсказка первого столбика. */
+.daybars-frame {
+  display: flex;
+  align-items: flex-start;
+}
+
+.daybars-scroll {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 40px 8px 0 var(--space-2);
+}
+
+/* Наименьшая ширина - столбики не уже --col-min, иначе график прокручивается вбок. */
+.daybars-plot {
+  min-width: calc(var(--n) * var(--col-min));
+}
+
+/* Колонка оси - по самой длинной подписи («1 ч 30 мин», «12 ч»), сверху тот же запас, что у графика
+   (40px), высота - высота области столбиков: деления на одной высоте с линиями сетки. */
+.daybars-axis {
+  flex: none;
+  position: relative;
+  height: 160px;
+  margin-top: 40px;
+  padding: 0 0 0 2px;
+}
+
+.daybars-axis-sizer {
+  height: 0;
+  overflow: hidden;
+  visibility: hidden;
+  font-size: 12px;
+  line-height: 1;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.daybars-axis-sizer > span {
+  display: block;
+}
+
+.daybars-tick {
+  position: absolute;
+  right: 0;
+  transform: translateY(-50%);
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.daybars-area {
+  position: relative;
+  height: 160px;
+}
+
+.daybars-svg {
+  display: block;
+  overflow: visible;
+}
+
+.daybar-total {
+  fill: var(--chart-bar);
+}
+
+.daybar-hatch {
+  fill: var(--chart-bar);
+}
+
+.daybar-study {
+  stroke: var(--chart-bar);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.daybar-empty {
+  stroke: var(--field-border);
+  stroke-width: 2;
+}
+
+.daybars-grid {
+  stroke: var(--line);
+  stroke-width: 1;
+}
+
+.daybars-hits {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  grid-template-columns: repeat(var(--n), minmax(0, 1fr));
+}
+
+.daybar-hit {
+  min-width: 0;
+  border-radius: 2px;
+}
+
+.daybar-hit:focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: -2px;
+}
+
+/* Подсказка над графиком (не накрывает столбики), у краёв выравнивается внутрь (tipAlign). */
+.daybars-tip {
+  position: absolute;
+  bottom: calc(100% + 4px);
+  z-index: 2;
+  padding: 2px var(--space-2);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.45;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.daybars-tip-center {
+  transform: translateX(-50%);
+}
+
+.daybars-tip-start {
+  transform: translateX(-8px);
+}
+
+.daybars-tip-end {
+  transform: translateX(calc(-100% + 8px));
+}
+
+.daybars-labels {
+  display: grid;
+  grid-template-columns: repeat(var(--n), minmax(0, 1fr));
+  padding-top: var(--space-1);
+}
+
+/* Подпись шире узкого столбика: по центру столбика, выходит за его края, не переносится. */
+.daybars-label {
+  display: flex;
+  justify-content: center;
+  min-width: 0;
+  overflow: visible;
+  color: var(--text-muted);
+  font-size: 12px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+/* «Сегодня» - жирной подписью, без цвета (цвет - только статус). */
+.daybars-label-today {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.daybars-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+  margin-top: var(--space-2);
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+.daybars-key {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+/* Строка выбора ребёнка: слева дети, справа «Очистить статистику» (8.3.7 п.3). */
+.stat-child-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  margin-bottom: var(--space-3);
+}
+
+.stat-child-row .stat-child-picker {
+  margin-bottom: 0;
+}
+
+/* Сообщение об очистке - постоянная живая область; пока пусто, места не занимает. */
+.stat-clear-status:empty,
+.promo-status:empty {
+  margin: 0;
+}
+
+.stat-clear-status:not(:empty),
+.promo-status:not(:empty) {
+  margin: 0 0 var(--space-3);
 }
 
 /* «Настройки для родителя» внизу окна ребёнка: мелкая ссылка, а не кнопка (ТЗ 8.2.6 п.1). */
@@ -1520,6 +1932,21 @@ html:has(.shell-child) body {
 
 /* --- Журнал --------------------------------------------------------------------------- */
 
+/* Загрузка нового фильтра журнала: короткая строка над списком; пустая - без высоты. */
+.journal-loading {
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+.journal-loading:not(:empty) {
+  margin-bottom: var(--space-2);
+}
+
+/* Прежний список, пока идёт ответ на новый фильтр: приглушён, но читается. */
+.journal-stale {
+  opacity: 0.6;
+}
+
 .journal {
   max-width: 720px;
   margin: 0;
@@ -1545,6 +1972,36 @@ html:has(.shell-child) body {
   flex: none;
   min-width: 112px;
   color: var(--text-muted);
+}
+
+/* Фильтры «Ребёнок» и «Что» над списком, справа «Очистить журнал» (8.3.7 п.2, п.3). Ширина строки -
+   как у списка; на узком окне поля переносятся, а не уходят вбок. */
+.journal-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-3) var(--space-4);
+  max-width: 720px;
+  margin-bottom: var(--space-3);
+}
+
+.journal-filter {
+  flex: 0 1 220px;
+  min-width: 180px;
+}
+
+.journal-filter .field-label {
+  font-size: 14px;
+}
+
+.journal-more {
+  max-width: 720px;
+  margin-top: var(--space-3);
+  text-align: center;
+}
+
+.journal-screen .notice {
+  max-width: 720px;
 }
 
 /* --- Программы (FR-20, 8.3.4) --------------------------------------------------------- */
@@ -1579,6 +2036,37 @@ html:has(.shell-child) body {
 
 .programs-feedback.field-error {
   border-left-color: var(--status-danger);
+}
+
+/* Одно место сообщения «Программ» (B-43), без sticky (PL-25): экран занимает высоту области
+   прокрутки окна, заголовок и сообщение стоят над областью списков, прокручивается только она.
+   Поэтому «Отменить» с отсчётом всегда на виду, где бы в списке ни было действие. */
+.programs-page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.programs-page > .page-head,
+.programs-message {
+  flex: none;
+}
+
+.programs-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  /* Кольцо фокуса у края блока не обрезается краем области прокрутки. Отрицательный отступ
+     только по бокам: сверху он съедал бы 2 px зазора 16 px до заголовка или сообщения. */
+  padding: 2px;
+  margin: 0 -2px;
+}
+
+/* Отсчёт у «Отменить» (B-43): мелко и приглушённо, цифры одной ширины, строка не прыгает. */
+.undo-left {
+  color: var(--text-muted);
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
 }
 
 /* Легенда кнопок решения (B-39): видимый заголовок, строки мелко и приглушённо, в две колонки,
@@ -1784,6 +2272,9 @@ html:has(.shell-child) body {
   width: 100%;
   border-collapse: collapse;
   table-layout: fixed;
+  /* B-38: длинный список вне экрана не рисуется, пока до него не прокрутили. */
+  content-visibility: auto;
+  contain-intrinsic-block-size: auto 480px;
 }
 
 /* Колонки «Отметка», «Категория», «За неделю», «Скрыть» — ровно по своему содержимому, всё
@@ -1985,6 +2476,13 @@ html:has(.shell-child) body {
   cursor: pointer;
 }
 
+/* Наведение (B-38): заголовок колонки темнеет и подчёркивается: видно, что по нему сортируют. */
+.sort-button:hover {
+  color: var(--text);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
 .sort-mark {
   min-width: 1ch;
 }
@@ -2061,6 +2559,11 @@ html:has(.shell-child) body {
   padding: var(--space-2) var(--space-3);
 }
 
+/* «Сайт вместе с адресами внутри него» под пояснением списка (8.3.5 п.2, B-50). */
+.sites-scope {
+  margin: 0 0 var(--space-3);
+}
+
 .sites-limit {
   margin-bottom: var(--space-3);
   color: var(--text-muted);
@@ -2082,6 +2585,8 @@ html:has(.shell-child) body {
 }
 
 .sites-add-button {
+  /* Многострочное поле выше кнопки: кнопка у первой строки, не тянется по высоте поля. */
+  align-self: start;
   white-space: nowrap;
 }
 
@@ -2101,14 +2606,47 @@ html:has(.shell-child) body {
   display: flex;
   align-items: center;
   gap: var(--space-4);
-  padding: var(--space-2) 0;
+  /* 4 px по бокам: строка с content-visibility обрезает рисунок по своему краю, кольцо фокуса
+     (2 px + отступ 2 px) у флажка и «Удалить» у края иначе срезалось бы. */
+  padding: var(--space-2) var(--space-1);
   border-bottom: 1px solid var(--line);
+  /* До 1000 строк (B-51): строка вне экрана не рисуется; высота обычной строки запомнена заранее. */
+  content-visibility: auto;
+  contain-intrinsic-block-size: auto 49px;
 }
 
 .sites-domain {
   flex: 1 1 auto;
   min-width: 0;
   overflow-wrap: anywhere;
+}
+
+/* Флажок отметки строки (B-49) и домен - одна подпись: щелчок по названию отмечает строку. Подпись
+   занимает место до «Удалить», зазор тот же, что был между флажком и доменом. */
+.sites-pick {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: var(--space-4);
+  min-width: 0;
+  cursor: pointer;
+}
+
+/* Флажок отметки строки (B-49) слева от домена. */
+.sites-check {
+  flex: none;
+  margin: 0;
+}
+
+/* «Выбрать всё в списке» над списком: отступ слева как у строк (4 px). */
+.sites-bulk {
+  padding: 0 var(--space-1);
+}
+
+/* Многострочное поле «Добавить сайт» (B-49): высоту задают строки, руками не тянется. */
+textarea.sites-add-input {
+  resize: none;
+  line-height: inherit;
 }
 
 .sites-row .btn {
@@ -2464,35 +3002,90 @@ html:has(.shell-child) body {
   margin-top: var(--space-3);
 }
 
-.promo-admin {
-  margin-top: var(--space-4);
-}
+/* --- Промокоды (8.3.10) ------------------------------------------------------------ */
 
 .promo-form {
   display: flex;
   flex-wrap: wrap;
-  align-items: flex-end;
-  gap: var(--space-3);
+  align-items: flex-start;
+  gap: var(--space-3) var(--space-4);
 }
 
+/* Колонка поля шириной с само поле: текст ошибки переносится под полем и не сдвигает соседние
+   поля и кнопку вправо. */
 .promo-form .field {
+  flex: 0 0 auto;
+  width: min-content;
+  min-width: 0;
   margin-bottom: 0;
 }
 
-.promo-minutes .field-input {
+.promo-form .field-error {
+  overflow-wrap: break-word;
+}
+
+.promo-code-field .field-input {
+  width: 13rem;
+  font-family: var(--font-mono);
+  letter-spacing: 0.04em;
+}
+
+.promo-num .field-input {
   width: 5rem;
 }
 
-.promo-lists {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
-  gap: var(--space-4);
+/* Кнопка формы стоит на уровне полей: подпись над полем занимает строку. */
+.promo-submit {
+  margin-top: calc(1lh + var(--space-1));
+}
+
+.promo-charset {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}
+
+.promo-charset-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+  min-height: 2.5rem;
+  align-items: center;
+}
+
+.promo-charset-option {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  cursor: pointer;
+}
+
+.promo-generated {
   margin-top: var(--space-4);
 }
 
-.promo-list-title {
-  margin: 0 0 var(--space-2);
-  font-size: 1rem;
+.promo-codes {
+  columns: 4 11rem;
+  column-gap: var(--space-4);
+  list-style: none;
+  margin: 0 0 var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  background: var(--bg);
+  user-select: text;
+}
+
+.promo-codes li {
+  padding: 2px 0;
+  break-inside: avoid;
+}
+
+.promo-panel-head {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: var(--space-3);
 }
 
 .promo-list {
@@ -2508,25 +3101,51 @@ html:has(.shell-child) body {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
-  gap: var(--space-2);
+  gap: var(--space-1) var(--space-3);
   padding: var(--space-2) var(--space-3);
   border: 1px solid var(--line);
   border-radius: var(--radius-control);
   background: var(--surface);
 }
 
-.promo-item-used {
+.promo-item-used .promo-code,
+.promo-item-used .promo-minutes {
   color: var(--text-muted);
 }
 
 .promo-code {
+  font-family: var(--font-mono);
   font-weight: 600;
   letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+/* Коды в столбик: до 16 знаков (R26) с разрядкой, код не сжимается и не обрезается. */
+.promo-item .promo-code {
+  flex-shrink: 0;
+  min-width: 18ch;
+}
+
+.promo-minutes {
+  font-variant-numeric: tabular-nums;
+  min-width: 4.5em;
 }
 
 .promo-when {
   color: var(--text-muted);
   font-size: 0.9rem;
+}
+
+/* Ссылка «Промокоды теперь в отдельном разделе» на вкладке «Бонусы» «Копилки» (RM5-13). */
+.promo-link {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.promo-link .panel-text {
+  margin: 0;
 }
 
 .promo-redeem {

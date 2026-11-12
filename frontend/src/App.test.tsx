@@ -227,7 +227,7 @@ describe("мастер и вход", () => {
 });
 
 describe("меню окна родителя", () => {
-  it("«Сегодня», «Дети», «Программы», «Сайты», «Копилка», «Статистика», «Журнал», «Настройки» и внизу «Что нового»", async () => {
+  it("«Сегодня», «Дети», «Программы», «Сайты», «Копилка», «Промокоды», «Статистика», «Журнал», «Настройки» и внизу «Что нового»", async () => {
     const user = setup();
     await login(user);
     const nav = screen.getByRole("navigation", { name: "Разделы" });
@@ -237,6 +237,7 @@ describe("меню окна родителя", () => {
       "Программы",
       "Сайты",
       "Копилка",
+      "Промокоды",
       "Статистика",
       "Журнал",
       "Настройки",
@@ -255,6 +256,19 @@ describe("меню окна родителя", () => {
     expect(await screen.findByRole("heading", { name: "Сайты" })).toBeTruthy();
     expect(item.getAttribute("aria-current")).toBe("page");
     expect(await screen.findByRole("tablist", { name: "Списки сайтов" })).toBeTruthy();
+  });
+
+  // Ловит: раздела «Промокоды» нет в меню или кнопка «Открыть» из «Копилки» никуда не ведёт (RM5-13).
+  it("«Промокоды» после «Копилки»; «Копилка» → «Бонусы» → «Открыть» ведёт туда же", async () => {
+    const user = setup();
+    await login(user);
+    const nav = screen.getByRole("navigation", { name: "Разделы" });
+    await user.click(within(nav).getByRole("button", { name: "Копилка" }));
+    await user.click(await screen.findByRole("tab", { name: "Бонусы" }));
+    await user.click(await screen.findByRole("button", { name: "Открыть" }));
+    expect(await screen.findByRole("heading", { name: "Промокоды", level: 2 })).toBeTruthy();
+    expect(within(nav).getByRole("button", { name: "Промокоды" }).getAttribute("aria-current")).toBe("page");
+    expect(await screen.findByRole("tablist", { name: "Промокоды" })).toBeTruthy();
   });
 
   it("каждый пункт открывает свой раздел", async () => {
@@ -297,11 +311,12 @@ describe("меню окна родителя", () => {
     await user.click(item);
     expect(item.getAttribute("aria-current")).toBe("page");
     const versions = (await screen.findAllByRole("heading", { level: 3 })).map((h) => h.textContent);
-    expect(versions[0]).toBe("Версия 0.4.1. Roblox больше не просит разрешения каждый раз");
+    expect(versions[0]).toBe("Версия 0.5.0. Статистика по дням, очистка и промокоды");
     expect(screen.queryByRole("heading", { name: "Помощь" })).toBeNull();
   });
 
-  it("ссылка «Нарушения сегодня» открывает журнал нарушений", async () => {
+  // Ловит (8.3.7 п.2): ссылка открывает журнал без фильтра или за «Всё».
+  it("ссылка «Нарушения сегодня» открывает журнал: «Что: Нарушения» и вкладка «Сегодня»", async () => {
     const user = setup({
       events: [
         { atMs: Date.now() - 60_000, tzOffsetMin: 180, childId: 1, childName: "Миша", kind: "bypass", text: "Миша: попытка обойти защиту" },
@@ -309,8 +324,10 @@ describe("меню окна родителя", () => {
     });
     await login(user);
     await user.click(await screen.findByRole("button", { name: "Нарушения сегодня: 1" }));
-    expect(await screen.findByRole("heading", { name: "Журнал: нарушения" })).toBeTruthy();
-    expect(screen.getByText("Миша: попытка обойти защиту")).toBeTruthy();
+    expect(await screen.findByText("Миша: попытка обойти защиту")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Журнал" })).toBeTruthy();
+    expect((screen.getByLabelText("Что") as HTMLSelectElement).value).toBe("violations");
+    expect(screen.getByRole("tab", { name: "Сегодня" }).getAttribute("aria-selected")).toBe("true");
   });
 
   // Ловит: ссылка ведёт не туда или счётчик на «Сегодня» расходится с «Программами» (8.3.2 п.5).

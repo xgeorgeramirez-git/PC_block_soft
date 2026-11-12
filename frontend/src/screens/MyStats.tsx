@@ -1,12 +1,13 @@
-import { useCallback, useEffect, useRef, useState, type CSSProperties, type KeyboardEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from "react";
 import { getBonus, myToday, openWindow } from "../api";
 import AskMoreDialog from "../components/AskMoreDialog";
+import BonusHistory from "../components/BonusHistory";
+import DayBars from "../components/DayBars";
 import { LineText } from "../components/FitText";
 import Notice from "../components/Notice";
 import PeriodTabs from "../components/PeriodTabs";
 import PromoRedeem from "../components/PromoRedeem";
 import SpendBonusDialog from "../components/SpendBonusDialog";
-import { historyText } from "../lib/bonus";
 import { childErrorText } from "../lib/errors";
 import { formatDuration, formatEventTime, formatLimit, weekdayName } from "../lib/format";
 import {
@@ -22,9 +23,11 @@ import {
   tabSeconds,
   todayRows,
   todayRuleWeekday,
+  usageRows,
   type TotalsTab,
+  type UsageRow,
 } from "../lib/mytoday";
-import type { GetBonusReply, MyTodayReply, StatsPeriod } from "../types";
+import type { GetBonusReply, JournalEntry, MyTodayReply, StatsPeriod } from "../types";
 
 const LOAD_ERROR = "Не удалось получить данные. Попробуй через минуту";
 const NO_DATA = "За этот период пока нет данных";
@@ -33,10 +36,13 @@ export const LOADING_PERIOD = "Загружаю…";
 const OPEN_FAILED = "Не получилось открыть окно. Попробуй ещё раз";
 /** id панели периода «Итогов»: на неё указывают вкладки периодов (aria-controls). */
 export const PERIOD_PANEL = "period-panel";
+/** Сколько нарушений показано сразу; остальные - кнопкой «Показать все». */
+const VIOLATIONS_SHOWN = 20;
 
 /**
  * Окно «Моя статистика» (FR-12, R21, сценарий 8.2.6): только просмотр, свои данные. Период (D-61) меняет
- * только «Итоги»; остаток, копилка и «Мои правила» - за сегодня.
+ * карточку «Итоги» с разделами «По дням», «Программы», «Сайты», «Нарушения», «Копилка»; остаток, бонусы
+ * и «Мои правила» - за сегодня. Ни выбора ребёнка, ни очистки, ни полей статистики (R21, S22).
  */
 export default function MyStats() {
   const [data, setData] = useState<MyTodayReply | null>(null);
@@ -51,6 +57,8 @@ export default function MyStats() {
   const periodRef = useRef<StatsPeriod>("today");
   // Номер последнего запроса: поздний ответ прошлого периода не перекрывает выбранный.
   const seq = useRef(0);
+  // Период цифр на экране: при сбое вкладка возвращается к нему, вкладка и цифры - одного периода.
+  const shown = useRef<StatsPeriod | null>(null);
 
   const loadStats = useCallback(async (p: StatsPeriod) => {
     const my = ++seq.current;
@@ -58,10 +66,19 @@ export default function MyStats() {
     setError("");
     try {
       const reply = await myToday(p);
-      if (alive.current && my === seq.current) setData(reply);
+      if (alive.current && my === seq.current) {
+        shown.current = reply.period;
+        setData(reply);
+      }
     } catch (e) {
       // Сбой связи говорит «Не удалось получить данные»; слова самой программы оставляем (L-112).
-      if (alive.current && my === seq.current) setError(LOAD_ERROR_FOR(e));
+      if (alive.current && my === seq.current) {
+        setError(LOAD_ERROR_FOR(e));
+        if (shown.current) {
+          periodRef.current = shown.current;
+          setPeriod(shown.current);
+        }
+      }
     } finally {
       if (alive.current && my === seq.current) setBusy(false);
     }
@@ -137,12 +154,13 @@ export default function MyStats() {
       ) : null}
 
       {data === null ? (
-        error ? null : <p className="panel-text">Загружаю данные</p>
+        error ? null : <p className="panel-text">Загружаю данные…</p>
       ) : (
         <>
           {data.status.status === "notChild" ? null : (
             <Remaining data={data} onAsk={() => setDialog("ask")} onSpend={() => setDialog("spend")} />
           )}
+          <StatsSince data={data} />
           {/* Вкладки периодов - внутри «Итогов», рядом с данными, которые они меняют (UX-аудит FB-13). */}
           <Totals data={data} busy={busy} periods={{ value: period, onChange: choosePeriod }} />
           {data.status.status === "notChild" ? null : <Bonuses bonus={bonus} onChange={() => void load()} />}
@@ -235,7 +253,8 @@ export function Totals({
   /** Вкладки периодов под заголовком; содержимое «Итогов» - их панель (id PERIOD_PANEL). */
   periods?: { value: StatsPeriod; onChange: (period: StatsPeriod) => void };
 }) {
-  const empty = data.status.status === "notChild" || data.today.length === 0 || periodEmpty(data);
+  const notChild = data.status.status === "notChild";
+  const empty = notChild || data.today.length === 0 || periodEmpty(data);
   const info = periodOf(data.period);
   const [tab, setTab] = useState<TotalsTab>("all");
   const tabs = useRef(new Map<TotalsTab, HTMLButtonElement>());
@@ -255,7 +274,7 @@ export function Totals({
   const current = TOTALS_TABS.find((t) => t.id === tab) ?? TOTALS_TABS[0];
   const rows = empty ? [] : tabRows(data, current.id);
   const studyNote = empty ? "" : allWithStudyText(data);
-  const content = (
+  const totals = (
     empty ? (
         <p className="panel-text">{NO_DATA}</p>
       ) : (
@@ -300,7 +319,7 @@ export function Totals({
               >
                 <span className="totals-tab-label">{t.label}</span>
                 <span id={`totals-value-${t.id}`} className="totals-tab-value" aria-hidden="true">
-                  {formatDuration(tabSeconds(data, t.id))}
+                  <DurationParts text={formatDuration(tabSeconds(data, t.id))} />
                 </span>
               </button>
             ))}
@@ -327,8 +346,34 @@ export function Totals({
               </ul>
             )}
           </div>
+          <StatSub id="days" title="По дням">
+            <DayBars reply={data} />
+          </StatSub>
+          <StatSub id="programs" title="Программы">
+            <UsageTable id="programs" rows={usageRows(data, "program")} empty="Программ за этот период нет" />
+          </StatSub>
+          <StatSub id="sites" title="Сайты">
+            <UsageTable id="sites" rows={usageRows(data, "site")} empty="Сайтов за этот период нет" />
+          </StatSub>
         </>
       )
+  );
+  // Всё, что зависит от периода, - в одной панели периода (PL-36): сначала «Итоги» с «По дням»,
+  // «Программами» и «Сайтами» (пустой период - одна строка, 8.2.6 п.9), затем «Нарушения» и «Копилка»
+  // со своими пустыми текстами. Сеанс не ребёнка - только строка о пустом периоде.
+  const content = notChild ? (
+    totals
+  ) : (
+    <>
+      {totals}
+      <StatSub id="violations" title="Нарушения">
+        <Violations key={data.period} entries={data.violations} />
+      </StatSub>
+      <StatSub id="bonus" title="Копилка">
+        <p className="stat-lead">{`Сейчас в копилке: ${formatLimit(data.status.bonusBalance)}`}</p>
+        <BonusHistory entries={data.bonus} empty="За этот период копилка не менялась" label="История копилки за период" />
+      </StatSub>
+    </>
   );
   return (
     <section className="panel stat-panel totals" aria-labelledby="my-totals" aria-busy={busy}>
@@ -353,11 +398,10 @@ export function Totals({
 }
 
 /**
- * «Бонусы» (R25, R26, D-49, D-50): копилка, автобонусы простыми словами и поле промокода —
- * единственное поле окна «Моя статистика».
+ * «Бонусы» (R25, R26, D-49, D-50): баланс копилки, как приходит автобонус, и поле промокода —
+ * единственное поле окна «Моя статистика». История копилки - в разделе «Копилка» за период (одно место).
  */
 export function Bonuses({ bonus, onChange }: { bonus: GetBonusReply | null; onChange: () => void }) {
-  const entries = bonus?.entries ?? [];
   return (
     <section className="panel stat-panel" aria-labelledby="my-bonuses">
       <h3 id="my-bonuses" className="section-title">
@@ -369,16 +413,6 @@ export function Bonuses({ bonus, onChange }: { bonus: GetBonusReply | null; onCh
         введи его здесь: время сразу добавится к сегодняшнему дню.
       </p>
       <PromoRedeem onRedeemed={onChange} />
-      {entries.length > 0 ? (
-        <ul className="bonus-history" aria-label="История копилки">
-          {entries.slice(0, 20).map((e, i) => (
-            <li key={i} className="bonus-history-item">
-              <span>{formatEventTime(e.atMs, e.tzOffsetMin)}</span>
-              <span>{historyText(e)}</span>
-            </li>
-          ))}
-        </ul>
-      ) : null}
     </section>
   );
 }
@@ -434,5 +468,105 @@ export function Rules({ data }: { data: MyTodayReply }) {
         </>
       )}
     </section>
+  );
+}
+
+/** «Статистика ведётся с 11 ноября 2026» над карточкой «Итогов» (8.2.6 п.10, FR-38); нет текста - нет строки. */
+export function StatsSince({ data }: { data: MyTodayReply }) {
+  if (data.status.status === "notChild" || !data.statsSinceText) return null;
+  return <p className="stats-since">{data.statsSinceText}</p>;
+}
+
+/** Раздел карточки периода: заголовок и содержимое, region с именем заголовка. */
+function StatSub({ id, title, children }: { id: string; title: string; children: ReactNode }) {
+  return (
+    <section className="stat-sub" aria-labelledby={`sub-${id}`}>
+      <h4 id={`sub-${id}`} className="section-title">
+        {title}
+      </h4>
+      {children}
+    </section>
+  );
+}
+
+/**
+ * Таблица «Программы» или «Сайты» (8.2.6 п.5): «название, время, доля», самые долгие сверху. Название -
+ * одной строкой с обрезкой одним помощником (PL-26), время и доля - справа ровными цифрами.
+ */
+export function UsageTable({ id, rows, empty }: { id: string; rows: UsageRow[]; empty: string }) {
+  if (rows.length === 0) return <p className="panel-text">{empty}</p>;
+  return (
+    <table className="usage-table" aria-labelledby={`sub-${id}`}>
+      <colgroup>
+        <col />
+        <col className="usage-col-time" />
+        <col className="usage-col-share" />
+      </colgroup>
+      <thead>
+        <tr>
+          <th scope="col">Название</th>
+          <th scope="col" className="usage-num">
+            Время
+          </th>
+          <th scope="col" className="usage-num">
+            Доля
+          </th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((r) => (
+          <tr key={r.key}>
+            <td>
+              <LineText className="usage-name" text={r.name} />
+            </td>
+            <td className="usage-num">{r.time}</td>
+            <td className="usage-num usage-share">{r.share}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+/**
+ * «Нарушения» за период (8.2.6 п.6): «когда - что» текстом журнала, новые сверху; первые 20, остальные -
+ * кнопкой. Обычный цвет текста: красный - у статуса, а не у списка (ТЗ 8.0 п.3).
+ */
+function Violations({ entries }: { entries: JournalEntry[] }) {
+  const [all, setAll] = useState(false);
+  if (entries.length === 0) return <p className="panel-text">Нарушений за этот период нет</p>;
+  const shown = all ? entries : entries.slice(0, VIOLATIONS_SHOWN);
+  return (
+    <>
+      <ul className="journal stat-journal" aria-labelledby="sub-violations">
+        {shown.map((e) => (
+          <li key={e.id} className="journal-item">
+            <time className="journal-time" dateTime={new Date(e.atMs).toISOString()}>
+              {formatEventTime(e.atMs, e.tzOffsetMin)}
+            </time>
+            <span className="journal-text">{e.text}</span>
+          </li>
+        ))}
+      </ul>
+      {!all && entries.length > VIOLATIONS_SHOWN ? (
+        <button type="button" className="btn link stat-more" onClick={() => setAll(true)}>
+          {`Показать все (${entries.length})`}
+        </button>
+      ) : null}
+    </>
+  );
+}
+
+/**
+ * Длительность плитки «Итогов» частями «14 ч» и «08 мин»: длинное значение («1625 ч 00 мин») переносится
+ * между частями и не обрезается рамкой плитки; число с единицей не разрывается. Текст тот же.
+ */
+function DurationParts({ text }: { text: string }) {
+  const m = /^(\d+ ч) (\d+ мин)$/.exec(text);
+  if (!m) return <span className="totals-tab-part">{text}</span>;
+  return (
+    <>
+      <span className="totals-tab-part">{m[1]}</span> <span className="totals-tab-part">{m[2]}</span>
+    </>
   );
 }

@@ -92,7 +92,7 @@ describe("запросы", () => {
   it("listEvents без условий просит все события", async () => {
     const mock = installBackend({ sessionActive: true });
     await api.listEvents();
-    expect(mock.calls.at(-1)?.payload).toEqual({ childId: 0, fromMs: 0, toMs: 0, limit: 0 });
+    expect(mock.calls.at(-1)?.payload).toEqual({ childId: 0, fromMs: 0, toMs: 0, group: "", beforeAtMs: 0, beforeId: 0, limit: 0 });
   });
 
   it("команды без данных шлют пустой объект", async () => {

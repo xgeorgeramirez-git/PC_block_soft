@@ -68,7 +68,7 @@ export default function FirstRun() {
           </p>
         </>
       ) : lines === null ? (
-        <p className="panel-text">Загружаю правила</p>
+        <p className="panel-text">Загружаю правила…</p>
       ) : (
         <div className="first-run-lines">
           {lines.map((line) => (

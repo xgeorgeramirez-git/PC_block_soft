@@ -38,6 +38,11 @@ func dayText(day string) string {
 	return fmt.Sprintf("%d %s", t.Day(), months[t.Month()-1])
 }
 
+// bonusGrantedText — строка журнала автобонуса (R25): «Бонус за свободное время 24 ноября: +40 мин».
+func bonusGrantedText(day string, minutes int) string {
+	return fmt.Sprintf("Бонус за свободное время %s: +%d мин", dayText(day), minutes)
+}
+
 // eventText собирает строку журнала простыми словами (R22, ТЗ 8.3.7): «Миша: доп. время +30 мин».
 // Событие не про ребёнка начинается с заглавной буквы без имени.
 func eventText(kind, name string, d map[string]any) string {
@@ -50,7 +55,7 @@ func eventText(kind, name string, d map[string]any) string {
 		} else {
 			body = fmt.Sprintf("доп. время +%d мин", m)
 		}
-	case "extra_undone":
+	case evExtraUndone:
 		body = "изменение доп. времени отменено"
 	case core.EvBypass:
 		body = "попытка обойти защиту"
@@ -61,23 +66,29 @@ func eventText(kind, name string, d map[string]any) string {
 		body = "блокировка снята родителем"
 	case core.EvSafeMode:
 		body = "правила не прочитаны, ограничения не действуют"
+	case core.EvBonusGranted:
+		// Дата словами и у записей прежних версий, где в тексте «2026-11-24» (FB-21).
+		body = detStr(d, "text")
+		if day := detStr(d, "day"); day != "" {
+			body = decapitalize(bonusGrantedText(day, detInt(d, "minutes")))
+		}
 	case core.EvDayClosed:
 		body = fmt.Sprintf("итог дня %s: %s", dayText(detStr(d, "day")), core.FormatDuration(detInt(d, "total_s")))
-	case "child_admin":
+	case evChildAdmin:
 		body = "учётка получила права администратора, ограничения не действуют"
-	case "child_admin_off":
+	case evChildAdminOff:
 		body = "права администратора сняты, ограничения снова действуют"
-	case "password_failed":
+	case evPasswordFailed:
 		body = "неверный пароль родителя"
-	case "password_changed":
+	case evPasswordChanged:
 		body = "пароль родителя изменён"
-	case "password_reset":
+	case evPasswordReset:
 		body = "пароль родителя сброшен администратором"
-	case "setup_done":
+	case evSetupDone:
 		body = "программа настроена"
-	case "db_recovered":
+	case evDBRecovered:
 		body = "не удалось прочитать правила, ограничения не действовали, прежние данные сохранены"
-	case "uninstall_forgot":
+	case evUninstallForgot:
 		body = "удаление программы без пароля, пароль забыт"
 	case evProgramDecided:
 		body = decidedText(d)
@@ -126,6 +137,15 @@ func eventText(kind, name string, d map[string]any) string {
 		if d["on"] == true {
 			body = textAdultOn
 		}
+	case evStatsCleared:
+		body = "статистика очищена"
+	case evJournalCleared:
+		body = "журнал очищен"
+	case evPromoGenerate:
+		// Коды — в подробностях codes, в текст журнала не идут (RM5-12).
+		body = promoGenerateText(detInt(d, "count"), detInt(d, "minutes"))
+	case evPromoHistoryCleared:
+		body = fmt.Sprintf("история промокодов очищена (%d)", detInt(d, "count"))
 	case evBraveRestored:
 		body = "правила Brave восстановлены"
 	case core.EvRestBreak, core.EvRestEnded:

@@ -67,7 +67,7 @@ func TestMigration005OnFilled030Base(t *testing.T) {
 	if err := applyMigrations(db, all, 300); err != nil {
 		t.Fatalf("повторное применение: %v", err)
 	}
-	if got := versions(t, db); !reflect.DeepEqual(got, [][2]int64{{1, 100}, {2, 100}, {3, 100}, {4, 100}, {5, 200}, {6, 200}, {7, 200}, {8, 200}, {9, 200}}) {
+	if got := versions(t, db); !reflect.DeepEqual(got, [][2]int64{{1, 100}, {2, 100}, {3, 100}, {4, 100}, {5, 200}, {6, 200}, {7, 200}, {8, 200}, {9, 200}, {10, 200}}) {
 		t.Errorf("schema_migrations = %v, want 1–4 в 100 и 5–9 в 200", got)
 	}
 }

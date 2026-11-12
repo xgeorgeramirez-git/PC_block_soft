@@ -221,7 +221,7 @@ func TestCardTexts(t *testing.T) {
 	}
 	for i, name := range []string{"часы", "минуты", "секунды"} {
 		r := byText[name]
-		if len(r) != 1 || r[0].Color != (color.RGBA{0xD6, 0xDF, 0xEA, 0xFF}) || r[0].Rect != l.Labels[i] {
+		if len(r) != 1 || r[0].Color != (color.RGBA{0xFF, 0xFF, 0xFF, 0xFF}) || r[0].Rect != l.Labels[i] {
 			t.Errorf("подпись %q: %+v", name, r)
 		}
 	}
@@ -320,21 +320,50 @@ func TestCardTileHasNoSeam(t *testing.T) {
 	}
 }
 
-// Ловит: подписи под парами бледные: цвет #D6DFEA на фоне карточки в месте подписи должен
-// давать контраст не ниже 3:1 (полужирный текст от 18,7 px считается крупным по WCAG 2.1 AA);
-// на светлом правом нижнем углу градиента было ниже.
+// Ловит (B-40, B-56): подписи «часы», «минуты», «секунды» бледные: на светлом правом крае
+// градиента карточки контраст был 3,1…4,2:1. Нужно не ниже 4,5:1 в каждой точке места подписи
+// (сетка по ширине и высоте), у табло значка и у плашки-табло (игры и видео — один код), при
+// любом масштабе; и на тёмном экране перерыва (те же подписи без карточки).
 func TestCardLabelContrast(t *testing.T) {
-	for _, sc := range []float64{1, 1.5, 2} {
-		l := NewCardLayout(sc)
-		img := RenderCardBase(l, timeView("01", "23", "45", StatusNormal), CardState{})
-		for g, lb := range l.Labels {
-			for _, x := range []int{lb.Left, (lb.Left + lb.Right) / 2, lb.Right} {
-				bg := px(img, x, (lb.Top+lb.Bottom)/2)
-				if c := contrast(colorLabel, bg); c < 3.0 {
-					t.Errorf("масштаб %.1f, подпись %d, x=%d: контраст %.2f ниже 3:1 (фон %v)", sc, g, x, c, bg)
-				}
+	labelColor := func(l CardLayout) color.RGBA {
+		for _, r := range TileTexts(l, timeView("01", "23", "45", StatusNormal)) {
+			if r.Role == RoleLabel {
+				return r.Color
 			}
 		}
+		t.Fatal("подписей нет")
+		return color.RGBA{}
+	}
+	layouts := map[string]func(float64) CardLayout{
+		"табло значка": NewCardLayout,
+		"плашка-табло": func(sc float64) CardLayout {
+			return NewCardLayoutFor(sc, CardOptions{Button: CardButtonClose, Line: true})
+		},
+	}
+	for name, mk := range layouts {
+		for _, sc := range []float64{1, 1.25, 1.5, 2} {
+			l := mk(sc)
+			fg := labelColor(l)
+			img := RenderCardBase(l, timeView("01", "23", "45", StatusNormal), CardState{})
+			worst := 99.0
+			for g, lb := range l.Labels {
+				for y := lb.Top; y < lb.Bottom; y += 2 {
+					for x := lb.Left; x < lb.Right; x += 3 {
+						if c := contrast(fg, px(img, x, y)); c < worst {
+							worst = c
+						}
+						if c := contrast(fg, px(img, x, y)); c < 4.5 {
+							t.Fatalf("%s, масштаб %.2f, подпись %d, (%d,%d): контраст %.2f ниже 4,5:1 (фон %v)", name, sc, g, x, y, c, px(img, x, y))
+						}
+					}
+				}
+			}
+			t.Logf("%s, масштаб %.2f: наименьший контраст подписей %.2f", name, sc, worst)
+		}
+	}
+	// Экран перерыва: подписи прямо на фоне экрана блокировки #15181B (guard, colorBg).
+	if c := contrast(labelColor(NewTilesLayout(1)), color.RGBA{0x15, 0x18, 0x1B, 0xFF}); c < 4.5 {
+		t.Errorf("экран перерыва: контраст подписей %.2f ниже 4,5:1", c)
 	}
 }
 

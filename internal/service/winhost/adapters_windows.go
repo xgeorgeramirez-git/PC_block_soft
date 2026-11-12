@@ -282,8 +282,38 @@ func (a storeAdapter) DayUsage(childID int64, day string) ([]service.UsageRow, e
 	return out, nil
 }
 
-func (a storeAdapter) PeriodDays(childID int64, fromDay, beforeDay string) (core.DayState, error) {
-	return a.s.PeriodDays(childID, fromDay, beforeDay)
+func (a storeAdapter) DaysSeries(childID int64, fromDay, beforeDay string) ([]service.DayRow, error) {
+	list, err := a.s.DaysSeries(childID, fromDay, beforeDay)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]service.DayRow, 0, len(list))
+	for _, r := range list {
+		out = append(out, service.DayRow{Day: r.Day, TotalS: r.TotalS, GamesS: r.GamesS, VideoS: r.VideoS, StudyS: r.StudyS, ExtraMin: r.ExtraMin})
+	}
+	return out, nil
+}
+
+func (a storeAdapter) FirstStatsDay(childID int64) (string, bool, error) {
+	return a.s.FirstStatsDay(childID)
+}
+
+func (a storeAdapter) GetStatsReset(childID int64) (service.StatsReset, bool, error) {
+	r, ok, err := a.s.GetStatsReset(childID)
+	if err != nil || !ok {
+		return service.StatsReset{}, ok, err
+	}
+	return service.StatsReset{ClearedAtMs: r.ClearedAtMs, Day: r.Day, TotalS: r.TotalS, GamesS: r.GamesS,
+		VideoS: r.VideoS, StudyS: r.StudyS, ExtraMin: r.ExtraMin}, true, nil
+}
+
+func (a storeAdapter) ClearStats(childID int64, day core.DayState, r service.StatsReset) error {
+	return a.s.ClearStats(childID, day, storage.StatsReset{ClearedAtMs: r.ClearedAtMs, Day: r.Day, TotalS: r.TotalS,
+		GamesS: r.GamesS, VideoS: r.VideoS, StudyS: r.StudyS, ExtraMin: r.ExtraMin})
+}
+
+func (a storeAdapter) UngrantedDays(childID int64, beforeDay string) ([]core.DayState, error) {
+	return a.s.UngrantedDays(childID, beforeDay)
 }
 
 func (a storeAdapter) PeriodUsage(childID int64, fromDay, beforeDay string) ([]service.UsageRow, error) {
@@ -308,6 +338,10 @@ func (a storeAdapter) SetSchedule(childID int64, intervals []core.Interval) erro
 
 func (a storeAdapter) AppendBonus(childID int64, deltaMin int, reason string) (int, error) {
 	return a.s.AppendBonus(childID, deltaMin, reason)
+}
+
+func (a storeAdapter) GrantDayBonus(childID int64, day core.DayState, deltaMin int, reason string) (int, error) {
+	return a.s.GrantDayBonus(childID, day, deltaMin, reason)
 }
 
 func (a storeAdapter) GetBonusBalance(childID int64) (int, error) {
@@ -350,6 +384,22 @@ func (a storeAdapter) ListPromos() ([]service.PromoRecord, error) {
 	return out, nil
 }
 
+func (a storeAdapter) CreatePromos(codesDisplay []string, minutes int) ([]service.PromoRecord, error) {
+	list, err := a.s.CreatePromos(codesDisplay, minutes)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]service.PromoRecord, 0, len(list))
+	for _, p := range list {
+		out = append(out, promoRecordOf(p))
+	}
+	return out, nil
+}
+
+func (a storeAdapter) ClearUsedPromos() (int, error) {
+	return a.s.ClearUsedPromos()
+}
+
 // promoRecordOf приводит storage.Promo к service.PromoRecord: указатели used_at/used_by
 // становятся 0 для «ещё не использован».
 func promoRecordOf(p storage.Promo) service.PromoRecord {
@@ -371,6 +421,10 @@ func (a storeAdapter) SaveDayState(childID int64, st core.DayState) error {
 	return a.s.SaveDayState(childID, st)
 }
 
+func (a storeAdapter) DeleteChildEvents(childID int64) (int, error) {
+	return a.s.DeleteChildEvents(childID)
+}
+
 func (a storeAdapter) AppendEvent(e service.StoredEvent) error {
 	ev := storage.Event{AtMs: e.AtMs, TzOffsetMin: e.TzOffsetMin, Kind: e.Kind, Details: e.Details}
 	if e.ChildID != 0 {
@@ -381,7 +435,8 @@ func (a storeAdapter) AppendEvent(e service.StoredEvent) error {
 }
 
 func (a storeAdapter) ListEvents(q service.EventQuery) ([]service.StoredEvent, error) {
-	f := storage.EventFilter{Limit: q.Limit}
+	f := storage.EventFilter{FromMs: q.FromMs, ToMs: q.ToMs, Kinds: q.Kinds,
+		BeforeAtMs: q.BeforeAtMs, BeforeID: q.BeforeID, Limit: q.Limit}
 	if q.ChildID != 0 {
 		id := q.ChildID
 		f.ChildID = &id

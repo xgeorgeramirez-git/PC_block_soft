@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -31,9 +32,11 @@ const (
 	// killWorkers — сколько Kill одного прохода идут одновременно (B-37, NFR-6): Windows-адаптер
 	// ждёт исчезновения процесса до 300 мс, и по очереди пять закрываемых держали бы проход 1,5 с.
 	killWorkers = 8
-	// metaBudget — сколько проход ждёт свойства (издатель, описание) закрытых незнакомых (B-32,
-	// NFR-6, PL-17): чтение с сетевого пути может висеть. Не успело — в «Ждут решения» «Без подписи
-	// издателя»; решение родителя всё равно перечитывает свойства (fileMetaUnlocked).
+	// metaBudget — сколько проход ждёт свойства файлов (B-32, NFR-6, PL-17): чтение с сетевого
+	// пути может висеть. До решения (отпечаток, издатель; fetchMeta) не успело — процесс в этот
+	// проход не трогается, результат берёт следующий. После закрытия (издатель, описание закрытых
+	// незнакомых) не успело — в «Ждут решения» «Без подписи издателя»; решение родителя всё равно
+	// перечитывает свойства (fileMetaUnlocked).
 	metaBudget = 300 * time.Millisecond
 )
 
@@ -100,6 +103,9 @@ type watchTarget struct {
 	sampleAt time.Time // момент снимка стража, по которому взяты inputAt и fg
 	fg       string
 	byPID    map[uint32]ProcInfo
+	// hold — пауза ребёнка (R11): процессы только читаются ради категории секунды учёта (B-30),
+	// ничего не закрывается и не пишется (watchHeld).
+	hold bool
 }
 
 // watchAct — процесс, который наблюдатель закрывает в этом проходе.
@@ -122,11 +128,17 @@ type watchState struct {
 	mu    sync.Mutex
 	gen   uint64
 	procs map[procKey]*watchEntry
+	// held — процессы сеансов на паузе (watchHeld): только отпечаток и издатель для учёта (B-30).
+	// Отдельно от procs: решения о запуске (ручной или сам) и «уже закрывали» пауза не трогает.
+	held map[procKey]*watchEntry
 	// metaBusy — пути, свойства которых сейчас читаются (B-32): зависший сетевой путь, запускаемый
 	// снова и снова, не плодит горутины. Под своим metaMu: горутина чтения снимает отметку сама,
 	// когда проход, начавший её, уже закончен.
 	metaMu   sync.Mutex
 	metaBusy map[string]bool
+	// metaDone — готовые чтения свойств до решения, которые проход не дождался (fetchMeta): их
+	// берёт следующий проход. Под metaMu.
+	metaDone map[string]fileMeta
 }
 
 // RunWatch крутит наблюдатель на собственном тикере по настоящим часам, пока не отменён ctx.
@@ -164,6 +176,13 @@ func (s *Service) Watch(real time.Time) {
 	s.watch.gen++
 	gen := s.watch.gen
 	var acts []watchAct
+	type item struct {
+		t *watchTarget
+		p ProcInfo
+		e *watchEntry
+	}
+	var items []item
+	var need []*watchEntry // свойства файла нужны до решения (B-32): читаются вместе, с бюджетом
 	notes := []string{}
 	unreadable, others := map[uint32]int{}, map[uint32]int{}
 	for i := range targets {
@@ -174,21 +193,39 @@ func (s *Service) Watch(real time.Time) {
 			s.keepSession(t.session, gen)
 			continue
 		}
+		if t.hold {
+			need = append(need, s.watchHeld(t, list, gen)...)
+			continue
+		}
 		t.byPID = make(map[uint32]ProcInfo, len(list))
 		for _, p := range list {
 			t.byPID[p.PID] = p
 		}
 		for _, p := range list {
-			a, skip := s.watchDecide(t, p, gen)
+			e, skip := s.watchEntryOf(t, p, gen)
 			switch skip {
 			case skipUnreadable:
 				unreadable[t.session]++
 			case skipOtherUser:
 				others[t.session]++
 			}
-			if a != nil {
-				acts = append(acts, *a)
+			if e != nil {
+				items = append(items, item{t, p, e})
+				if s.needsMeta(e) {
+					need = append(need, e)
+				}
 			}
+		}
+	}
+	for _, path := range s.fetchMeta(need) {
+		notes = append(notes, fmt.Sprintf("watch-meta|%s\x00наблюдатель: свойства %s читаются дольше %v, решение отложено", path, path, metaBudget))
+	}
+	for _, it := range items {
+		if s.needsMeta(it.e) {
+			continue // отпечаток или издатель ещё читаются: «не знаю» — не трогать (PL-9)
+		}
+		if a := s.watchDecide(it.t, it.p, it.e); a != nil {
+			acts = append(acts, *a)
 		}
 	}
 	fps, pubs := map[string]string{}, map[string]string{}
@@ -201,6 +238,18 @@ func (s *Service) Watch(real time.Time) {
 			fps[e.norm] = e.fp
 		}
 		if e.pubRead {
+			pubs[e.norm] = e.pub
+		}
+	}
+	for k, e := range s.watch.held {
+		if e.seen != gen {
+			delete(s.watch.held, k)
+			continue
+		}
+		if _, ok := fps[e.norm]; !ok && e.fpRead {
+			fps[e.norm] = e.fp
+		}
+		if _, ok := pubs[e.norm]; !ok && e.pubRead {
 			pubs[e.norm] = e.pub
 		}
 	}
@@ -331,21 +380,154 @@ func (w *watchState) doneMeta(path string) {
 	delete(w.metaBusy, path)
 }
 
+// finishMeta снимает отметку чтения path и кладёт результат до решения в metaDone.
+func (w *watchState) finishMeta(path string, m fileMeta) {
+	w.metaMu.Lock()
+	defer w.metaMu.Unlock()
+	delete(w.metaBusy, path)
+	if w.metaDone == nil || len(w.metaDone) >= maxMetaDone {
+		w.metaDone = map[string]fileMeta{}
+	}
+	w.metaDone[path] = m
+}
+
+// takeDone забирает готовое чтение свойств path до решения.
+func (w *watchState) takeDone(path string) (fileMeta, bool) {
+	w.metaMu.Lock()
+	defer w.metaMu.Unlock()
+	m, ok := w.metaDone[path]
+	if ok {
+		delete(w.metaDone, path)
+	}
+	return m, ok
+}
+
 // keepSession помечает виденными процессы сеанса, список которого не прочитался: память о них
 // (и о том, что их уже закрывали) не теряется из-за одного сбоя.
 func (s *Service) keepSession(session uint32, gen uint64) {
-	for _, e := range s.watch.procs {
-		if e.session == session {
-			e.seen = gen
+	for _, m := range []map[procKey]*watchEntry{s.watch.procs, s.watch.held} {
+		for _, e := range m {
+			if e.session == session {
+				e.seen = gen
+			}
 		}
 	}
+}
+
+// watchHeld — проход по сеансу ребёнка на паузе (R11, B-30): учёт в паузе продолжается, и
+// категория секунды переднего плана сверяет отпечаток и издателя (fpSeen, pubSeen). Здесь они
+// только читаются (need → fetchMeta) для процессов ребёнка с прочитанным путём; ничего не
+// закрывается, «Ждут решения», журнал и плашки не трогаются. Вне s.mu, под watch.mu.
+func (s *Service) watchHeld(t *watchTarget, list []ProcInfo, gen uint64) (need []*watchEntry) {
+	if s.watch.held == nil {
+		s.watch.held = map[procKey]*watchEntry{}
+	}
+	for _, p := range list {
+		if p.SessionID != t.session || t.own[p.PID] || !p.UserOK || !strings.EqualFold(p.UserSID, t.sid) || !p.PathOK || p.Path == "" {
+			continue
+		}
+		key := procKey{pid: p.PID, stamp: p.Stamp}
+		e := s.watch.held[key]
+		if e == nil {
+			norm := programs.Normalize(p.Path)
+			if norm == "" {
+				continue
+			}
+			e = &watchEntry{session: t.session, path: p.Path, norm: norm}
+			s.watch.held[key] = e
+		}
+		e.seen = gen
+		if s.needsMeta(e) {
+			need = append(need, e)
+		}
+	}
+	return need
+}
+
+// needsMeta — решению о процессе e нужны свойства его файла, а они ещё не прочитаны: отпечаток
+// (RM3-12) или издатель (RM3-13). Читаются и в тестовом режиме вне WatchDir (T6-5): чтение ничего
+// не закрывает, а без издателя Brave из профиля раннера был бы «незнакомой», и сайты в нём не
+// различались бы.
+func (s *Service) needsMeta(e *watchEntry) bool {
+	c := s.classifier
+	return (!e.fpRead && !c.Roots().IsTrusted(e.norm) && c.NeedsFingerprint(e.norm)) ||
+		(!e.pubRead && c.NeedsPublisher(e.norm))
+}
+
+// maxMetaDone — сколько готовых, но ещё не взятых чтений свойств хранится (процесс мог завершиться,
+// пока читался его файл): больше — память сбрасывается, чтения пойдут заново.
+const maxMetaDone = 1000
+
+// fetchMeta читает свойства файлов процессов need до решения (B-32): одно чтение на путь (отпечаток
+// и издатель вместе) в своей горутине, проход ждёт их не дольше metaBudget. Готовое заполняет
+// записи; опоздавшее дочитывается в фоне и берётся следующим проходом (watchState.metaDone), путь,
+// чтение которого ещё висит, не читается снова. late — пути, чьи свойства в этот проход не
+// успели: их процессы проход не трогает.
+func (s *Service) fetchMeta(need []*watchEntry) (late []string) {
+	byPath := map[string][]*watchEntry{}
+	for _, e := range need {
+		byPath[e.norm] = append(byPath[e.norm], e)
+	}
+	apply := func(path string, m fileMeta) {
+		for _, e := range byPath[path] {
+			e.fp, e.pub = m.fingerprint, programs.ClipName(m.publisher)
+			e.fpRead, e.pubRead = true, true
+		}
+		delete(byPath, path)
+	}
+	out := make(chan string, len(byPath)) // горутина не ждёт опоздавшего читателя
+	started := 0
+	for path := range byPath {
+		if m, ok := s.watch.takeDone(path); ok {
+			apply(path, m)
+			continue
+		}
+		if !s.watch.takeMeta(path) {
+			continue // читается с прошлого прохода
+		}
+		started++
+		go func() {
+			var m fileMeta
+			defer func() {
+				if p := recover(); p != nil {
+					s.cfg.Logf("наблюдатель: сбой чтения свойств %s: %v", path, p)
+					s.watch.doneMeta(path) // свойства не известны: процесс не трогается, чтение — снова
+				} else {
+					s.watch.finishMeta(path, m)
+				}
+				out <- path
+			}()
+			m.publisher, m.description, m.fingerprint = s.cfg.FileMeta(path)
+		}()
+	}
+	if started > 0 {
+		budget := time.NewTimer(metaBudget)
+		defer budget.Stop()
+	wait:
+		for ; started > 0; started-- {
+			select {
+			case path := <-out:
+				if m, ok := s.watch.takeDone(path); ok {
+					apply(path, m)
+				}
+			case <-budget.C:
+				break wait
+			}
+		}
+	}
+	for path := range byPath {
+		late = append(late, path)
+	}
+	sort.Strings(late)
+	return late
 }
 
 // watchSnapshot снимает под s.mu то, что нужно проходу: сеансы детей (кроме администраторов, R1),
 // их решения ядра и свои процессы. ok = false — проход ничего не делает: служба не запущена или
 // останавливается, список программ не готов (RM3-10, R18), не определены папка Windows или
 // каталог установки (класс «система» был бы пуст), тестовый режим без WatchDir (RM3-8).
-// Пауза (R11) и безопасный режим (R18): у ребёнка ничего не закрывается, его сеанс не опрашивается.
+// Безопасный режим (R18): у ребёнка ничего не закрывается, его сеанс не опрашивается. Пауза (R11):
+// ничего не закрывается, сеанс опрашивается только ради свойств файлов для учёта (hold, B-30).
 // Сеансы взрослых (R19) и сеансы без пользователя не опрашиваются вовсе. Заодно снимаются факты
 // для «ручной или сам» (launchFacts): вход в сеанс, ввод и передний план по снимку стража этого
 // сеанса не старше sampleMaxAge; снимок с неактивным сеансом — данных о вводе нет.
@@ -381,7 +563,7 @@ func (s *Service) watchSnapshot(real time.Time) ([]watchTarget, bool) {
 			continue
 		}
 		d := cs.eng.Current()
-		if d.Status == core.StatusPaused || d.Status == core.StatusSafe {
+		if d.Status == core.StatusSafe {
 			continue
 		}
 		own := map[uint32]bool{}
@@ -395,7 +577,7 @@ func (s *Service) watchSnapshot(real time.Time) ([]watchTarget, bool) {
 				own[sp.pid] = true
 			}
 		}
-		t := watchTarget{session: id, childID: ss.childID, sid: cs.child.SID, d: d, own: own, at: real, logonAt: ss.since}
+		t := watchTarget{session: id, childID: ss.childID, sid: cs.child.SID, d: d, own: own, at: real, logonAt: ss.since, hold: d.Status == core.StatusPaused}
 		if sm := cs.sample; cs.haveSample && cs.sampleSess == id && real.Sub(cs.sampleAt) <= sampleMaxAge && sm.SessionActive && sm.LastInputAgoMs >= 0 {
 			t.inputAt, t.sampleAt = s.inputMoment(cs.sampleAt, sm.LastInputAgoMs), cs.sampleAt
 			t.fg = programs.Normalize(sm.ForegroundPath)
@@ -412,14 +594,11 @@ const (
 	skipOtherUser
 )
 
-// watchDecide решает судьбу одного процесса сеанса t вне s.mu: nil — не трогать. Порядок:
-// чужой сеанс, свой процесс PC Block, процесс другого пользователя или с непрочитанным
-// пользователем (программа администратора через UAC в сеансе ребёнка, R19; проверяется
-// пользователь, а не повышение прав), нечитаемый путь, вне WatchDir в тестовом режиме, класс
-// «система» — не трогать; «незнакомая» и «запрещённая» — закрыть; разрешённая категория —
-// закрыть, только если её сейчас нельзя и правило закрывает её (игры при CloseGames, всё,
-// кроме учёбы, при StudyOnly; R5, R8). Под экраном «Блокировать экран» закрываются только игры.
-func (s *Service) watchDecide(t *watchTarget, p ProcInfo, gen uint64) (*watchAct, int) {
+// watchEntryOf — запись наблюдателя о процессе p сеанса t вне s.mu (заводится при первой встрече);
+// nil — не трогать: чужой сеанс, свой процесс PC Block, процесс другого пользователя или с
+// непрочитанным пользователем (программа администратора через UAC в сеансе ребёнка, R19;
+// проверяется пользователь, а не повышение прав), нечитаемый путь.
+func (s *Service) watchEntryOf(t *watchTarget, p ProcInfo, gen uint64) (*watchEntry, int) {
 	if p.SessionID != t.session || t.own[p.PID] {
 		return nil, skipNone
 	}
@@ -440,27 +619,25 @@ func (s *Service) watchDecide(t *watchTarget, p ProcInfo, gen uint64) (*watchAct
 		s.watch.procs[key] = e
 	}
 	e.seen = gen
+	return e, skipNone
+}
+
+// watchDecide решает судьбу процесса p сеанса t с записью e (watchEntryOf; свойства файла уже
+// прочитаны, если решение их ждёт) вне s.mu: nil — не трогать. Вне WatchDir в тестовом режиме,
+// класс «система» и скрытая — не трогать; «незнакомая» и «запрещённая» — закрыть; разрешённая
+// категория — закрыть, только если её сейчас нельзя и правило закрывает её (игры при CloseGames,
+// всё, кроме учёбы, при StudyOnly; R5, R8). Под экраном «Блокировать экран» закрываются только игры.
+func (s *Service) watchDecide(t *watchTarget, p ProcInfo, e *watchEntry) *watchAct {
 	c := s.classifier
-	needFP := !e.fpRead && !c.Roots().IsTrusted(e.norm) && c.NeedsFingerprint(e.norm)
-	needPub := !e.pubRead && c.NeedsPublisher(e.norm)
-	if needFP || needPub {
-		// Одно чтение свойств на процесс: отпечаток (RM3-12) и издатель (RM3-13) вместе. Читается
-		// и в тестовом режиме вне WatchDir (T6-5): чтение ничего не закрывает, а без издателя Brave
-		// из профиля раннера был бы «незнакомой», и сайты в нём не различались бы.
-		var pub string
-		pub, _, e.fp = s.cfg.FileMeta(e.norm)
-		e.pub = programs.ClipName(pub)
-		e.fpRead, e.pubRead = true, true
-	}
 	if dir := s.cfg.Test.WatchDir; s.cfg.Test.Enabled && !strings.HasPrefix(e.norm, strings.TrimSuffix(dir, `\`)+`\`) {
-		return nil, skipNone // тестовый режим: закрывается только папка тестовых программ (RM3-8)
+		return nil // тестовый режим: закрывается только папка тестовых программ (RM3-8)
 	}
 	res := c.Classify(e.path, e.fp, e.pub)
 	if !e.classified {
 		e.classified, e.forbiddenAtStart = true, res.Verdict == programs.VerdictForbidden
 	}
 	if res.Verdict == programs.VerdictSystem || res.Verdict == programs.VerdictHidden {
-		return nil, skipNone // скрытую родителем не закрывает ни одно правило (D-57, RF9-2)
+		return nil // скрытую родителем не закрывает ни одно правило (D-57, RF9-2)
 	}
 	a := &watchAct{t: t, p: p, e: e, res: res, again: e.closed}
 	switch res.Verdict {
@@ -471,7 +648,7 @@ func (s *Service) watchDecide(t *watchTarget, p ProcInfo, gen uint64) (*watchAct
 	default:
 		a.cat = coreCategory(res.Category)
 		if t.d.Allows(a.cat) {
-			return nil, skipNone
+			return nil
 		}
 		switch {
 		case t.d.StudyOnly && a.cat != core.CatStudy && !isBrave(e.norm, res):
@@ -480,10 +657,10 @@ func (s *Service) watchDecide(t *watchTarget, p ProcInfo, gen uint64) (*watchAct
 		case t.d.CloseGames && a.cat == core.CatGames:
 			a.plateKind = ipc.BlockedGamesOver
 		default:
-			return nil, skipNone // под экраном блокировки остальное остаётся под экраном (R8)
+			return nil // под экраном блокировки остальное остаётся под экраном (R8)
 		}
 	}
-	return a, skipNone
+	return a
 }
 
 // newWatchEntry — память о впервые увиденном процессе p и решение «ручной или сам» (R13, D-65).

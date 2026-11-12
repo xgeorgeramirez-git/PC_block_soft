@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	"pcblock/internal/auth"
 	"pcblock/internal/core"
@@ -295,10 +296,16 @@ type Event struct {
 	Details     map[string]any // подробности; в базе JSON, числа при чтении приходят как float64
 }
 
-// EventFilter — отбор событий для ListEvents.
+// EventFilter — отбор событий для ListEvents (FR-24, RM5-5): фильтр уходит в запрос, страница —
+// по курсору (at, id) сверху вниз.
 type EventFilter struct {
-	ChildID *int64 // только события этого ребёнка; nil — все
-	Limit   int    // не больше строк; 0 и меньше — defaultEventLimit, выше maxEventLimit не бывает
+	ChildID    *int64   // только события этого ребёнка; nil — все
+	FromMs     int64    // 0 — без нижней границы; at >= FromMs
+	ToMs       int64    // 0 — без верхней; at < ToMs
+	Kinds      []string // пусто — все виды
+	BeforeAtMs int64    // курсор: строго раньше (at, id) = (BeforeAtMs, BeforeID); 0 — с новых
+	BeforeID   int64
+	Limit      int // не больше строк; 0 и меньше — defaultEventLimit, выше maxEventLimit не бывает
 }
 
 // Пределы числа строк журнала за один запрос.
@@ -348,10 +355,32 @@ func (s *Store) AppendEvent(e Event) error {
 // больше f.Limit. Событий нет: []Event{}.
 func (s *Store) ListEvents(f EventFilter) ([]Event, error) {
 	query := `SELECT id, child_id, at, tz_offset_min, kind, details FROM events`
+	var where []string
 	var args []any
 	if f.ChildID != nil {
-		query += ` WHERE child_id = ?`
+		where = append(where, `child_id = ?`)
 		args = append(args, *f.ChildID)
+	}
+	if f.FromMs != 0 {
+		where = append(where, `at >= ?`)
+		args = append(args, f.FromMs)
+	}
+	if f.ToMs != 0 {
+		where = append(where, `at < ?`)
+		args = append(args, f.ToMs)
+	}
+	if len(f.Kinds) > 0 {
+		where = append(where, `kind IN (?`+strings.Repeat(`, ?`, len(f.Kinds)-1)+`)`)
+		for _, k := range f.Kinds {
+			args = append(args, k)
+		}
+	}
+	if f.BeforeAtMs != 0 {
+		where = append(where, `(at < ? OR (at = ? AND id < ?))`)
+		args = append(args, f.BeforeAtMs, f.BeforeAtMs, f.BeforeID)
+	}
+	if len(where) > 0 {
+		query += ` WHERE ` + strings.Join(where, ` AND `)
 	}
 	query += ` ORDER BY at DESC, id DESC LIMIT ?`
 	args = append(args, eventLimit(f.Limit))
@@ -384,6 +413,20 @@ func (s *Store) ListEvents(f EventFilter) ([]Event, error) {
 		return nil, fmt.Errorf("storage: список событий: %w", err)
 	}
 	return out, nil
+}
+
+// DeleteChildEvents удаляет события ребёнка (child_id = childID): «Очистить журнал» (FR-38, RM5-9).
+// События без ребёнка (пароль, промокоды, работа программы) не трогает. Возвращает число удалённых.
+func (s *Store) DeleteChildEvents(childID int64) (int, error) {
+	res, err := s.db.Exec(`DELETE FROM events WHERE child_id = ?`, childID)
+	if err != nil {
+		return 0, fmt.Errorf("storage: очистить журнал: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("storage: очистить журнал: %w", err)
+	}
+	return int(n), nil
 }
 
 // Auth — пароль родителя и состояние неверных вводов (таблица parent_auth, R19, NFR-9).

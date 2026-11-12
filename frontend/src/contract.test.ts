@@ -64,6 +64,7 @@ const CASES: [string, string, (req: any) => Promise<unknown>][] = [
   ["SetDiag", "SetDiag", (r) => api.setDiag(r.verbose)],
   ["ListEvents", "ListEvents", (r) => api.listEvents(r)],
   ["ListEvents", "ListEvents#empty", (r) => api.listEvents(r)],
+  ["ListEvents", "ListEvents#page", (r) => api.listEventsPage(r)],
   ["ChangePassword", "ChangePassword", (r) => api.changePassword(r.oldPassword, r.newPassword)],
   ["SetChildren", "SetChildren", (r) => api.setChildren(r)],
   ["SetChildren", "SetChildren#empty", (r) => api.setChildren(r)],
@@ -101,11 +102,15 @@ const CASES: [string, string, (req: any) => Promise<unknown>][] = [
   ["ScanPrograms", "ScanPrograms#empty", () => api.scanPrograms()],
   ["SetNoForbidden", "SetNoForbidden", (r) => api.setNoForbidden(r.childId, r.on)],
   ["ClearBonus", "ClearBonus", (r) => api.clearBonus(r.childId)],
+  ["ClearStats", "ClearStats", (r) => api.clearStats(r.childId)],
+  ["ClearJournal", "ClearJournal", (r) => api.clearJournal(r.childId)],
   ["ReduceBonus", "ReduceBonus", (r) => api.reduceBonus(r.childId, r.minutes)],
   ["CreatePromo", "CreatePromo", (r) => api.createPromo(r.code, r.minutes)],
   ["ListPromos", "ListPromos", () => api.listPromos()],
   ["ListPromos", "ListPromos#empty", () => api.listPromos()],
   ["RedeemPromo", "RedeemPromo", (r) => api.redeemPromo(r.childId, r.code)],
+  ["GeneratePromos", "GeneratePromos", (r) => api.generatePromos(r)],
+  ["ClearPromoHistory", "ClearPromoHistory", () => api.clearPromoHistory()],
   ["GetBonusRate", "GetBonusRate", () => api.getBonusRate()],
   ["SetBonusRate", "SetBonusRate", (r) => api.setBonusRate(r.minutes)],
   ["ListSites", "ListSites", () => api.listSites()],
@@ -113,6 +118,8 @@ const CASES: [string, string, (req: any) => Promise<unknown>][] = [
   ["AddSite", "AddSite", (r) => api.addSite(r.domain, r.kind)],
   ["AddSite", "AddSite#moved", (r) => api.addSite(r.domain, r.kind)],
   ["RemoveSite", "RemoveSite", (r) => api.removeSite(r.domain)],
+  ["AddSites", "AddSites", (r) => api.addSites(r.text, r.kind)],
+  ["RemoveSites", "RemoveSites", (r) => api.removeSites(r.domains)],
   ["SetAdultFilter", "SetAdultFilter", (r) => api.setAdultFilter(r.childId, r.on)],
 ];
 
@@ -128,7 +135,7 @@ describe("успешные ответы контракта", () => {
     // Запрос обёртки совпадает с примером запроса (пустой объект, если запроса нет).
     expect(sent[0].payload).toEqual(ex.request ?? {});
     // Ответ - нагрузка примера (null в массивах уже заменены на списки).
-    expect(got).toEqual(payloadOf(command, ex.reply.payload));
+    expect(got).toEqual(key === "ListEvents#page" ? ex.reply.payload : payloadOf(command, ex.reply.payload));
   });
 });
 
@@ -169,10 +176,15 @@ describe("отказы контракта", () => {
     ["AskMore", "AskMore#denied", (r) => api.askMore(r.childId, r.minutes, r.password)],
     ["SpendBonus", "SpendBonus#forbidden", (r) => api.spendBonus(r.childId, r.minutes)],
     ["CreatePromo", "CreatePromo#dup", (r) => api.createPromo(r.code, r.minutes)],
+    ["CreatePromo", "CreatePromo#latin", (r) => api.createPromo(r.code, r.minutes)],
+    ["GeneratePromos", "GeneratePromos#count", (r) => api.generatePromos(r)],
     ["RedeemPromo", "RedeemPromo#bad", (r) => api.redeemPromo(r.childId, r.code)],
     ["AddSite", "AddSite#invalid", (r) => api.addSite(r.domain, r.kind)],
     ["AddSite", "AddSite#dup", (r) => api.addSite(r.domain, r.kind)],
     ["AddSite", "AddSite#full", (r) => api.addSite(r.domain, r.kind)],
+    ["AddSites", "AddSites#invalid", (r) => api.addSites(r.text, r.kind)],
+    ["ClearStats", "ClearStats#noChild", (r) => api.clearStats(r.childId)],
+    ["ClearJournal", "ClearJournal#noChild", (r) => api.clearJournal(r.childId)],
   ];
 
   it.each([...denied, ...extra])("%s: пример %s - отказ с текстом и полем", async (_command, key, run) => {
@@ -242,7 +254,13 @@ describe("полнота", () => {
       "ListSites",
       "AddSite",
       "RemoveSite",
+      "AddSites",
+      "RemoveSites",
       "SetAdultFilter",
+      "ClearStats",
+      "ClearJournal",
+      "GeneratePromos",
+      "ClearPromoHistory",
     ]) {
       expect(examples[command], `нет примера ${command}`).toBeDefined();
       expect(wrapped.has(command), `нет обёртки ${command}`).toBe(true);

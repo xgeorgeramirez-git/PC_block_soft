@@ -13,7 +13,13 @@ const (
 	CmdRemoveSite       = "RemoveSite"       // удалить домен; «Отменить» — AddSite (родитель)
 	CmdSetAdultFilter   = "SetAdultFilter"   // «Блокировать сайты 18+» ребёнку (родитель)
 	CmdTestSeedPrograms = "TestSeedPrograms" // тестовый режим: программы «до обновления» (RM4-11, S46)
+	CmdAddSites         = "AddSites"         // вставить несколько адресов в список (родитель, B-49)
+	CmdRemoveSites      = "RemoveSites"      // удалить отмеченные сайты; «Отменить» — AddSites (родитель, B-49)
 )
+
+// MaxSitesPerCall — сколько адресов за раз принимают AddSites и RemoveSites (как предел
+// «Запрещённых»): больше вставка не нужна, а одна команда не держит службу долго.
+const MaxSitesPerCall = 1000
 
 // FieldDomain — поле ввода домена на экране «Сайты»: к нему привязаны отказы AddSite.
 const FieldDomain = "domain"
@@ -51,7 +57,7 @@ const GuardCmdCloseBraveWindow = "closeBraveWindow"
 
 // Виды плашек о закрытых сайтах и браузерах (BlockedPlate.Kind, RM4-9).
 const (
-	BlockedSite      = "site"      // «Сайт X закрыт: он в списке запрещённых»
+	BlockedSite      = "site"      // «Сайт X закрыт: он в списке запрещённых. Если он нужен, попроси родителей»
 	BlockedAdult     = "adult"     // сайт из списка «18+» (R14)
 	BlockedVideoOver = "videoOver" // время на видео и соцсети закончилось (R6)
 	BlockedBrowser   = "browser"   // «Этот браузер запрещён. Пользуйся Brave» (R15)
@@ -123,6 +129,39 @@ type RemoveSiteReply struct {
 	Message     string         `json:"message"`
 	Domain      string         `json:"domain"`
 	Kind        string         `json:"kind"`
+	UndoUntilMs int64          `json:"undoUntilMs"`
+	Sites       ListSitesReply `json:"sites"`
+}
+
+// AddSitesRequest — вставить сразу несколько адресов в список Kind (8.3.5 п.2, B-49). Text — ввод
+// родителя как есть: адреса по одному в строке (пустые строки пропускаются), каждый — домен или
+// вставленный адрес страницы.
+type AddSitesRequest struct {
+	Text string `json:"text"`
+	Kind string `json:"kind"`
+}
+
+// AddSitesReply — ответ AddSites. Added — домены, добавленные или перенесённые в список (в
+// порядке ввода); Rejected — строки ввода, не похожие на адрес сайта (как вставлены): окно
+// оставляет их в поле с FieldError. Message — итог словами.
+type AddSitesReply struct {
+	Message    string         `json:"message"`
+	Added      []string       `json:"added"`
+	Rejected   []string       `json:"rejected"`
+	FieldError string         `json:"fieldError"`
+	Sites      ListSitesReply `json:"sites"`
+}
+
+// RemoveSitesRequest — удалить отмеченные домены из их списков (B-49).
+type RemoveSitesRequest struct {
+	Domains []string `json:"domains"`
+}
+
+// RemoveSitesReply — ответ RemoveSites: какие домены из каких списков удалены; «Отменить» до
+// UndoUntilMs — AddSites этих доменов в их списки.
+type RemoveSitesReply struct {
+	Message     string         `json:"message"`
+	Removed     []SiteDTO      `json:"removed"`
 	UndoUntilMs int64          `json:"undoUntilMs"`
 	Sites       ListSitesReply `json:"sites"`
 }

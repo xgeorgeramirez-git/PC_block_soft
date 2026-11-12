@@ -355,10 +355,10 @@ func TestDomainOverrideInTestMode(t *testing.T) {
 	path := testBrave
 	r, f := tabRig(true, TabLook{Window: 7, Brave: true, Domain: "real.example"})
 	r.ctl.read = func(now time.Time) ipc.SensorSample {
-		return BuildSample(now, RawSensors{IdleMs: 1500, ForegroundPath: path, ForegroundDomain: "real.example", DomainUnread: true}, 1)
+		return BuildSample(now, RawSensors{IdleMs: 1500, ForegroundPath: path, ForegroundDomain: "real.example", DomainUnread: true, DomainNoAddress: true}, 1)
 	}
 	r.poll()
-	if s := r.lastSample(t); s.ForegroundDomain != "real.example" || !s.DomainUnread {
+	if s := r.lastSample(t); s.ForegroundDomain != "real.example" || !s.DomainUnread || !s.DomainNoAddress {
 		t.Fatalf("настоящий снимок: %q, %v", s.ForegroundDomain, s.DomainUnread)
 	}
 	r.svc.cmds = []ipc.GuardCommand{domainCmd("youtube.com")}
@@ -367,8 +367,8 @@ func TestDomainOverrideInTestMode(t *testing.T) {
 		t.Fatalf("подмена ушла окну: %+v", q)
 	}
 	r.poll()
-	if s := r.lastSample(t); s.ForegroundDomain != "youtube.com" || s.DomainUnread {
-		t.Fatalf("после подмены снимок: %q, %v; ждали youtube.com, false", s.ForegroundDomain, s.DomainUnread)
+	if s := r.lastSample(t); s.ForegroundDomain != "youtube.com" || s.DomainUnread || s.DomainNoAddress {
+		t.Fatalf("после подмены снимок: %q, %v, %v; ждали youtube.com, false, false", s.ForegroundDomain, s.DomainUnread, s.DomainNoAddress)
 	}
 	if st := r.lastState(t); st.ForegroundDomain != "youtube.com" {
 		t.Fatalf("GuardState.foregroundDomain = %q", st.ForegroundDomain)

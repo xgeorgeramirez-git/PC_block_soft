@@ -31,7 +31,9 @@ const (
 	CmdListEvents     = "ListEvents"
 	CmdChangePassword = "ChangePassword"
 	CmdSetChildren    = "SetChildren"
-	CmdParentStats    = "ParentStats" // статистика выбранного ребёнка за период для родителя (FR-23, D-44, D-61)
+	CmdParentStats    = "ParentStats"  // статистика выбранного ребёнка за период для родителя (FR-23, D-44, D-61)
+	CmdClearStats     = "ClearStats"   // очистить статистику ребёнка, учёт лимита не меняется (FR-38, RM5-8)
+	CmdClearJournal   = "ClearJournal" // очистить журнал ребёнка (FR-38, RM5-9)
 
 	// Диагностика: подробные логи (FR-25, D-42).
 	CmdGetDiag  = "GetDiag"  // прочитать, включены ли подробные логи
@@ -106,6 +108,10 @@ var AllCommands = []string{
 	CmdEndBreak,    // фидбек-раунд 0.3.2 (FB-14, commands_0_3_2.go)
 
 	CmdListSites, CmdAddSite, CmdRemoveSite, CmdSetAdultFilter, CmdTestSeedPrograms, // M4 (commands_m4.go)
+	CmdAddSites, CmdRemoveSites, // M5: несколько сайтов за раз (B-49, commands_m4.go)
+
+	CmdClearStats, CmdClearJournal, // M5 (FR-38)
+	CmdGeneratePromos, CmdClearPromoHistory, // M5 (FR-35, commands_m5.go)
 }
 
 // Имена полей, к которым служба привязывает ошибку (Reply.Field, L-121).
@@ -487,17 +493,34 @@ const (
 	MaxEventsLimit     = 1000
 )
 
-// ListEventsRequest — журнал событий. ChildID 0 — все дети; FromMs/ToMs 0 — без границы;
-// Limit 0 — DefaultEventsLimit, не больше MaxEventsLimit; сначала новые.
+// Группы фильтра «Что» журнала (FR-24, 8.3.7 п.2, RM5-5); виды событий групп — в службе
+// (journalGroups). Неизвестная группа — отказ.
+const (
+	JournalGroupAll        = ""           // «Все события»: без отбора по виду
+	JournalGroupViolations = "violations" // «Нарушения»
+	JournalGroupTime       = "time"       // «Время и копилка»
+	JournalGroupPrograms   = "programs"   // «Программы и сайты»
+	JournalGroupSettings   = "settings"   // «Пароль и настройки»
+	JournalGroupSystem     = "system"     // «Работа программы»
+)
+
+// ListEventsRequest — журнал событий. ChildID 0 — все дети; FromMs/ToMs 0 — без границы
+// (FromMs <= at < ToMs); Group — JournalGroup*; Limit 0 — DefaultEventsLimit, не больше
+// MaxEventsLimit; сначала новые. Следующая страница («Показать ещё») — курсор BeforeAtMs/BeforeID
+// последней полученной записи (её AtMs и ID): строго старше неё; BeforeAtMs 0 — с новых.
 type ListEventsRequest struct {
-	ChildID int64 `json:"childId"`
-	FromMs  int64 `json:"fromMs"`
-	ToMs    int64 `json:"toMs"`
-	Limit   int   `json:"limit"`
+	ChildID    int64  `json:"childId"`
+	FromMs     int64  `json:"fromMs"`
+	ToMs       int64  `json:"toMs"`
+	Group      string `json:"group"`
+	BeforeAtMs int64  `json:"beforeAtMs"`
+	BeforeID   int64  `json:"beforeId"`
+	Limit      int    `json:"limit"`
 }
 
 // JournalEntry — событие журнала простыми словами (R22, ТЗ 8.3.7).
 type JournalEntry struct {
+	ID          int64  `json:"id"`   // номер записи: ключ списка и курсор следующей страницы
 	AtMs        int64  `json:"atMs"` // UTC мс
 	TzOffsetMin int    `json:"tzOffsetMin"`
 	ChildID     int64  `json:"childId"` // 0 — событие не про ребёнка
@@ -506,9 +529,20 @@ type JournalEntry struct {
 	Text        string `json:"text"` // «Миша: попытка обойти защиту. Экран заблокирован»
 }
 
-// ListEventsReply — ответ ListEvents.
+// ListEventsReply — ответ ListEvents. More — есть записи старше последней («Показать ещё»).
 type ListEventsReply struct {
 	Events []JournalEntry `json:"events"`
+	More   bool           `json:"more"`
+}
+
+// ClearChildRequest — ClearStats и ClearJournal: чью статистику или журнал очистить (FR-38).
+type ClearChildRequest struct {
+	ChildID int64 `json:"childId"`
+}
+
+// ClearReply — ответ ClearStats и ClearJournal: «Статистика Миши очищена», «Журнал Миши очищен».
+type ClearReply struct {
+	Message string `json:"message"`
 }
 
 // ChangePasswordRequest — смена пароля родителя из родительской сессии.
@@ -587,6 +621,38 @@ type MyTodayReply struct {
 	// Programs — время каждой программы за период по категориям учёта (D-58, вкладки «Итогов»):
 	// самые долгие сверху; скрытых (D-57) и запрещённых (D-64) нет. Пусто — [], не null.
 	Programs []ProgramTime `json:"programs"`
+	// Bars — столбики «По дням» за период (RM5-2, RM5-3): из того же чтения дней, что «Итоги»,
+	// сумма столбиков равна «Итогам»; сегодня — из счётчиков ядра. BarsBy — BarsBy*.
+	Bars   []DayBar `json:"bars"`
+	BarsBy string   `json:"barsBy"`
+	// Violations — нарушения ребёнка за период, новые сверху, не больше StatsListLimit (журнал, R22).
+	Violations []JournalEntry `json:"violations"`
+	// Bonus — записи копилки ребёнка за период, новые сверху, не больше StatsListLimit (FR-22).
+	Bonus []BonusEntry `json:"bonus"`
+	// StatsSinceDay — с какого дня ведётся статистика (YYYY-MM-DD, FR-38): день очистки, иначе
+	// первый день учёта, иначе сегодня. StatsSinceText — «Статистика ведётся с 11 ноября 2026».
+	StatsSinceDay  string `json:"statsSinceDay"`
+	StatsSinceText string `json:"statsSinceText"`
+}
+
+// Разбивка столбиков «По дням» (RM5-2).
+const (
+	BarsByDay   = "day"   // по дню: «Сегодня», «Неделя», «Месяц»
+	BarsByMonth = "month" // по месяцу: «Год», «Всё время»
+)
+
+// StatsListLimit — наибольшее число нарушений и записей копилки в ответе статистики (RM5-4).
+const StatsListLimit = 200
+
+// DayBar — столбик «По дням» (RM5-2, RM5-3): день или месяц, только время. Подпись и подсказку
+// собирает служба, окно только рисует.
+type DayBar struct {
+	Key    string `json:"key"`    // YYYY-MM-DD или YYYY-MM
+	Label  string `json:"label"`  // «пн 16», «ноя», «ноя 2025»
+	Title  string `json:"title"`  // «вт, 17 ноября: 2 ч 20 мин, учёба 0 мин»
+	TotalS int    `json:"totalS"` // в счёт лимита, с
+	StudyS int    `json:"studyS"` // учёба, с (D-7: в лимит не входит, отдельная часть столбика)
+	Today  bool   `json:"today"`  // сегодняшний день или месяц, в который входит сегодня
 }
 
 // ProgramTime — строка вкладки «Итогов» (D-58): программа или сайт, категория, в которой засчитаны
@@ -631,6 +697,10 @@ type SensorSample struct {
 	// адреса, ни документа); служебная страница — false (RM4-1). Служба по нему пишет журнал
 	// (RK5) и закрывает окно без адреса командой GuardCmdCloseBraveWindow.
 	DomainUnread bool `json:"domainUnread"`
+	// DomainNoAddress — причина DomainUnread: у окна Brave адреса нет (дерево доступности
+	// прочитано, ни поля адреса, ни документа), а не сбой чтения UIA (B-55, PL-46). Окно без
+	// адреса служба закрывает, только если «адреса нет» подряд не меньше 5 с; сбои отсчёт не ведут.
+	DomainNoAddress bool `json:"domainNoAddress"`
 	// LockUnknown — рабочий стол ввода не прочитан, о блокировке страж не знает (B-23).
 	// SessionActive при этом true (секунда считается, R2), но признак блокировки, поставленный
 	// событием сеанса, служба по такому снимку не снимает (PL-7).
@@ -772,19 +842,32 @@ const (
 // тестовый режим, приёмка S42): в CI нет прошлых дней, а ждать неделю нельзя. День — строго до
 // сегодняшнего по часам ядра: сегодняшний день ведёт ядро.
 type TestSeedDayRequest struct {
-	ChildID int64           `json:"childId"`
-	Day     string          `json:"day"`    // YYYY-MM-DD
-	TotalS  int             `json:"totalS"` // общее время в счёт лимита, с (игры и прочее)
-	GamesS  int             `json:"gamesS"`
-	StudyS  int             `json:"studyS"`
-	Usage   []TestSeedUsage `json:"usage"`
+	ChildID  int64  `json:"childId"`
+	Day      string `json:"day"`    // YYYY-MM-DD
+	TotalS   int    `json:"totalS"` // общее время в счёт лимита, с (игры и прочее)
+	GamesS   int    `json:"gamesS"`
+	StudyS   int    `json:"studyS"`
+	VideoS   int    `json:"videoS"`   // «Видео и соцсети», с (входит в TotalS)
+	ExtraMin int    `json:"extraMin"` // доп. время дня, мин
+	// BonusPending — день ещё ждёт автобонуса (приёмка S51, D-82). По умолчанию засеянный день
+	// помечен как уже рассмотренный: засеянная статистика бонусов не даёт.
+	BonusPending bool            `json:"bonusPending"`
+	Usage        []TestSeedUsage `json:"usage"`
 }
 
-// TestSeedUsage — строка учёта по программе за прошлый день (usage_daily).
+// Виды строки TestSeedUsage (usage_daily.kind, RM4-7).
+const (
+	SeedKindProgram = "program" // программа, путь exe (по умолчанию)
+	SeedKindSite    = "site"    // сайт, домен
+)
+
+// TestSeedUsage — строка учёта по программе или сайту за прошлый день (usage_daily). У сайта Path —
+// домен или адрес (служба оставит домен, как пишет сайт сама).
 type TestSeedUsage struct {
 	Path     string `json:"path"`
-	Category string `json:"category"` // ProgramCat*
+	Category string `json:"category"` // ProgramCat* или video_social
 	Seconds  int    `json:"seconds"`
+	Kind     string `json:"kind"` // SeedKind*; «» — программа
 }
 
 // TestClockRequest — поставить часы ядра на паузу или продолжить их (Ruling 4).

@@ -28,6 +28,9 @@ type RawSensors struct {
 	// DomainUnread — на переднем плане Brave, а адрес не прочитан (ошибка UIA, у окна нет ни поля
 	// адреса, ни адреса документа; domainMemo.Read).
 	DomainUnread bool
+	// DomainNoAddress — причина DomainUnread: у окна нет адреса (дерево доступности прочитано,
+	// а поля адреса и адреса документа в нём нет), а не сбой UIA (B-55, PL-46).
+	DomainNoAddress bool
 }
 
 // ForegroundPathFor решает, какой путь переднего плана отправить службе: path — путь exe
@@ -97,6 +100,7 @@ func BuildSample(now time.Time, raw RawSensors, speed int) ipc.SensorSample {
 
 		ForegroundDomain: raw.ForegroundDomain,
 		DomainUnread:     raw.DomainUnread,
+		DomainNoAddress:  raw.DomainUnread && raw.DomainNoAddress,
 		LockUnknown:      raw.LockUnknown,
 	}
 }

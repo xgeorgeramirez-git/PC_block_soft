@@ -50,8 +50,6 @@ interface Feedback {
   seq: number;
   text: string;
   error: boolean;
-  /** Где сообщение: над «Ждут решения» или над таблицей, рядом с тем, что нажали. */
-  where: "top" | "list";
   undo?: { undoId: string; ms: number };
 }
 
@@ -118,14 +116,13 @@ export default function Programs({ initialFilter = "all" }: Props) {
     placeFocus(root.current, req);
   });
 
-  const say = (where: Feedback["where"], text: string, error = false, undo?: Feedback["undo"]) => {
+  const say = (text: string, error = false, undo?: Feedback["undo"]) => {
     seq.current += 1;
-    setFeedback({ seq: seq.current, where, text, error, undo });
+    setFeedback({ seq: seq.current, text, error, undo });
   };
 
   /** Один запрос за раз: пока ответа нет, повторное нажатие ничего не отправляет. */
   const run = async (what: Busy, action: () => Promise<FocusTo | null>, onError: FocusTo | null) => {
-    const where: Feedback["where"] = what.kind === "decide" ? "top" : what.kind === "undo" ? (feedback?.where ?? "top") : "list";
     if (busyRef.current) return;
     busyRef.current = true;
     setBusyState(what);
@@ -134,7 +131,7 @@ export default function Programs({ initialFilter = "all" }: Props) {
       focusTo.current = next;
     } catch (e) {
       if (alive.current) {
-        say(where, errorText(e), true);
+        say(errorText(e), true);
         focusTo.current = onError;
       }
     } finally {
@@ -152,12 +149,11 @@ export default function Programs({ initialFilter = "all" }: Props) {
   };
 
   const sayDecided = (
-    where: Feedback["where"],
     reply: { message: string; undoId: string; undoUntilMs: number },
     fallback: string,
   ) => {
     const left = Math.min(reply.undoUntilMs - Date.now(), UNDO_MS);
-    say(where, reply.message || fallback, false, reply.undoId && left > 0 ? { undoId: reply.undoId, ms: left } : undefined);
+    say(reply.message || fallback, false, reply.undoId && left > 0 ? { undoId: reply.undoId, ms: left } : undefined);
   };
 
   const decide = (p: PendingProgramDTO, category: ParentCategory, index: number) =>
@@ -168,7 +164,7 @@ export default function Programs({ initialFilter = "all" }: Props) {
         if (!alive.current) return null;
         applyReply(reply.programs);
         lastOp.current = { kind: "one", path: p.path };
-        sayDecided("top", reply, decisionMessage(p.name, category));
+        sayDecided(reply, decisionMessage(p.name, category));
         return { to: "pending", index };
       },
       { to: "path", path: p.path, category },
@@ -182,7 +178,7 @@ export default function Programs({ initialFilter = "all" }: Props) {
         if (!alive.current) return null;
         applyReply(reply.programs);
         lastOp.current = { kind: "one", path: p.path };
-        sayDecided("list", reply, decisionMessage(p.name, category));
+        sayDecided(reply, decisionMessage(p.name, category));
         return { to: "path", path: p.path, index };
       },
       { to: "path", path: p.path, index },
@@ -202,7 +198,7 @@ export default function Programs({ initialFilter = "all" }: Props) {
           return next;
         });
         lastOp.current = { kind: "one", path: p.path };
-        sayDecided("list", reply, hiddenMessage(p.name, hidden));
+        sayDecided(reply, hiddenMessage(p.name, hidden));
         return { to: "path", path: p.path, index };
       },
       { to: "path", path: p.path, index },
@@ -218,7 +214,7 @@ export default function Programs({ initialFilter = "all" }: Props) {
     if (draft.trim() === p.name) {
       // Ничего не изменилось: без запроса и без «Отменить» (как служба).
       setEditing(null);
-      say("list", NAME_UNCHANGED);
+      say(NAME_UNCHANGED);
       focusTo.current = { to: "rename", path: p.path };
       return;
     }
@@ -231,7 +227,7 @@ export default function Programs({ initialFilter = "all" }: Props) {
           applyReply(reply.programs);
           setEditing(null);
           lastOp.current = { kind: "one", path: p.path };
-          sayDecided("list", reply, "Название изменено");
+          sayDecided(reply, "Название изменено");
           return { to: "rename", path: p.path };
         } catch (e) {
           if (!alive.current) return null;
@@ -260,7 +256,7 @@ export default function Programs({ initialFilter = "all" }: Props) {
         setSelected(new Set());
         setBulkCategory("");
         lastOp.current = { kind: "bulk" };
-        sayDecided("list", reply, "");
+        sayDecided(reply, "");
         return { to: "selectAll" };
       },
       { to: "selectAll" },
@@ -277,20 +273,20 @@ export default function Programs({ initialFilter = "all" }: Props) {
         setSelected(new Set());
         setBulkCategory("");
         lastOp.current = { kind: "bulk" };
-        sayDecided("list", reply, "");
+        sayDecided(reply, "");
         return { to: "selectAll" };
       },
       { to: "selectAll" },
     );
 
-  const undo = (undoId: string, where: Feedback["where"]) =>
+  const undo = (undoId: string) =>
     void run(
       { kind: "undo" },
       async () => {
         const reply = await undoProgram(undoId);
         if (!alive.current) return null;
         applyReply(reply.programs);
-        say(where, reply.message);
+        say(reply.message);
         const op = lastOp.current;
         lastOp.current = null;
         return op?.kind === "one" ? { to: "path", path: op.path } : { to: "selectAll" };
@@ -342,19 +338,27 @@ export default function Programs({ initialFilter = "all" }: Props) {
   const ariaSort = (key: ProgramSort["key"]) =>
     sort.key === key ? (sort.dir === "asc" ? "ascending" : "descending") : "none";
 
-  /** Одно сообщение на экране: там, где было действие. */
-  const message = (where: Feedback["where"]) =>
-    feedback && feedback.where === where ? (
-      <UndoLine
-        key={feedback.seq}
-        className="programs-feedback"
-        text={feedback.text}
-        error={feedback.error}
-        undoMs={feedback.undo?.ms}
-        disabled={busy !== null}
-        onUndo={feedback.undo ? () => undo(feedback.undo!.undoId, where) : undefined}
-      />
-    ) : null;
+  /**
+   * Одно сообщение на экране и одно место для него (B-43): под заголовком, над прокручиваемой
+   * областью списков, поэтому «Отменить» с отсчётом видно, где бы ни было действие.
+   * Живая область есть всегда (PL-44): диктор читает сообщение, как только оно появилось.
+   */
+  const message = (
+    <div className="programs-message" role="status">
+      {feedback ? (
+        <UndoLine
+          key={feedback.seq}
+          live={false}
+          className="programs-feedback"
+          text={feedback.text}
+          error={feedback.error}
+          undoMs={feedback.undo?.ms}
+          disabled={busy !== null}
+          onUndo={feedback.undo ? () => undo(feedback.undo!.undoId) : undefined}
+        />
+      ) : null}
+    </div>
+  );
 
   const now = Date.now();
   const tz = localOffsetMin();
@@ -367,216 +371,219 @@ export default function Programs({ initialFilter = "all" }: Props) {
         </h2>
       </div>
 
-      {message("top")}
+      {message}
 
-      {loadError ? (
-        <div className="panel">
-          <Notice tone="warn" urgent>
-            {loadError}
-          </Notice>
-          <button type="button" className="btn" onClick={() => void load()}>
-            Повторить
-          </button>
-        </div>
-      ) : data === null ? (
-        <p className="panel-text">Загружаю данные</p>
-      ) : (
-        <>
-          {pending.length > 0 ? (
-            <section className="programs-block" aria-labelledby="programs-pending-title">
-              <h3 id="programs-pending-title" className="section-title">
-                {`Ждут решения: ${pending.length}`}
-              </h3>
-              <p className="programs-lead">Решение действует для всех детей</p>
-              <DecisionLegend />
-              <ul className="pending-list">
-                {pending.map((p, i) => (
-                  <PendingItem
-                    key={p.path}
-                    program={p}
-                    now={now}
-                    tz={tz}
-                    busy={busy}
-                    onDecide={(c) => decide(p, c, i)}
-                  />
-                ))}
-              </ul>
-            </section>
-          ) : null}
-
-          <section className="programs-block" aria-labelledby="programs-all-title">
-            <h3 id="programs-all-title" className="section-title" tabIndex={-1}>
-              Все программы
-            </h3>
-            {list.length === 0 ? (
-              <p className="panel-text">Программ пока нет: они появятся, когда ребёнок запустит что-то новое</p>
-            ) : (
-              <>
-                <p className="programs-lead">{HIDE_LEAD}</p>
-                <div className="programs-tools">
-                  <div className="field programs-search">
-                    <label className="field-label" htmlFor="programs-search">
-                      Поиск по названию или папке
-                    </label>
-                    <input
-                      id="programs-search"
-                      type="search"
-                      className="field-input"
-                      value={query}
-                      onChange={(e) => setQuery(e.target.value)}
+      {/* Прокручивается только эта область: сообщение над ней всегда на виду (B-43, без sticky, PL-25). */}
+      <div className="programs-scroll">
+        {loadError ? (
+          <div className="panel">
+            <Notice tone="warn" urgent>
+              {loadError}
+            </Notice>
+            <button type="button" className="btn" onClick={() => void load()}>
+              Повторить
+            </button>
+          </div>
+        ) : data === null ? (
+          <p className="panel-text">Загружаю данные…</p>
+        ) : (
+          <>
+            {pending.length > 0 ? (
+              <section className="programs-block" aria-labelledby="programs-pending-title">
+                <h3 id="programs-pending-title" className="section-title">
+                  {`Ждут решения: ${pending.length}`}
+                </h3>
+                <p className="programs-lead">Решение действует для всех детей</p>
+                <DecisionLegend />
+                <ul className="pending-list">
+                  {pending.map((p, i) => (
+                    <PendingItem
+                      key={p.path}
+                      program={p}
+                      now={now}
+                      tz={tz}
+                      busy={busy}
+                      onDecide={(c) => decide(p, c, i)}
                     />
-                  </div>
-                  <div className="programs-filter" role="group" aria-label="Показать">
-                    {filtersFor(hiddenCount).map((f) => (
-                      <button
-                        key={f.id}
-                        type="button"
-                        className="tab"
-                        aria-pressed={filter === f.id}
-                        onClick={() => setFilter(f.id)}
-                      >
-                        {f.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
+                  ))}
+                </ul>
+              </section>
+            ) : null}
 
-                {message("list")}
-                {shown.length === 0 && hiddenView && query.trim() === "" ? (
-                  <div className="programs-empty">
-                    <p className="panel-text">Скрытых программ нет</p>
-                  </div>
-                ) : shown.length === 0 ? (
-                  <div className="programs-empty">
-                    <p className="panel-text">Ничего не найдено</p>
-                    <button type="button" className="btn" onClick={resetSearch}>
-                      Сбросить поиск
-                    </button>
-                  </div>
-                ) : (
-                  <>
-                    <div className="bulk-bar">
-                      <label className="switch">
-                        <input
-                          type="checkbox"
-                          data-focus="select-all"
-                          checked={allShownSelected}
-                          ref={(el) => {
-                            if (el) el.indeterminate = someShownSelected;
-                          }}
-                          disabled={busy !== null}
-                          onChange={toggleAll}
-                        />
-                        Выбрать всё в списке
+            <section className="programs-block" aria-labelledby="programs-all-title">
+              <h3 id="programs-all-title" className="section-title" tabIndex={-1}>
+                Все программы
+              </h3>
+              {list.length === 0 ? (
+                <p className="panel-text">Программ пока нет: они появятся, когда ребёнок запустит что-то новое</p>
+              ) : (
+                <>
+                  <p className="programs-lead">{HIDE_LEAD}</p>
+                  <div className="programs-tools">
+                    <div className="field programs-search">
+                      <label className="field-label" htmlFor="programs-search">
+                        Поиск по названию или папке
                       </label>
-                      {selectedShown.length > 0 ? (
-                        <div className="bulk-actions">
-                          <span className="bulk-count">{`Выбрано: ${selectedShown.length}`}</span>
-                          {hiddenView ? null : (
-                            <>
-                              <select
-                                className="field-input bulk-select"
-                                aria-label="Новая категория для отмеченных"
-                                value={bulkCategory}
-                                disabled={busy !== null}
-                                onChange={(e) => setBulkCategory(e.target.value as ParentCategory | "")}
-                              >
-                                <option value="">Категория…</option>
-                                {CATEGORY_OPTIONS.map((o) => (
-                                  <option key={o.category} value={o.category}>
-                                    {o.label}
-                                  </option>
-                                ))}
-                              </select>
-                              {/* Без категории «Применить» недоступна, причина рядом (ТЗ 8.0 п.5, B-43 п.4). */}
-                              <button
-                                type="button"
-                                className="btn btn-primary"
-                                aria-disabled={busy !== null || bulkCategory === "" || undefined}
-                                aria-describedby={bulkCategory === "" ? "bulk-apply-hint" : undefined}
-                                onClick={() =>
-                                  busy || bulkCategory === "" ? undefined : applyBulk(selectedShown.map((p) => p.path), bulkCategory)
-                                }
-                              >
-                                {busy?.kind === "bulk" && !busy.hide ? "Сохраняю…" : "Применить"}
-                              </button>
-                              {bulkCategory === "" ? (
-                                <span id="bulk-apply-hint" className="field-hint bulk-hint">
-                                  {APPLY_HINT}
-                                </span>
-                              ) : null}
-                            </>
-                          )}
-                          <button
-                            type="button"
-                            className="btn"
-                            aria-label={hiddenView ? "Показать отмеченные" : "Скрыть отмеченные"}
-                            aria-disabled={busy !== null || onlyBlockedSelected(selectedShown) || undefined}
-                            aria-describedby={onlyBlockedSelected(selectedShown) ? "bulk-hide-hint" : undefined}
-                            onClick={() =>
-                              busy || onlyBlockedSelected(selectedShown) ? undefined : hideBulk(selectedShown.map((p) => p.path), !hiddenView)
-                            }
-                          >
-                            {busy?.kind === "bulk" && busy.hide ? "Сохраняю…" : hiddenView ? "Показать" : "Скрыть"}
-                          </button>
-                          {onlyBlockedSelected(selectedShown) ? (
-                            <span id="bulk-hide-hint" className="field-hint bulk-hint">
-                              {selectedShown.length === 1 ? HIDE_BLOCKED_ONE : HIDE_BLOCKED_MANY}
-                            </span>
-                          ) : null}
-                        </div>
-                      ) : null}
+                      <input
+                        id="programs-search"
+                        type="search"
+                        className="field-input"
+                        autoComplete="off"
+                        spellCheck={false}
+                        value={query}
+                        onChange={(e) => setQuery(e.target.value)}
+                      />
                     </div>
-
-                    <table className="programs-table">
-                      <thead>
-                        <tr>
-                          <th scope="col" className="col-check">
-                            <span className="visually-hidden">Отметка</span>
-                          </th>
-                          <th scope="col" aria-sort={ariaSort("name")}>
-                            <SortButton label="Программа" dir={sort.key === "name" ? sort.dir : null} onClick={() => sortBy("name")} />
-                          </th>
-                          <th scope="col" className="col-category">
-                            Категория
-                          </th>
-                          <th scope="col" className="col-week" aria-sort={ariaSort("week")}>
-                            <SortButton label="За неделю" dir={sort.key === "week" ? sort.dir : null} onClick={() => sortBy("week")} />
-                          </th>
-                          <th scope="col" className="col-action">
-                            <span className="visually-hidden">Действие</span>
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {shown.map((p, i) => (
-                          <ProgramRow
-                            key={p.path}
-                            program={p}
-                            checked={selected.has(p.path)}
-                            busy={busy}
-                            onToggle={() => toggleOne(p.path)}
-                            onCategory={(c) => changeRow(p, c, i)}
-                            onHide={(hidden) => hideRow(p, hidden, i)}
-                            editing={editing?.path === p.path}
-                            nameErr={editing && editing.path === p.path ? editing.error : ""}
-                            onRename={() => {
-                              setEditing({ path: p.path, error: "" });
+                    <div className="programs-filter" role="group" aria-label="Показать">
+                      {filtersFor(hiddenCount).map((f) => (
+                        <button
+                          key={f.id}
+                          type="button"
+                          className="tab"
+                          aria-pressed={filter === f.id}
+                          onClick={() => setFilter(f.id)}
+                        >
+                          {f.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  {shown.length === 0 && hiddenView && query.trim() === "" ? (
+                    <div className="programs-empty">
+                      <p className="panel-text">Скрытых программ нет</p>
+                    </div>
+                  ) : shown.length === 0 ? (
+                    <div className="programs-empty">
+                      <p className="panel-text">Ничего не найдено</p>
+                      <button type="button" className="btn" onClick={resetSearch}>
+                        Сбросить поиск
+                      </button>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="bulk-bar">
+                        <label className="switch">
+                          <input
+                            type="checkbox"
+                            data-focus="select-all"
+                            checked={allShownSelected}
+                            ref={(el) => {
+                              if (el) el.indeterminate = someShownSelected;
                             }}
-                            onSaveName={(draft) => saveName(p, draft)}
-                            onCancelName={() => cancelName(p)}
-                            onDraft={() => setEditing((e) => (e && e.path === p.path && e.error ? { ...e, error: "" } : e))}
+                            disabled={busy !== null}
+                            onChange={toggleAll}
                           />
-                        ))}
-                      </tbody>
-                    </table>
-                  </>
-                )}
-              </>
-            )}
-          </section>
-        </>
-      )}
+                          Выбрать всё в списке
+                        </label>
+                        {selectedShown.length > 0 ? (
+                          <div className="bulk-actions">
+                            <span className="bulk-count">{`Выбрано: ${selectedShown.length}`}</span>
+                            {hiddenView ? null : (
+                              <>
+                                <select
+                                  className="field-input bulk-select"
+                                  aria-label="Новая категория для отмеченных"
+                                  value={bulkCategory}
+                                  disabled={busy !== null}
+                                  onChange={(e) => setBulkCategory(e.target.value as ParentCategory | "")}
+                                >
+                                  <option value="">Категория…</option>
+                                  {CATEGORY_OPTIONS.map((o) => (
+                                    <option key={o.category} value={o.category}>
+                                      {o.label}
+                                    </option>
+                                  ))}
+                                </select>
+                                {/* Без категории «Применить» недоступна, причина рядом (ТЗ 8.0 п.5, B-43 п.4). */}
+                                <button
+                                  type="button"
+                                  className="btn btn-primary"
+                                  aria-disabled={busy !== null || bulkCategory === "" || undefined}
+                                  aria-describedby={bulkCategory === "" ? "bulk-apply-hint" : undefined}
+                                  onClick={() =>
+                                    busy || bulkCategory === "" ? undefined : applyBulk(selectedShown.map((p) => p.path), bulkCategory)
+                                  }
+                                >
+                                  {busy?.kind === "bulk" && !busy.hide ? "Сохраняю…" : "Применить"}
+                                </button>
+                                {bulkCategory === "" ? (
+                                  <span id="bulk-apply-hint" className="field-hint bulk-hint">
+                                    {APPLY_HINT}
+                                  </span>
+                                ) : null}
+                              </>
+                            )}
+                            <button
+                              type="button"
+                              className="btn"
+                              aria-label={hiddenView ? "Показать отмеченные" : "Скрыть отмеченные"}
+                              aria-disabled={busy !== null || onlyBlockedSelected(selectedShown) || undefined}
+                              aria-describedby={onlyBlockedSelected(selectedShown) ? "bulk-hide-hint" : undefined}
+                              onClick={() =>
+                                busy || onlyBlockedSelected(selectedShown) ? undefined : hideBulk(selectedShown.map((p) => p.path), !hiddenView)
+                              }
+                            >
+                              {busy?.kind === "bulk" && busy.hide ? "Сохраняю…" : hiddenView ? "Показать" : "Скрыть"}
+                            </button>
+                            {onlyBlockedSelected(selectedShown) ? (
+                              <span id="bulk-hide-hint" className="field-hint bulk-hint">
+                                {selectedShown.length === 1 ? HIDE_BLOCKED_ONE : HIDE_BLOCKED_MANY}
+                              </span>
+                            ) : null}
+                          </div>
+                        ) : null}
+                      </div>
+
+                      <table className="programs-table">
+                        <thead>
+                          <tr>
+                            <th scope="col" className="col-check">
+                              <span className="visually-hidden">Отметка</span>
+                            </th>
+                            <th scope="col" aria-sort={ariaSort("name")}>
+                              <SortButton label="Программа" dir={sort.key === "name" ? sort.dir : null} onClick={() => sortBy("name")} />
+                            </th>
+                            <th scope="col" className="col-category">
+                              Категория
+                            </th>
+                            <th scope="col" className="col-week" aria-sort={ariaSort("week")}>
+                              <SortButton label="За неделю" dir={sort.key === "week" ? sort.dir : null} onClick={() => sortBy("week")} />
+                            </th>
+                            <th scope="col" className="col-action">
+                              <span className="visually-hidden">Действие</span>
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {shown.map((p, i) => (
+                            <ProgramRow
+                              key={p.path}
+                              program={p}
+                              checked={selected.has(p.path)}
+                              busy={busy}
+                              onToggle={() => toggleOne(p.path)}
+                              onCategory={(c) => changeRow(p, c, i)}
+                              onHide={(hidden) => hideRow(p, hidden, i)}
+                              editing={editing?.path === p.path}
+                              nameErr={editing && editing.path === p.path ? editing.error : ""}
+                              onRename={() => {
+                                setEditing({ path: p.path, error: "" });
+                              }}
+                              onSaveName={(draft) => saveName(p, draft)}
+                              onCancelName={() => cancelName(p)}
+                              onDraft={() => setEditing((e) => (e && e.path === p.path && e.error ? { ...e, error: "" } : e))}
+                            />
+                          ))}
+                        </tbody>
+                      </table>
+                    </>
+                  )}
+                </>
+              )}
+            </section>
+          </>
+        )}
+      </div>
     </section>
   );
 }

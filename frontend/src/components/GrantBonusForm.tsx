@@ -39,6 +39,8 @@ export default function GrantBonusForm({ disabled, minutesError, onGrant }: Prop
           className={error ? "field-input field-input-error" : "field-input"}
           type="number"
           inputMode="numeric"
+          autoComplete="off"
+          spellCheck={false}
           min={1}
           max={600}
           value={minutes}

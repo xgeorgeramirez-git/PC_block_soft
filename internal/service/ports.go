@@ -103,10 +103,28 @@ type StoredEvent struct {
 	Details     map[string]any
 }
 
-// EventQuery — отбор событий журнала.
+// EventQuery — отбор событий журнала (FR-24, RM5-5): фильтр уходит в базу (storage.EventFilter).
 type EventQuery struct {
-	ChildID int64 // 0: все дети
-	Limit   int
+	ChildID              int64    // 0: все дети
+	FromMs, ToMs         int64    // 0 — без границы; FromMs <= at < ToMs
+	Kinds                []string // пусто — все виды
+	BeforeAtMs, BeforeID int64    // курсор: строго раньше (at, id); BeforeAtMs 0 — с новых
+	Limit                int
+}
+
+// DayRow — итоги одного дня ребёнка (storage.DayRow): ряд дней для столбиков и «Итогов» (RM5-4).
+type DayRow struct {
+	Day                            string
+	TotalS, GamesS, VideoS, StudyS int
+	ExtraMin                       int
+}
+
+// StatsReset — снимок последней очистки статистики ребёнка (storage.StatsReset, RM5-8).
+type StatsReset struct {
+	ClearedAtMs                    int64
+	Day                            string // день ядра на момент очистки (RM5-8)
+	TotalS, GamesS, VideoS, StudyS int
+	ExtraMin                       int
 }
 
 // BonusRecord — запись истории копилки (storage.BonusEntry) для службы (FR-22).
@@ -152,10 +170,16 @@ type Store interface {
 	SetSchedule(childID int64, intervals []core.Interval) error
 	AppendBonus(childID int64, deltaMin int, reason string) (balanceAfter int, err error)
 	GetBonusBalance(childID int64) (int, error)
+	// GrantDayBonus — автобонус за день одной транзакцией (R25 «один раз»): начисление deltaMin в
+	// копилку и строка дня day с bonus_granted = 1; сбой — ни того, ни другого.
+	GrantDayBonus(childID int64, day core.DayState, deltaMin int, reason string) (balanceAfter int, err error)
 	ListBonus(childID int64) ([]BonusRecord, error)
 	CreatePromo(codeDisplay string, minutes int) (PromoRecord, error)
 	RedeemPromo(childID int64, code string, atMs int64) (minutes int, display string, ok bool, err error)
-	ListPromos() ([]PromoRecord, error)
+	ListPromos() ([]PromoRecord, error) // действующие новые сверху, затем использованные по used_at (RM5-11)
+	// CreatePromos — пачка кодов одной транзакцией (RM5-12): любой повтор или минуты вне 1..600 — ошибка, ничего не создано.
+	CreatePromos(codesDisplay []string, minutes int) ([]PromoRecord, error)
+	ClearUsedPromos() (int, error) // удаляет использованные коды, действующие остаются (RM5-14)
 	LoadDayState(childID int64, day string) (core.DayState, error)
 	SaveDayState(childID int64, st core.DayState) error
 	// SaveDayAndUsage — состояние дня и порции учёта по программам и сайтам одной транзакцией (RM3-6, G10).
@@ -163,9 +187,18 @@ type Store interface {
 	AddUsage(childID int64, day, category, kind, subject string, seconds int) error
 	ProgramSeconds(fromDay string) (map[string]int, error)  // секунды по пути exe с fromDay, все дети
 	DayUsage(childID int64, day string) ([]UsageRow, error) // учёт по программам и сайтам ребёнка за день (D-58, RM4-7); нет — []
-	// PeriodDays — суммы итогов дней ребёнка (общее, игры, видео, учёба, доп. время) с fromDay
-	// включительно до beforeDay не включительно (периоды «Итогов», D-61); Day у ответа пусто, нет дней — нули.
-	PeriodDays(childID int64, fromDay, beforeDay string) (core.DayState, error)
+	// DaysSeries — строки дней ребёнка с fromDay включительно до beforeDay не включительно, по
+	// возрастанию дня; только дни со строкой; нет — [] (RM5-4).
+	DaysSeries(childID int64, fromDay, beforeDay string) ([]DayRow, error)
+	FirstStatsDay(childID int64) (string, bool, error)     // самый ранний день ребёнка; нет строк — false
+	GetStatsReset(childID int64) (StatsReset, bool, error) // снимок последней очистки; не очищали — false
+	// ClearStats — одной транзакцией (RM5-8): весь учёт по программам и сайтам ребёнка, дни до r.Day
+	// с bonus_granted = 1 (ждущие автобонуса остаются, D-82; «Итоги» их отсекают по r.Day),
+	// строка дня ядра day (day.Day == r.Day) со всеми флагами и снимок r; ошибка — ничего не изменилось.
+	ClearStats(childID int64, day core.DayState, r StatsReset) error
+	// UngrantedDays — дни ребёнка без автобонуса (bonus_granted = 0) строго до beforeDay, по
+	// возрастанию, все поля как LoadDayState (FB-21, D-82); нет — [].
+	UngrantedDays(childID int64, beforeDay string) ([]core.DayState, error)
 	// PeriodUsage — учёт по программам и сайтам ребёнка за те же дни, сложенный по категории, виду и
 	// предмету (Day пусто); скрытые тоже (их прячет служба); нет — [].
 	PeriodUsage(childID int64, fromDay, beforeDay string) ([]UsageRow, error)
@@ -205,6 +238,7 @@ type Store interface {
 	SetAdultFilter(childID int64, on bool) error // «Блокировать сайты 18+» (R14); нет ребёнка — ошибка
 	AppendEvent(e StoredEvent) error
 	ListEvents(q EventQuery) ([]StoredEvent, error)
+	DeleteChildEvents(childID int64) (int, error) // события ребёнка; без ребёнка не трогает (RM5-9)
 	GetAuth() (Auth, bool, error)
 	SetAuth(a Auth) error
 	GetSetting(key string) (string, bool, error)
@@ -409,6 +443,7 @@ func (j StoreJournal) Write(childID int64, kind string, details map[string]any) 
 		now = now.In(j.Loc)
 	}
 	_, off := now.Zone()
+	//eventkind:dynamic параметр Journal.Write: вид проверяют места вызова (TestEventKindsSourceScan)
 	err := j.Store.AppendEvent(StoredEvent{
 		ChildID: childID, AtMs: now.UnixMilli(), TzOffsetMin: off / 60, Kind: kind, Details: details,
 	})

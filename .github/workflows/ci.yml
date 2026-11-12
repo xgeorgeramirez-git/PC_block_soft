@@ -7,6 +7,11 @@ on:
     branches: [main, "feature/**", "fix/**", "build/**"]
   pull_request:
   workflow_dispatch:
+    inputs:
+      st1:
+        description: "Проба ST1: скорость базы (NFR-13), отдельный шаг без -race"
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -103,6 +108,14 @@ jobs:
         run: |
           exec > >(tee -a "$RUNNER_TEMP/ci.log") 2>&1
           go test -race -count=1 $(go list ./... | grep -v -E '/internal/ui$' | grep -v -E '^pcblock$')
+
+      # Проба ST1 (RM5-7) — только при ручном запуске с -f st1=true (на push и PR входов нет, шаг
+      # пропускается). Без -race и покрытия; итог — пометкой ::notice (журналы из песочницы не читаются).
+      - name: ST1 (по запросу)
+        if: inputs.st1 == true
+        run: |
+          exec > >(tee -a "$RUNNER_TEMP/ci.log") 2>&1
+          bash tools/test-series.sh --st1-only
 
       - name: Кодовая карта актуальна (Pull Request)
         if: github.event_name == 'pull_request'

@@ -597,6 +597,9 @@ func runGolden(g *goldenFile) goldenResult {
 	return res
 }
 
+// serviceGoldens — эталоны не ядра, а службы (статистика за период, M5): свой формат, свой тест.
+var serviceGoldens = map[string]string{"G15": "internal/service/stats_days_test.go"}
+
 // Ловит: расхождение ядра с эталонами G1, G2, G3, G9, G10 (правило 2: эталон — истина,
 // расхождение — ошибка кода): моменты предупреждений и блокировки, тексты экрана,
 // итоги дней, остаток, сохранение и восстановление после выключения.
@@ -615,6 +618,10 @@ func TestGolden(t *testing.T) {
 		}
 	}
 	for i, p := range paths {
+		if by, ok := serviceGoldens[names[i]]; ok {
+			t.Logf("%s — эталон статистики службы, его проверяет %s", names[i], by)
+			continue
+		}
 		t.Run(names[i], func(t *testing.T) {
 			data, err := os.ReadFile(p)
 			if err != nil {

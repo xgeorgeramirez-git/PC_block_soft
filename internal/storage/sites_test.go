@@ -61,7 +61,9 @@ func TestMigration009OnFilled008Base(t *testing.T) {
 	const settingsQ = `SELECT key, value FROM settings ORDER BY key`
 	before := [][][]string{rowStrings(t, db, dayQ), rowStrings(t, db, usageQ), rowStrings(t, db, settingsQ)}
 
-	if err := applyMigrations(db, all, 200); err != nil {
+	// Без 010: она по своему замыслу помечает прошлые дни автобонусом (D-82), её проверяет
+	// TestMigration010OnFilled009Base.
+	if err := applyMigrations(db, migrationsBefore(all, 10), 200); err != nil {
 		t.Fatalf("миграция 009: %v", err)
 	}
 
@@ -117,8 +119,8 @@ func TestMigration009OnFilled008Base(t *testing.T) {
 	if got := rowStrings(t, db, progQ); !reflect.DeepEqual(got, wantProg) {
 		t.Errorf("programs после повтора = %v, want %v", got, wantProg)
 	}
-	if got := versions(t, db); !reflect.DeepEqual(got, [][2]int64{{1, 100}, {2, 100}, {3, 100}, {4, 100}, {5, 100}, {6, 100}, {7, 100}, {8, 100}, {9, 200}}) {
-		t.Errorf("schema_migrations = %v, want 1–8 в 100 и 9 в 200", got)
+	if got := versions(t, db); !reflect.DeepEqual(got, [][2]int64{{1, 100}, {2, 100}, {3, 100}, {4, 100}, {5, 100}, {6, 100}, {7, 100}, {8, 100}, {9, 200}, {10, 300}}) {
+		t.Errorf("schema_migrations = %v, want 1–8 в 100, 9 в 200 и 10 в 300", got)
 	}
 }
 

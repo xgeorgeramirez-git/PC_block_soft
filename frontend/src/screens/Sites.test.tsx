@@ -10,6 +10,7 @@ import type { SiteDTO } from "../types";
 // Мок отвечает как служба (T8-7): удалённый домен действительно пропадает.
 
 let mock: MockBackend;
+let openLimits: ReturnType<typeof vi.fn<() => void>>;
 
 // чт, 5 ноября 2026, 12:00 по местному времени окна.
 const NOW = new Date(2026, 10, 5, 12, 0, 0);
@@ -23,7 +24,8 @@ function setup(opts: MockOptions = {}) {
     ...opts,
   });
   const user = userEvent.setup({ advanceTimers: (ms) => vi.advanceTimersByTime(ms) });
-  render(<Sites />);
+  openLimits = vi.fn<() => void>();
+  render(<Sites onOpenLimits={openLimits} />);
   return user;
 }
 
@@ -59,7 +61,10 @@ const checkbox = (name: string) =>
 const addCalls = () => mock.calls.filter((c) => c.command === "AddSite").map((c) => c.payload);
 /** Живая область сообщений списка: всегда в панели вкладки, меняется только её текст. */
 const listStatus = () => within(screen.getByRole("tabpanel")).getByRole("status");
-const HINT = "Можно вставить адрес страницы целиком: программа возьмёт из него только сайт. Например: youtube.com";
+const SCOPE = "Каждый сайт действует вместе со всеми адресами внутри него: например, youtube.com вместе с m.youtube.com и music.youtube.com";
+const HINT =
+  "Можно вставить адрес страницы целиком: программа возьмёт из него только сайт. Можно сразу несколько, по одному в строке. Например: youtube.com";
+const rowBox = (domain: string) => screen.getByRole("checkbox", { name: `Отметить «${domain}»` }) as HTMLInputElement;
 
 beforeEach(() => {
   vi.useFakeTimers({ shouldAdvanceTime: true, now: NOW });
@@ -99,8 +104,11 @@ describe("Сайты: вид", () => {
     expect(panel.getAttribute("aria-labelledby")).toBe(tab("Запрещённые 1").id);
     expect(screen.getByText("Сайтов: 1 из 1000")).toBeTruthy();
     expect(
-      screen.getByText("Эти сайты закрываются в Brave у всех детей. Сайт закрывается вместе со всеми его поддоменами"),
+      screen.getByText("Эти сайты закрываются в Brave у всех детей"),
     ).toBeTruthy();
+    // B-50 (H2): без слова «поддомены», простыми словами с примером, под пояснением каждого списка.
+    expect(screen.getByText(SCOPE)).toBeTruthy();
+    expect(screen.queryByText(/поддомен/)).toBeNull();
     expect(domains("Запрещённые: сайты")).toEqual(["example.com"]);
 
     await user.click(tab("Учёба 1"));
@@ -116,8 +124,12 @@ describe("Сайты: вид", () => {
     await user.click(tab("Видео и соцсети 1"));
     expect(domains("Видео и соцсети: сайты")).toEqual(["youtube.com"]);
     expect(
-      screen.getByText("Время на этих сайтах идёт в лимит «Видео и соцсети» (раздел «Дети», вкладка «Лимиты») и в общее время"),
+      screen.getByText("Время на этих сайтах идёт в лимит «Видео и соцсети» и в общее время"),
     ).toBeTruthy();
+    expect(screen.getByText(SCOPE)).toBeTruthy();
+    // B-50 (H6): ссылка «Открыть лимиты» ведёт в «Дети» (вкладка «Лимиты» открывается первой).
+    await user.click(screen.getByRole("button", { name: "Открыть лимиты" }));
+    expect(openLimits).toHaveBeenCalledTimes(1);
   });
 
   it("стрелки, Home и End переключают вкладки и переводят фокус", async () => {
@@ -144,7 +156,10 @@ describe("Сайты: вид", () => {
     setup({ children: [] });
     expect(await screen.findByText("Детей пока нет. Добавьте их в разделе «Настройки» → «Детские учётки»")).toBeTruthy();
     expect(screen.queryByRole("group", { name: "Блокировать сайты 18+" })).toBeNull();
-    expect(screen.queryAllByRole("checkbox")).toEqual([]);
+    // Переключателей «18+» нет нигде вне списка: флажки отметки строк (B-49) — только в панели списка.
+    const panel = screen.getByRole("tabpanel");
+    expect(screen.queryAllByRole("checkbox").filter((c) => !panel.contains(c))).toEqual([]);
+    expect(document.querySelectorAll("input[data-child]")).toHaveLength(0);
     expect(tabTexts()).toEqual(["Запрещённые 1", "Учёба 1", "Видео и соцсети 1"]);
   });
 
@@ -285,16 +300,16 @@ describe("Сайты: удаление и «Отменить»", () => {
     expect(document.activeElement).toBe(screen.getByRole("button", { name: "Удалить example.com" }));
   });
 
-  // Ловит: «Отменить» мелкой ссылкой рядом с контурными «Удалить» (визуальная приёмка T8).
-  it("«Отменить» — контурная кнопка того же вида, что «Удалить»", async () => {
+  // Ловит: «Отменить» в «Сайтах» оформлен иначе, чем в «Программах» и «Копилке», и без срока
+  // (B-50, H1): общий UndoLine — ссылка и отсчёт секунд рядом.
+  it("«Отменить» — ссылка общего вида с отсчётом секунд", async () => {
     const user = setup();
     await screen.findByRole("tablist", { name: "Списки сайтов" });
-    const removeClass = screen.getByRole("button", { name: "Удалить example.com" }).className;
     await user.click(screen.getByRole("button", { name: "Удалить example.com" }));
     expect(await screen.findByText("Удалён example.com")).toBeTruthy();
     const undo = screen.getByRole("button", { name: "Отменить" });
-    expect(undo.className).toBe(removeClass);
-    expect(undo.className).toBe("btn btn-small");
+    expect(undo.className).toBe("link");
+    expect(undo.parentElement?.querySelector(".undo-left")?.textContent).toBe("10 с");
   });
 
   // Ловит: ошибка «Это не похоже на адрес сайта» висит рядом с «Удалён example.com».
@@ -426,6 +441,101 @@ describe("Сайты: удаление и «Отменить»", () => {
   });
 });
 
+// B-49 (UX-аудит M4, H7): списки до 1000 сайтов, а добавление было по одному адресу и удаление
+// по строке. Вставка нескольких адресов по одному в строке и удаление отмеченных строк.
+describe("Сайты: несколько сайтов за раз", () => {
+  // Ловит: вставка нескольких строк уходит одним адресом (AddSite) и получает «не похоже на адрес»;
+  // строки, не похожие на адрес, пропадают из поля; итог службы не показан.
+  it("вставка по одному в строке: один запрос AddSites, не-адреса остаются в поле с ошибкой", async () => {
+    const user = setup();
+    await screen.findByRole("tablist", { name: "Списки сайтов" });
+    await user.click(field());
+    await user.paste("vk.com\nhttps://www.New.example/page\nпросто текст\nexample.com");
+    expect(field().value).toBe("vk.com\nhttps://www.New.example/page\nпросто текст\nexample.com");
+    expect(field().getAttribute("rows")).toBe("4");
+    await user.keyboard("{Enter}");
+    expect(await screen.findByText("Добавлено сайтов: 2. Уже были в списке: 1")).toBeTruthy();
+    expect(mock.calls.filter((c) => c.command === "AddSites").map((c) => c.payload)).toEqual([
+      { text: "vk.com\nhttps://www.New.example/page\nпросто текст\nexample.com", kind: "blocked" },
+    ]);
+    expect(mock.count("AddSite")).toBe(0);
+    expect(domains("Запрещённые: сайты")).toEqual(["example.com", "new.example", "vk.com"]);
+    expect(field().value).toBe("просто текст");
+    expect(screen.getByRole("alert").textContent).toBe("Это не похоже на адрес сайта");
+    expect(field().getAttribute("aria-invalid")).toBe("true");
+    expect(document.activeElement).toBe(field());
+  });
+
+  // Ловит: Enter в многострочном поле переносит строку вместо «Добавить»; Shift+Enter добавляет.
+  it("Shift+Enter — новая строка, Enter — добавить", async () => {
+    const user = setup();
+    await screen.findByRole("tablist", { name: "Списки сайтов" });
+    await user.type(field(), "a.ru{Shift>}{Enter}{/Shift}b.ru");
+    expect(field().value).toBe("a.ru\nb.ru");
+    expect(mock.count("AddSites")).toBe(0);
+    await user.keyboard("{Enter}");
+    expect(await screen.findByText("Добавлено сайтов: 2")).toBeTruthy();
+    expect(field().value).toBe("");
+    expect(field().getAttribute("rows")).toBe("1");
+  });
+
+  // Ловит (ревью окна M5): щелчок по названию сайта ничего не отмечает - попадать нужно в маленький флажок.
+  it("щелчок по названию сайта отмечает строку, повторный снимает", async () => {
+    const user = setup({ sites: blocked("a.test", "b.test") });
+    await screen.findByRole("tablist", { name: "Списки сайтов" });
+    const name = () => within(screen.getByRole("list", { name: "Запрещённые: сайты" })).getByText("a.test");
+    await user.click(name());
+    expect([rowBox("a.test").checked, rowBox("b.test").checked]).toEqual([true, false]);
+    expect(screen.getByText("Выбрано: 1")).toBeTruthy();
+    await user.click(name());
+    expect(rowBox("a.test").checked).toBe(false);
+    expect(mock.count("RemoveSite")).toBe(0);
+  });
+
+  // Ловит: «Удалить отмеченные» удаляет по одному запросом на строку, удаляет скрытые поиском,
+  // не говорит сколько; «Отменить» не возвращает их; отметка переживает смену вкладки.
+  it("отмеченные удаляются одним запросом, «Отменить» возвращает все", async () => {
+    const user = setup({ sites: blocked("a.test", "b.test", "c.test") });
+    await screen.findByRole("tablist", { name: "Списки сайтов" });
+    const bulk = () => screen.queryByRole("button", { name: "Удалить отмеченные" });
+    expect(bulk()).toBeNull();
+    await user.click(rowBox("a.test"));
+    await user.click(rowBox("c.test"));
+    expect(screen.getByText("Выбрано: 2")).toBeTruthy();
+    await user.click(bulk()!);
+    expect(await screen.findByText("Удалено сайтов: 2")).toBeTruthy();
+    expect(mock.calls.filter((c) => c.command === "RemoveSites").map((c) => c.payload)).toEqual([{ domains: ["a.test", "c.test"] }]);
+    expect(mock.count("RemoveSite")).toBe(0);
+    expect(domains("Запрещённые: сайты")).toEqual(["b.test"]);
+    expect(bulk()).toBeNull();
+    expect(within(listStatus()).getByText("10 с")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Отменить" }));
+    expect(await screen.findByText("Добавлено сайтов: 2")).toBeTruthy();
+    expect(mock.calls.filter((c) => c.command === "AddSites").map((c) => c.payload)).toEqual([{ text: "a.test\nc.test", kind: "blocked" }]);
+    expect(domains("Запрещённые: сайты")).toEqual(["a.test", "b.test", "c.test"]);
+  });
+
+  // Ловит: «Отметить все» отмечает и скрытые поиском; повторное нажатие не снимает отметку;
+  // отметка остаётся после перехода на другой список.
+  it("«Отметить все» — только видимые строки; смена вкладки снимает отметку", async () => {
+    const user = setup({ sites: blocked("a.test", "b.test", "x.example") });
+    await screen.findByRole("tablist", { name: "Списки сайтов" });
+    await user.type(screen.getByRole("searchbox", { name: "Найти в списке" }), ".test");
+    const all = screen.getByRole("checkbox", { name: "Выбрать всё в списке" }) as HTMLInputElement;
+    await user.click(all);
+    expect([rowBox("a.test").checked, rowBox("b.test").checked]).toEqual([true, true]);
+    expect(screen.getByText("Выбрано: 2")).toBeTruthy();
+    await user.click(all);
+    expect([rowBox("a.test").checked, rowBox("b.test").checked]).toEqual([false, false]);
+    await user.click(rowBox("a.test"));
+    expect(all.indeterminate).toBe(true);
+    // В наборе только «Запрещённые»: «Учёба» пустая.
+    await user.click(tab("Учёба 0"));
+    await user.click(tab("Запрещённые 3"));
+    expect(rowBox("a.test").checked).toBe(false);
+  });
+});
+
 describe("Сайты: переключатели «18+»", () => {
   it("снять у Миши: запрос службе, сообщение службы, пока идёт — переключатели недоступны", async () => {
     const user = setup();
@@ -497,9 +607,9 @@ describe("Сайты: поиск", () => {
 describe("Сайты: загрузка и ошибки", () => {
   it("пока данные идут: «Загружаю данные»", async () => {
     setup();
-    expect(screen.getByText("Загружаю данные")).toBeTruthy();
+    expect(screen.getByText("Загружаю данные…")).toBeTruthy();
     expect(await screen.findByRole("tablist", { name: "Списки сайтов" })).toBeTruthy();
-    expect(screen.queryByText("Загружаю данные")).toBeNull();
+    expect(screen.queryByText("Загружаю данные…")).toBeNull();
   });
 
   it("нет связи: простыми словами и «Повторить»", async () => {

@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"testing"
 	"time"
 
 	"pcblock/internal/auth"
@@ -16,21 +17,26 @@ import (
 
 // fakeStore — хранилище в памяти. Поля fail* включают ошибки, чтобы проверять безопасное поведение (R18).
 type fakeStore struct {
-	mu       sync.Mutex
-	children map[int64]*Child
-	removed  map[int64]bool
-	nextID   int64
-	limits   map[int64][7]core.DayLimit
-	days     map[string]core.DayState // "id|день"
-	saves    []savedDay               // история SaveDayState
-	events   []StoredEvent
-	auth     *Auth
-	settings map[string]string
-	closed   bool
+	mu        sync.Mutex
+	children  map[int64]*Child
+	removed   map[int64]bool
+	nextID    int64
+	limits    map[int64][7]core.DayLimit
+	days      map[string]core.DayState // "id|день"
+	saves     []savedDay               // история SaveDayState
+	events    []StoredEvent
+	lastEvID  int64        // номер последнего события: после DeleteChildEvents номера не повторяются (как id в базе)
+	evQueries []EventQuery // запросы ListEvents по порядку (фильтр уходит в хранилище, RM5-5)
+	auth      *Auth
+	settings  map[string]string
+	closed    bool
 
-	schedule map[int64][]core.Interval // интервалы по ребёнку (M2)
-	bonus    map[int64][]BonusRecord   // история копилки по ребёнку (M2)
-	promos   []*fakePromo              // промокоды (R26, D-50)
+	schedule         map[int64][]core.Interval // интервалы по ребёнку (M2)
+	bonus            map[int64][]BonusRecord   // история копилки по ребёнку (M2)
+	promos           []*fakePromo              // промокоды (R26, D-50)
+	failCreatePromos bool                      // CreatePromos возвращает ошибку, ничего не создав (RM5-12)
+	failListPromos   bool                      // ListPromos возвращает ошибку
+	failGetSetting   bool                      // GetSetting возвращает ошибку
 
 	failLimits   bool // GetDayLimits возвращает ошибку
 	failSave     bool // SaveDayState возвращает ошибку
@@ -43,15 +49,20 @@ type fakeStore struct {
 	failMerge    bool // MergePrograms возвращает ошибку, ничего не меняя (RM4-11)
 	mergeCalls   int  // сколько раз вызван MergePrograms
 
-	endModes   map[int64]string           // режим «Когда время вышло» (M3); нет записи — "lock"
-	programs   map[string]Program         // программы по пути (M3)
-	nextProg   int64                      // следующий номер программы
-	pending    map[string]*PendingProgram // «Ждут решения» по пути (M3)
-	usage      map[string]int             // учёт: "id|день|категория|вид|предмет" → секунды (M3)
-	failUsage  bool                       // DayUsage и PeriodUsage отвечают ошибкой (FB-10)
-	failPeriod bool                       // PeriodDays отвечает ошибкой (FB-13)
-	now        func() int64               // момент записи копилки, UTC мс; nil — 0
-	usageLog   []savedUsage               // история SaveDayAndUsage
+	endModes    map[int64]string           // режим «Когда время вышло» (M3); нет записи — "lock"
+	programs    map[string]Program         // программы по пути (M3)
+	nextProg    int64                      // следующий номер программы
+	pending     map[string]*PendingProgram // «Ждут решения» по пути (M3)
+	usage       map[string]int             // учёт: "id|день|категория|вид|предмет" → секунды (M3)
+	failUsage   bool                       // DayUsage и PeriodUsage отвечают ошибкой (FB-10)
+	failStats   bool                       // DaysSeries отвечает ошибкой (M5, RM5-4)
+	failReset   bool                       // GetStatsReset отвечает ошибкой (M5, RM5-8)
+	failUngrant bool                       // UngrantedDays отвечает ошибкой (FB-21)
+	failBalance bool                       // GetBonusBalance отвечает ошибкой (FB-21)
+	seriesCalls int                        // сколько раз прочитан ряд дней (одно чтение на ответ, RM5-4)
+	resets      map[int64]StatsReset       // снимок очистки статистики по ребёнку (RM5-8)
+	now         func() int64               // момент записи копилки, UTC мс; nil — 0
+	usageLog    []savedUsage               // история SaveDayAndUsage
 
 	breakRules  map[int64]core.BreakRules // «Отдых» по ребёнку (FB-14); нет записи — по умолчанию
 	breakStates map[int64]core.BreakState // счёт к перерыву по ребёнку
@@ -83,7 +94,7 @@ func newFakeStore() *fakeStore {
 		schedule: map[int64][]core.Interval{}, bonus: map[int64][]BonusRecord{},
 		endModes: map[int64]string{}, programs: map[string]Program{}, nextProg: 1,
 		pending: map[string]*PendingProgram{}, usage: map[string]int{},
-		sites: fakeSites(), adultOff: map[int64]bool{},
+		sites: fakeSites(), adultOff: map[int64]bool{}, resets: map[int64]StatsReset{},
 	}
 }
 
@@ -572,25 +583,97 @@ func (f *fakeStore) DayUsage(id int64, day string) ([]UsageRow, error) {
 	return out, nil
 }
 
-// PeriodDays — как storage.PeriodDays: суммы дней from ≤ день < before.
-func (f *fakeStore) PeriodDays(id int64, from, before string) (core.DayState, error) {
+// fakeDayOf разбирает ключ дня "id|день": ребёнок совпал — день и true.
+func fakeDayOf(k string, id int64) (string, bool) {
+	prefix := fmt.Sprint(id) + "|"
+	if !strings.HasPrefix(k, prefix) {
+		return "", false
+	}
+	return strings.TrimPrefix(k, prefix), true
+}
+
+// DaysSeries — как storage.DaysSeries: строки from ≤ день < before по возрастанию дня; нет — [].
+func (f *fakeStore) DaysSeries(id int64, from, before string) ([]DayRow, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if f.failPeriod {
-		return core.DayState{}, errFake
+	f.seriesCalls++
+	if f.failStats {
+		return nil, errFake
 	}
-	var sum core.DayState
+	out := []DayRow{}
 	for k, st := range f.days {
-		if !strings.HasPrefix(k, fmt.Sprint(id)+"|") || st.Day < from || st.Day >= before {
+		day, ok := fakeDayOf(k, id)
+		if !ok || day < from || day >= before {
 			continue
 		}
-		sum.TotalS += st.TotalS
-		sum.GamesS += st.GamesS
-		sum.VideoS += st.VideoS
-		sum.StudyS += st.StudyS
-		sum.ExtraMin += st.ExtraMin
+		out = append(out, DayRow{Day: day, TotalS: st.TotalS, GamesS: st.GamesS, VideoS: st.VideoS, StudyS: st.StudyS, ExtraMin: st.ExtraMin})
 	}
-	return sum, nil
+	sort.Slice(out, func(i, j int) bool { return out[i].Day < out[j].Day })
+	return out, nil
+}
+
+// FirstStatsDay — как storage.FirstStatsDay: самый ранний день ребёнка; нет строк — false.
+func (f *fakeStore) FirstStatsDay(id int64) (string, bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	first, found := "", false
+	for k := range f.days {
+		if day, ok := fakeDayOf(k, id); ok && (!found || day < first) {
+			first, found = day, true
+		}
+	}
+	return first, found, nil
+}
+
+// GetStatsReset — как storage.GetStatsReset.
+func (f *fakeStore) GetStatsReset(id int64) (StatsReset, bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.failReset {
+		return StatsReset{}, false, errFake
+	}
+	r, ok := f.resets[id]
+	return r, ok, nil
+}
+
+// ClearStats — как storage.ClearStats: весь учёт ребёнка, его рассмотренные для автобонуса дни до r.Day, строка дня ядра и снимок;
+// день строки не день снимка или сбой записи (failSave) — ничего не изменилось.
+func (f *fakeStore) ClearStats(id int64, day core.DayState, r StatsReset) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if day.Day != r.Day || r.Day == "" || f.failSave {
+		return errFake
+	}
+	for k := range f.usage {
+		if strings.HasPrefix(k, fmt.Sprint(id)+"|") {
+			delete(f.usage, k)
+		}
+	}
+	for k := range f.days {
+		if d, ok := fakeDayOf(k, id); ok && d < r.Day && f.days[k].BonusGranted {
+			delete(f.days, k)
+		}
+	}
+	f.days[dayKey(id, day.Day)] = day
+	f.resets[id] = r
+	return nil
+}
+
+// UngrantedDays — как storage.UngrantedDays: дни без автобонуса строго до before, по возрастанию.
+func (f *fakeStore) UngrantedDays(id int64, before string) ([]core.DayState, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.failUngrant {
+		return nil, errFake
+	}
+	out := []core.DayState{}
+	for k, st := range f.days {
+		if day, ok := fakeDayOf(k, id); ok && day < before && !st.BonusGranted {
+			out = append(out, st)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Day < out[j].Day })
+	return out, nil
 }
 
 // PeriodUsage — как storage.PeriodUsage: учёт по программам за from ≤ день < before, сложенный по
@@ -765,9 +848,39 @@ func (f *fakeStore) AppendBonus(id int64, deltaMin int, reason string) (int, err
 	return after, nil
 }
 
+// GrantDayBonus — как storage.GrantDayBonus: начисление в копилку и строка дня с BonusGranted одной
+// транзакцией; сбой записи (failSave) или отказ копилки — ни того, ни другого.
+func (f *fakeStore) GrantDayBonus(id int64, day core.DayState, deltaMin int, reason string) (int, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.failSave || reason == "" || deltaMin <= 0 || day.Day == "" {
+		return 0, errFake
+	}
+	cur := 0
+	if h := f.bonus[id]; len(h) > 0 {
+		cur = h[len(h)-1].Balance
+	}
+	after := cur + deltaMin
+	if after > 600 {
+		return 0, errFake
+	}
+	at := timeNowService()
+	if f.now != nil {
+		at = f.now()
+	}
+	f.bonus[id] = append(f.bonus[id], BonusRecord{AtMs: at, DeltaMin: deltaMin, Reason: reason, Balance: after})
+	day.BonusGranted = true
+	f.days[dayKey(id, day.Day)] = day
+	f.saves = append(f.saves, savedDay{id, day})
+	return after, nil
+}
+
 func (f *fakeStore) GetBonusBalance(id int64) (int, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.failBalance {
+		return 0, errFake
+	}
 	if h := f.bonus[id]; len(h) > 0 {
 		return h[len(h)-1].Balance, nil
 	}
@@ -814,14 +927,86 @@ func (f *fakeStore) RedeemPromo(childID int64, code string, atMs int64) (int, st
 	return 0, "", false, nil
 }
 
+// ListPromos — как storage.ListPromos: действующие новые сверху (created_at, затем номер), затем
+// использованные по моменту использования, новые сверху.
 func (f *fakeStore) ListPromos() ([]PromoRecord, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.failListPromos {
+		return nil, errFake
+	}
+	idx := make([]int, len(f.promos))
+	for i := range idx {
+		idx[i] = i
+	}
+	sort.SliceStable(idx, func(a, b int) bool {
+		pa, pb := f.promos[idx[a]].rec, f.promos[idx[b]].rec
+		if (pa.UsedAtMs != 0) != (pb.UsedAtMs != 0) {
+			return pa.UsedAtMs == 0
+		}
+		ka, kb := pa.CreatedAtMs, pb.CreatedAtMs
+		if pa.UsedAtMs != 0 {
+			ka, kb = pa.UsedAtMs, pb.UsedAtMs
+		}
+		if ka != kb {
+			return ka > kb
+		}
+		return idx[a] > idx[b] // id DESC: позже добавленный — выше
+	})
 	out := make([]PromoRecord, 0, len(f.promos))
-	for i := len(f.promos) - 1; i >= 0; i-- {
+	for _, i := range idx {
 		out = append(out, f.promos[i].rec)
 	}
 	return out, nil
+}
+
+// CreatePromos — как storage.CreatePromos: вся пачка или ничего (повтор с базой, в том числе с
+// использованным, или внутри пачки; пустой код; минуты вне 1..600).
+func (f *fakeStore) CreatePromos(codesDisplay []string, minutes int) ([]PromoRecord, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.failCreatePromos {
+		return nil, errFake
+	}
+	if !core.PromoMinutesValid(minutes) {
+		return nil, errFake
+	}
+	seen := map[string]bool{}
+	for _, p := range f.promos {
+		seen[p.norm] = true
+	}
+	batch := make([]*fakePromo, 0, len(codesDisplay))
+	for _, c := range codesDisplay {
+		norm := core.NormalizePromoCode(c)
+		if norm == "" || seen[norm] {
+			return nil, errFake
+		}
+		seen[norm] = true
+		batch = append(batch, &fakePromo{norm: norm, rec: PromoRecord{CodeDisplay: c, Minutes: minutes, CreatedAtMs: timeNowService()}})
+	}
+	out := make([]PromoRecord, 0, len(batch))
+	for _, p := range batch {
+		f.promos = append(f.promos, p)
+		out = append(out, p.rec)
+	}
+	return out, nil
+}
+
+// ClearUsedPromos — как storage.ClearUsedPromos: удаляет использованные, число удалённых.
+func (f *fakeStore) ClearUsedPromos() (int, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	kept := f.promos[:0]
+	n := 0
+	for _, p := range f.promos {
+		if p.rec.UsedAtMs != 0 {
+			n++
+			continue
+		}
+		kept = append(kept, p)
+	}
+	f.promos = kept
+	return n, nil
 }
 
 func (f *fakeStore) ListBonus(id int64) ([]BonusRecord, error) {
@@ -866,26 +1051,68 @@ func (f *fakeStore) AppendEvent(e StoredEvent) error {
 	if f.failEvents {
 		return errFake
 	}
-	e.ID = int64(len(f.events) + 1)
+	f.lastEvID++
+	e.ID = f.lastEvID
 	f.events = append(f.events, e)
 	return nil
 }
 
+// ListEvents — как storage.ListEvents: ребёнок, виды, FromMs <= at < ToMs, курсор строго раньше
+// (BeforeAtMs, BeforeID); порядок (at, id) сверху вниз; предел как storage (0 — 200, не больше 1000).
 func (f *fakeStore) ListEvents(q EventQuery) ([]StoredEvent, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	out := []StoredEvent{}
-	for i := len(f.events) - 1; i >= 0; i-- { // новые сверху
-		e := f.events[i]
-		if q.ChildID != 0 && e.ChildID != q.ChildID {
+	f.evQueries = append(f.evQueries, q)
+	kinds := map[string]bool{}
+	for _, k := range q.Kinds {
+		kinds[k] = true
+	}
+	matched := []StoredEvent{}
+	for _, e := range f.events {
+		switch {
+		case q.ChildID != 0 && e.ChildID != q.ChildID,
+			q.FromMs != 0 && e.AtMs < q.FromMs,
+			q.ToMs != 0 && e.AtMs >= q.ToMs,
+			len(kinds) > 0 && !kinds[e.Kind],
+			q.BeforeAtMs != 0 && !(e.AtMs < q.BeforeAtMs || (e.AtMs == q.BeforeAtMs && e.ID < q.BeforeID)):
 			continue
 		}
-		out = append(out, e)
-		if q.Limit > 0 && len(out) >= q.Limit {
-			break
-		}
+		matched = append(matched, e)
 	}
-	return out, nil
+	sort.SliceStable(matched, func(i, j int) bool {
+		if matched[i].AtMs != matched[j].AtMs {
+			return matched[i].AtMs > matched[j].AtMs
+		}
+		return matched[i].ID > matched[j].ID
+	})
+	limit := q.Limit
+	switch {
+	case limit <= 0:
+		limit = 200
+	case limit > 1000:
+		limit = 1000
+	}
+	if len(matched) > limit {
+		matched = matched[:limit]
+	}
+	return matched, nil
+}
+
+// DeleteChildEvents — как storage.DeleteChildEvents: события ребёнка; без ребёнка (0) остаются.
+func (f *fakeStore) DeleteChildEvents(id int64) (int, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	kept := f.events[:0]
+	n := 0
+	for _, e := range f.events {
+		if e.ChildID == id && id != 0 {
+			n++
+			continue
+		}
+		kept = append(kept, e)
+	}
+	f.events = kept
+	return n, nil
 }
 
 func (f *fakeStore) GetAuth() (Auth, bool, error) {
@@ -913,6 +1140,9 @@ func (f *fakeStore) SetAuth(a Auth) error {
 func (f *fakeStore) GetSetting(key string) (string, bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.failGetSetting {
+		return "", false, errFake
+	}
 	v, ok := f.settings[key]
 	return v, ok, nil
 }
@@ -1759,4 +1989,126 @@ func (f *fakeStore) SaveBreakState(id int64, b core.BreakState) error {
 	}
 	f.breakStates[id] = b
 	return nil
+}
+
+// Ловит: фейк хранилища расходится с storage в фильтрах журнала, курсоре, очистке статистики и
+// журнала, пачке промокодов и порядке списка — тогда тесты службы зелёные на неправде (M5).
+func TestFakeStoreMatchesStorageM5(t *testing.T) {
+	f := newFakeStore()
+	kinds := []string{"a", "b", "c"}
+	for i := 0; i < 450; i++ {
+		_ = f.AppendEvent(StoredEvent{ChildID: 1, AtMs: int64(1000 + i/3), Kind: kinds[i%3]})
+	}
+	_ = f.AppendEvent(StoredEvent{ChildID: 2, AtMs: 1100, Kind: "a"})
+	_ = f.AppendEvent(StoredEvent{AtMs: 1100, Kind: "a"})
+
+	q := EventQuery{ChildID: 1, Limit: 200}
+	seen := map[int64]bool{}
+	var sizes []int
+	for page := 0; page < 5; page++ {
+		evs, _ := f.ListEvents(q)
+		if len(evs) == 0 {
+			break
+		}
+		sizes = append(sizes, len(evs))
+		for _, e := range evs {
+			if seen[e.ID] {
+				t.Fatalf("событие %d повторилось", e.ID)
+			}
+			seen[e.ID] = true
+		}
+		q.BeforeAtMs, q.BeforeID = evs[len(evs)-1].AtMs, evs[len(evs)-1].ID
+	}
+	if fmt.Sprint(sizes) != "[200 200 50]" || len(seen) != 450 {
+		t.Errorf("страницы %v, всего %d; want [200 200 50] и 450", sizes, len(seen))
+	}
+	list := func(q EventQuery) string {
+		evs, _ := f.ListEvents(q)
+		var out []string
+		for _, e := range evs {
+			out = append(out, fmt.Sprintf("%d:%s", e.AtMs, e.Kind))
+		}
+		return strings.Join(out, " ")
+	}
+	if got, want := list(EventQuery{ChildID: 1, FromMs: 1001, ToMs: 1003, Kinds: []string{"a", "c"}}), "1002:c 1002:a 1001:c 1001:a"; got != want {
+		t.Errorf("виды и время: %q, want %q", got, want)
+	}
+	if got := list(EventQuery{FromMs: 1100, ToMs: 1101, Kinds: []string{"a"}}); got != "1100:a 1100:a 1100:a" {
+		t.Errorf("все дети в 1100: %q", got)
+	}
+	if n, _ := f.DeleteChildEvents(1); n != 450 {
+		t.Errorf("DeleteChildEvents = %d, want 450", n)
+	}
+	_ = f.AppendEvent(StoredEvent{ChildID: 1, AtMs: 5, Kind: "journal_cleared"})
+	if evs, _ := f.ListEvents(EventQuery{}); len(evs) != 3 || evs[2].ID != 453 {
+		t.Errorf("после очистки = %+v; want 3 события, новое с номером 453 (номера не повторяются)", evs)
+	}
+
+	// Очистка статистики.
+	_ = f.SaveDayState(1, core.DayState{Day: "2026-11-08", TotalS: 5}) // ждёт автобонуса: остаётся (D-82)
+	_ = f.SaveDayState(1, core.DayState{Day: "2026-11-09", TotalS: 10, BonusGranted: true})
+	_ = f.SaveDayState(1, core.DayState{Day: "2026-11-10", TotalS: 20})
+	_ = f.SaveDayState(2, core.DayState{Day: "2026-11-09", TotalS: 30})
+	_ = f.AddUsage(1, "2026-11-10", "games", "program", `c:\g.exe`, 20)
+	_ = f.AddUsage(2, "2026-11-09", "games", "program", `c:\g.exe`, 30)
+	if err := f.ClearStats(1, core.DayState{Day: "2026-11-09"}, StatsReset{Day: "2026-11-10"}); err == nil {
+		t.Error("ClearStats с разными днями прошёл")
+	}
+	day := core.DayState{Day: "2026-11-10", TotalS: 25, BonusGranted: true}
+	r := StatsReset{ClearedAtMs: 77, Day: "2026-11-10", TotalS: 25}
+	if err := f.ClearStats(1, day, r); err != nil {
+		t.Fatal(err)
+	}
+	if rows, _ := f.DaysSeries(1, "2026-01-01", "2027-01-01"); fmt.Sprint(rows) != "[{2026-11-08 5 0 0 0 0} {2026-11-10 25 0 0 0 0}]" {
+		t.Errorf("дни после очистки = %v", rows)
+	}
+	if u, _ := f.PeriodUsage(1, "2026-01-01", "2027-01-01"); len(u) != 0 {
+		t.Errorf("учёт после очистки = %v, want пусто", u)
+	}
+	if got, ok, _ := f.GetStatsReset(1); !ok || got != r {
+		t.Errorf("снимок = %+v %v", got, ok)
+	}
+	if d, ok, _ := f.FirstStatsDay(2); !ok || d != "2026-11-09" {
+		t.Errorf("FirstStatsDay(2) = %q %v; другой ребёнок задет", d, ok)
+	}
+	if u, _ := f.PeriodUsage(2, "2026-01-01", "2027-01-01"); len(u) != 1 {
+		t.Errorf("учёт ребёнка 2 = %v, want на месте", u)
+	}
+	if empty, _ := f.DaysSeries(3, "2026-01-01", "2027-01-01"); empty == nil || len(empty) != 0 {
+		t.Errorf("DaysSeries без дней = %#v, want []", empty)
+	}
+	_ = f.SaveDayState(2, core.DayState{Day: "2026-11-08", TotalS: 1, BonusGranted: true})
+	_ = f.SaveDayState(2, core.DayState{Day: "2026-11-10", TotalS: 1})
+	if ds, _ := f.UngrantedDays(2, "2026-11-10"); len(ds) != 1 || ds[0].Day != "2026-11-09" {
+		t.Errorf("UngrantedDays = %+v, want только 2026-11-09", ds)
+	}
+
+	// Промокоды: пачка целиком или ничего, порядок списка, очистка истории.
+	if _, err := f.CreatePromo("USED", 10); err != nil {
+		t.Fatal(err)
+	}
+	_, _, _, _ = f.RedeemPromo(1, "used", 500)
+	if _, err := f.CreatePromos([]string{"N1", "used"}, 10); err == nil {
+		t.Error("пачка с использованным кодом прошла")
+	}
+	if _, err := f.CreatePromos([]string{"N1", "n1"}, 10); err == nil {
+		t.Error("пачка с повтором внутри прошла")
+	}
+	if got, err := f.CreatePromos([]string{"N1", "N2"}, 10); err != nil || len(got) != 2 {
+		t.Fatalf("CreatePromos = %v, %v", got, err)
+	}
+	codes := func() string {
+		ps, _ := f.ListPromos()
+		var out []string
+		for _, p := range ps {
+			out = append(out, p.CodeDisplay)
+		}
+		return strings.Join(out, " ")
+	}
+	if got := codes(); got != "N2 N1 USED" {
+		t.Errorf("порядок = %q, want действующие новые сверху, затем использованные", got)
+	}
+	if n, _ := f.ClearUsedPromos(); n != 1 || codes() != "N2 N1" {
+		t.Errorf("ClearUsedPromos = %d, список %q", n, codes())
+	}
 }

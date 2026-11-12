@@ -24,7 +24,7 @@ function setup(brk?: BreakRules, others: TodayCard[] = [], extra = [] as ReturnT
 }
 
 const num = (label: string) => screen.getByLabelText(label, { selector: "input" }) as HTMLInputElement;
-const toggle = () => screen.getByRole("checkbox", { name: "Перерывы на отдых" }) as HTMLInputElement;
+const toggle = () => screen.getByRole("checkbox", { name: "Перерыв на отдых" }) as HTMLInputElement;
 const message = () => screen.getByLabelText("Сообщение на экране перерыва") as HTMLInputElement;
 const sent = () => mock.calls.filter((c) => c.command === "SaveLimits").at(-1)?.payload;
 /** Поле «Засчитать как отдых…»: подпись зависит от «Что считать» (B-45), ищем по общему началу. */
@@ -34,7 +34,7 @@ const SELF_ALL = "Засчитать как отдых, если не был з�
 
 async function openRest(user: ReturnType<typeof userEvent.setup>) {
   await screen.findByRole("table");
-  await user.click(screen.getByRole("tab", { name: "Отдых" }));
+  await user.click(screen.getByRole("tab", { name: "Перерыв на отдых" }));
 }
 
 async function retype(user: ReturnType<typeof userEvent.setup>, el: HTMLInputElement, text: string) {
@@ -52,15 +52,15 @@ describe("ChildLimits: вкладка «Отдых»", () => {
     const user = setup();
     await screen.findByRole("table");
     const tabs = within(screen.getByRole("tablist", { name: "Правила ребёнка" })).getAllByRole("tab");
-    expect(tabs.map((t) => t.textContent)).toEqual(["Лимиты", "Запретные часы", "Когда время вышло", "Отдых"]);
-    await user.click(screen.getByRole("tab", { name: "Отдых" }));
+    expect(tabs.map((t) => t.textContent)).toEqual(["Лимиты", "Запретные часы", "Когда время вышло", "Перерыв на отдых"]);
+    await user.click(screen.getByRole("tab", { name: "Перерыв на отдых" }));
     expect(toggle().checked).toBe(false);
     expect([num("Через сколько").value, num("Предупредить за").value, num("Отдых").value, self().value]).toEqual(["60", "5", "15", "15"]);
     for (const l of ["Через сколько", "Предупредить за", "Отдых"]) expect(num(l).disabled).toBe(true);
     expect(self().disabled).toBe(true);
     expect((screen.getByRole("radio", { name: "Всё время, кроме учёбы" }) as HTMLInputElement).checked).toBe(true);
     expect(message().value).toBe("Разомнись, попей воды, посмотри в окно");
-    expect(screen.getByText("Перерывы на отдых выключены")).toBeTruthy();
+    expect(screen.getByText("Перерыв на отдых выключен")).toBeTruthy();
     expect(screen.queryByText("Есть несохранённые изменения")).toBeNull();
   });
 
@@ -95,9 +95,9 @@ describe("ChildLimits: вкладка «Отдых»", () => {
     await openRest(user);
     await retype(user, self(), "10");
     await user.click(screen.getByRole("button", { name: "Сохранить" }));
-    expect(await screen.findByText("Не меньше времени отдыха")).toBeTruthy();
+    expect(await screen.findByText("Не меньше 15 мин: столько длится отдых")).toBeTruthy();
     expect(self().getAttribute("aria-invalid")).toBe("true");
-    expect(self().getAttribute("aria-describedby")).toContain(screen.getByText("Не меньше времени отдыха").id);
+    expect(self().getAttribute("aria-describedby")).toContain(screen.getByText("Не меньше 15 мин: столько длится отдых").id);
     expect(document.activeElement).toBe(self());
     expect(sent()).toBeUndefined();
   });
@@ -110,7 +110,7 @@ describe("ChildLimits: вкладка «Отдых»", () => {
     await user.click(screen.getByRole("tab", { name: "Лимиты" }));
     await user.click(screen.getByRole("button", { name: "Сохранить" }));
     expect(await screen.findByText("Можно от 15 до 240 мин")).toBeTruthy();
-    expect(screen.getByRole("tab", { name: "Отдых" }).getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByRole("tab", { name: "Перерыв на отдых" }).getAttribute("aria-selected")).toBe("true");
     // Фокус на первом неверном поле: родитель с клавиатурой сразу исправляет его.
     expect(document.activeElement).toBe(num("Через сколько"));
     expect(sent()).toBeUndefined();
@@ -158,7 +158,7 @@ describe("ChildLimits: вкладка «Отдых»", () => {
     await openRest(user);
     await retype(user, num("Отдых"), "45");
     expect(self().value).toBe("45");
-    expect(screen.queryByText("Не меньше времени отдыха")).toBeNull();
+    expect(screen.queryByText("Не меньше 15 мин: столько длится отдых")).toBeNull();
   });
 
   // Ловит: поля принимают буквы и больше верхнего предела.
@@ -227,7 +227,7 @@ describe("ChildLimits: вкладка «Отдых»", () => {
     await screen.findByRole("table");
     await user.click(screen.getByRole("button", { name: "Скопировать правила с…" }));
     await user.click(screen.getByRole("button", { name: "Даша" }));
-    await user.click(screen.getByRole("tab", { name: "Отдых" }));
+    await user.click(screen.getByRole("tab", { name: "Перерыв на отдых" }));
     await vi.waitFor(() => expect(toggle().checked).toBe(true));
     expect(self().value).toBe("30");
     expect(message().value).toBe("Пойди погуляй с собакой");

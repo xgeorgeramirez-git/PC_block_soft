@@ -163,3 +163,44 @@ func TestForbiddenForegroundNotCountedByPath(t *testing.T) {
 		t.Errorf("учёт по пути запрещённой chrome: %d с, want 0", n)
 	}
 }
+
+// Ловит (B-30, R11): в паузе учёт продолжается (для статистики), а наблюдатель сеанс не опрашивал:
+// отпечаток игры из «Загрузок» не прочитан, и её секунды шли в «Прочее» без программы — и у
+// запущенной до паузы (память наблюдателя о ней забыта), и у запущенной в паузе. Пауза
+// по-прежнему ничего не закрывает и не пишет в журнал родителя.
+func TestPauseUsageKeepsFingerprintCategory(t *testing.T) {
+	meta := newMeta()
+	meta.set(pathSuperGame, "", "", "1024:1700000000")
+	w := newWatcher()
+	h := watchHarness(t, w, withMeta(meta))
+	if err := h.store.UpsertProgram(Program{Path: pathSuperGame, Name: "SuperGame", Category: "games", Source: "parent", Fingerprint: "1024:1700000000"}); err != nil {
+		t.Fatal(err)
+	}
+	h.svc.mu.Lock()
+	h.svc.reloadPrograms()
+	h.svc.mu.Unlock()
+	game := w.start(childSession, pathSuperGame)
+	h.watch()
+	tok := h.login(adminPeer())
+	h.ok(adminPeer(), tok, ipc.CmdPause, ipc.PauseRequest{ChildID: h.childID(childSID), Preset: ipc.PauseHour1}, nil)
+	events := len(h.store.eventKinds())
+	h.real.Advance(time.Second)
+	h.watch()
+	h.run(5, fgSample(pathSuperGame, ipc.CatNameOther))
+	w.exit(game)
+	game2 := w.start(childSession, pathSuperGame)
+	unknown := w.start(childSession, pathChrome)
+	h.real.Advance(time.Second)
+	h.watch()
+	h.run(5, fgSample(pathSuperGame, ipc.CatNameOther))
+	if !w.alive(game2) || !w.alive(unknown) {
+		t.Errorf("в паузе закрыто: игра жива %v, chrome жив %v; want обе живы", w.alive(game2), w.alive(unknown))
+	}
+	if got := h.store.eventKinds()[events:]; len(got) != 0 {
+		t.Errorf("в паузе наблюдатель записал в журнал родителя %v, want ничего", got)
+	}
+	h.svc.Shutdown(h.real.Now())
+	if g, o := h.usageOf("2026-10-19", "games", pathSuperGame), h.usageOf("2026-10-19", "other", pathSuperGame); g != 10 || o != 0 {
+		t.Errorf("учёт в паузе: игры %d с, прочее %d с; want 10, 0", g, o)
+	}
+}

@@ -52,3 +52,14 @@ describe("«Когда время вышло»: карточки вариант�
     expect(rule(".end-mode")).toMatch(/margin-bottom:\s*var\(--space-4\)/);
   });
 });
+
+describe("длинный список сайтов (до 1000 строк, B-51)", () => {
+  // Ловит: все строки «Запрещённых» рисуются сразу, окно тормозит на 1000 сайтах. Строка вне экрана
+  // не рисуется, пока до неё не прокрутили, а место под неё запомнено (полоса прокрутки не прыгает).
+  it("строка вне экрана не рисуется, высота строки задана", () => {
+    expect(rule(".sites-row")).toMatch(/content-visibility:\s*auto/);
+    expect(rule(".sites-row")).toMatch(/contain-intrinsic-block-size:\s*auto\s+\d+px/);
+    // Рисунок обрезается по краю строки: по бокам место под кольцо фокуса (2 px + отступ 2 px).
+    expect(rule(".sites-row")).toMatch(/padding:\s*var\(--space-2\)\s+var\(--space-1\)/);
+  });
+});

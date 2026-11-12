@@ -2,7 +2,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import MyStats from "./MyStats";
-import { DEFAULT_PASSWORD, installBackend, mockChild, S42_NOW, s42Child, uninstallBackend, type MockBackend } from "../__mocks__/backend";
+import {
+  DEFAULT_PASSWORD,
+  G15_NOW,
+  g15Child,
+  g15Events,
+  installBackend,
+  mockChild,
+  S42_NOW,
+  s42Child,
+  uninstallBackend,
+  type MockBackend,
+} from "../__mocks__/backend";
 import type { ProgramTime } from "../types";
 
 // FR-12, R21, сценарий 8.2.6: окно «Моя статистика» только для чтения, в M1 - «Сегодня» и «Мои правила».
@@ -48,6 +59,21 @@ describe("MyStats: окно только для чтения (R21)", () => {
     expect(bonuses.contains(fields[0])).toBe(true);
     expect(screen.getByRole("textbox", { name: "Промокод" })).toBeTruthy();
     expect(screen.queryByRole("checkbox")).toBeNull();
+  });
+
+  // Ловит (S22, R21): в окне ребёнка появились выбор ребёнка, очистка статистики или поле статистики.
+  it("S22: статистика за неделю без полей, выбора ребёнка и очистки", async () => {
+    vi.setSystemTime(G15_NOW);
+    const user = setup({ children: [g15Child()], events: g15Events() });
+    await user.click(await screen.findByRole("tab", { name: "Неделя" }));
+    await screen.findByRole("region", { name: "По дням" });
+    const fields = Array.from(document.querySelectorAll("input, textarea, select, [contenteditable]"));
+    expect(fields).toHaveLength(1);
+    expect(screen.getByRole("region", { name: "Бонусы" }).contains(fields[0])).toBe(true);
+    expect(screen.queryByRole("combobox")).toBeNull();
+    expect(screen.queryByRole("button", { name: /Очистить/ })).toBeNull();
+    expect(screen.queryByRole("group", { name: "Ребёнок" })).toBeNull();
+    expect(new Set(mock.calls.map((c) => c.command))).toEqual(new Set(["MyToday", "GetBonus"]));
   });
 
   // Ловит: ребёнок видит статистику другого ребёнка или чужое имя (R21).
@@ -184,6 +210,27 @@ describe("MyStats: периоды", () => {
     for (const t of within(periods).getAllByRole("tab")) expect(t.getAttribute("aria-controls")).toBe(panel.id);
   });
 
+  // Ловит (8.2.6, PL-36): разделы за период не в панели периода или не в порядке ТЗ; «Бонусы» и
+  // «Мои правила» (за сегодня) попали в панель периода.
+  it("разделы за период по порядку внутри панели периода: Итоги, По дням, Программы, Сайты, Нарушения, Копилка", async () => {
+    vi.setSystemTime(G15_NOW);
+    const user = setup({ children: [g15Child()], events: g15Events() });
+    await user.click(await screen.findByRole("tab", { name: "Неделя" }));
+    const panel = await screen.findByRole("tabpanel", { name: "Неделя" });
+    await within(panel).findByRole("region", { name: "По дням" });
+    const heads = within(panel)
+      .getAllByRole("heading")
+      .map((h) => h.textContent);
+    expect(heads).toEqual(["По дням", "Программы", "Сайты", "Нарушения", "Копилка"]);
+    const before = (a: Node, b: Node) => Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+    const box = screen.getByRole("region", { name: "Итоги" });
+    expect(box.contains(panel)).toBe(true);
+    expect(before(within(box).getByRole("tablist", { name: "Итоги по категориям" }), within(panel).getByRole("region", { name: "По дням" }))).toBe(true);
+    for (const name of ["Бонусы", "Мои правила", "Сколько осталось"]) {
+      expect(panel.contains(screen.getByRole("region", { name })), name).toBe(false);
+    }
+  });
+
   // Ловит: на время загрузки периода окно мигает («Загружаю данные» вместо всей страницы) или нет признака
   // загрузки; поздний ответ прошлого периода перекрывает выбранный.
   it("загрузка периода: страница на месте, короткий признак, поздний ответ не перекрывает выбранный", async () => {
@@ -221,6 +268,54 @@ describe("MyStats: периоды", () => {
     await user.click(screen.getByRole("button", { name: "Обновить" }));
     await vi.waitFor(() => expect(mock.calls.filter((c) => c.command === "MyToday").at(-1)?.payload).toEqual({ period: "year" }));
     expect(screen.getByText("Использовано за год")).toBeTruthy();
+  });
+});
+
+describe("MyStats: сбой периода", () => {
+  // Ловит (ревью окна M5): при сбое загрузки вкладка показывает новый период, а под ней цифры прошлого.
+  it("сбой периода - вкладка и цифры одного периода", async () => {
+    vi.setSystemTime(S42_NOW);
+    const user = setup({ children: [s42Child()] });
+    const box = await screen.findByRole("region", { name: "Итоги" });
+    await within(box).findByText("Использовано сегодня");
+    mock.override("MyToday", "reject", 1);
+    await user.click(screen.getByRole("tab", { name: "Неделя" }));
+    expect(await screen.findByText("Не удалось получить данные. Попробуй через минуту")).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "Сегодня" }).getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByRole("tab", { name: "Неделя" }).getAttribute("aria-selected")).toBe("false");
+    expect(screen.getByRole("tabpanel", { name: "Сегодня" })).toBeTruthy();
+    expect(within(box).getByText("Использовано сегодня")).toBeTruthy();
+    expect(within(box).queryByText("Использовано за неделю")).toBeNull();
+    // Повтор той же вкладки идёт уже без сбоя.
+    await user.click(screen.getByRole("tab", { name: "Неделя" }));
+    await within(box).findByText("Использовано за неделю");
+    expect(screen.getByRole("tab", { name: "Неделя" }).getAttribute("aria-selected")).toBe("true");
+    expect(screen.queryByText("Не удалось получить данные. Попробуй через минуту")).toBeNull();
+  });
+
+  // Ловит: после сбоя «Обновить» спрашивает период, которого на экране нет.
+  it("после сбоя «Обновить» спрашивает показанный период", async () => {
+    const user = setup();
+    await user.click(await screen.findByRole("tab", { name: "Год" }));
+    await screen.findByText("Использовано за год");
+    mock.override("MyToday", "reject", 1);
+    await user.click(screen.getByRole("tab", { name: "Месяц" }));
+    await screen.findByText("Не удалось получить данные. Попробуй через минуту");
+    await user.click(screen.getByRole("button", { name: "Обновить" }));
+    await vi.waitFor(() => expect(mock.calls.filter((c) => c.command === "MyToday").at(-1)?.payload).toEqual({ period: "year" }));
+  });
+
+  // Ловит (WCAG 1.3.1): разделы периода - заголовки того же уровня, что «Итоги», а не под ним.
+  it("разделы периода - h4 под h3 «Итоги»", async () => {
+    vi.setSystemTime(G15_NOW);
+    const user = setup({ children: [g15Child()], events: g15Events() });
+    expect(await screen.findByRole("heading", { name: "Итоги", level: 3 })).toBeTruthy();
+    await user.click(screen.getByRole("tab", { name: "Неделя" }));
+    await screen.findByRole("tabpanel", { name: "Неделя" });
+    await screen.findByRole("heading", { name: "По дням", level: 4 });
+    for (const name of ["По дням", "Программы", "Сайты", "Нарушения", "Копилка"]) {
+      expect(screen.getByRole("heading", { name, level: 4 })).toBeTruthy();
+    }
   });
 });
 
@@ -584,7 +679,7 @@ describe("MyStats: обновление и сбои", () => {
 
   it("пока данные грузятся, говорит об этом", () => {
     setup();
-    expect(screen.getByText("Загружаю данные")).toBeTruthy();
+    expect(screen.getByText("Загружаю данные…")).toBeTruthy();
   });
 });
 
@@ -615,14 +710,20 @@ describe("MyStats: «Бонусы» (R25, R26, D-49, D-50)", () => {
       promos: [{ codeDisplay: "A1234", minutes: 30, createdAtMs: NOW.getTime() - 3600_000 }],
     });
 
-  // Ловит: ребёнок не видит, за что начислен автобонус (D-49).
+  // Ловит: ребёнок не видит, за что начислен автобонус (D-49); история копилки в двух местах окна.
   it("баланс копилки и автобонус простыми словами", async () => {
-    withBonus();
+    const user = withBonus();
     const box = await screen.findByRole("region", { name: "Бонусы" });
     expect(await within(box).findByText("Копилка: 45 мин")).toBeTruthy();
-    expect(within(box).getByText("+15 мин за неизрасходованное время прошлого дня")).toBeTruthy();
-    expect(within(box).getByText("+30 мин: за уборку")).toBeTruthy();
+    expect(within(box).queryByRole("list")).toBeNull();
     expect(box.textContent ?? "").not.toMatch(YOU_FORM);
+    await user.click(screen.getByRole("tab", { name: "Всё время" }));
+    await screen.findByText("Использовано за всё время");
+    const piggy = screen.getByRole("region", { name: "Копилка" });
+    expect(within(piggy).getByText("Сейчас в копилке: 45 мин")).toBeTruthy();
+    expect(within(piggy).getByText("+15 мин за неизрасходованное время прошлого дня")).toBeTruthy();
+    expect(within(piggy).getByText("+30 мин: за уборку")).toBeTruthy();
+    expect(piggy.textContent ?? "").not.toMatch(YOU_FORM);
   });
 
   // Ловит: верный код не добавляет время или сообщение не по ТЗ (FR-35: «Добавлено N минут»).
@@ -942,5 +1043,141 @@ describe("MyStats: «Взять из копилки» (FR-11)", () => {
     const text = screen.getByRole("dialog").textContent ?? "";
     expect(text).not.toMatch(/[—–]/);
     expect(text).not.toMatch(YOU_FORM);
+  });
+});
+
+// Разделы за период (8.2.6 п.4-10, M5) на эталонной неделе G15 (S21, S22): то же, что у родителя.
+describe("MyStats: разделы за период (G15)", () => {
+  async function weekG15(opts: Parameters<typeof installBackend>[0] = {}) {
+    vi.setSystemTime(G15_NOW);
+    const user = setup({ children: [g15Child()], events: g15Events(), ...opts });
+    await user.click(await screen.findByRole("tab", { name: "Неделя" }));
+    await screen.findByText("Использовано за неделю");
+    return user;
+  }
+  const rowsOf = (table: HTMLElement) =>
+    within(table)
+      .getAllByRole("row")
+      .slice(1)
+      .map((tr) => Array.from(tr.children).map((c) => c.textContent));
+
+  // Ловит (8.2.6 п.10, FR-38): подписи нет или она внутри карточки, а не над «Итогами».
+  it("«Статистика ведётся с 16 ноября 2026» над карточкой «Итоги»", async () => {
+    await weekG15();
+    const since = screen.getByText("Статистика ведётся с 16 ноября 2026");
+    const box = screen.getByRole("region", { name: "Итоги" });
+    expect(box.contains(since)).toBe(false);
+    expect(Boolean(since.compareDocumentPosition(box) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
+  });
+
+  // Ловит (S21): столбиков не 7 или подсказки не по эталону.
+  it("«По дням»: 7 столбиков, итог графика как в «Итогах»", async () => {
+    await weekG15();
+    const days = screen.getByRole("region", { name: "По дням" });
+    const bars = within(within(days).getByRole("group")).getAllByRole("img");
+    expect(bars).toHaveLength(7);
+    expect(bars[1].getAttribute("aria-label")).toBe("вт, 17 ноября: 2 ч 20 мин, учёба 0 мин");
+    expect(days.querySelector("svg")?.getAttribute("aria-label")).toBe("По дням за неделю: 12 ч 33 мин в счёт лимита, учёба 1 ч 35 мин");
+  });
+
+  // Ловит (8.2.6 п.5, RM5-4): таблицы не по эталону, сайт в «Программах».
+  it("«Программы» и «Сайты»: название, время, доля", async () => {
+    await weekG15();
+    const programs = within(screen.getByRole("region", { name: "Программы" })).getByRole("table", { name: "Программы" });
+    expect(rowsOf(programs)).toEqual([
+      ["game.exe", "4 ч 45 мин", "45%"],
+      ["other.exe", "4 ч 08 мин", "39%"],
+      ["study.exe", "1 ч 35 мин", "15%"],
+    ]);
+    const sites = within(screen.getByRole("region", { name: "Сайты" })).getByRole("table", { name: "Сайты" });
+    expect(rowsOf(sites)).toEqual([["youtube.com", "3 ч 40 мин", "100%"]]);
+    expect(within(programs).getAllByRole("columnheader").map((c) => c.textContent)).toEqual(["Название", "Время", "Доля"]);
+  });
+
+  // Ловит (8.2.6 п.6-7): нарушения не за период, обычное событие среди нарушений; копилка без истории.
+  it("«Нарушения» - только нарушения; «Копилка» - баланс и история за неделю", async () => {
+    await weekG15();
+    const v = screen.getByRole("region", { name: "Нарушения" });
+    expect(within(within(v).getByRole("list", { name: "Нарушения" })).getAllByRole("listitem").map((li) => li.textContent)).toEqual([
+      "19 ноя, 18:05Миша: попытка открыть запрещённую программу Steam. Программа закрыта",
+    ]);
+    const piggy = screen.getByRole("region", { name: "Копилка" });
+    expect(within(piggy).getByText("Сейчас в копилке: 25 мин")).toBeTruthy();
+    expect(within(within(piggy).getByRole("list", { name: "История копилки за период" })).getAllByRole("listitem").map((li) => li.textContent)).toEqual([
+      "21 ноя, 00:00+20 мин за неизрасходованное время прошлого дняБаланс: 25 мин",
+      "19 ноя, 16:00-15 мин: потраченоБаланс: 5 мин",
+    ]);
+  });
+
+  it("больше 20 нарушений: первые 20 и «Показать все (25)»", async () => {
+    vi.setSystemTime(G15_NOW);
+    const many = Array.from({ length: 25 }, (_, i) => ({
+      atMs: G15_NOW.getTime() - (i + 1) * 60_000,
+      tzOffsetMin: -G15_NOW.getTimezoneOffset(),
+      childId: 1,
+      childName: "Миша",
+      kind: "bypass",
+      text: `Миша: обход защиты ${i + 1}`,
+    }));
+    const user = setup({ children: [g15Child()], events: many });
+    const v = await screen.findByRole("region", { name: "Нарушения" });
+    expect(within(v).getAllByRole("listitem")).toHaveLength(20);
+    await user.click(within(v).getByRole("button", { name: "Показать все (25)" }));
+    expect(within(v).getAllByRole("listitem")).toHaveLength(25);
+    expect(within(v).queryByRole("button")).toBeNull();
+  });
+
+  // Ловит (8.2.6 п.9): пустой период - нули в разделах вместо одной строки; нарушения и копилка пропали.
+  it("пустой период: одна строка «За этот период пока нет данных», нарушения и копилка - своими словами", async () => {
+    const user = setup({ children: [mockChild({ usedS: 0 })] });
+    await user.click(await screen.findByRole("tab", { name: "Месяц" }));
+    const box = screen.getByRole("region", { name: "Итоги" });
+    expect(await within(box).findByText("За этот период пока нет данных")).toBeTruthy();
+    expect(within(box).getAllByText("За этот период пока нет данных")).toHaveLength(1);
+    for (const name of ["По дням", "Программы", "Сайты"]) expect(screen.queryByRole("region", { name }), name).toBeNull();
+    expect(within(screen.getByRole("region", { name: "Нарушения" })).getByText("Нарушений за этот период нет")).toBeTruthy();
+    expect(within(screen.getByRole("region", { name: "Копилка" })).getByText("За этот период копилка не менялась")).toBeTruthy();
+  });
+
+  it("сеанс не ребёнка: ни разделов, ни подписи «Статистика ведётся с»", async () => {
+    setup({ myChildId: null });
+    await screen.findByRole("region", { name: "Итоги" });
+    for (const name of ["По дням", "Программы", "Сайты", "Нарушения", "Копилка"]) expect(screen.queryByRole("region", { name }), name).toBeNull();
+    expect(screen.queryByText(/Статистика ведётся/)).toBeNull();
+  });
+
+  // Ловит: поздний ответ прошлого периода перекрывает столбики выбранного (как у «Итогов»).
+  it("поздний ответ недели не перекрывает столбики месяца", async () => {
+    vi.setSystemTime(G15_NOW);
+    const user = setup({ children: [g15Child()], events: g15Events() });
+    await screen.findByRole("region", { name: "По дням" });
+    let releaseWeek: () => void = () => {};
+    const weekGate = new Promise<void>((r) => (releaseWeek = r));
+    const real = mock.handler("MyToday");
+    mock.override("MyToday", async (payload) => {
+      if ((payload as { period?: string }).period === "week") await weekGate;
+      return real(payload);
+    });
+    await user.click(screen.getByRole("tab", { name: "Неделя" }));
+    await user.click(screen.getByRole("tab", { name: "Месяц" }));
+    await screen.findByText("Использовано за месяц");
+    releaseWeek();
+    await new Promise((r) => setTimeout(r, 20));
+    const svg = () => screen.getByRole("region", { name: "По дням" }).querySelector("svg");
+    expect(svg()?.getAttribute("aria-label")).toBe("По дням за месяц: 12 ч 33 мин в счёт лимита, учёба 1 ч 35 мин");
+    expect(within(within(screen.getByRole("region", { name: "По дням" })).getByRole("group")).getAllByRole("img")).toHaveLength(22);
+  });
+});
+
+describe("MyStats: значение плитки частями", () => {
+  // Ловит (возврат 2 T5): длинное значение плитки не делится на части и не переносится; текст плитки изменился.
+  it("«1 ч 15 мин» - две неразрывные части, текст прежний", async () => {
+    setup({ children: [mockChild({ usedS: 2100, gamesUsedS: 1200, videoUsedS: 300, studyUsedS: 2400 })] });
+    const box = await screen.findByRole("region", { name: "Итоги" });
+    const value = within(box).getByRole("tab", { name: "Всего" }).querySelector(".totals-tab-value")!;
+    expect(value.textContent).toBe("1 ч 15 мин");
+    expect(Array.from(value.querySelectorAll(".totals-tab-part")).map((p) => p.textContent)).toEqual(["1 ч", "15 мин"]);
+    const short = within(box).getByRole("tab", { name: "Игры" }).querySelector(".totals-tab-value")!;
+    expect(Array.from(short.querySelectorAll(".totals-tab-part")).map((p) => p.textContent)).toEqual(["20 мин"]);
   });
 });

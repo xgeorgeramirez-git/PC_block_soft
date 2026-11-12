@@ -283,7 +283,7 @@ func TestMyTodayPeriodStoreErrors(t *testing.T) {
 	h.run(60, fgSample(pathMinecraft, ipc.CatNameOther))
 
 	h.store.mu.Lock()
-	h.store.failPeriod = true
+	h.store.failStats = true
 	h.store.mu.Unlock()
 	week := h.periodReply(ipc.PeriodWeek)
 	if week.GamesS != 60 || strings.Join(rowsOf(week.Programs, "games"), ", ") != "Minecraft Launcher=60" {
@@ -291,7 +291,7 @@ func TestMyTodayPeriodStoreErrors(t *testing.T) {
 	}
 
 	h.store.mu.Lock()
-	h.store.failPeriod, h.store.failUsage = false, true
+	h.store.failStats, h.store.failUsage = false, true
 	h.store.mu.Unlock()
 	week = h.periodReply(ipc.PeriodWeek)
 	if week.GamesS != 1860 || sumOf(week.Programs, "games") != 1860 {
@@ -299,5 +299,54 @@ func TestMyTodayPeriodStoreErrors(t *testing.T) {
 	}
 	if !strings.Contains(h.logText(), "не удалось прочитать время по программам") {
 		t.Errorf("ошибка учёта не в журнале работы")
+	}
+}
+
+// Ловит (G15, PL-41): тестовая команда теряет видео и доп. время дня (неделя G15 в приёмке не
+// сойдётся), пишет сайт программой или адресом страницы, а не доменом, как служба (R23), принимает
+// неизвестный вид строки; засеянный день без bonusPending остаётся без отметки автобонуса и даёт
+// бонус задним числом (T7c, D-82), а с bonusPending — помечен.
+func TestTestSeedDayVideoExtraSite(t *testing.T) {
+	h := newHarness(t, configured(), withChild(childSID, "Миша", 240), withPrograms(typicalScan()), withClockAt(wed1500), withTestMode(TestMode{}))
+	h.start()
+	id := h.childID(childSID)
+	req := ipc.TestSeedDayRequest{ChildID: id, Day: "2026-10-19", TotalS: 3000, GamesS: 1200, VideoS: 1200, StudyS: 600, ExtraMin: 30,
+		Usage: []ipc.TestSeedUsage{
+			{Path: "https://www.YouTube.com/watch?v=1", Category: "video_social", Seconds: 1200, Kind: "site"},
+			{Path: `C:\Program Files (x86)\Minecraft Launcher\MinecraftLauncher.exe`, Category: "games", Seconds: 1200, Kind: "program"},
+			{Path: pathGeoGebra, Category: "study", Seconds: 600},
+		}}
+	h.ok(adminPeer(), "", ipc.CmdTestSeedDay, req, nil)
+	st, _ := h.store.LoadDayState(id, "2026-10-19")
+	if st.TotalS != 3000 || st.GamesS != 1200 || st.VideoS != 1200 || st.StudyS != 600 || st.ExtraMin != 30 || !st.BonusGranted {
+		t.Errorf("день записан не так: %+v; want общее 3000, игры 1200, видео 1200, учёба 600, доп. 30, бонус отмечен", st)
+	}
+	rows, _ := h.store.DayUsage(id, "2026-10-19")
+	want := []UsageRow{
+		{Day: "2026-10-19", Category: "games", Kind: usageKindProgram, Subject: pathMinecraft, Seconds: 1200},
+		{Day: "2026-10-19", Category: "study", Kind: usageKindProgram, Subject: pathGeoGebra, Seconds: 600},
+		{Day: "2026-10-19", Category: "video_social", Kind: usageKindSite, Subject: "youtube.com", Seconds: 1200},
+	}
+	if jsonOf(t, rows) != jsonOf(t, want) {
+		t.Errorf("учёт:\n%s\nwant\n%s", jsonOf(t, rows), jsonOf(t, want))
+	}
+
+	pending := ipc.TestSeedDayRequest{ChildID: id, Day: "2026-10-20", TotalS: 2400, GamesS: 2400, BonusPending: true}
+	h.ok(adminPeer(), "", ipc.CmdTestSeedDay, pending, nil)
+	if st, _ := h.store.LoadDayState(id, "2026-10-20"); st.TotalS != 2400 || st.BonusGranted {
+		t.Errorf("день с bonusPending: %+v; want общее 2400 и без отметки бонуса", st)
+	}
+
+	for _, bad := range []ipc.TestSeedDayRequest{
+		{ChildID: id, Day: "2026-10-19", VideoS: -1},
+		{ChildID: id, Day: "2026-10-19", ExtraMin: -1},
+		{ChildID: id, Day: "2026-10-19", Usage: []ipc.TestSeedUsage{{Path: "youtube.com", Category: "video_social", Seconds: 1, Kind: "app"}}},
+		{ChildID: id, Day: "2026-10-19", Usage: []ipc.TestSeedUsage{{Path: "котики видео", Category: "video_social", Seconds: 1, Kind: "site"}}},
+		{ChildID: id, Day: "2026-10-19", Usage: []ipc.TestSeedUsage{{Path: "youtube.com", Category: "blocked", Seconds: 1, Kind: "site"}}},
+		{ChildID: id, Day: "2026-10-21", VideoS: 60},
+	} {
+		if rep := h.do(adminPeer(), "", ipc.CmdTestSeedDay, bad); rep.OK {
+			t.Errorf("принят %+v", bad)
+		}
 	}
 }

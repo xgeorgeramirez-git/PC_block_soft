@@ -20,7 +20,7 @@ var (
 	cardTileBot  = color.RGBA{0xEA, 0xF0, 0xF7, 0xFF} // перепад мал: плитка цельная, без шва
 	cardShadowC  = color.RGBA{0x0B, 0x16, 0x26, 0xFF}
 	colorNavy    = color.RGBA{0x1E, 0x2B, 0x40, 0xFF} // цифры на плитках
-	colorLabel   = color.RGBA{0xD6, 0xDF, 0xEA, 0xFF} // подписи под парами
+	colorLabel   = color.RGBA{0xFF, 0xFF, 0xFF, 0xFF} // подписи под парами: белые на затемнённой полосе (B-40)
 	colorWhite   = color.RGBA{0xFF, 0xFF, 0xFF, 0xFF}
 	cardBtnBase  = color.RGBA{0xF6, 0xF9, 0xFC, 0xFF}
 	cardBtnHover = color.RGBA{0xE4, 0xEE, 0xF8, 0xFF}
@@ -216,6 +216,7 @@ func RenderCardBase(l CardLayout, v CountdownView, st CardState) *image.RGBA {
 	switch v.Kind {
 	case CountdownTime:
 		drawTiles(img, l)
+		drawLabelBand(img, l)
 	default:
 		fillRound(img, l.Body, 18*s, solid(colorWhite, 0.13))
 	}
@@ -225,6 +226,20 @@ func RenderCardBase(l CardLayout, v CountdownView, st CardState) *image.RGBA {
 	}
 	drawArrow(img, l, st)
 	return img
+}
+
+// cardLabelShade — насколько затемнена полоса под подписями «часы», «минуты», «секунды» (B-40,
+// B-56): на светлом правом крае градиента подписи иначе бледные (3,1…4,2:1). Полоса мягкая, со
+// скруглёнными краями, тем же тёмным, что тень карточки: переход макета (D-53) остаётся виден.
+const cardLabelShade = 0.18
+
+// drawLabelBand затемняет полосу под подписями плиток на всю ширину плиток.
+func drawLabelBand(img *image.RGBA, l CardLayout) {
+	// Скруглённые концы — за краями подписей: поле равно радиусу, вся подпись на ровной полосе.
+	r := float64(l.Labels[0].Dy()) / 2
+	pad := int(math.Ceil(r)) + 1
+	band := Rect{l.Labels[0].Left - pad, l.Labels[0].Top, l.Labels[2].Right + pad, l.Labels[2].Bottom}
+	fillRound(img, band, r, solid(cardShadowC, cardLabelShade))
 }
 
 func drawRefresh(img *image.RGBA, l CardLayout, st CardState) {

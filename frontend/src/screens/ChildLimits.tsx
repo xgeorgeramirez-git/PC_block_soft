@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { copyRules, getChildRules, getSchedule, listPrograms, saveLimits, saveSchedule } from "../api";
 import LimitsTable from "../components/LimitsTable";
 import Notice from "../components/Notice";
@@ -45,8 +45,9 @@ const TABS: { id: Tab; label: string }[] = [
   { id: "limits", label: "Лимиты" },
   { id: "schedule", label: "Запретные часы" },
   { id: "end", label: "Когда время вышло" },
-  { id: "rest", label: "Отдых" },
+  { id: "rest", label: "Перерыв на отдых" },
 ];
+const LIMITS_PANEL = "limits-panel";
 
 /**
  * Правила ребёнка (FR-16…FR-19, FR-33, FR-37): вкладки «Лимиты», «Запретные часы», «Когда время
@@ -74,6 +75,20 @@ export default function ChildLimits({ childId, others = [], onSaved, onOpenProgr
   const alive = useRef(true);
   /** Вкладка «Отдых» с ошибкой: после показа фокус на первое неверное поле (по счётчику). */
   const restPanel = useRef<HTMLDivElement>(null);
+  const tabRefs = useRef<(HTMLButtonElement | null)[]>([]);
+  // Вкладки правил (B-38): стрелки, Home и End переключают и переводят фокус, в порядке Tab одна выбранная.
+  const onTabKey = (e: KeyboardEvent<HTMLButtonElement>, index: number) => {
+    const last = TABS.length - 1;
+    let next: number;
+    if (e.key === "ArrowRight" || e.key === "ArrowDown") next = index === last ? 0 : index + 1;
+    else if (e.key === "ArrowLeft" || e.key === "ArrowUp") next = index === 0 ? last : index - 1;
+    else if (e.key === "Home") next = 0;
+    else if (e.key === "End") next = last;
+    else return;
+    e.preventDefault();
+    setTab(TABS[next].id);
+    tabRefs.current[next]?.focus();
+  };
   const [focusRestError, setFocusRestError] = useState(0);
   useEffect(() => {
     if (focusRestError > 0) restPanel.current?.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus();
@@ -268,7 +283,7 @@ export default function ChildLimits({ childId, others = [], onSaved, onOpenProgr
     );
   }
   if (savedLimits === null) {
-    return <p className="panel-text">Загружаю правила</p>;
+    return <p className="panel-text">Загружаю правила…</p>;
   }
 
   return (
@@ -281,15 +296,29 @@ export default function ChildLimits({ childId, others = [], onSaved, onOpenProgr
       </div>
 
       <div className="tabs" role="tablist" aria-label="Правила ребёнка">
-        {TABS.map((t) => (
-          <button key={t.id} type="button" role="tab" className="tab" aria-selected={tab === t.id} onClick={() => setTab(t.id)}>
+        {TABS.map((t, i) => (
+          <button
+            key={t.id}
+            ref={(el) => {
+              tabRefs.current[i] = el;
+            }}
+            type="button"
+            role="tab"
+            id={`limits-tab-${t.id}`}
+            className="tab"
+            aria-selected={tab === t.id}
+            aria-controls={LIMITS_PANEL}
+            tabIndex={tab === t.id ? 0 : -1}
+            onClick={() => setTab(t.id)}
+            onKeyDown={(e) => onTabKey(e, i)}
+          >
             {t.label}
           </button>
         ))}
       </div>
 
       {tab === "limits" ? (
-        <div role="tabpanel" aria-label="Лимиты">
+        <div role="tabpanel" id={LIMITS_PANEL} aria-labelledby="limits-tab-limits">
           <p className="panel-text">Сколько времени в день можно пользоваться компьютером и сколько из него можно играть и смотреть видео и соцсети.</p>
           <div className="quick-actions">
             <button type="button" className="btn btn-small" onClick={() => changeLimits(copyDay(draftLimits, 1, WORKDAYS.filter((d) => d !== 1)))}>
@@ -303,13 +332,13 @@ export default function ChildLimits({ childId, others = [], onSaved, onOpenProgr
         </div>
       ) : null}
       {tab === "schedule" ? (
-        <div role="tabpanel" aria-label="Запретные часы">
+        <div role="tabpanel" id={LIMITS_PANEL} aria-labelledby="limits-tab-schedule">
           <p className="panel-text">Время, когда компьютером нельзя пользоваться, даже если лимит ещё не исчерпан.</p>
           <ScheduleEditor childName={name} schedule={draftSchedule} onChange={changeSchedule} />
         </div>
       ) : null}
       {tab === "end" ? (
-        <div role="tabpanel" aria-label="Когда время вышло">
+        <div role="tabpanel" id={LIMITS_PANEL} aria-labelledby="limits-tab-end">
           <EndModeChoice
             value={draftEndMode}
             onChange={changeEndMode}
@@ -320,7 +349,7 @@ export default function ChildLimits({ childId, others = [], onSaved, onOpenProgr
         </div>
       ) : null}
       {tab === "rest" ? (
-        <div role="tabpanel" aria-label="Отдых" ref={restPanel}>
+        <div role="tabpanel" id={LIMITS_PANEL} aria-labelledby="limits-tab-rest" ref={restPanel}>
           <RestSettings value={draftBreak} saved={savedBreak} onChange={changeBreak} errors={errors} />
         </div>
       ) : null}

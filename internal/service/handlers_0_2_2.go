@@ -59,7 +59,7 @@ func (s *Service) hClearBonus(c *callCtx) ipc.Reply {
 	if err != nil {
 		return ipc.Fail(textSaveFailed)
 	}
-	s.journal.Write(cs.child.ID, "bonus_clear", map[string]any{
+	s.journal.Write(cs.child.ID, evBonusClear, map[string]any{
 		"was": bal, "text": fmt.Sprintf("Копилка обнулена родителем (было %d мин)", bal),
 	})
 	return ipc.OK(ipc.BonusChangeReply{BalanceAfter: after, Message: "Копилка обнулена"})
@@ -92,7 +92,7 @@ func (s *Service) hReduceBonus(c *callCtx) ipc.Reply {
 	if err != nil {
 		return ipc.Fail(textSaveFailed)
 	}
-	s.journal.Write(cs.child.ID, "bonus_reduce", map[string]any{
+	s.journal.Write(cs.child.ID, evBonusReduce, map[string]any{
 		"minutes": take, "balance": after, "text": fmt.Sprintf("Копилка убавлена родителем на %d мин", take),
 	})
 	return ipc.OK(ipc.BonusChangeReply{
@@ -110,15 +110,23 @@ func (s *Service) hCreatePromo(c *callCtx) ipc.Reply {
 	if strings.TrimSpace(req.Code) == "" {
 		return ipc.FailField("Введите код", ipc.FieldCode)
 	}
+	// RM5-11: новый код — только A–Z и цифры, 3–16 знаков; хранится заглавными.
+	display, valid := core.CheckNewPromoCode(req.Code)
+	if !valid {
+		if core.PromoCodeLatinOnly(req.Code) {
+			return ipc.FailField("Код от 3 до 16 знаков", ipc.FieldCode)
+		}
+		return ipc.FailField("Только латинские буквы A-Z и цифры", ipc.FieldCode)
+	}
 	if !core.PromoMinutesValid(req.Minutes) {
 		return ipc.FailField("Можно от 1 до 600 минут", ipc.FieldMinutes)
 	}
-	p, err := s.cfg.Store.CreatePromo(req.Code, req.Minutes)
+	p, err := s.cfg.Store.CreatePromo(display, req.Minutes)
 	if err != nil {
 		// Самая частая причина — такой код уже есть (UNIQUE); показываем у поля кода.
 		return ipc.FailField("Такой код уже есть, придумайте другой", ipc.FieldCode)
 	}
-	s.journal.Write(0, "promo_create", map[string]any{
+	s.journal.Write(0, evPromoCreate, map[string]any{
 		"code": p.CodeDisplay, "minutes": p.Minutes,
 		"text": fmt.Sprintf("Создан промокод «%s» на %d мин", p.CodeDisplay, p.Minutes),
 	})
@@ -128,6 +136,8 @@ func (s *Service) hCreatePromo(c *callCtx) ipc.Reply {
 	})
 }
 
+// hListPromos — действующие (новые сверху) и использованные (по моменту использования, новые
+// сверху, RM5-11): порядок задаёт хранилище, служба его не меняет.
 func (s *Service) hListPromos(c *callCtx) ipc.Reply {
 	list, err := s.cfg.Store.ListPromos()
 	if err != nil {
@@ -183,10 +193,12 @@ func (s *Service) hRedeemPromo(c *callCtx) ipc.Reply {
 }
 
 // promoViewOf приводит запись промокода к виду для окна; usedByName — имя ребёнка в
-// использованных (пусто для действующих).
+// использованных (пусто для действующих). Код — заглавными (RM5-11): коды до 0.5.0 в базе
+// могут быть строчными и с кириллицей, база их не переписывает (SQLite upper() не знает
+// кириллицу), поэтому переводит служба по Unicode.
 func promoViewOf(p PromoRecord, usedByName string) ipc.PromoView {
 	return ipc.PromoView{
-		CodeDisplay: p.CodeDisplay, Minutes: p.Minutes, CreatedAtMs: p.CreatedAtMs,
+		CodeDisplay: strings.ToUpper(p.CodeDisplay), Minutes: p.Minutes, CreatedAtMs: p.CreatedAtMs,
 		UsedAtMs: p.UsedAtMs, UsedByChild: p.UsedByChild, UsedByName: usedByName,
 	}
 }
@@ -243,14 +255,19 @@ func (s *Service) bonusRate() int {
 
 // grantDailyBonus начисляет автобонус за прошедший (закрытый) день (R25, D-49): один раз за
 // день, только в дни, когда игра была разрешена, с потолком копилки 600. Вызывается из
-// afterDecision на смене суток; помечает day.BonusGranted, чтобы повторно не начислять.
-func (s *Service) grantDailyBonus(cs *childState, day *core.DayState) {
-	if day == nil || day.Day == "" || day.BonusGranted {
-		return
+// afterDecision на смене суток и из catchUpBonus при запуске; помечает day.BonusGranted, чтобы
+// повторно не начислять. Начисление и отметка строки дня — одной транзакцией (GrantDayBonus):
+// сбой между ними не даёт второго бонуса при следующем запуске. saved — строка дня уже записана
+// (с отметкой); иначе, если day.BonusGranted, её сохраняет вызывающий. Безопасный режим (правила
+// не прочитаны, R18): лимит дня не известен — день не рассматривается и не помечается, его догонит
+// catchUpBonus при запуске с правилами (FB-21).
+func (s *Service) grantDailyBonus(cs *childState, day *core.DayState) (saved bool) {
+	if day == nil || day.Day == "" || day.BonusGranted || cs.rules.Broken {
+		return false
 	}
 	t, err := time.Parse(time.DateOnly, day.Day)
 	if err != nil {
-		return
+		return false
 	}
 	wd := core.WeekdayOf(t)
 	limit := cs.rules.Week[int(wd)-1]
@@ -258,26 +275,27 @@ func (s *Service) grantDailyBonus(cs *childState, day *core.DayState) {
 	bonus := core.DailyBonusMinutes(limit, day.ExtraMin, day.TotalS, s.bonusRate(), allows)
 	if bonus <= 0 {
 		day.BonusGranted = true // за этот день начислять нечего — помечаем как обработанный
-		return
+		return false
 	}
 	bal, err := s.cfg.Store.GetBonusBalance(cs.child.ID)
 	if err != nil {
 		s.logRate(fmt.Sprint("autobonus", cs.child.ID), "автобонус: не прочитан баланс копилки %d: %v", cs.child.ID, err)
-		return // не помечаем — транзиентная ошибка, R18
+		return false // не помечаем — транзиентная ошибка, R18
 	}
 	add := core.AddBonusWithinCeiling(bal, bonus)
 	if add <= 0 {
 		day.BonusGranted = true // копилка полна — начислять некуда, день обработан
-		return
+		return false
 	}
-	after, err := s.cfg.Store.AppendBonus(cs.child.ID, add, fmt.Sprintf("Бонус за свободное время: %d мин", add))
+	after, err := s.cfg.Store.GrantDayBonus(cs.child.ID, *day, add, fmt.Sprintf("Бонус за свободное время: %d мин", add))
 	if err != nil {
-		s.logRate(fmt.Sprint("autobonus2", cs.child.ID), "автобонус: не начислено в копилку %d: %v", cs.child.ID, err)
-		return
+		s.logRate(fmt.Sprint("autobonus2", cs.child.ID), "автобонус: не начислено в копилку %d, день ждёт следующего запуска: %v", cs.child.ID, err)
+		return false
 	}
 	day.BonusGranted = true
 	s.journal.Write(cs.child.ID, core.EvBonusGranted, map[string]any{
 		"minutes": add, "balance": after, "day": day.Day,
-		"text": fmt.Sprintf("Бонус за свободное время %s: +%d мин", day.Day, add),
+		"text": bonusGrantedText(day.Day, add),
 	})
+	return true
 }

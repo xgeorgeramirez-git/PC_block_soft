@@ -193,7 +193,13 @@ export interface BonusChangeReply {
   message: string;
 }
 
+/** Ответ ClearStats и ClearJournal (FR-38): «Статистика Миши очищена», «Журнал Миши очищен». */
+export interface ClearReply {
+  message: string;
+}
+
 export interface PromoView {
+  /** Код заглавными (RM5-11): новые так и хранятся, старые служба переводит при показе. */
   codeDisplay: string;
   minutes: number;
   createdAtMs: number;
@@ -210,6 +216,28 @@ export interface CreatePromoReply {
 export interface ListPromosReply {
   active: PromoView[];
   used: PromoView[];
+}
+
+/** Состав знаков «Придумать коды» (RM5-12): цифры, буквы A-Z или буквы и цифры. */
+export type PromoCharset = "digits" | "letters" | "mixed";
+
+/** Запрос «Придумать коды» (FR-35, RM5-12): 1-50 кодов, длина 4-12, минуты 1-600. */
+export interface GeneratePromosRequest {
+  count: number;
+  length: number;
+  charset: PromoCharset;
+  minutes: number;
+}
+
+/** Ответ «Придумать коды»: новые коды и «Готово: 20 кодов на 15 мин». */
+export interface GeneratePromosReply {
+  promos: PromoView[];
+  message: string;
+}
+
+/** Ответ «Очистить историю» промокодов (RM5-14): «История промокодов очищена». */
+export interface ClearPromoHistoryReply {
+  message: string;
 }
 
 export interface RedeemPromoReply {
@@ -310,14 +338,24 @@ export interface CardReply {
   message: string;
 }
 
+/** Фильтр «Что» журнала (FR-24, RM5-5): "" - «Все события»; виды групп знает служба. */
+export type JournalGroup = "" | "violations" | "time" | "programs" | "settings" | "system";
+
+/** Журнал: childId 0 - все дети; fromMs <= atMs < toMs (0 - без границы); «Показать ещё» -
+ *  beforeAtMs/beforeId последней полученной записи; limit 0 - 200, не больше 1000. */
 export interface ListEventsRequest {
   childId: number;
   fromMs: number;
   toMs: number;
+  group: JournalGroup;
+  beforeAtMs: number;
+  beforeId: number;
   limit: number;
 }
 
 export interface JournalEntry {
+  /** Номер записи: ключ списка и курсор «Показать ещё». */
+  id: number;
   atMs: number;
   tzOffsetMin: number;
   childId: number;
@@ -328,6 +366,8 @@ export interface JournalEntry {
 
 export interface ListEventsReply {
   events: JournalEntry[];
+  /** Есть записи старше последней: показать «Показать ещё». */
+  more: boolean;
 }
 
 export interface ChangePasswordRequest {
@@ -408,6 +448,43 @@ export interface MyTodayReply {
    * запрещённых нет (D-57, D-64).
    */
   programs: ProgramTime[];
+  /**
+   * Столбики «По дням» за период (M5, RM5-2, RM5-3): из того же чтения дней, что «Итоги», сумма столбиков
+   * равна «Итогам». Подпись и подсказку собирает служба. У старой службы нет - api.ts даёт [].
+   */
+  bars: DayBar[];
+  /** Разбивка столбиков: по дню («Сегодня», «Неделя», «Месяц») или по месяцу («Год», «Всё время»). */
+  barsBy: BarsBy;
+  /** Нарушения ребёнка за период, новые сверху, не больше 200 (тексты журнала). */
+  violations: JournalEntry[];
+  /** Записи копилки за период, новые сверху, не больше 200 (текст строки - lib/bonus.ts). */
+  bonus: BonusEntry[];
+  /** С какого дня ведётся статистика, YYYY-MM-DD (FR-38). */
+  statsSinceDay: string;
+  /** «Статистика ведётся с 11 ноября 2026». */
+  statsSinceText: string;
+}
+
+/** Разбивка столбиков «По дням» (internal/ipc.BarsBy*). */
+export type BarsBy = "day" | "month";
+
+/**
+ * Столбик «По дням» (internal/ipc.DayBar): день или месяц, только время (D-72, D-78). Высота - время в
+ * счёт лимита, учёба - отдельная часть сверху (D-7).
+ */
+export interface DayBar {
+  /** YYYY-MM-DD или YYYY-MM. */
+  key: string;
+  /** «пн 16», «ноя», «ноя 2025». */
+  label: string;
+  /** Подсказка: «вт, 17 ноября: 2 ч 20 мин, учёба 0 мин». */
+  title: string;
+  /** В счёт лимита, с. */
+  totalS: number;
+  /** Учёба, с. */
+  studyS: number;
+  /** Сегодняшний день или месяц, в который входит сегодня. */
+  today: boolean;
 }
 
 /**
@@ -699,6 +776,26 @@ export interface RemoveSiteReply {
   message: string;
   domain: string;
   kind: SiteKind;
+  undoUntilMs: number;
+  sites: ListSitesReply;
+}
+
+/**
+ * Ответ AddSites (B-49): added - добавленные и перенесённые домены; rejected - строки ввода, не
+ * похожие на адрес (окно оставляет их в поле с fieldError); message - итог словами.
+ */
+export interface AddSitesReply {
+  message: string;
+  added: string[];
+  rejected: string[];
+  fieldError: string;
+  sites: ListSitesReply;
+}
+
+/** Ответ RemoveSites (B-49): «Отменить» до undoUntilMs - addSites доменов removed в их списки. */
+export interface RemoveSitesReply {
+  message: string;
+  removed: SiteDTO[];
   undoUntilMs: number;
   sites: ListSitesReply;
 }

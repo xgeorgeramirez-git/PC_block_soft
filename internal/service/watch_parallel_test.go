@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"testing"
 	"time"
+
+	"pcblock/internal/ipc"
 )
 
 // waitFor ждёт cond не дольше d, проверяя каждые 5 мс; итог — выполнилось ли условие.
@@ -140,5 +142,52 @@ func TestWatchMetaBudget(t *testing.T) {
 	}
 	if n := meta.enteredCount(); n != 1 {
 		t.Errorf("чтений свойств начато %d, want 1 (одно на путь, пока первое висит)", n)
+	}
+}
+
+// Ловит (B-32): отпечаток файла до решения (игра родителя в «Загрузках», RM3-12) читается прямо в
+// проходе: зависший сетевой путь держит проход, и незнакомая рядом не закрывается. Чтение до решения
+// ждётся не дольше metaBudget; пока оно не готово, процесс не трогается («не знаю» — не трогать,
+// PL-9), повторный проход не начинает второе чтение, а готовый отпечаток доходит до решения и до
+// категории секунды в следующем проходе.
+func TestWatchFingerprintBudget(t *testing.T) {
+	w, meta := newWatcher(), newMeta()
+	meta.set(pathSuperGame, "", "", "1024:1700000000")
+	h := watchHarness(t, w, withMeta(meta))
+	t.Cleanup(meta.release)
+	if err := h.store.UpsertProgram(Program{Path: pathSuperGame, Name: "SuperGame", Category: "games", Source: "parent", Fingerprint: "1024:1700000000"}); err != nil {
+		t.Fatal(err)
+	}
+	h.svc.mu.Lock()
+	h.svc.reloadPrograms()
+	h.svc.mu.Unlock()
+	game := w.start(childSession, pathSuperGame)
+	homework := w.start(childSession, pathHomework)
+	meta.hold()
+	within(t, time.Second, "проход при зависшем чтении отпечатка", h.watch)
+	if !w.alive(game) || w.alive(homework) {
+		t.Fatalf("при зависшем отпечатке: игра жива %v, незнакомая жива %v; want true, false", w.alive(game), w.alive(homework))
+	}
+	h.real.Advance(time.Second)
+	within(t, time.Second, "второй проход при зависшем чтении отпечатка", h.watch)
+	if !w.alive(game) {
+		t.Fatal("второй проход: игра с непрочитанным отпечатком закрыта")
+	}
+	if n := meta.enteredCount(); n != 2 {
+		t.Errorf("чтений свойств начато %d, want 2 (отпечаток игры один раз, незнакомая после закрытия)", n)
+	}
+	meta.release()
+	if !waitFor(2*time.Second, func() bool { return len(meta.askedPaths()) == 2 }) {
+		t.Fatalf("чтения свойств не закончились: %v", meta.askedPaths())
+	}
+	h.real.Advance(time.Second)
+	h.watch()
+	h.run(5, fgSample(pathSuperGame, ipc.CatNameOther))
+	id := h.childID(childSID)
+	if st, _ := h.svc.children[id].eng.State(); !w.alive(game) || st.GamesS != 5 {
+		t.Errorf("отпечаток готов: игра жива %v, игры %d с; want true, 5", w.alive(game), st.GamesS)
+	}
+	if n := meta.enteredCount(); n != 2 {
+		t.Errorf("после готового отпечатка чтений %d, want 2 (результат не читается заново)", n)
 	}
 }

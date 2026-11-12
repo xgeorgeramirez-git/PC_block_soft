@@ -191,6 +191,67 @@
       }
     }
   },
+  "AddSites": {
+    "request": {
+      "text": "https://www.Example.com/page\nvk.com\r\nпросто текст\n\nschool.example",
+      "kind": "blocked"
+    },
+    "reply": {
+      "ok": true,
+      "payload": {
+        "message": "Добавлено сайтов: 1. Перенесено сюда из других списков: 1. Уже были в списке: 1",
+        "added": [
+          "example.com",
+          "vk.com"
+        ],
+        "rejected": [
+          "просто текст"
+        ],
+        "fieldError": "Это не похоже на адрес сайта",
+        "sites": {
+          "sites": [
+            {
+              "domain": "example.com",
+              "kind": "blocked"
+            },
+            {
+              "domain": "school.example",
+              "kind": "study"
+            },
+            {
+              "domain": "youtube.com",
+              "kind": "video_social"
+            }
+          ],
+          "children": [
+            {
+              "childId": 1,
+              "name": "Миша",
+              "on": true
+            },
+            {
+              "childId": 2,
+              "name": "Даша",
+              "on": false
+            }
+          ],
+          "blockedMax": 1000,
+          "adultSource": "Список сайтов для взрослых: UT1, Университет Тулуза Капитоль, лицензия CC BY-SA 4.0"
+        }
+      }
+    }
+  },
+  "AddSites#invalid": {
+    "request": {
+      "text": "просто текст\nещё текст",
+      "kind": "blocked"
+    },
+    "reply": {
+      "ok": false,
+      "error": "Эти строки не похожи на адрес сайта",
+      "field": "domain"
+    }
+  },
   "AskMore": {
     "request": {
       "childId": 1,
@@ -404,6 +465,55 @@
       }
     }
   },
+  "ClearJournal": {
+    "request": {
+      "childId": 1
+    },
+    "reply": {
+      "ok": true,
+      "payload": {
+        "message": "Журнал Миши очищен"
+      }
+    }
+  },
+  "ClearJournal#noChild": {
+    "request": {
+      "childId": 9
+    },
+    "reply": {
+      "ok": false,
+      "error": "Такого ребёнка нет в списке"
+    }
+  },
+  "ClearPromoHistory": {
+    "request": {},
+    "reply": {
+      "ok": true,
+      "payload": {
+        "message": "История промокодов очищена"
+      }
+    }
+  },
+  "ClearStats": {
+    "request": {
+      "childId": 1
+    },
+    "reply": {
+      "ok": true,
+      "payload": {
+        "message": "Статистика Миши очищена"
+      }
+    }
+  },
+  "ClearStats#noChild": {
+    "request": {
+      "childId": 9
+    },
+    "reply": {
+      "ok": false,
+      "error": "Такого ребёнка нет в списке"
+    }
+  },
   "CopyRules": {
     "request": {
       "fromChildId": 2,
@@ -507,11 +617,11 @@
       "ok": true,
       "payload": {
         "promo": {
-          "codeDisplay": "a1234",
+          "codeDisplay": "A1234",
           "minutes": 30,
           "createdAtMs": 1760000000000
         },
-        "message": "Промокод «a1234» на 30 минут готов"
+        "message": "Промокод «A1234» на 30 минут готов"
       }
     }
   },
@@ -523,6 +633,17 @@
     "reply": {
       "ok": false,
       "error": "Такой код уже есть, придумайте другой",
+      "field": "code"
+    }
+  },
+  "CreatePromo#latin": {
+    "request": {
+      "code": "код!",
+      "minutes": 30
+    },
+    "reply": {
+      "ok": false,
+      "error": "Только латинские буквы A-Z и цифры",
       "field": "code"
     }
   },
@@ -708,6 +829,50 @@
     "reply": {
       "ok": true,
       "payload": {}
+    }
+  },
+  "GeneratePromos": {
+    "request": {
+      "count": 3,
+      "length": 6,
+      "charset": "mixed",
+      "minutes": 15
+    },
+    "reply": {
+      "ok": true,
+      "payload": {
+        "promos": [
+          {
+            "codeDisplay": "K7Q2ZD",
+            "minutes": 15,
+            "createdAtMs": 1760000000000
+          },
+          {
+            "codeDisplay": "P4M9XA",
+            "minutes": 15,
+            "createdAtMs": 1760000000000
+          },
+          {
+            "codeDisplay": "3TRW8B",
+            "minutes": 15,
+            "createdAtMs": 1760000000000
+          }
+        ],
+        "message": "Готово: 3 кода на 15 мин"
+      }
+    }
+  },
+  "GeneratePromos#count": {
+    "request": {
+      "count": 51,
+      "length": 6,
+      "charset": "digits",
+      "minutes": 15
+    },
+    "reply": {
+      "ok": false,
+      "error": "Можно от 1 до 50 кодов",
+      "field": "count"
     }
   },
   "GetBonus": {
@@ -1264,6 +1429,7 @@
         "foregroundPath": "",
         "foregroundDomain": "",
         "domainUnread": false,
+        "domainNoAddress": false,
         "lockUnknown": false
       },
       "events": [
@@ -1375,6 +1541,7 @@
         "foregroundPath": "c:\\users\\миша\\downloads\\supergame.exe",
         "foregroundDomain": "",
         "domainUnread": false,
+        "domainNoAddress": false,
         "lockUnknown": false
       },
       "events": []
@@ -1452,6 +1619,7 @@
         "foregroundPath": "c:\\program files\\bravesoftware\\brave-browser\\application\\brave.exe",
         "foregroundDomain": "youtube.com",
         "domainUnread": false,
+        "domainNoAddress": false,
         "lockUnknown": false
       },
       "events": []
@@ -1533,6 +1701,7 @@
         "foregroundPath": "c:\\program files\\bravesoftware\\brave-browser\\application\\brave.exe",
         "foregroundDomain": "",
         "domainUnread": true,
+        "domainNoAddress": true,
         "lockUnknown": false
       },
       "events": []
@@ -1595,6 +1764,7 @@
         "foregroundPath": "",
         "foregroundDomain": "",
         "domainUnread": false,
+        "domainNoAddress": false,
         "lockUnknown": false
       },
       "events": []
@@ -1906,6 +2076,9 @@
       "childId": 0,
       "fromMs": 1759913600000,
       "toMs": 0,
+      "group": "",
+      "beforeAtMs": 0,
+      "beforeId": 0,
       "limit": 50
     },
     "reply": {
@@ -1913,6 +2086,7 @@
       "payload": {
         "events": [
           {
+            "id": 42,
             "atMs": 1760000000000,
             "tzOffsetMin": 180,
             "childId": 1,
@@ -1921,6 +2095,7 @@
             "text": "Миша: попытка обойти защиту. Экран заблокирован"
           },
           {
+            "id": 41,
             "atMs": 1759996400000,
             "tzOffsetMin": 180,
             "childId": 1,
@@ -1928,7 +2103,8 @@
             "kind": "extra_time",
             "text": "Миша: доп. время +30 мин"
           }
-        ]
+        ],
+        "more": true
       }
     }
   },
@@ -1937,12 +2113,44 @@
       "childId": 0,
       "fromMs": 0,
       "toMs": 0,
+      "group": "time",
+      "beforeAtMs": 0,
+      "beforeId": 0,
       "limit": 0
     },
     "reply": {
       "ok": true,
       "payload": {
-        "events": []
+        "events": [],
+        "more": false
+      }
+    }
+  },
+  "ListEvents#page": {
+    "request": {
+      "childId": 1,
+      "fromMs": 1757408000000,
+      "toMs": 0,
+      "group": "violations",
+      "beforeAtMs": 1760000000000,
+      "beforeId": 42,
+      "limit": 200
+    },
+    "reply": {
+      "ok": true,
+      "payload": {
+        "events": [
+          {
+            "id": 17,
+            "atMs": 1759992800000,
+            "tzOffsetMin": 180,
+            "childId": 1,
+            "childName": "Миша",
+            "kind": "site_forbidden_try",
+            "text": "Миша: попытка открыть запрещённое: сайт example.com"
+          }
+        ],
+        "more": false
       }
     }
   },
@@ -2045,14 +2253,14 @@
       "payload": {
         "active": [
           {
-            "codeDisplay": "b5678",
+            "codeDisplay": "B5678",
             "minutes": 60,
             "createdAtMs": 1760000000000
           }
         ],
         "used": [
           {
-            "codeDisplay": "a1234",
+            "codeDisplay": "A1234",
             "minutes": 30,
             "createdAtMs": 1760000000000,
             "usedAtMs": 1760003600000,
@@ -2310,7 +2518,22 @@
             "seconds": 300,
             "kind": ""
           }
-        ]
+        ],
+        "bars": [
+          {
+            "key": "2026-10-19",
+            "label": "пн 19",
+            "title": "пн, 19 октября: 35 мин, учёба 3 мин",
+            "totalS": 2100,
+            "studyS": 180,
+            "today": true
+          }
+        ],
+        "barsBy": "day",
+        "violations": [],
+        "bonus": [],
+        "statsSinceDay": "2026-10-19",
+        "statsSinceText": "Статистика ведётся с 19 октября 2026"
       }
     }
   },
@@ -2366,7 +2589,13 @@
         "allS": 0,
         "extraMin": 0,
         "bonusSpentMin": 0,
-        "programs": []
+        "programs": [],
+        "bars": [],
+        "barsBy": "day",
+        "violations": [],
+        "bonus": [],
+        "statsSinceDay": "",
+        "statsSinceText": ""
       }
     }
   },
@@ -2479,7 +2708,63 @@
             "seconds": 2400,
             "kind": "program"
           }
-        ]
+        ],
+        "bars": [
+          {
+            "key": "2026-10-19",
+            "label": "пн 19",
+            "title": "пн, 19 октября: 30 мин, учёба 0 мин",
+            "totalS": 1800,
+            "studyS": 0,
+            "today": false
+          },
+          {
+            "key": "2026-10-20",
+            "label": "вт 20",
+            "title": "вт, 20 октября: 0 мин, учёба 0 мин",
+            "totalS": 0,
+            "studyS": 0,
+            "today": false
+          },
+          {
+            "key": "2026-10-21",
+            "label": "ср 21",
+            "title": "ср, 21 октября: 10 мин, учёба 0 мин",
+            "totalS": 600,
+            "studyS": 0,
+            "today": true
+          }
+        ],
+        "barsBy": "day",
+        "violations": [
+          {
+            "id": 9,
+            "atMs": 1759996400000,
+            "tzOffsetMin": 180,
+            "childId": 1,
+            "childName": "Миша",
+            "kind": "program_forbidden_try",
+            "text": "Миша: попытка запустить запрещённую программу «Chrome»"
+          }
+        ],
+        "bonus": [
+          {
+            "atMs": 1759992800000,
+            "tzOffsetMin": 180,
+            "deltaMin": -15,
+            "reason": "взято из копилки",
+            "balanceAfter": 25
+          },
+          {
+            "atMs": 1759913600000,
+            "tzOffsetMin": 180,
+            "deltaMin": 40,
+            "reason": "Бонус за свободное время: 40 мин",
+            "balanceAfter": 40
+          }
+        ],
+        "statsSinceDay": "2026-10-01",
+        "statsSinceText": "Статистика ведётся с 1 октября 2026"
       }
     }
   },
@@ -2664,7 +2949,22 @@
             "seconds": 300,
             "kind": ""
           }
-        ]
+        ],
+        "bars": [
+          {
+            "key": "2026-10-19",
+            "label": "пн 19",
+            "title": "пн, 19 октября: 35 мин, учёба 3 мин",
+            "totalS": 2100,
+            "studyS": 180,
+            "today": true
+          }
+        ],
+        "barsBy": "day",
+        "violations": [],
+        "bonus": [],
+        "statsSinceDay": "2026-10-19",
+        "statsSinceText": "Статистика ведётся с 19 октября 2026"
       }
     }
   },
@@ -2785,7 +3085,30 @@
             "seconds": 2400,
             "kind": "program"
           }
-        ]
+        ],
+        "bars": [
+          {
+            "key": "2026-09",
+            "label": "сен",
+            "title": "сентябрь 2026: 0 мин, учёба 40 мин",
+            "totalS": 0,
+            "studyS": 2400,
+            "today": false
+          },
+          {
+            "key": "2026-10",
+            "label": "окт",
+            "title": "октябрь 2026: 1 ч 00 мин, учёба 0 мин",
+            "totalS": 3600,
+            "studyS": 0,
+            "today": true
+          }
+        ],
+        "barsBy": "month",
+        "violations": [],
+        "bonus": [],
+        "statsSinceDay": "2026-09-01",
+        "statsSinceText": "Статистика ведётся с 1 сентября 2026"
       }
     }
   },
@@ -3082,6 +3405,61 @@
         "message": "Удалён example.com",
         "domain": "example.com",
         "kind": "blocked",
+        "undoUntilMs": 1760000010000,
+        "sites": {
+          "sites": [
+            {
+              "domain": "example.com",
+              "kind": "blocked"
+            },
+            {
+              "domain": "school.example",
+              "kind": "study"
+            },
+            {
+              "domain": "youtube.com",
+              "kind": "video_social"
+            }
+          ],
+          "children": [
+            {
+              "childId": 1,
+              "name": "Миша",
+              "on": true
+            },
+            {
+              "childId": 2,
+              "name": "Даша",
+              "on": false
+            }
+          ],
+          "blockedMax": 1000,
+          "adultSource": "Список сайтов для взрослых: UT1, Университет Тулуза Капитоль, лицензия CC BY-SA 4.0"
+        }
+      }
+    }
+  },
+  "RemoveSites": {
+    "request": {
+      "domains": [
+        "example.com",
+        "school.example"
+      ]
+    },
+    "reply": {
+      "ok": true,
+      "payload": {
+        "message": "Удалено сайтов: 2",
+        "removed": [
+          {
+            "domain": "example.com",
+            "kind": "blocked"
+          },
+          {
+            "domain": "school.example",
+            "kind": "study"
+          }
+        ],
         "undoUntilMs": 1760000010000,
         "sites": {
           "sites": [
@@ -3591,7 +3969,7 @@
     },
     "reply": {
       "ok": false,
-      "error": "Не меньше времени отдыха",
+      "error": "Не меньше 20 мин: столько длится отдых",
       "field": "break.selfRestMin"
     }
   },
@@ -4556,16 +4934,43 @@
     "request": {
       "childId": 1,
       "day": "2026-10-19",
-      "totalS": 1800,
+      "totalS": 3000,
       "gamesS": 1800,
       "studyS": 0,
+      "videoS": 1200,
+      "extraMin": 30,
+      "bonusPending": false,
       "usage": [
         {
           "path": "c:\\games\\game.exe",
           "category": "games",
-          "seconds": 1800
+          "seconds": 1800,
+          "kind": "program"
+        },
+        {
+          "path": "youtube.com",
+          "category": "video_social",
+          "seconds": 1200,
+          "kind": "site"
         }
       ]
+    },
+    "reply": {
+      "ok": true,
+      "payload": {}
+    }
+  },
+  "TestSeedDay#bonusPending": {
+    "request": {
+      "childId": 1,
+      "day": "2026-11-17",
+      "totalS": 2400,
+      "gamesS": 2400,
+      "studyS": 0,
+      "videoS": 0,
+      "extraMin": 0,
+      "bonusPending": true,
+      "usage": []
     },
     "reply": {
       "ok": true,

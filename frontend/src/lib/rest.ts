@@ -1,4 +1,4 @@
-// Вкладка «Отдых» (FR-37, R27, 8.3.3 п.7): черновик, пределы полей как CHECK миграции 008 (D-45),
+// Вкладка «Перерыв на отдых» (FR-37, R27, 8.3.3 п.7): черновик, пределы полей как CHECK миграции 008 (D-45),
 // итог словами. Тексты ошибок те же, что у службы (handlers_0_3_2.go).
 
 import { clampDigits } from "./numinput";
@@ -31,7 +31,8 @@ export const BREAK_RANGES: Record<BreakNumberField, { min: number; max: number; 
   selfRestMin: { min: 5, max: 120, error: "Можно от 5 до 120 мин" },
 };
 
-export const SELF_REST_LESS = "Не меньше времени отдыха";
+/** Порог «сам отошёл» меньше «Отдыха»: ошибка с числом (B-44), как textBreakSelfRestLess службы. */
+export const selfRestLess = (restMin: number) => `Не меньше ${restMin} мин: столько длится отдых`;
 export const MESSAGE_LONG = "Не больше 120 символов";
 
 /** Ключ ошибки поля: тот же, что Reply.field службы («break.restMin»). */
@@ -82,14 +83,14 @@ export function validateBreak(d: BreakRules): Record<string, string> {
     if (d[f] < r.min || d[f] > r.max) out[breakField(f)] = r.error;
   }
   if (!out[breakField("selfRestMin")] && !out[breakField("restMin")] && d.selfRestMin < d.restMin) {
-    out[breakField("selfRestMin")] = SELF_REST_LESS;
+    out[breakField("selfRestMin")] = selfRestLess(d.restMin);
   }
   if ([...d.message.trim()].length > BREAK_MESSAGE_MAX) out[breakField("message")] = MESSAGE_LONG;
   return out;
 }
 
 /**
- * Переключатель «Перерывы на отдых»: значения остаются; при выключении неверные поля берутся из
+ * Переключатель «Перерыв на отдых»: значения остаются; при выключении неверные поля берутся из
  * сохранённых (в недоступном поле ошибку не исправить).
  */
 export function toggleBreak(d: BreakRules, on: boolean, saved: BreakRules): BreakRules {
@@ -109,7 +110,7 @@ export function toggleBreak(d: BreakRules, on: boolean, saved: BreakRules): Brea
 
 /** Итог словами под полями (FR-37, 8.3.3 п.7). */
 export function breakSummary(d: BreakRules): string {
-  if (!d.enabled) return "Перерывы на отдых выключены";
+  if (!d.enabled) return "Перерыв на отдых выключен";
   const what = d.counts === "games" ? "игр" : "за компьютером";
   // «Сам отошёл» (R27): тишина - нет засчитанных к перерыву секунд, поэтому в режиме «всё, кроме
   // учёбы» учёба тоже тишина, и итог говорит об этом прямо.

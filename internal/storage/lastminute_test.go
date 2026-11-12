@@ -41,7 +41,9 @@ func TestMigration006OnFilled005Base(t *testing.T) {
 	const dayQ = `SELECT child_id, day, total_s, games_s, video_s, study_s, extra_min, ifnull(pause_until, 'NULL'), bonus_granted, no_forbidden FROM day_state ORDER BY day`
 	const progQ = `SELECT exe_path, display_name, category, source, hidden FROM programs`
 	beforeDay, beforeProg := rowStrings(t, db, dayQ), rowStrings(t, db, progQ)
-	if err := applyMigrations(db, all, 200); err != nil {
+	// До 009 включительно: миграция 010 по своему замыслу помечает прошлые дни автобонусом (D-82),
+	// её проверяет TestMigration010OnFilled009Base.
+	if err := applyMigrations(db, migrationsBefore(all, 10), 200); err != nil {
 		t.Fatalf("миграция 006: %v", err)
 	}
 	if got := rowStrings(t, db, dayQ); !reflect.DeepEqual(got, beforeDay) {
@@ -57,8 +59,8 @@ func TestMigration006OnFilled005Base(t *testing.T) {
 	if err := applyMigrations(db, all, 300); err != nil {
 		t.Fatalf("повторное применение: %v", err)
 	}
-	if got := versions(t, db); !reflect.DeepEqual(got, [][2]int64{{1, 100}, {2, 100}, {3, 100}, {4, 100}, {5, 100}, {6, 200}, {7, 200}, {8, 200}, {9, 200}}) {
-		t.Errorf("schema_migrations = %v, want 1–5 в 100 и 6–9 в 200", got)
+	if got := versions(t, db); !reflect.DeepEqual(got, [][2]int64{{1, 100}, {2, 100}, {3, 100}, {4, 100}, {5, 100}, {6, 200}, {7, 200}, {8, 200}, {9, 200}, {10, 300}}) {
+		t.Errorf("schema_migrations = %v, want 1–5 в 100, 6–9 в 200 и 10 в 300", got)
 	}
 }
 

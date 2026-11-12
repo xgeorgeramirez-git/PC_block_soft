@@ -90,7 +90,7 @@ func TestRestSettingsRejected(t *testing.T) {
 		{"предупредить 16", "break.warnMin", "Можно от 1 до 15 мин", func(b *ipc.BreakRules) { b.WarnMin = 16 }},
 		{"отдых 61", "break.restMin", "Можно от 5 до 60 мин", func(b *ipc.BreakRules) { b.RestMin = 61; b.SelfRestMin = 90 }},
 		{"сам 121", "break.selfRestMin", "Можно от 5 до 120 мин", func(b *ipc.BreakRules) { b.SelfRestMin = 121 }},
-		{"сам меньше отдыха", "break.selfRestMin", "Не меньше времени отдыха", func(b *ipc.BreakRules) { b.RestMin = 20; b.SelfRestMin = 19 }},
+		{"сам меньше отдыха", "break.selfRestMin", "Не меньше 20 мин: столько длится отдых", func(b *ipc.BreakRules) { b.RestMin = 20; b.SelfRestMin = 19 }},
 		{"что считать", "break.counts", "Выберите, что считать", func(b *ipc.BreakRules) { b.Counts = "video" }},
 		{"121 символ", "break.message", "Не больше 120 символов", func(b *ipc.BreakRules) { b.Message = strings.Repeat("я", 121) }},
 	} {

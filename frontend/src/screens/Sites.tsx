@@ -1,10 +1,19 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
-import { addSite, listSites, removeSite, setAdultFilter } from "../api";
+import { addSite, addSites, listSites, removeSite, removeSites, setAdultFilter } from "../api";
 import Notice from "../components/Notice";
 import UndoLine from "../components/UndoLine";
 import { errorField, errorText } from "../lib/errors";
-import { NOT_DOMAIN_TEXT, SITE_HINT_TEXT, SITE_LISTS, filterSites, sitesOf, sourceDisplay } from "../lib/sites";
-import type { ListSitesReply, SiteKind } from "../types";
+import {
+  ADD_FIELD_MAX_ROWS,
+  NOT_DOMAIN_TEXT,
+  SITES_ADD_HINT_TEXT,
+  SITE_LISTS,
+  SITE_SCOPE_TEXT,
+  filterSites,
+  sitesOf,
+  sourceDisplay,
+} from "../lib/sites";
+import type { ListSitesReply, SiteDTO, SiteKind } from "../types";
 
 const UNDO_MS = 10_000;
 const INPUT_ID = "sites-add-input";
@@ -17,12 +26,20 @@ interface Feedback {
   error: boolean;
   /** Где сообщение: в блоке «18+» или над списком, рядом с тем, что нажали (PL-34). */
   where: "adult" | "list";
-  /** «Отменить» удаления: AddSite с доменом и прежним списком (S-15). */
-  undo?: { domain: string; kind: SiteKind; ms: number };
+  /**
+   * «Отменить» удаления: сайты с прежними списками. Один — AddSite (S-15), несколько — AddSites по
+   * спискам (B-49).
+   */
+  undo?: { sites: SiteDTO[]; ms: number };
 }
 
 /** Что сейчас в пути к службе: пока запрос идёт, остальные действия недоступны. */
-type Busy = { kind: "add" } | { kind: "remove"; domain: string } | { kind: "adult"; childId: number } | { kind: "undo" };
+type Busy =
+  | { kind: "add" }
+  | { kind: "remove"; domain: string }
+  | { kind: "removeMany" }
+  | { kind: "adult"; childId: number }
+  | { kind: "undo" };
 
 /** Куда поставить фокус после ответа: элемент, на котором он был, мог исчезнуть. */
 type FocusTo =
@@ -36,7 +53,12 @@ type FocusTo =
  * добавление и удаление с «Отменить». Домен разбирает и все тексты даёт служба: экран кладёт
  * списки из её ответа и ничего не считает сам (T8-1, T8-2).
  */
-export default function Sites() {
+interface Props {
+  /** «Открыть лимиты» у «Видео и соцсетей»: раздел «Дети», вкладка «Лимиты» (B-50). */
+  onOpenLimits?: () => void;
+}
+
+export default function Sites({ onOpenLimits }: Props = {}) {
   const [data, setData] = useState<ListSitesReply | null>(null);
   const [loadError, setLoadError] = useState("");
   const [busy, setBusyState] = useState<Busy | null>(null);
@@ -45,11 +67,13 @@ export default function Sites() {
   const [query, setQuery] = useState("");
   const [draft, setDraft] = useState("");
   const [fieldError, setFieldError] = useState("");
+  /** Отмеченные строки (B-49): домены; действуют только видимые строки текущего списка. */
+  const [picked, setPicked] = useState<ReadonlySet<string>>(() => new Set());
   const alive = useRef(true);
   const seq = useRef(0);
   const busyRef = useRef(false);
   const root = useRef<HTMLElement>(null);
-  const input = useRef<HTMLInputElement>(null);
+  const input = useRef<HTMLTextAreaElement>(null);
   const focusTo = useRef<FocusTo | null>(null);
   const tabs = useRef(new Map<SiteKind, HTMLButtonElement>());
 
@@ -112,6 +136,10 @@ export default function Sites() {
       return;
     }
     const kind = tab;
+    if (raw.includes("\n")) {
+      addMany(raw, kind);
+      return;
+    }
     void run(
       { kind: "add" },
       "list",
@@ -134,6 +162,33 @@ export default function Sites() {
     );
   };
 
+  /**
+   * Несколько адресов по одному в строке (B-49): строки, не похожие на адрес, остаются в поле с
+   * ошибкой службы, остальные добавлены; итог словами — в строке сообщений списка.
+   */
+  const addMany = (raw: string, kind: SiteKind) =>
+    void run(
+      { kind: "add" },
+      "list",
+      async () => {
+        try {
+          const reply = await addSites(raw, kind);
+          if (!alive.current) return null;
+          setData(reply.sites);
+          setDraft(reply.rejected.join("\n"));
+          setFieldError(reply.fieldError);
+          if (reply.message) say("list", reply.message);
+          else setFeedback((f) => (f?.where === "list" ? null : f));
+        } catch (e) {
+          if (!alive.current) return null;
+          if (errorField(e) !== "domain") throw e;
+          setFieldError(errorText(e));
+        }
+        return { to: "field" };
+      },
+      { to: "field" },
+    );
+
   const remove = (domain: string, index: number) =>
     void run(
       { kind: "remove", domain },
@@ -145,22 +200,54 @@ export default function Sites() {
         // Ошибка поля относилась к прежнему вводу: рядом с «Удалён …» она сбивает с толку.
         setFieldError("");
         const left = Math.min(reply.undoUntilMs - Date.now(), UNDO_MS);
-        say("list", reply.message, false, left > 0 ? { domain: reply.domain, kind: reply.kind, ms: left } : undefined);
+        say("list", reply.message, false, left > 0 ? { sites: [{ domain: reply.domain, kind: reply.kind }], ms: left } : undefined);
         return { to: "row", index };
       },
       { to: "row", index, domain },
     );
 
-  const undo = (u: { domain: string; kind: SiteKind }) =>
+  /** «Удалить отмеченные» (B-49): одним запросом; «Отменить» возвращает их в прежние списки. */
+  const removePicked = (domains: string[], index: number) =>
+    void run(
+      { kind: "removeMany" },
+      "list",
+      async () => {
+        const reply = await removeSites(domains);
+        if (!alive.current) return null;
+        setData(reply.sites);
+        setPicked(new Set());
+        setFieldError("");
+        const left = Math.min(reply.undoUntilMs - Date.now(), UNDO_MS);
+        say("list", reply.message, false, left > 0 && reply.removed.length > 0 ? { sites: reply.removed, ms: left } : undefined);
+        return { to: "row", index };
+      },
+      { to: "row", index },
+    );
+
+  const undo = (sites: SiteDTO[]) =>
     void run(
       { kind: "undo" },
       "list",
       async () => {
-        const reply = await addSite(u.domain, u.kind);
-        if (!alive.current) return null;
-        setData(reply.sites);
-        say("list", reply.message);
-        return { to: "domain", domain: u.domain };
+        if (sites.length === 1) {
+          const reply = await addSite(sites[0].domain, sites[0].kind);
+          if (!alive.current) return null;
+          setData(reply.sites);
+          say("list", reply.message);
+          return { to: "domain", domain: sites[0].domain };
+        }
+        // Удалённые могли быть из разных списков: по запросу на список, итог - словами последнего.
+        const kinds = [...new Set(sites.map((s) => s.kind))];
+        let message = "";
+        for (const kind of kinds) {
+          const text = sites.filter((s) => s.kind === kind).map((s) => s.domain).join("\n");
+          const reply = await addSites(text, kind);
+          if (!alive.current) return null;
+          setData(reply.sites);
+          message = reply.message;
+        }
+        say("list", message === "" ? "Сайты возвращены" : message);
+        return { to: "domain", domain: sites[0].domain };
       },
       { to: "field" },
     );
@@ -189,6 +276,7 @@ export default function Sites() {
     setQuery("");
     setDraft("");
     setFieldError("");
+    setPicked(new Set());
     setFeedback((f) => (f?.where === "list" ? null : f));
   };
 
@@ -222,11 +310,10 @@ export default function Sites() {
               key={f.seq}
               live={false}
               className="programs-feedback sites-feedback"
-              undoClassName="btn btn-small"
               text={f.text}
               undoMs={f.undo?.ms}
               disabled={busy !== null}
-              onUndo={f.undo ? () => undo(f.undo!) : undefined}
+              onUndo={f.undo ? () => undo(f.undo!.sites) : undefined}
             />
           ) : null}
         </div>
@@ -239,6 +326,28 @@ export default function Sites() {
   const all = data?.sites ?? [];
   const items = sitesOf(all, current.kind);
   const shown = filterSites(items, query);
+  // Удаляются только отмеченные строки, которые видно (скрытые поиском - нет: их не видно, что удаляешь).
+  const pickedHere = shown.filter((s) => picked.has(s.domain)).map((s) => s.domain);
+  const shownPicked = pickedHere.length;
+  const allShownPicked = shown.length > 0 && shownPicked === shown.length;
+  const togglePick = (domain: string) =>
+    setPicked((p) => {
+      const next = new Set(p);
+      if (next.has(domain)) next.delete(domain);
+      else next.add(domain);
+      return next;
+    });
+  /** «Отметить все»: все строки, видимые после поиска; все уже отмечены - снять с них отметку. */
+  const toggleAll = () =>
+    setPicked((p) => {
+      const next = new Set(p);
+      for (const s of shown) {
+        if (allShownPicked) next.delete(s.domain);
+        else next.add(s.domain);
+      }
+      return next;
+    });
+  const rows = Math.min(ADD_FIELD_MAX_ROWS, draft.split("\n").length);
   const errorId = `${INPUT_ID}-error`;
   const hintId = `${INPUT_ID}-hint`;
 
@@ -261,7 +370,7 @@ export default function Sites() {
           </button>
         </div>
       ) : data === null ? (
-        <p className="panel-text">Загружаю данные</p>
+        <p className="panel-text">Загружаю данные…</p>
       ) : (
         <>
           <section className="programs-block sites-adult" aria-labelledby="sites-adult-title">
@@ -315,7 +424,18 @@ export default function Sites() {
             </div>
 
             <div id={PANEL_ID} className="sites-panel" role="tabpanel" aria-labelledby={`sites-tab-${current.kind}`}>
-              <p className="programs-lead">{current.lead}</p>
+              <p className="programs-lead">
+                {current.lead}
+                {current.kind === "video_social" && onOpenLimits ? (
+                  <>
+                    {" "}
+                    <button type="button" className="link" onClick={onOpenLimits}>
+                      Открыть лимиты
+                    </button>
+                  </>
+                ) : null}
+              </p>
+              <p className="field-hint sites-scope">{SITE_SCOPE_TEXT}</p>
               {current.kind === "blocked" ? (
                 <p className="sites-limit">{`Сайтов: ${items.length} из ${data.blockedMax}`}</p>
               ) : null}
@@ -331,17 +451,26 @@ export default function Sites() {
                 <label className="field-label sites-add-label" htmlFor={INPUT_ID}>
                   Добавить сайт
                 </label>
-                <input
+                {/* Многострочное поле (B-49): вставка нескольких адресов сохраняет строки; Enter
+                    добавляет, Shift+Enter - новая строка. */}
+                <textarea
                   id={INPUT_ID}
                   ref={input}
-                  type="text"
                   name="site"
+                  rows={rows}
                   className="field-input sites-add-input"
                   autoComplete="off"
                   spellCheck={false}
                   value={draft}
                   aria-invalid={fieldError ? "true" : undefined}
                   aria-describedby={fieldError ? `${errorId} ${hintId}` : hintId}
+                  onKeyDown={(e) => {
+                    // Ввод иероглифов и подобного: Enter завершает набор, а не добавляет сайт.
+                    if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+                      e.preventDefault();
+                      add();
+                    }
+                  }}
                   onChange={(e) => {
                     setDraft(e.target.value);
                     if (fieldError) setFieldError("");
@@ -357,7 +486,7 @@ export default function Sites() {
                   </p>
                 ) : null}
                 <p id={hintId} className="field-hint sites-add-note">
-                  {SITE_HINT_TEXT}
+                  {SITES_ADD_HINT_TEXT}
                 </p>
               </form>
 
@@ -376,6 +505,7 @@ export default function Sites() {
                       type="search"
                       className="field-input"
                       autoComplete="off"
+                      spellCheck={false}
                       value={query}
                       onChange={(e) => setQuery(e.target.value)}
                     />
@@ -388,22 +518,68 @@ export default function Sites() {
                       </button>
                     </div>
                   ) : (
-                    <ul className="sites-list" aria-label={`${current.title}: сайты`}>
-                      {shown.map((s, i) => (
-                        <li key={s.domain} className="sites-row" data-domain={s.domain}>
-                          <span className="sites-domain">{s.domain}</span>
-                          <button
-                            type="button"
-                            className="btn btn-small"
-                            aria-label={`Удалить ${s.domain}`}
+                    <>
+                      {/* Отметка строк как в «Программах» (B-49): «Выбрать всё в списке», а при
+                          отмеченных - «Выбрано: N» и «Удалить» одним запросом. */}
+                      <div className="bulk-bar sites-bulk">
+                        <label className="switch">
+                          <input
+                            type="checkbox"
+                            checked={allShownPicked}
+                            ref={(el) => {
+                              if (el) el.indeterminate = shownPicked > 0 && !allShownPicked;
+                            }}
                             disabled={busy !== null}
-                            onClick={() => remove(s.domain, i)}
-                          >
-                            Удалить
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
+                            onChange={toggleAll}
+                          />
+                          Выбрать всё в списке
+                        </label>
+                        {shownPicked > 0 ? (
+                          <div className="bulk-actions">
+                            <span className="bulk-count">{`Выбрано: ${shownPicked}`}</span>
+                            <button
+                              type="button"
+                              className="btn btn-small"
+                              aria-label="Удалить отмеченные"
+                              disabled={busy !== null}
+                              onClick={() => {
+                                const first = shown.findIndex((s) => picked.has(s.domain));
+                                removePicked(pickedHere, Math.max(first, 0));
+                              }}
+                            >
+                              {busy?.kind === "removeMany" ? "Удаляю…" : "Удалить"}
+                            </button>
+                          </div>
+                        ) : null}
+                      </div>
+                      <ul className="sites-list" aria-label={`${current.title}: сайты`}>
+                        {shown.map((s, i) => (
+                          <li key={s.domain} className="sites-row" data-domain={s.domain}>
+                            {/* Флажок и домен в одной подписи: щелчок по названию отмечает строку. */}
+                            <label className="sites-pick">
+                              <input
+                                type="checkbox"
+                                className="sites-check"
+                                aria-label={`Отметить «${s.domain}»`}
+                                checked={picked.has(s.domain)}
+                                disabled={busy !== null}
+                                onChange={() => togglePick(s.domain)}
+                              />
+                              <span className="sites-domain">{s.domain}</span>
+                            </label>
+                            <button
+                              type="button"
+                              className="btn btn-small"
+                              aria-label={`Удалить ${s.domain}`}
+                              disabled={busy !== null}
+                              onClick={() => remove(s.domain, i)}
+                            >
+                              Удалить
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    </>
                   )}
                 </>
               )}

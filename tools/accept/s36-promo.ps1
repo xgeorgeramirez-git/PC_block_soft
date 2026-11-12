@@ -1,7 +1,7 @@
 ﻿# S36. Промокод на время (R26, FR-35, D-50): родитель создаёт коды, ребёнок вводит код на экране
 # блокировки «Время вышло». Верный код (без учёта регистра) снимает блокировку и добавляет минуты
 # к сегодняшнему лимиту; неверный и уже использованный — «Код не подходит», без изменений.
-# Часы ядра идут в 60 раз быстрее. Лимит 5 мин; коды A1234 на 30 мин и zz9 на 15 мин.
+# Часы ядра идут в 60 раз быстрее. Лимит 5 мин; коды A1234 на 30 мин и zz9 на 15 мин (в списке родителя — «ZZ9»).
 # Ввод в поле стража и нажатия идут через TestGuard (настоящие сообщения окон, Ruling 5).
 # Родительскую сессию закрываем (Logout) до ожидания стража (Ruling 19).
 # Снимки: s36-promo-panel.png (панель ввода кода), s36-promo-ok.png (экран снят после кода).
@@ -38,7 +38,7 @@ Invoke-Scenario "S36" "Промокод: ребёнок вводит код на
     Assert-Reply (Send-Parent "CreatePromo" @{ code = "zz9"; minutes = 15 }) "CreatePromo zz9"
     $dup = Send-Parent "CreatePromo" @{ code = " a1234 "; minutes = 10 }
     Assert-That (-not $dup.ok -and $dup.field -eq "code") "Повтор кода принят или ошибка не у поля code: ok=$($dup.ok) field=$($dup.field)"
-    $zero = Send-Parent "CreatePromo" @{ code = "q1"; minutes = 0 }
+    $zero = Send-Parent "CreatePromo" @{ code = "q12"; minutes = 0 }
     Assert-That (-not $zero.ok -and $zero.field -eq "minutes") "Ноль минут принят или ошибка не у поля minutes: ok=$($zero.ok) field=$($zero.field)"
     $l = Send-Parent "ListPromos"
     Assert-Reply $l "ListPromos"
@@ -84,6 +84,10 @@ Invoke-Scenario "S36" "Промокод: ребёнок вводит код на
     $used = @(List $l.payload.used)
     Assert-That ($used.Count -eq 1 -and $used[0].usedByName -ne "") "Использованных $($used.Count) или нет имени ребёнка"
     Assert-That (@(List $l.payload.active).Count -eq 1) "Действующих $(@(List $l.payload.active).Count), ждали 1 (zz9)"
+    # R26, D-75: код всегда показывается заглавными — созданный как «zz9» виден «ZZ9», использованный — «A1234».
+    $zz = [string]@(List $l.payload.active)[0].codeDisplay
+    Assert-That ($zz -ceq "ZZ9") "В «Действующих» код «$zz», ждали «ZZ9» (заглавными)"
+    Assert-That ([string]$used[0].codeDisplay -ceq "A1234") "В «Использованных» код «$($used[0].codeDisplay)», ждали «A1234»"
     Assert-That ((Find-Events "Промокод: \+30 мин").Count -ge 1) "В журнале нет записи «Промокод: +30 мин»"
     Assert-That ((Find-Events "Создан промокод").Count -ge 2) "В журнале нет записей о создании кодов"
     Assert-Reply (Send-Parent "Logout") "Logout"

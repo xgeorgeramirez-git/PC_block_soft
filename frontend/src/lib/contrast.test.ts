@@ -106,6 +106,14 @@ describe("токены палитры (ТЗ 8.0 п.9)", () => {
     expect(ratio(light["field-border"], light.surface)).toBeGreaterThanOrEqual(3);
     expect(ratio(dark["field-border"], dark.surface)).toBeGreaterThanOrEqual(3);
   });
+
+  // Ловит (WCAG 1.4.11): столбики «По дням» сливаются с карточкой; токен не задан в одной из тем.
+  it("столбики заметны на поверхности в обеих темах (3:1)", () => {
+    expect(light["chart-bar"]).toBe("#59616a");
+    expect(dark["chart-bar"]).toBe("#a3abb3");
+    expect(ratio(light["chart-bar"], light.surface)).toBeGreaterThanOrEqual(3);
+    expect(ratio(dark["chart-bar"], dark.surface)).toBeGreaterThanOrEqual(3);
+  });
 });
 
 /** Токен из правила styles.css: «color: var(--text-muted)» у селектора. */
@@ -116,6 +124,22 @@ function ruleVar(selector: string, prop: string): string {
   if (!m) throw new Error(`у ${selector} нет ${prop}: var(--…)`);
   return m[2];
 }
+
+// Подсказка в пустом поле («A1234» у кода промокода): в тёмной теме цвет браузера по умолчанию
+// почти не виден (визуальная приёмка M5). Одно правило для всех полей: приглушённый текст палитры,
+// не меньше 4,5:1 на фоне поля в обеих темах, без прозрачности браузера.
+describe("подсказка в пустом поле (placeholder)", () => {
+  it("цвет — приглушённый текст, фон поля — поверхность, без прозрачности", () => {
+    expect(ruleVar("::placeholder", "color")).toBe("text-muted");
+    expect(ruleVar(".field-input", "background")).toBe("surface");
+    expect(blockOf(css, /(^|\n)::placeholder\s*\{/)).toMatch(/opacity\s*:\s*1\s*;/);
+  });
+
+  it("не меньше 4,5:1 на поле в обеих темах", () => {
+    expect(ratio(light["text-muted"], light.surface)).toBeGreaterThanOrEqual(4.5);
+    expect(ratio(dark["text-muted"], dark.surface)).toBeGreaterThanOrEqual(4.5);
+  });
+});
 
 // Кнопка «Запретить» на «Программах» - обычная «.btn», как «Игра»/«Учёба»/«Прочее»: цвет текста
 // тот же токен, что у соседних кнопок, а не приглушённый (иначе она выглядит неактивной, приёмка P2 п.1).
@@ -142,5 +166,44 @@ describe("приглушённая второстепенная кнопка", (
 
   it.each(backs)("тёмная тема: текст к фону %s не меньше 4,5:1", (bg) => {
     expect(ratio(dark[fg], dark[bg])).toBeGreaterThanOrEqual(4.5);
+  });
+});
+
+// Флажки и переключатели (ревью окна M5): рамка браузера в тёмной теме ниже 3:1 к карточке. Своё
+// оформление: рамка 2 px цветом рамки поля, отметка цветом основной кнопки, видимый фокус (WCAG 1.4.11).
+describe("флажки и переключатели своим оформлением", () => {
+  const base = blockOf(css, /(^|\n)input\[type="checkbox"\],\s*input\[type="radio"\]\s*\{/);
+  const checkedBox = blockOf(css, /(^|\n)input\[type="checkbox"\]:checked,\s*input\[type="checkbox"\]:indeterminate\s*\{/);
+  const checkedRadio = blockOf(css, /(^|\n)input\[type="radio"\]:checked\s*\{/);
+  const radioDot = blockOf(css, /(^|\n)input\[type="radio"\]:checked::before\s*\{/);
+  const focus = blockOf(css, /(^|\n)input\[type="checkbox"\]:focus-visible,\s*input\[type="radio"\]:focus-visible\s*\{/);
+
+  it("без оформления браузера: рамка 2 px цветом рамки поля на поверхности", () => {
+    expect(base).toMatch(/(^|[;\s])appearance\s*:\s*none\s*;/);
+    expect(base).toMatch(/border\s*:\s*2px\s+solid\s+var\(--field-border\)\s*;/);
+    expect(base).toMatch(/background\s*:\s*var\(--surface\)\s*;/);
+  });
+
+  it.each(["surface", "bg"])("рамка пустого флажка к фону %s не меньше 3:1 в обеих темах", (bg) => {
+    expect(ratio(light["field-border"], light[bg])).toBeGreaterThanOrEqual(3);
+    expect(ratio(dark["field-border"], dark[bg])).toBeGreaterThanOrEqual(3);
+  });
+
+  it("отметка - цвет основной кнопки, не меньше 3:1 к поверхности и фону в обеих темах", () => {
+    expect(checkedBox).toMatch(/background\s*:\s*var\(--primary\)\s*;/);
+    expect(checkedBox).toMatch(/border-color\s*:\s*var\(--primary\)\s*;/);
+    expect(checkedRadio).toMatch(/border-color\s*:\s*var\(--primary\)\s*;/);
+    expect(radioDot).toMatch(/background\s*:\s*var\(--primary\)\s*;/);
+    for (const bg of ["surface", "bg"]) {
+      expect(ratio(light.primary, light[bg])).toBeGreaterThanOrEqual(3);
+      expect(ratio(dark.primary, dark[bg])).toBeGreaterThanOrEqual(3);
+    }
+    // Галочка на залитом флажке - цвет текста основной кнопки.
+    const tick = blockOf(css, /(^|\n)input\[type="checkbox"\]:checked::before\s*\{/);
+    expect(tick).toMatch(/var\(--primary-text\)/);
+  });
+
+  it("фокус с клавиатуры виден: кольцо 2 px основным текстом", () => {
+    expect(focus).toMatch(/outline\s*:\s*2px\s+solid\s+var\(--text\)\s*;/);
   });
 });

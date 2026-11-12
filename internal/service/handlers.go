@@ -304,7 +304,7 @@ func (s *Service) hSetup(c *callCtx) ipc.Reply {
 	for _, p := range plans {
 		s.applyPolicy(p.sid, true)
 	}
-	s.journal.Write(0, "setup_done", map[string]any{"text": "Программа настроена: пароль родителя задан"})
+	s.journal.Write(0, evSetupDone, map[string]any{"text": "Программа настроена: пароль родителя задан"})
 	s.syncSessions(c.real)
 	return ipc.OK(ipc.Empty{})
 }
@@ -390,7 +390,7 @@ func (s *Service) hResetPassword(c *callCtx) ipc.Reply {
 	for _, ps := range s.parents {
 		s.endParent(ps)
 	}
-	s.journal.Write(0, "password_reset", map[string]any{"text": "Пароль родителя сброшен администратором"})
+	s.journal.Write(0, evPasswordReset, map[string]any{"text": "Пароль родителя сброшен администратором"})
 	return ipc.OK(ipc.Empty{})
 }
 
@@ -403,7 +403,7 @@ func (s *Service) hUninstallCheck(c *callCtx) ipc.Reply {
 		return ipc.OK(ipc.UninstallCheckReply{Allowed: true})
 	}
 	if req.Forgot {
-		s.journal.Write(0, "uninstall_forgot", map[string]any{"text": "Удаление программы без пароля: пароль забыт"})
+		s.journal.Write(0, evUninstallForgot, map[string]any{"text": "Удаление программы без пароля: пароль забыт"})
 		return ipc.OK(ipc.UninstallCheckReply{Allowed: true})
 	}
 	if ok, rep := s.checkPassword(req.Password, c.real, 0); !ok {
@@ -551,13 +551,13 @@ func (s *Service) hSaveLimits(c *callCtx) ipc.Reply {
 	cs.rulesAt = c.real
 	s.applyRules(cs, s.readRules(cs.child.ID))
 	if saveLimits {
-		s.journal.Write(cs.child.ID, "settings_changed", map[string]any{"text": "изменены лимиты времени"})
+		s.journal.Write(cs.child.ID, evSettingsChanged, map[string]any{"text": "изменены лимиты времени"})
 	}
 	if modeChanged {
-		s.journal.Write(cs.child.ID, "settings_changed", map[string]any{"text": "изменён режим, когда время вышло"})
+		s.journal.Write(cs.child.ID, evSettingsChanged, map[string]any{"text": "изменён режим, когда время вышло"})
 	}
 	if breakChanged {
-		s.journal.Write(cs.child.ID, "settings_changed", map[string]any{"text": "изменены настройки отдыха"})
+		s.journal.Write(cs.child.ID, evSettingsChanged, map[string]any{"text": "изменены настройки отдыха"})
 	}
 	return ipc.OK(ipc.SaveLimitsReply{Rules: rulesView(cs), Card: s.cardOf(cs), Message: textSaved})
 }
@@ -626,7 +626,7 @@ func (s *Service) hUndoExtra(c *callCtx) ipc.Reply {
 	cs.eng = core.NewEngine(s.cfg.Clock, s.cfg.Loc, cs.rules, st, bypass)
 	cs.undo = nil
 	s.saveState(cs, st)
-	s.journal.Write(cs.child.ID, "extra_undone", map[string]any{
+	s.journal.Write(cs.child.ID, evExtraUndone, map[string]any{
 		"minutes": rec.minutes, "text": "Изменение доп. времени отменено",
 	})
 	return ipc.OK(ipc.CardReply{Card: s.cardOf(cs), Message: rec.undoMsg})
@@ -740,44 +740,67 @@ func (s *Service) hClearBlock(c *callCtx) ipc.Reply {
 	return ipc.OK(ipc.CardReply{Card: s.cardOf(cs), Message: textBlockCleared})
 }
 
+// hListEvents — журнал (FR-24, RM5-5): ребёнок, период, группа «Что» и курсор «Показать ещё»
+// уходят в запрос хранилища; служба после чтения ничего не отбирает. More — есть записи старше
+// страницы: хранилище просят на одну строку больше страницы.
 func (s *Service) hListEvents(c *callCtx) ipc.Reply {
 	var req ipc.ListEventsRequest
 	if c.msg.Into(&req) != nil {
 		return bad()
+	}
+	var kinds []string // «Все события»: без отбора по виду, в том числе виды старых версий
+	if req.Group != ipc.JournalGroupAll {
+		var ok bool
+		if kinds, ok = journalGroups[req.Group]; !ok {
+			return bad()
+		}
 	}
 	limit := req.Limit
 	if limit <= 0 {
 		limit = ipc.DefaultEventsLimit
 	}
 	limit = min(limit, ipc.MaxEventsLimit)
-	q := EventQuery{ChildID: req.ChildID, Limit: limit}
-	if req.FromMs != 0 || req.ToMs != 0 {
-		// Хранилище отбирает по ребёнку, а границы времени служба накладывает сама.
-		q.Limit = storeEventLimit
+	q := EventQuery{ChildID: req.ChildID, FromMs: req.FromMs, ToMs: req.ToMs, Kinds: kinds, Limit: limit + 1}
+	if req.BeforeAtMs != 0 {
+		q.BeforeAtMs, q.BeforeID = req.BeforeAtMs, req.BeforeID
 	}
 	evs, err := s.cfg.Store.ListEvents(q)
 	if err != nil {
 		s.logRate("events", "журнал не прочитан: %v", err)
 		return ipc.Fail(textRetry)
 	}
-	out := ipc.ListEventsReply{Events: make([]ipc.JournalEntry, 0, len(evs))}
+	more := len(evs) > limit
+	if more {
+		evs = evs[:limit]
+	} else if q.Limit > storeEventLimit && len(evs) == limit {
+		// Хранилище больше storeEventLimit строк за раз не отдаёт: есть ли старше — одной строкой.
+		last := evs[len(evs)-1]
+		probe := q
+		probe.BeforeAtMs, probe.BeforeID, probe.Limit = last.AtMs, last.ID, 1
+		older, err := s.cfg.Store.ListEvents(probe)
+		if err != nil {
+			s.logRate("events", "журнал не прочитан: %v", err)
+			return ipc.Fail(textRetry)
+		}
+		more = len(older) > 0
+	}
+	out := ipc.ListEventsReply{Events: make([]ipc.JournalEntry, 0, len(evs)), More: more}
 	for _, e := range evs {
-		if (req.FromMs != 0 && e.AtMs < req.FromMs) || (req.ToMs != 0 && e.AtMs >= req.ToMs) {
-			continue
-		}
-		name := s.names[e.ChildID]
-		out.Events = append(out.Events, ipc.JournalEntry{
-			AtMs: e.AtMs, TzOffsetMin: e.TzOffsetMin, ChildID: e.ChildID, ChildName: name,
-			Kind: e.Kind, Text: eventText(e.Kind, name, e.Details),
-		})
-		if len(out.Events) >= limit {
-			break
-		}
+		out.Events = append(out.Events, s.journalEntryOf(e))
 	}
 	return ipc.OK(out)
 }
 
-// storeEventLimit — наибольший отбор событий, который отдаёт хранилище за раз.
+// journalEntryOf — запись журнала для окна: текст простыми словами с именем ребёнка (eventText).
+func (s *Service) journalEntryOf(e StoredEvent) ipc.JournalEntry {
+	name := s.names[e.ChildID]
+	return ipc.JournalEntry{
+		ID: e.ID, AtMs: e.AtMs, TzOffsetMin: e.TzOffsetMin, ChildID: e.ChildID, ChildName: name,
+		Kind: e.Kind, Text: eventText(e.Kind, name, e.Details),
+	}
+}
+
+// storeEventLimit — наибольший отбор событий, который отдаёт хранилище за раз (storage.maxEventLimit).
 const storeEventLimit = 1000
 
 func (s *Service) hChangePassword(c *callCtx) ipc.Reply {
@@ -802,7 +825,7 @@ func (s *Service) hChangePassword(c *callCtx) ipc.Reply {
 		s.logRate("setauth", "новый пароль не записан: %v", err)
 		return ipc.Fail(textSaveFailed)
 	}
-	s.journal.Write(0, "password_changed", map[string]any{"text": "Пароль родителя изменён"})
+	s.journal.Write(0, evPasswordChanged, map[string]any{"text": "Пароль родителя изменён"})
 	return ipc.OK(ipc.Empty{})
 }
 
@@ -883,7 +906,7 @@ func (s *Service) hSetChildren(c *callCtx) ipc.Reply {
 		s.applyPolicy(a.sid, true)
 		s.applyBrave(cs)
 	}
-	s.journal.Write(0, "children_changed", map[string]any{
+	s.journal.Write(0, evChildrenChanged, map[string]any{
 		"text": "изменён состав детских учёток", "added": len(adds), "removed": len(req.Remove), "renamed": len(req.Rename),
 	})
 	s.syncSessions(c.real)
@@ -935,7 +958,8 @@ func (s *Service) myTodayOf(cs *childState, period string) ipc.MyTodayReply {
 		period = ipc.PeriodToday
 	}
 	if cs == nil {
-		return ipc.MyTodayReply{Status: ipc.ChildStatusNotChild(), Today: []string{}, Rules: []ipc.MyRule{}, Period: period, Programs: []ipc.ProgramTime{}}
+		return ipc.MyTodayReply{Status: ipc.ChildStatusNotChild(), Today: []string{}, Rules: []ipc.MyRule{}, Period: period, Programs: []ipc.ProgramTime{},
+			Bars: []ipc.DayBar{}, BarsBy: ipc.BarsByDay, Violations: []ipc.JournalEntry{}, Bonus: []ipc.BonusEntry{}}
 	}
 	st := s.statusOf(cs)
 	out := ipc.MyTodayReply{Status: st, Today: []string{st.Summary, "Использовано " + core.FormatDuration(st.UsedS)}, Rules: []ipc.MyRule{}, Period: period}
@@ -948,13 +972,23 @@ func (s *Service) myTodayOf(cs *childState, period string) ipc.MyTodayReply {
 		live = day
 	}
 	from, _ := periodFrom(period, now)
-	sum, past := s.periodTotals(cs, from, today, live)
+	// «Итоги» и столбики — из одного чтения ряда дней и одних счётчиков ядра (RM5-4).
+	pd := s.periodTotals(cs, from, today, live)
+	sum := pd.sum
 	out.UsedS, out.GamesS, out.StudyS, out.VideoS = sum.TotalS, sum.GamesS, sum.StudyS, sum.VideoS
 	out.OtherS = max(0, sum.TotalS-sum.GamesS-sum.VideoS)
 	out.AllS = sum.TotalS + sum.StudyS
 	out.ExtraMin = sum.ExtraMin
-	out.BonusSpentMin = s.periodBonusSpent(cs, from)
-	out.Programs = s.programTimes(cs, sum, past)
+	out.Bars, out.BarsBy = buildBars(period, from, today, pd.days, pd.live, s.cfg.Loc)
+	fromMs := s.dayStartMs(from)
+	spentFrom := fromMs
+	if pd.resetOK {
+		spentFrom = max(spentFrom, pd.reset.ClearedAtMs)
+	}
+	out.BonusSpentMin, out.Bonus = s.periodBonus(cs, fromMs, spentFrom)
+	out.Violations = s.periodViolations(cs, fromMs)
+	out.StatsSinceDay, out.StatsSinceText = s.statsSince(cs, today, pd.reset, pd.resetOK)
+	out.Programs = s.programTimes(cs, sum, pd.usage)
 	// Строка «Можно снова…» нужна при любой блокировке: показываем, когда блокировка есть и
 	// ядро назвало срок (B-6).
 	if st.Lock != "" && st.Lock != ipc.LockNone && st.Until != "" {

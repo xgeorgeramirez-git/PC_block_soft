@@ -1,6 +1,7 @@
 package service
 
 import (
+	"fmt"
 	"strings"
 	"unicode/utf8"
 
@@ -16,7 +17,7 @@ const (
 	textBreakWarnRange     = "Можно от 1 до 15 мин"
 	textBreakRestRange     = "Можно от 5 до 60 мин"
 	textBreakSelfRestRange = "Можно от 5 до 120 мин"
-	textBreakSelfRestLess  = "Не меньше времени отдыха"
+	textBreakSelfRestLess  = "Не меньше %d мин: столько длится отдых" // %d — «Отдых» (B-44)
 	textBreakCountsBad     = "Выберите, что считать"
 	textBreakMessageLong   = "Не больше 120 символов"
 	textBreakEnded         = "Перерыв закончен"
@@ -43,7 +44,7 @@ func breakFromIPC(b ipc.BreakRules) (core.BreakRules, string, string) {
 	case !in(b.SelfRestMin, core.BreakSelfRestMinMin, core.BreakSelfRestMinMax):
 		return core.BreakRules{}, ipc.FieldBreakSelfRestMin, textBreakSelfRestRange
 	case b.SelfRestMin < b.RestMin:
-		return core.BreakRules{}, ipc.FieldBreakSelfRestMin, textBreakSelfRestLess
+		return core.BreakRules{}, ipc.FieldBreakSelfRestMin, fmt.Sprintf(textBreakSelfRestLess, b.RestMin)
 	case utf8.RuneCountInString(b.Message) > core.BreakMessageMaxRunes:
 		return core.BreakRules{}, ipc.FieldBreakMessage, textBreakMessageLong
 	}

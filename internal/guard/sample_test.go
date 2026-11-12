@@ -54,6 +54,11 @@ func TestBuildSampleFillsFieldsAndKeepsNothingElse(t *testing.T) {
 	if s != want {
 		t.Fatalf("снимок с Brave:\n%+v\nждали\n%+v", s, want)
 	}
+	// B-55: причина «не прочитан» — «адреса нет» (не сбой UIA) — уходит службе тем же снимком.
+	s = BuildSample(now, RawSensors{ForegroundPath: brave, DomainUnread: true, DomainNoAddress: true}, 1)
+	if !s.DomainUnread || !s.DomainNoAddress {
+		t.Fatalf("снимок окна без адреса: не прочитан %v, адреса нет %v; want true, true", s.DomainUnread, s.DomainNoAddress)
+	}
 	if got := BuildSample(now, RawSensors{Locked: true}, 1); got.SessionActive {
 		t.Fatal("заблокированный сеанс назван активным")
 	}

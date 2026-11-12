@@ -6,7 +6,9 @@
 // Файл собирается и в браузерный сценарий Playwright (e2e/helpers.ts): экспорты доступны
 // там как PCBlockMock.installBackend(...).
 import contract from "../../../internal/ipc/testdata/contract.json";
-import { formatDuration, formatHour, formatLimit, localOffsetMin, weekdayOfMs, weekdayShort } from "../lib/format";
+import { formatDuration, formatHour, formatLimit, genitiveName, localOffsetMin, weekdayOfMs, weekdayShort } from "../lib/format";
+import { isViolation } from "../lib/journal";
+import { g15Fields } from "./g15";
 import { normalizeLimits } from "../lib/limits";
 import { breakEqual, DEFAULT_BREAK, validateBreak } from "../lib/rest";
 import { ADULT_SOURCE_TEXT, DUPLICATE_TEXT, NOT_DOMAIN_TEXT, cleanDomain } from "../lib/sites";
@@ -16,8 +18,11 @@ import type {
   BonusEntry,
   ChildInfo,
   ChildStatus,
+  DayBar,
   Interval,
   JournalEntry,
+  JournalGroup,
+  ListEventsReply,
   MyRule,
   MyTodayReply,
   Reply,
@@ -94,6 +99,18 @@ export interface MockChild {
   history?: MockDay[];
   /** «Блокировать сайты 18+» (R14); нет поля - включено, как у нового ребёнка. */
   adultFilter?: boolean;
+  /** Снимок последней «Очистить статистику» (FR-38, RM5-8): момент и счётчики дня на момент очистки. */
+  statsReset?: MockStatsReset;
+}
+
+/** Снимок очистки статистики: сегодня в «Итогах» - счётчики минус снимок, учёт лимита прежний. */
+export interface MockStatsReset {
+  clearedAtMs: number;
+  usedS: number;
+  gamesS: number;
+  studyS: number;
+  videoS: number;
+  extraMin: number;
 }
 
 /** Прошлый день ребёнка в подменной программе (периоды «Итогов», D-61). */
@@ -145,6 +162,13 @@ export function s42Child(over: Partial<MockChild> = {}): MockChild {
   });
 }
 
+export { G15_LIMITS, G15_NOW, g15Bonus, g15Events, g15Fields, g15History } from "./g15";
+
+/** Ребёнок G15 (S21): эталонная неделя пн 16 … вс 22.11.2026, копилка 25 мин. */
+export function g15Child(over: Partial<MockChild> = {}): MockChild {
+  return mockChild({ ...g15Fields(), ...over });
+}
+
 /** Промокод в подменной программе (R26, D-50). */
 export interface MockPromo {
   codeDisplay: string;
@@ -173,7 +197,8 @@ export interface MockOptions {
   sessionIdleS?: number;
   accounts?: Account[];
   children?: MockChild[];
-  events?: JournalEntry[];
+  /** Журнал на старте, новые сверху; без id - номера выдаются по порядку (верхняя запись - наибольший). */
+  events?: MockEventInput[];
   notices?: string[];
   /**
    * Чей сеанс у окна ребёнка (MyToday): childId; null - сеанс не ребёнка (родитель в своей учётке).
@@ -189,6 +214,38 @@ export interface MockOptions {
   pending?: PendingProgramDTO[];
   /** Списки «Сайтов» на старте (FR-21); по умолчанию - как в примере контракта ListSites. */
   sites?: SiteDTO[];
+}
+
+/** Запись журнала на старте мока: id необязателен. */
+export type MockEventInput = Omit<JournalEntry, "id"> & { id?: number };
+
+/** Группы фильтра «Что» журнала - как journalGroups службы (internal/service/journalgroups.go), плюс
+ *  виды, которые пишет только мок («settings», «bonus_spend»). Вид не из групп - только «Все события». */
+export const MOCK_JOURNAL_GROUPS: Record<Exclude<JournalGroup, "">, readonly string[]> = {
+  violations: ["bypass", "program_forbidden_try", "site_forbidden_try"],
+  time: [
+    "extra_time", "extra_undone", "pause", "pause_end", "no_forbidden", "day_closed",
+    "bonus_spent", "bonus_granted", "bonus_grant", "bonus_undo", "bonus_clear", "bonus_reduce",
+    "promo_redeem", "promo_create", "promo_generate", "promo_history_cleared", "rest_break", "rest_ended",
+    "bonus_spend",
+  ],
+  programs: [
+    "program_decided", "program_undone", "program_hidden", "program_shown", "program_renamed", "program_pending",
+    "program_auto_closed", "program_closed_games", "program_closed_study_only",
+    "site_closed_video", "site_closed_study_only", "site_unread", "site_added", "site_moved", "site_removed",
+    "site_adult_filter", "brave_restored",
+  ],
+  settings: [
+    "setup_done", "password_failed", "password_changed", "password_reset", "uninstall_forgot",
+    "settings_changed", "children_changed", "child_admin", "child_admin_off", "stats_cleared", "journal_cleared",
+    "block_cleared", "settings",
+  ],
+  system: ["safe_mode", "internal_error", "db_recovered"],
+};
+
+/** Номера записей журнала на старте: без id - по порядку снизу вверх (новые сверху - больше). */
+function withEventIds(events: MockEventInput[]): JournalEntry[] {
+  return events.map((e, i) => ({ ...e, id: e.id ?? events.length - i }));
 }
 
 export interface MockState {
@@ -225,6 +282,8 @@ export interface MockState {
   verboseLogs: boolean;
   /** Промокоды (R26, D-50). */
   promos: MockPromo[];
+  /** Состояние детерминированного генератора «Придумать коды»: одинаковые коды в каждом прогоне снимков. */
+  promoSeed: number;
   /** Настройка автобонуса N (R25, D-49). */
   bonusRate: number;
   /** Сколько раз просили открыть папку логов (FR-25, D-48). */
@@ -591,7 +650,7 @@ function periodFromDay(period: string, nowMs: number): string {
  * Ответ MyToday ребёнка: строки «Сегодня» и правила за сегодня, «Итоги» за период (D-61): прошлые дни
  * history строго до сегодня плюс сегодня. Не ребёнок - пустые списки (не null).
  */
-function myToday(child: MockChild | undefined, nowMs: number, period: StatsPeriod = "today"): MyTodayReply {
+function myToday(child: MockChild | undefined, nowMs: number, period: StatsPeriod = "today", events: JournalEntry[] = []): MyTodayReply {
   if (!child) {
     return { ...(examples["MyToday#empty"].reply.payload as MyTodayReply), period };
   }
@@ -603,11 +662,23 @@ function myToday(child: MockChild | undefined, nowMs: number, period: StatsPerio
   const todayDay = isoDay(nowMs);
   const from = periodFromDay(period, nowMs);
   const past = (child.history ?? []).filter((d) => d.day >= from && d.day < todayDay);
+  // Начало периода в мс (местная полночь); «Всё время» - без границы, как служба (dayStartMs).
+  const fromMs = from === "0001-01-01" ? 0 : new Date(Number(from.slice(0, 4)), Number(from.slice(5, 7)) - 1, Number(from.slice(8, 10))).getTime();
+  // «Статистика ведётся с» - дата очистки; без очистки - первый день истории до сегодня, иначе сегодня (RM5-8).
+  const reset = child.statsReset;
+  const since = reset
+    ? isoDay(reset.clearedAtMs)
+    : [...(child.history ?? []).map((d) => d.day).filter((d) => d < todayDay), todayDay].sort()[0];
+  // Сегодня - счётчики дня минус снимок очистки этого дня (не ниже нуля), как служба (liveMinusReset).
+  const resetToday = reset && isoDay(reset.clearedAtMs) === todayDay ? reset : undefined;
+  const live = (v: number, snap: number | undefined) => Math.max(0, v - (snap ?? 0));
+  const liveUsedS = live(status.usedS, resetToday?.usedS);
+  const liveStudyS = live(child.studyUsedS ?? 0, resetToday?.studyS);
   const sum = (pick: (d: MockDay) => number | undefined) => past.reduce((n, d) => n + (pick(d) ?? 0), 0);
-  const usedS = status.usedS + sum((d) => d.totalS);
-  const gamesS = (child.gamesUsedS ?? 0) + sum((d) => d.gamesS);
-  const studyS = (child.studyUsedS ?? 0) + sum((d) => d.studyS);
-  const videoS = (child.videoUsedS ?? 0) + sum((d) => d.videoS);
+  const usedS = liveUsedS + sum((d) => d.totalS);
+  const gamesS = live(child.gamesUsedS ?? 0, resetToday?.gamesS) + sum((d) => d.gamesS);
+  const studyS = liveStudyS + sum((d) => d.studyS);
+  const videoS = live(child.videoUsedS ?? 0, resetToday?.videoS) + sum((d) => d.videoS);
   // «Прочее» и «Всего» - как у службы (stats.go): общее время без игр и видео и общее плюс учёба.
   const otherS = Math.max(0, usedS - gamesS - videoS);
   const merged = new Map<string, ProgramTime>();
@@ -634,10 +705,87 @@ function myToday(child: MockChild | undefined, nowMs: number, period: StatsPerio
     studyS,
     otherS,
     allS: usedS + studyS,
-    extraMin: (child.extraMin ?? 0) + sum((d) => d.extraMin),
+    extraMin: live(child.extraMin ?? 0, resetToday?.extraMin) + sum((d) => d.extraMin),
     bonusSpentMin: sum((d) => d.bonusSpentMin),
     programs,
+    ...mockBars(period, from, todayDay, past, liveUsedS, liveStudyS),
+    violations: events
+      .filter((e) => e.childId === child.childId && isViolation(e.kind) && e.atMs >= fromMs)
+      .sort((a, b) => b.atMs - a.atMs)
+      .slice(0, 200),
+    bonus: (child.bonusLedger ?? []).filter((b) => b.atMs >= fromMs).slice(0, 200),
+    statsSinceDay: since,
+    statsSinceText: `Статистика ведётся с ${Number(since.slice(8, 10))} ${MONTHS_GEN[Number(since.slice(5, 7)) - 1]} ${since.slice(0, 4)}`,
   };
+}
+
+const MONTHS_SHORT = ["янв", "фев", "мар", "апр", "май", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"];
+const MONTHS_NOM = ["январь", "февраль", "март", "апрель", "май", "июнь", "июль", "август", "сентябрь", "октябрь", "ноябрь", "декабрь"];
+const MONTHS_GEN = ["января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа", "сентября", "октября", "ноября", "декабря"];
+
+/** Подсказка столбика, как у службы (stats_days.go barTitle). */
+function barTitle(when: string, totalS: number, studyS: number): string {
+  return `${when}: ${formatDuration(totalS)}, учёба ${formatDuration(studyS)}`;
+}
+
+/**
+ * Столбики «По дням», как служба (buildBars): «Сегодня», «Неделя», «Месяц» - по дню с начала периода по
+ * сегодня; «Год» - по месяцу с января; «Всё время» - по месяцу с первого месяца данных. Пустые дни и месяцы
+ * внутри - нулевые столбики; сегодня - из счётчиков дня (не из истории).
+ */
+function mockBars(
+  period: StatsPeriod,
+  from: string,
+  todayDay: string,
+  past: MockDay[],
+  todayTotalS: number,
+  todayStudyS: number,
+): Pick<MyTodayReply, "bars" | "barsBy"> {
+  const monthly = period === "year" || period === "all";
+  const keyOf = (day: string) => (monthly ? day.slice(0, 7) : day);
+  const sums = new Map<string, { total: number; study: number }>();
+  const add = (key: string, total: number, study: number) => {
+    const cur = sums.get(key) ?? { total: 0, study: 0 };
+    sums.set(key, { total: cur.total + total, study: cur.study + study });
+  };
+  for (const d of past) add(keyOf(d.day), d.totalS ?? 0, d.studyS ?? 0);
+  add(keyOf(todayDay), todayTotalS, todayStudyS);
+  const noon = (day: string) => new Date(Number(day.slice(0, 4)), Number(day.slice(5, 7)) - 1, Number(day.slice(8, 10)), 12);
+  const end = noon(todayDay);
+  if (!monthly) {
+    const bars: DayBar[] = [];
+    for (let t = noon(from); t <= end; t = new Date(t.getFullYear(), t.getMonth(), t.getDate() + 1, 12)) {
+      const key = isoDay(t.getTime());
+      const s = sums.get(key) ?? { total: 0, study: 0 };
+      const wd = weekdayShort(((t.getDay() + 6) % 7) + 1);
+      bars.push({
+        key,
+        label: `${wd} ${t.getDate()}`,
+        title: barTitle(`${wd}, ${t.getDate()} ${MONTHS_GEN[t.getMonth()]}`, s.total, s.study),
+        totalS: s.total,
+        studyS: s.study,
+        today: key === todayDay,
+      });
+    }
+    return { bars, barsBy: "day" };
+  }
+  const firstDay = period === "all" ? [...past.map((d) => d.day), todayDay].sort()[0] : from;
+  const start = noon(firstDay);
+  const withYear = start.getFullYear() !== end.getFullYear();
+  const bars: DayBar[] = [];
+  for (let t = new Date(start.getFullYear(), start.getMonth(), 1, 12); t <= end; t = new Date(t.getFullYear(), t.getMonth() + 1, 1, 12)) {
+    const key = `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, "0")}`;
+    const s = sums.get(key) ?? { total: 0, study: 0 };
+    bars.push({
+      key,
+      label: withYear ? `${MONTHS_SHORT[t.getMonth()]} ${t.getFullYear()}` : MONTHS_SHORT[t.getMonth()],
+      title: barTitle(`${MONTHS_NOM[t.getMonth()]} ${t.getFullYear()}`, s.total, s.study),
+      totalS: s.total,
+      studyS: s.study,
+      today: key === todayDay.slice(0, 7),
+    });
+  }
+  return { bars, barsBy: "month" };
 }
 
 const PERIODS_OK = new Set(["today", "week", "month", "year", "all"]);
@@ -690,11 +838,47 @@ const PARENT_COMMANDS = new Set([
   "ListSites",
   "AddSite",
   "RemoveSite",
+  "AddSites",
+  "RemoveSites",
   "SetAdultFilter",
+  "ClearStats",
+  "ClearJournal",
+  "GeneratePromos",
+  "ClearPromoHistory",
 ]);
 
 /** Нормализация промокода как в ядре (R26): без пробелов по краям и без учёта регистра. */
 const promoNorm = (code: string) => code.trim().toLowerCase();
+
+/** Новый код как core.CheckNewPromoCode (RM5-11): только A-Z, a-z, 0-9, 3-16 знаков. */
+const PROMO_NEW_CODE = /^[A-Za-z0-9]{3,16}$/;
+/** Только допустимые знаки без проверки длины, как core.PromoCodeLatinOnly: отличает текст о длине (R26). */
+const PROMO_LATIN = /^[A-Za-z0-9]+$/;
+
+/** Составы «Придумать коды», как promoAlphabets службы (RM5-12): с буквами без I, O, 0, 1. */
+const PROMO_ALPHABETS: Record<string, string> = {
+  digits: "0123456789",
+  letters: "ABCDEFGHJKLMNPQRSTUVWXYZ",
+  mixed: "ABCDEFGHJKLMNPQRSTUVWXYZ23456789",
+};
+
+/** Форма слова по числу, как pluralRu службы: «1 код», «2 кода», «5 кодов», «11 кодов». */
+function pluralRu(n: number, one: string, few: string, many: string): string {
+  const m = Math.abs(n);
+  if (m % 100 >= 11 && m % 100 <= 14) return many;
+  if (m % 10 === 1) return one;
+  if (m % 10 >= 2 && m % 10 <= 4) return few;
+  return many;
+}
+
+/** Строка журнала «Придумать коды», как promoGenerateText службы. */
+function promoGenerateText(n: number, minutes: number): string {
+  const verb = n % 10 === 1 && n % 100 !== 11 ? "Придуман" : "Придумано";
+  return `${verb} ${n} ${pluralRu(n, "промокод", "промокода", "промокодов")} на ${minutes} мин`;
+}
+
+/** Промокод для окна, как promoViewOf службы: код заглавными. */
+const promoView = (p: MockPromo): MockPromo => ({ ...p, codeDisplay: p.codeDisplay.toUpperCase() });
 
 function makeState(opts: MockOptions): MockState {
   const configured = opts.configured ?? true;
@@ -716,7 +900,7 @@ function makeState(opts: MockOptions): MockState {
     sessionExpiresMs: 0,
     accounts: opts.accounts ?? mockAccounts(),
     children,
-    events: opts.events ?? [],
+    events: withEventIds(opts.events ?? []),
     notices: opts.notices ?? [],
     myChildId: opts.myChildId === undefined ? (children[0]?.childId ?? null) : opts.myChildId,
     firstRunSeen: false,
@@ -729,6 +913,7 @@ function makeState(opts: MockOptions): MockState {
     bonusUndo: new Map(),
     verboseLogs: false,
     promos: opts.promos ?? [],
+    promoSeed: 20261111,
     bonusRate: 5,
     openLogsCount: 0,
     programs: (opts.programs ?? exampleProgramsReply().programs).map((p) => ({ ...p })),
@@ -782,6 +967,7 @@ export function createBackend(opts: MockOptions = {}): MockBackend {
   };
   const addEvent = (now: number, child: MockChild | undefined, kind: string, text: string) => {
     state.events.unshift({
+      id: state.events.reduce((m, e) => Math.max(m, e.id), 0) + 1,
       atMs: now,
       tzOffsetMin: localOffsetMin(new Date(now)),
       childId: child?.childId ?? 0,
@@ -1150,7 +1336,7 @@ export function createBackend(opts: MockOptions = {}): MockBackend {
       if (!child) return fail("Ребёнок не найден");
       const period = periodArg(req);
       if (!period) return fail("Не удалось разобрать запрос. Попробуйте ещё раз");
-      return okReply(myToday(child, now, period));
+      return okReply(myToday(child, now, period, state.events));
     },
 
     GetDiag: () => okReply({ verbose: state.verboseLogs, logsPath: MOCK_LOGS_PATH }),
@@ -1160,15 +1346,26 @@ export function createBackend(opts: MockOptions = {}): MockBackend {
       return okReply({ verbose: state.verboseLogs, logsPath: MOCK_LOGS_PATH });
     },
 
+    // Журнал (FR-24, RM5-5): ребёнок, период fromMs <= atMs < toMs, группа «Что», курсор
+    // (beforeAtMs, beforeId) строго раньше; новые сверху; more - есть записи старше страницы.
     ListEvents: (req) => {
-      const limit = Math.min(req.limit > 0 ? req.limit : 200, 500);
-      const events = state.events
+      const group: string = req.group ?? "";
+      const known = Object.hasOwn(MOCK_JOURNAL_GROUPS, group);
+      const kinds: readonly string[] | null | undefined =
+        group === "" ? null : known ? MOCK_JOURNAL_GROUPS[group as Exclude<JournalGroup, "">] : undefined;
+      if (kinds === undefined) return fail("Не удалось разобрать запрос. Попробуйте ещё раз");
+      const limit = Math.min(req.limit > 0 ? req.limit : 200, 1000);
+      const before = Number(req.beforeAtMs ?? 0);
+      const beforeId = Number(req.beforeId ?? 0);
+      const matched = state.events
         .filter((e) => (req.childId ? e.childId === req.childId : true))
         .filter((e) => (req.fromMs ? e.atMs >= req.fromMs : true))
-        .filter((e) => (req.toMs ? e.atMs <= req.toMs : true))
-        .sort((a, b) => b.atMs - a.atMs)
-        .slice(0, limit);
-      return okReply({ events });
+        .filter((e) => (req.toMs ? e.atMs < req.toMs : true))
+        .filter((e) => (kinds ? kinds.includes(e.kind) : true))
+        .filter((e) => (before ? e.atMs < before || (e.atMs === before && e.id < beforeId) : true))
+        .sort((a, b) => b.atMs - a.atMs || b.id - a.id);
+      const reply: ListEventsReply = { events: matched.slice(0, limit), more: matched.length > limit };
+      return okReply(reply);
     },
 
     ChangePassword: (req) => {
@@ -1202,7 +1399,7 @@ export function createBackend(opts: MockOptions = {}): MockBackend {
     MyToday: (req, now) => {
       const period = periodArg(req);
       if (!period) return fail("Не удалось разобрать запрос. Попробуй ещё раз");
-      return okReply(myToday(childById(state.myChildId ?? -1), now, period));
+      return okReply(myToday(childById(state.myChildId ?? -1), now, period, state.events));
     },
 
     FirstRunSeen: () => {
@@ -1234,6 +1431,35 @@ export function createBackend(opts: MockOptions = {}): MockBackend {
       return okReply({ balanceAfter: 0, message: "Копилка обнулена" });
     },
 
+    // «Очистить статистику» (FR-38, RM5-8): прошлые дни и время программ удалены, сегодня - с момента
+    // очистки (снимок счётчиков); остаток, доп. время и копилка прежние (D-73).
+    ClearStats: (req, now) => {
+      const child = childById(req.childId);
+      if (!child) return fail("Такого ребёнка нет в списке");
+      const status = statusOf(child, now);
+      child.history = [];
+      child.programsToday = [];
+      child.statsReset = {
+        clearedAtMs: now,
+        usedS: status.usedS,
+        gamesS: child.gamesUsedS ?? 0,
+        studyS: child.studyUsedS ?? 0,
+        videoS: child.videoUsedS ?? 0,
+        extraMin: child.extraMin ?? 0,
+      };
+      addEvent(now, child, "stats_cleared", `${child.name}: статистика очищена`);
+      return okReply({ message: `Статистика ${genitiveName(child.name)} очищена` });
+    },
+
+    // «Очистить журнал» (FR-38, RM5-9): события ребёнка удалены, события без ребёнка остаются.
+    ClearJournal: (req, now) => {
+      const child = childById(req.childId);
+      if (!child) return fail("Такого ребёнка нет в списке");
+      state.events = state.events.filter((e) => e.childId !== child.childId);
+      addEvent(now, child, "journal_cleared", `${child.name}: журнал очищен`);
+      return okReply({ message: `Журнал ${genitiveName(child.name)} очищен` });
+    },
+
     ReduceBonus: (req, now) => {
       const child = childById(req.childId);
       if (!child) return fail("Ребёнок не найден");
@@ -1249,8 +1475,12 @@ export function createBackend(opts: MockOptions = {}): MockBackend {
     },
 
     CreatePromo: (req, now) => {
-      const code = String(req.code ?? "").trim();
-      if (!code) return fail("Введите код", "code");
+      const raw = String(req.code ?? "").trim();
+      if (!raw) return fail("Введите код", "code");
+      if (!PROMO_NEW_CODE.test(raw)) {
+        return fail(PROMO_LATIN.test(raw) ? "Код от 3 до 16 знаков" : "Только латинские буквы A-Z и цифры", "code");
+      }
+      const code = raw.toUpperCase();
       if (!Number.isInteger(req.minutes) || req.minutes < 1 || req.minutes > 600) return fail("Можно от 1 до 600 минут", "minutes");
       if (state.promos.some((p) => promoNorm(p.codeDisplay) === promoNorm(code))) {
         return fail("Такой код уже есть, придумайте другой", "code");
@@ -1258,15 +1488,70 @@ export function createBackend(opts: MockOptions = {}): MockBackend {
       const promo: MockPromo = { codeDisplay: code, minutes: req.minutes, createdAtMs: now };
       state.promos.push(promo);
       addEvent(now, undefined, "promo_create", `Создан промокод «${code}» на ${req.minutes} мин`);
-      return okReply({ promo, message: `Промокод «${code}» на ${req.minutes} ${minutesWord(req.minutes)} готов` });
+      return okReply({ promo: promoView(promo), message: `Промокод «${code}» на ${req.minutes} ${minutesWord(req.minutes)} готов` });
     },
 
+    // Как служба (RM5-11): действующие новые сверху, использованные по моменту использования, новые
+    // сверху; позже добавленный при равном моменте - выше; коды заглавными.
     ListPromos: () => {
       const name = (id?: number) => (id ? (childById(id)?.name ?? "") : "");
+      const newestFirst = (key: (p: MockPromo) => number) =>
+        state.promos
+          .map((p, i) => ({ p, i }))
+          .sort((a, b) => key(b.p) - key(a.p) || b.i - a.i)
+          .map(({ p }) => p);
       return okReply({
-        active: state.promos.filter((p) => !p.usedAtMs),
-        used: state.promos.filter((p) => p.usedAtMs).map((p) => ({ ...p, usedByName: name(p.usedByChild) })),
+        active: newestFirst((p) => p.createdAtMs)
+          .filter((p) => !p.usedAtMs)
+          .map(promoView),
+        used: newestFirst((p) => p.usedAtMs ?? 0)
+          .filter((p) => p.usedAtMs)
+          .map((p) => ({ ...promoView(p), usedByName: name(p.usedByChild) })),
       });
+    },
+
+    // «Придумать коды» (FR-35, RM5-12): пределы у своего поля; коды не совпадают с базой (и с
+    // использованными) и между собой. Коды детерминированные (генератор с постоянным началом),
+    // чтобы снимки экранов не менялись от прогона к прогону.
+    GeneratePromos: (req, now) => {
+      const count = Number(req.count);
+      const length = Number(req.length);
+      const minutes = Number(req.minutes);
+      if (!Number.isInteger(count) || count < 1 || count > 50) return fail("Можно от 1 до 50 кодов", "count");
+      if (!Number.isInteger(length) || length < 4 || length > 12) return fail("Длина от 4 до 12 знаков", "length");
+      const alpha = PROMO_ALPHABETS[String(req.charset)];
+      if (!alpha) return fail("Не удалось разобрать запрос. Попробуйте ещё раз");
+      if (!Number.isInteger(minutes) || minutes < 1 || minutes > 600) return fail("Можно от 1 до 600 минут", "minutes");
+      const taken = new Set(state.promos.map((p) => promoNorm(p.codeDisplay)));
+      const codes: string[] = [];
+      let seed = state.promoSeed;
+      for (let attempt = 0; attempt < count * 100 && codes.length < count; attempt++) {
+        let code = "";
+        for (let i = 0; i < length; i++) {
+          seed = (seed * 48271) % 2147483647; // MINSTD: произведение меньше 2^53, без потери точности
+          code += alpha[Math.floor(((seed - 1) / 2147483646) * alpha.length)];
+        }
+        if (taken.has(promoNorm(code))) continue;
+        taken.add(promoNorm(code));
+        codes.push(code);
+      }
+      if (codes.length < count) return fail("Не получилось придумать столько разных кодов. Увеличьте длину");
+      state.promoSeed = seed;
+      const created: MockPromo[] = codes.map((codeDisplay) => ({ codeDisplay, minutes, createdAtMs: now }));
+      state.promos.push(...created);
+      addEvent(now, undefined, "promo_generate", promoGenerateText(codes.length, minutes));
+      return okReply({
+        promos: created.map(promoView),
+        message: `Готово: ${codes.length} ${pluralRu(codes.length, "код", "кода", "кодов")} на ${minutes} мин`,
+      });
+    },
+
+    // «Очистить историю» промокодов (RM5-14): использованные удалены, действующие остаются.
+    ClearPromoHistory: (_req, now) => {
+      const n = state.promos.filter((p) => p.usedAtMs).length;
+      state.promos = state.promos.filter((p) => !p.usedAtMs);
+      addEvent(now, undefined, "promo_history_cleared", `История промокодов очищена (${n})`);
+      return okReply({ message: "История промокодов очищена" });
     },
 
     RedeemPromo: (req, now) => {
@@ -1483,6 +1768,86 @@ export function createBackend(opts: MockOptions = {}): MockBackend {
         message: `Удалён ${domain}`,
         domain,
         kind: gone.kind,
+        undoUntilMs: now + UNDO_WINDOW_MS,
+        sites: sitesReply(),
+      });
+    },
+
+    // Несколько сайтов за раз (B-49) как handlers_sites_many.go: строки, повтор один раз, предел 1000.
+    AddSites: (req, now) => {
+      const kind: unknown = req?.kind;
+      if (!isSiteKind(kind)) return fail("Не удалось разобрать запрос. Попробуйте ещё раз");
+      const lines = String(req.text ?? "")
+        .split("\n")
+        .map((l) => l.trim())
+        .filter((l) => l !== "");
+      if (lines.length > 1000) return fail("Можно вставить не больше 1000 адресов за раз", "domain");
+      const rejected: string[] = [];
+      const domains: string[] = [];
+      for (const line of lines) {
+        const d = cleanDomain(line);
+        if (!d) rejected.push(line);
+        else if (!domains.includes(d)) domains.push(d);
+      }
+      const rejectedText = (n: number) => (n === 1 ? NOT_DOMAIN_TEXT : "Эти строки не похожи на адрес сайта");
+      if (domains.length === 0) return fail(rejectedText(Math.max(rejected.length, 1)), "domain");
+      const added: string[] = [];
+      let fresh = 0;
+      let moved = 0;
+      let same = 0;
+      let full = 0;
+      for (const domain of domains) {
+        const known = state.sites.find((x) => x.domain === domain);
+        if (known?.kind === kind) {
+          same += 1;
+          continue;
+        }
+        if (kind === "blocked" && state.sites.filter((x) => x.kind === "blocked").length >= MAX_BLOCKED_SITES) {
+          full += 1;
+          continue;
+        }
+        if (known) {
+          known.kind = kind;
+          moved += 1;
+          addEvent(now, undefined, "site_moved", `Вы перенесли сайт ${domain} в ${SITE_LIST_NAMES[kind].acc}`);
+        } else {
+          state.sites.push({ domain, kind });
+          fresh += 1;
+          addEvent(now, undefined, "site_added", `Вы добавили сайт ${domain} в ${SITE_LIST_NAMES[kind].acc}`);
+        }
+        added.push(domain);
+      }
+      const parts = [
+        fresh > 0 ? `Добавлено сайтов: ${fresh}` : "",
+        moved > 0 ? `Перенесено сюда из других списков: ${moved}` : "",
+        same > 0 ? `Уже были в списке: ${same}` : "",
+        full > 0 ? `Не поместились (${full}): в списке запрещённых уже 1000 сайтов` : "",
+      ].filter((p) => p !== "");
+      return okReply({
+        message: parts.join(". "),
+        added,
+        rejected,
+        fieldError: rejected.length > 0 ? rejectedText(rejected.length) : "",
+        sites: sitesReply(),
+      });
+    },
+
+    RemoveSites: (req, now) => {
+      const list: unknown[] = Array.isArray(req?.domains) ? req.domains : [];
+      if (list.length === 0 || list.length > 1000) return fail("Не удалось разобрать запрос. Попробуйте ещё раз");
+      const removed: SiteDTO[] = [];
+      for (const raw of list) {
+        const domain = cleanDomain(String(raw));
+        const at = domain ? state.sites.findIndex((x) => x.domain === domain) : -1;
+        if (at < 0) continue;
+        const [gone] = state.sites.splice(at, 1);
+        removed.push({ domain, kind: gone.kind });
+        addEvent(now, undefined, "site_removed", `Вы удалили сайт ${domain} из ${SITE_LIST_NAMES[gone.kind].gen}`);
+      }
+      if (removed.length === 0) return fail("Этого сайта уже нет в списках");
+      return okReply({
+        message: removed.length === 1 ? `Удалён ${removed[0].domain}` : `Удалено сайтов: ${removed.length}`,
+        removed,
         undoUntilMs: now + UNDO_WINDOW_MS,
         sites: sitesReply(),
       });

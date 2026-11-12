@@ -3,7 +3,7 @@ import { useEffect, useId, useRef, type ReactNode } from "react";
 interface Props {
   title: string;
   children?: ReactNode;
-  /** Кнопки диалога; первая получает фокус. Диалог не тупик (L-119): действие есть всегда. */
+  /** Кнопки диалога; фокус - на кнопке с data-autofocus, без неё на первой. Диалог не тупик (L-119). */
   actions: ReactNode;
   /** Esc закрывает диалог (ТЗ 8.0 п.8). Без onClose Esc ничего не делает. */
   onClose?: () => void;
@@ -20,7 +20,9 @@ export default function Dialog({ title, children, actions, onClose }: Props) {
 
   useEffect(() => {
     const previous = document.activeElement as HTMLElement | null;
-    const first = box.current?.querySelector<HTMLElement>(".dialog-actions button");
+    // Кнопка с data-autofocus (безопасный выбор, «Отмена» у необратимого действия), иначе первая.
+    const first =
+      box.current?.querySelector<HTMLElement>(".dialog-actions [data-autofocus]") ?? box.current?.querySelector<HTMLElement>(".dialog-actions button");
     (first ?? box.current)?.focus();
     return () => previous?.focus?.();
   }, []);

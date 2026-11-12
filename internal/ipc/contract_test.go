@@ -251,7 +251,7 @@ func examples() map[string]example {
 			Message: "Сохранено. Новые правила уже действуют",
 		}),
 		"SaveLimits#breakSelfRest": fail(SaveLimitsRequest{ChildID: 1, Limits: []WeekdayLimit{}, Break: ptrBreak(BreakRules{Enabled: true, AfterMin: 60, Counts: BreakCountsAll, WarnMin: 5, RestMin: 20, SelfRestMin: 15})},
-			"Не меньше времени отдыха", FieldBreakSelfRestMin, nil),
+			"Не меньше 20 мин: столько длится отдых", FieldBreakSelfRestMin, nil),
 		CmdEndBreak:           ok(ChildRequest{ChildID: 1}, CardReply{Card: card(okStatus(), 0, false), Message: "Перерыв закончен"}),
 		"EndBreak#none":       fail(ChildRequest{ChildID: 1}, "Перерыва сейчас нет", "", nil),
 		"GetChildStatus#rest": ok(nil, restStatus()),
@@ -273,18 +273,33 @@ func examples() map[string]example {
 		CmdSetNoForbidden: ok(SetNoForbiddenRequest{ChildID: 1, On: true}, SetNoForbiddenReply{
 			Card: card(okStatus(), 0, false), Message: "Сегодня запретные часы не действуют",
 		}),
-		CmdClearBonus:  ok(ClearBonusRequest{ChildID: 1}, BonusChangeReply{BalanceAfter: 0, Message: "Копилка обнулена"}),
-		CmdReduceBonus: ok(ReduceBonusRequest{ChildID: 1, Minutes: 30}, BonusChangeReply{BalanceAfter: 45, Message: "Убавлено 30 минут. Баланс 45 мин"}),
+		CmdClearBonus:          ok(ClearBonusRequest{ChildID: 1}, BonusChangeReply{BalanceAfter: 0, Message: "Копилка обнулена"}),
+		CmdClearStats:          ok(ClearChildRequest{ChildID: 1}, ClearReply{Message: "Статистика Миши очищена"}),
+		"ClearStats#noChild":   fail(ClearChildRequest{ChildID: 9}, "Такого ребёнка нет в списке", "", nil),
+		CmdClearJournal:        ok(ClearChildRequest{ChildID: 1}, ClearReply{Message: "Журнал Миши очищен"}),
+		"ClearJournal#noChild": fail(ClearChildRequest{ChildID: 9}, "Такого ребёнка нет в списке", "", nil),
+		CmdReduceBonus:         ok(ReduceBonusRequest{ChildID: 1, Minutes: 30}, BonusChangeReply{BalanceAfter: 45, Message: "Убавлено 30 минут. Баланс 45 мин"}),
 		CmdCreatePromo: ok(CreatePromoRequest{Code: "a1234", Minutes: 30}, CreatePromoReply{
-			Promo:   PromoView{CodeDisplay: "a1234", Minutes: 30, CreatedAtMs: t0},
-			Message: "Промокод «a1234» на 30 минут готов",
+			Promo:   PromoView{CodeDisplay: "A1234", Minutes: 30, CreatedAtMs: t0},
+			Message: "Промокод «A1234» на 30 минут готов",
 		}),
-		"CreatePromo#dup": fail(CreatePromoRequest{Code: "a1234", Minutes: 15}, "Такой код уже есть, придумайте другой", FieldCode, nil),
+		"CreatePromo#latin": fail(CreatePromoRequest{Code: "код!", Minutes: 30}, "Только латинские буквы A-Z и цифры", FieldCode, nil),
+		"CreatePromo#dup":   fail(CreatePromoRequest{Code: "a1234", Minutes: 15}, "Такой код уже есть, придумайте другой", FieldCode, nil),
 		CmdListPromos: ok(Empty{}, ListPromosReply{
-			Active: []PromoView{{CodeDisplay: "b5678", Minutes: 60, CreatedAtMs: t0}},
-			Used:   []PromoView{{CodeDisplay: "a1234", Minutes: 30, CreatedAtMs: t0, UsedAtMs: t0 + 3_600_000, UsedByChild: 1, UsedByName: "Миша"}},
+			Active: []PromoView{{CodeDisplay: "B5678", Minutes: 60, CreatedAtMs: t0}},
+			Used:   []PromoView{{CodeDisplay: "A1234", Minutes: 30, CreatedAtMs: t0, UsedAtMs: t0 + 3_600_000, UsedByChild: 1, UsedByName: "Миша"}},
 		}),
 		"ListPromos#empty": ok(Empty{}, ListPromosReply{Active: []PromoView{}, Used: []PromoView{}}),
+		CmdGeneratePromos: ok(GeneratePromosRequest{Count: 3, Length: 6, Charset: CharsetMixed, Minutes: 15}, GeneratePromosReply{
+			Promos: []PromoView{
+				{CodeDisplay: "K7Q2ZD", Minutes: 15, CreatedAtMs: t0},
+				{CodeDisplay: "P4M9XA", Minutes: 15, CreatedAtMs: t0},
+				{CodeDisplay: "3TRW8B", Minutes: 15, CreatedAtMs: t0},
+			},
+			Message: "Готово: 3 кода на 15 мин",
+		}),
+		"GeneratePromos#count": fail(GeneratePromosRequest{Count: 51, Length: 6, Charset: CharsetDigits, Minutes: 15}, "Можно от 1 до 50 кодов", FieldCount, nil),
+		CmdClearPromoHistory:   ok(Empty{}, ClearPromoHistoryReply{Message: "История промокодов очищена"}),
 		CmdRedeemPromo: ok(RedeemPromoRequest{ChildID: 1, Code: "a1234"}, RedeemPromoReply{
 			Card: card(okStatus(), 30, false), AddedMin: 30, Message: "Добавлено 30 минут",
 		}),
@@ -298,10 +313,15 @@ func examples() map[string]example {
 			Card: card(okStatus(), 0, false), Message: "Блокировка снята",
 		}),
 		CmdListEvents: ok(ListEventsRequest{ChildID: 0, FromMs: t0 - 86_400_000, ToMs: 0, Limit: 50}, ListEventsReply{Events: []JournalEntry{
-			{AtMs: t0, TzOffsetMin: 180, ChildID: 1, ChildName: "Миша", Kind: core.EvBypass, Text: "Миша: попытка обойти защиту. Экран заблокирован"},
-			{AtMs: t0 - 3_600_000, TzOffsetMin: 180, ChildID: 1, ChildName: "Миша", Kind: core.EvExtraTime, Text: "Миша: доп. время +30 мин"},
-		}}),
-		"ListEvents#empty": ok(ListEventsRequest{}, ListEventsReply{}),
+			{ID: 42, AtMs: t0, TzOffsetMin: 180, ChildID: 1, ChildName: "Миша", Kind: core.EvBypass, Text: "Миша: попытка обойти защиту. Экран заблокирован"},
+			{ID: 41, AtMs: t0 - 3_600_000, TzOffsetMin: 180, ChildID: 1, ChildName: "Миша", Kind: core.EvExtraTime, Text: "Миша: доп. время +30 мин"},
+		}, More: true}),
+		// «Показать ещё» (RM5-5): группа «Нарушения», курсор — последняя запись прошлой страницы.
+		"ListEvents#page": ok(ListEventsRequest{ChildID: 1, FromMs: t0 - 30*86_400_000, Group: JournalGroupViolations, BeforeAtMs: t0, BeforeID: 42, Limit: 200},
+			ListEventsReply{Events: []JournalEntry{
+				{ID: 17, AtMs: t0 - 7_200_000, TzOffsetMin: 180, ChildID: 1, ChildName: "Миша", Kind: "site_forbidden_try", Text: "Миша: попытка открыть запрещённое: сайт example.com"},
+			}, More: false}),
+		"ListEvents#empty": ok(ListEventsRequest{Group: JournalGroupTime}, ListEventsReply{Events: []JournalEntry{}}),
 		CmdChangePassword:  ok(ChangePasswordRequest{OldPassword: "секрет-123", NewPassword: "новый-секрет"}, Empty{}),
 		CmdSetChildren: ok(SetChildrenRequest{
 			Add:    []ChildAdd{{SID: "S-1-5-21-111-222-333-1002", Name: "Даша"}},
@@ -355,16 +375,35 @@ func examples() map[string]example {
 		CmdMyToday: ok(MyTodayRequest{Period: PeriodToday}, MyTodayReply{
 			Status: okStatus(), Today: []string{"Сегодня осталось 1 ч 25 мин из 2 ч", "Использовано 35 мин"}, Rules: myRules(),
 			Period: PeriodToday, UsedS: 2100, GamesS: 900, StudyS: 180, VideoS: 600, OtherS: 600, AllS: 2280, Programs: myTodaySitePrograms(),
+			Bars:   []DayBar{{Key: "2026-10-19", Label: "пн 19", Title: "пн, 19 октября: 35 мин, учёба 3 мин", TotalS: 2100, StudyS: 180, Today: true}},
+			BarsBy: BarsByDay, Violations: []JournalEntry{}, Bonus: []BonusEntry{},
+			StatsSinceDay: "2026-10-19", StatsSinceText: "Статистика ведётся с 19 октября 2026",
 		}),
 		"MyToday#week": ok(MyTodayRequest{Period: PeriodWeek}, MyTodayReply{
 			Status: okStatus(), Today: []string{"Сегодня осталось 1 ч 25 мин из 2 ч", "Использовано 35 мин"}, Rules: myRules(),
 			Period: PeriodWeek, UsedS: 2400, GamesS: 2400, StudyS: 0, OtherS: 0, AllS: 2400, ExtraMin: 30, BonusSpentMin: 15,
 			Programs: []ProgramTime{{Path: `c:\games\game.exe`, Name: "game", Category: ProgramCatGames, Seconds: 2400, Kind: "program"}},
+			Bars: []DayBar{
+				{Key: "2026-10-19", Label: "пн 19", Title: "пн, 19 октября: 30 мин, учёба 0 мин", TotalS: 1800},
+				{Key: "2026-10-20", Label: "вт 20", Title: "вт, 20 октября: 0 мин, учёба 0 мин"},
+				{Key: "2026-10-21", Label: "ср 21", Title: "ср, 21 октября: 10 мин, учёба 0 мин", TotalS: 600, Today: true},
+			},
+			BarsBy: BarsByDay,
+			Violations: []JournalEntry{
+				{ID: 9, AtMs: t0 - 3_600_000, TzOffsetMin: 180, ChildID: 1, ChildName: "Миша", Kind: "program_forbidden_try", Text: "Миша: попытка запустить запрещённую программу «Chrome»"},
+			},
+			Bonus: []BonusEntry{
+				{AtMs: t0 - 7_200_000, TzOffset: 180, DeltaMin: -15, Reason: "взято из копилки", Balance: 25},
+				{AtMs: t0 - 86_400_000, TzOffset: 180, DeltaMin: 40, Reason: "Бонус за свободное время: 40 мин", Balance: 40},
+			},
+			StatsSinceDay: "2026-10-01", StatsSinceText: "Статистика ведётся с 1 октября 2026",
 		}),
-		"MyToday#empty": ok(MyTodayRequest{Period: PeriodToday}, MyTodayReply{Status: ChildStatusNotChild(), Period: PeriodToday}),
+		"MyToday#empty": ok(MyTodayRequest{Period: PeriodToday}, MyTodayReply{Status: ChildStatusNotChild(), Period: PeriodToday, BarsBy: BarsByDay}),
 		CmdParentStats: ok(ParentStatsRequest{ChildID: 1, Period: PeriodToday}, MyTodayReply{
 			Status: okStatus(), Today: []string{"Сегодня осталось 1 ч 25 мин из 2 ч", "Использовано 35 мин"}, Rules: myRules(),
 			Period: PeriodToday, UsedS: 2100, GamesS: 900, StudyS: 180, OtherS: 1200, AllS: 2280, Programs: s39Programs(),
+			Bars:   []DayBar{{Key: "2026-10-19", Label: "пн 19", Title: "пн, 19 октября: 35 мин, учёба 3 мин", TotalS: 2100, StudyS: 180, Today: true}},
+			BarsBy: BarsByDay, StatsSinceDay: "2026-10-19", StatsSinceText: "Статистика ведётся с 19 октября 2026",
 		}),
 		"ParentStats#year": ok(ParentStatsRequest{ChildID: 1, Period: PeriodYear}, MyTodayReply{
 			Status: okStatus(), Today: []string{"Сегодня осталось 1 ч 25 мин из 2 ч", "Использовано 35 мин"}, Rules: myRules(),
@@ -373,6 +412,11 @@ func examples() map[string]example {
 				{Path: `c:\games\game.exe`, Name: "game", Category: ProgramCatGames, Seconds: 3600, Kind: "program"},
 				{Path: `c:\school\study.exe`, Name: "study", Category: ProgramCatStudy, Seconds: 2400, Kind: "program"},
 			},
+			Bars: []DayBar{
+				{Key: "2026-09", Label: "сен", Title: "сентябрь 2026: 0 мин, учёба 40 мин", StudyS: 2400},
+				{Key: "2026-10", Label: "окт", Title: "октябрь 2026: 1 ч 00 мин, учёба 0 мин", TotalS: 3600, Today: true},
+			},
+			BarsBy: BarsByMonth, StatsSinceDay: "2026-09-01", StatsSinceText: "Статистика ведётся с 1 сентября 2026",
 		}),
 		CmdFirstRunSeen: ok(nil, Empty{}),
 
@@ -410,8 +454,12 @@ func examples() map[string]example {
 		CmdTestGuard:   ok(TestGuardRequest{SessionID: 2, Action: TestGuardAction{Action: TestClick, Target: ButtonParentPassword}}, Empty{}),
 		CmdTestClock:   ok(TestClockRequest{Paused: true}, TestClockReply{Paused: true, NowMs: t0, Speed: 60}),
 		CmdTestSession: ok(TestSessionRequest{Event: TestSessionLogoff, SessionID: 7, SID: "S-1-5-21-1-2-3-1001"}, Empty{}),
-		CmdTestSeedDay: ok(TestSeedDayRequest{ChildID: 1, Day: "2026-10-19", TotalS: 1800, GamesS: 1800,
-			Usage: []TestSeedUsage{{Path: `c:\games\game.exe`, Category: ProgramCatGames, Seconds: 1800}}}, Empty{}),
+		CmdTestSeedDay: ok(TestSeedDayRequest{ChildID: 1, Day: "2026-10-19", TotalS: 3000, GamesS: 1800, VideoS: 1200, ExtraMin: 30,
+			Usage: []TestSeedUsage{
+				{Path: `c:\games\game.exe`, Category: ProgramCatGames, Seconds: 1800, Kind: SeedKindProgram},
+				{Path: "youtube.com", Category: "video_social", Seconds: 1200, Kind: SeedKindSite},
+			}}, Empty{}),
+		"TestSeedDay#bonusPending": ok(TestSeedDayRequest{ChildID: 1, Day: "2026-11-17", TotalS: 2400, GamesS: 2400, BonusPending: true}, Empty{}),
 		CmdGuardState: ok(nil, GuardStateReply{
 			Warnings:  []ShownWarning{{AtMs: t0 - 60_000, Threshold: 1, Text: "Осталась 1 минута: 0:59"}},
 			Sounds:    []ShownSound{{AtMs: t0 - 60_000, Threshold: 1, OK: true}},
@@ -470,6 +518,14 @@ func examples() map[string]example {
 		CmdRemoveSite: ok(RemoveSiteRequest{Domain: "example.com"}, RemoveSiteReply{
 			Message: "Удалён example.com", Domain: "example.com", Kind: SiteKindBlocked, UndoUntilMs: t0 + 10_000, Sites: sitesReply(),
 		}),
+		CmdAddSites: ok(AddSitesRequest{Text: "https://www.Example.com/page\nvk.com\r\nпросто текст\n\nschool.example", Kind: SiteKindBlocked},
+			AddSitesReply{Message: "Добавлено сайтов: 1. Перенесено сюда из других списков: 1. Уже были в списке: 1", Added: []string{"example.com", "vk.com"},
+				Rejected: []string{"просто текст"}, FieldError: "Это не похоже на адрес сайта", Sites: sitesReply()}),
+		"AddSites#invalid": fail(AddSitesRequest{Text: "просто текст\nещё текст", Kind: SiteKindBlocked}, "Эти строки не похожи на адрес сайта", FieldDomain, nil),
+		CmdRemoveSites: ok(RemoveSitesRequest{Domains: []string{"example.com", "school.example"}}, RemoveSitesReply{
+			Message: "Удалено сайтов: 2", Removed: []SiteDTO{{Domain: "example.com", Kind: SiteKindBlocked}, {Domain: "school.example", Kind: SiteKindStudy}},
+			UndoUntilMs: t0 + 10_000, Sites: sitesReply(),
+		}),
 		CmdSetAdultFilter: ok(SetAdultFilterRequest{ChildID: 2, On: false},
 			SetAdultFilterReply{Message: "Даша: сайты 18+ не блокируются", Sites: sitesReply()}),
 		"Setup#sites": ok(SetupRequest{
@@ -487,7 +543,7 @@ func examples() map[string]example {
 			},
 		}),
 		"GuardPoll#closeWindow": ok(GuardPollRequest{Sample: SensorSample{AtMs: t0, SessionActive: true, Foreground: CatNameOther,
-			ForegroundPath: braveExe, DomainUnread: true}}, GuardPollReply{
+			ForegroundPath: braveExe, DomainUnread: true, DomainNoAddress: true}}, GuardPollReply{
 			Status: okStatus(), Warnings: []GuardWarning{}, Commands: []GuardCommand{{Kind: GuardCmdCloseBraveWindow}},
 		}),
 		"GuardState#closeTab": ok(nil, GuardStateReply{
@@ -563,8 +619,8 @@ func TestContractHasEveryCommand(t *testing.T) {
 			t.Errorf("пример для %s есть, а в AllCommands её нет", c)
 		}
 	}
-	if len(AllCommands) != 71 {
-		t.Errorf("команд %d, ждали 71 (5 команд M4: ListSites, AddSite, RemoveSite, SetAdultFilter, тестовая TestSeedPrograms; тестовая TestSeedDay и EndBreak из раунда 0.3.2; 46 из M1/M2/0.2.1 без команд Помощника, 9 из фидбек-раунда 0.2.2: OpenLogs, SetNoForbidden, ClearBonus, ReduceBonus, CreatePromo, ListPromos, RedeemPromo, GetBonusRate, SetBonusRate, GuardClosing из раунда 0.2.3, тестовая TestSession из 0.2.5 и 5 программ M3: ListPrograms, DecideProgram, SetProgramsCategory, UndoProgram, ScanPrograms; SetProgramsHidden и RenameProgram из раунда 0.3.1)", len(AllCommands))
+	if len(AllCommands) != 77 {
+		t.Errorf("команд %d, ждали 77 (6 команд M5: ClearStats, ClearJournal, GeneratePromos, ClearPromoHistory, AddSites, RemoveSites; 5 команд M4: ListSites, AddSite, RemoveSite, SetAdultFilter, тестовая TestSeedPrograms; тестовая TestSeedDay и EndBreak из раунда 0.3.2; 46 из M1/M2/0.2.1 без команд Помощника, 9 из фидбек-раунда 0.2.2: OpenLogs, SetNoForbidden, ClearBonus, ReduceBonus, CreatePromo, ListPromos, RedeemPromo, GetBonusRate, SetBonusRate, GuardClosing из раунда 0.2.3, тестовая TestSession из 0.2.5 и 5 программ M3: ListPrograms, DecideProgram, SetProgramsCategory, UndoProgram, ScanPrograms; SetProgramsHidden и RenameProgram из раунда 0.3.1)", len(AllCommands))
 	}
 }
 

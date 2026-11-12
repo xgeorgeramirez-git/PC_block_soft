@@ -2,6 +2,7 @@ import { test, expect, type Page } from "@playwright/test";
 import { mockScript } from "./mockBundle";
 import type { MockChild, MockOptions } from "../src/__mocks__/backend";
 import { DEFAULT_VIDEO_SITES } from "../src/lib/sites";
+import { G15_NOW, g15Events, g15Fields } from "../src/__mocks__/g15";
 import type { SiteDTO } from "../src/types";
 
 // Окно родителя в браузере с подменной программой (src/__mocks__/backend.ts).
@@ -51,11 +52,18 @@ async function tallWindow(page: Page, height: number) {
  * области, после чего прокрутки нет и низ страницы в кадре. Ширина окна не меняется.
  */
 async function wholePage(page: Page) {
-  const scroller = page.locator("main.content");
-  const hidden = await scroller.evaluate((el) => Math.ceil(el.scrollHeight - el.clientHeight));
+  // Своя область прокрутки экрана («Программы», B-43) тоже считается: окно растёт на её остаток.
+  const hiddenNow = () =>
+    page.evaluate(() =>
+      Math.max(
+        0,
+        ...[...document.querySelectorAll("main.content, main.content .programs-scroll")].map((el) => el.scrollHeight - el.clientHeight),
+      ),
+    );
+  const hidden = Math.ceil(await hiddenNow());
   const size = page.viewportSize()!;
   if (hidden > 0) await page.setViewportSize({ width: size.width, height: size.height + hidden });
-  expect(await scroller.evaluate((el) => el.scrollHeight - el.clientHeight), "часть страницы не в кадре").toBeLessThanOrEqual(1);
+  expect(await hiddenNow(), "часть страницы не в кадре").toBeLessThanOrEqual(1);
 }
 
 /** Элемент целиком в окне (низ не обрезан). */
@@ -223,23 +231,86 @@ test("s03 лимиты нескольких детей, панель не зак
   await page.screenshot({ path: `${SCREENS}/s03-limits-family.png`, fullPage: true });
 });
 
-// s04 — журнал и настройки.
-test("s04 журнал", async ({ page }) => {
-  const now = Date.now();
+// s04 — журнал (FR-24, 8.3.7 п.2): вкладки периода, фильтры «Ребёнок» и «Что», события простыми словами.
+const journalEvents = (now: number) => [
+  { atMs: now - 600_000, tzOffsetMin: 180, childId: 1, childName: "Миша", kind: "bypass", text: "Миша: попытка обойти защиту. Закрыт значок программы" },
+  { atMs: now - 1_800_000, tzOffsetMin: 180, childId: 2, childName: "Даша", kind: "site_forbidden_try", text: "Даша: попытка открыть запрещённое: сайт example.com" },
+  { atMs: now - 3_600_000, tzOffsetMin: 180, childId: 1, childName: "Миша", kind: "extra_time", text: "Миша: доп. время +30 мин" },
+  { atMs: now - 5_400_000, tzOffsetMin: 180, childId: 0, childName: "", kind: "password_failed", text: "Неверный пароль родителя" },
+];
+
+/** Часы журнала: середина дня, «Сегодня» на снимках не зависит от времени сборки. */
+const JOURNAL_NOW = new Date(2026, 10, 12, 15, 0, 0);
+
+async function openJournal(page: Page, over: MockOptions = {}) {
+  await page.clock.setFixedTime(JOURNAL_NOW);
   await mockProgram(page, {
     mode: "parent",
     sessionActive: true,
-    children: [child({})],
-    events: [
-      { atMs: now - 600_000, tzOffsetMin: 180, childId: 1, childName: "Миша", kind: "bypass", text: "Миша: попытка обойти защиту. Закрыт значок программы" },
-      { atMs: now - 3_600_000, tzOffsetMin: 180, childId: 1, childName: "Миша", kind: "extra_time", text: "Миша: доп. время +30 мин" },
-    ],
+    children: [child({}), child({ childId: 2, sid: "S-1-5-21-111-222-333-1002", name: "Даша", usedS: 600 })],
+    events: journalEvents(JOURNAL_NOW.getTime()),
+    ...over,
   });
   await page.goto("/");
   await page.getByRole("button", { name: "Журнал" }).click();
-  await expect(page.getByText("Миша: доп. время +30 мин")).toBeVisible();
+}
+
+for (const scheme of ["light", "dark"] as const) {
+  test(`s04 журнал${scheme === "dark" ? ", тёмная тема" : ""}`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: scheme });
+    await openJournal(page);
+    await expect(page.getByText("Миша: доп. время +30 мин")).toBeVisible();
+    await expect(page.getByRole("tab", { name: "Всё" })).toHaveAttribute("aria-selected", "true");
+    await expect(page.getByLabel("Ребёнок")).toHaveValue("0");
+    await expect(page.getByLabel("Что")).toHaveValue("");
+    // При «Все дети» кнопки очистки нет (8.3.7 п.3).
+    await expect(page.getByRole("button", { name: "Очистить журнал" })).toHaveCount(0);
+    await noHorizontalScroll(page);
+    await page.screenshot({ path: `${SCREENS}/s04-journal${scheme === "dark" ? "-dark" : ""}.png`, fullPage: true });
+  });
+}
+
+// s04 — ссылка «Нарушения сегодня» с главной: «Что: Нарушения», вкладка «Сегодня», выбран ребёнок -
+// справа «Очистить журнал». На 800 px строка фильтров не уходит вбок.
+test("s04 журнал: нарушения сегодня у одного ребёнка", async ({ page }) => {
+  await page.setViewportSize({ width: 800, height: 640 });
+  await openJournal(page);
+  await page.getByRole("button", { name: "Сегодня", exact: true }).click();
+  await page.getByRole("button", { name: /^Нарушения сегодня: / }).click();
+  await expect(page.getByLabel("Что")).toHaveValue("violations");
+  await expect(page.getByRole("tab", { name: "Сегодня" })).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByText("Даша: попытка открыть запрещённое: сайт example.com")).toBeVisible();
+  await expect(page.getByText("Миша: доп. время +30 мин")).toHaveCount(0);
+  await page.getByLabel("Ребёнок").selectOption({ label: "Миша" });
+  await expect(page.getByText("Даша: попытка открыть запрещённое: сайт example.com")).toHaveCount(0);
+  await expect(page.locator(".journal-item")).toHaveCount(1);
+  await expect(page.getByRole("button", { name: "Очистить журнал" })).toBeVisible();
   await noHorizontalScroll(page);
-  await page.screenshot({ path: `${SCREENS}/s04-journal.png`, fullPage: true });
+  await page.screenshot({ path: `${SCREENS}/s04-journal-violations.png`, fullPage: true });
+});
+
+// s04 — «Показать ещё» (RM5-5): 230 записей, на странице 200, кнопка дописывает старые.
+test("s04 журнал: «Показать ещё»", async ({ page }) => {
+  const base = JOURNAL_NOW.getTime() - 86_400_000;
+  const many = Array.from({ length: 230 }, (_, i) => ({
+    atMs: base - i * 60_000,
+    tzOffsetMin: 180,
+    childId: 1,
+    childName: "Миша",
+    kind: "extra_time",
+    text: `Миша: доп. время +5 мин (запись ${i + 1})`,
+  }));
+  await openJournal(page, { events: many });
+  await expect(page.getByText("Миша: доп. время +5 мин (запись 1)", { exact: true })).toBeVisible();
+  await expect(page.locator(".journal-item")).toHaveCount(200);
+  const moreBtn = page.getByRole("button", { name: "Показать ещё" });
+  await moreBtn.scrollIntoViewIfNeeded();
+  await expect(moreBtn).toBeInViewport();
+  await noHorizontalScroll(page);
+  await moreBtn.click();
+  await expect(page.locator(".journal-item")).toHaveCount(230);
+  await expect(page.getByText("Миша: доп. время +5 мин (запись 230)", { exact: true })).toBeVisible();
+  await expect(moreBtn).toHaveCount(0);
 });
 
 test("s05 настройки", async ({ page }) => {
@@ -321,7 +392,7 @@ test("s07 что нового", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("navigation", { name: "Разделы" }).getByRole("button", { name: "Что нового" }).click();
   await expect(page.getByRole("heading", { name: "Что нового", level: 2 })).toBeVisible();
-  await expect(page.getByRole("heading", { level: 3 }).first()).toHaveText("Версия 0.4.1. Roblox больше не просит разрешения каждый раз");
+  await expect(page.getByRole("heading", { level: 3 }).first()).toHaveText("Версия 0.5.0. Статистика по дням, очистка и промокоды");
   await expect(page.locator("main.content").getByRole("button")).toHaveCount(0);
   await noHorizontalScroll(page);
   await wholePage(page);
@@ -338,7 +409,7 @@ const ledger = (now: number) => [
   { atMs: now - 30 * 3600_000, tzOffsetMin: 180, deltaMin: 30, reason: "за уборку", balanceAfter: 30 },
 ];
 
-// s09 — копилка: обнулить и убавить с подтверждением (D-46); вкладка «Бонусы» — автобонусы и промокоды (R25, R26).
+// s09 — копилка: обнулить и убавить с подтверждением (D-46); вкладка «Бонусы» — автобонусы и ссылка на «Промокоды» (R25, RM5-13).
 test("s09 копилка: убавить с подтверждением", async ({ page }) => {
   await tallWindow(page, 900);
   const now = Date.now();
@@ -359,28 +430,38 @@ test("s09 копилка: убавить с подтверждением", async
   await expect(card.getByText(/-30 мин: Убавлено родителем/)).toBeVisible();
 });
 
-test("s09 бонусы и промокоды", async ({ page }) => {
+// s09 — вкладка «Бонусы»: автобонусы и одна строка со ссылкой на раздел «Промокоды» (RM5-13);
+// формы промокодов здесь больше нет, «Открыть» ведёт в раздел.
+test("s09 бонусы: ссылка на промокоды", async ({ page }) => {
   await tallWindow(page, 1000);
   const now = Date.now();
   await mockProgram(page, {
     mode: "parent",
     sessionActive: true,
     children: [child({ bonusBalance: 45, bonusLedger: ledger(now) }), child({ childId: 2, sid: "S-1-5-21-111-222-333-1002", name: "Даша", bonusBalance: 0, bonusLedger: [] })],
-    promos: [
-      { codeDisplay: "pizza", minutes: 20, createdAtMs: now - 86400_000, usedAtMs: now - 3600_000, usedByChild: 2 },
-    ],
   });
   await page.goto("/");
   await page.getByRole("button", { name: "Копилка", exact: true }).click();
   await page.getByRole("tab", { name: "Бонусы" }).click();
   await expect(page.getByText("+15 мин за неизрасходованное время прошлого дня")).toBeVisible();
-  await page.getByLabel("Код", { exact: true }).fill("a1234");
-  await page.getByLabel("Минут", { exact: true }).fill("30");
-  await page.getByRole("button", { name: "Создать промокод" }).click();
-  await expect(page.getByRole("list", { name: "Действующие промокоды" }).getByText("a1234")).toBeVisible();
-  await expect(page.getByRole("list", { name: "Использованные промокоды" }).getByText(/Даша/)).toBeVisible();
+  const link = page.getByRole("region", { name: "Промокоды" });
+  await expect(link.getByText("Промокоды теперь в отдельном разделе «Промокоды»", { exact: true })).toBeVisible();
+  await expect(page.getByLabel("Код", { exact: true })).toHaveCount(0);
+  // Строка и кнопка в одну линию: кнопка по вертикали в пределах строки текста.
+  const box = await link.evaluate((el) => {
+    const r = (q: string) => el.querySelector(q)!.getBoundingClientRect();
+    const t = r(".panel-text");
+    const b = r("button");
+    return { textMid: t.top + t.height / 2, btnTop: b.top, btnBottom: b.bottom, btnLeft: b.left, textRight: t.right };
+  });
+  expect(box.textMid, "текст и «Открыть» не на одной линии").toBeGreaterThan(box.btnTop);
+  expect(box.textMid, "текст и «Открыть» не на одной линии").toBeLessThan(box.btnBottom);
+  expect(box.btnLeft, "«Открыть» наезжает на текст").toBeGreaterThan(box.textRight);
   await noHorizontalScroll(page);
-  await page.screenshot({ path: `${SCREENS}/s09-bonuses-promos.png`, fullPage: true });
+  await page.screenshot({ path: `${SCREENS}/s09-bonuses-link.png`, fullPage: true });
+  await link.getByRole("button", { name: "Открыть" }).click();
+  await expect(page.getByRole("heading", { name: "Промокоды", level: 2 })).toBeVisible();
+  await expect(page.getByRole("navigation", { name: "Разделы" }).getByRole("button", { name: "Промокоды" })).toHaveAttribute("aria-current", "page");
 });
 
 // s10 — запретные часы: правка интервала с заполненными полями (D-45); снять запрет на сегодня (R24).
@@ -948,7 +1029,7 @@ for (const [w, h] of [
     await tabsState(page, "Учёба", `статистика родителя за год ${w} x ${h}`, "за год");
     await noHorizontalScroll(page);
     await settled(page);
-    if (w === 960) await page.screenshot({ path: `${SCREENS}/s31-parent-stats-year.png`, fullPage: true });
+    // Снимок года у родителя - s21-parent-stats-year (неделя G15, «По дням» по месяцам): один снимок года.
     // «Всё время»: «Всего» 2 ч 30 мин (50 + 60 + 40), как в S42.
     await page.getByRole("tablist", { name: "Период" }).getByRole("tab", { name: "Всё время", exact: true }).click();
     await expect(tabs.getByRole("tab", { name: "Всего", exact: true }).locator(".totals-tab-value")).toHaveText("2 ч 30 мин");
@@ -1117,7 +1198,10 @@ for (const [w, h] of [
 
 test("s06 бонусы ребёнка и промокод", async ({ page }) => {
   await tallWindow(page, 1000);
-  const now = Date.now();
+  // Полдень: автобонус (10 ч назад) - сегодня, он виден в «Копилке» периода «Сегодня» (по умолчанию).
+  const nowDate = new Date(2026, 9, 19, 12, 0, 0);
+  await page.clock.setFixedTime(nowDate);
+  const now = nowDate.getTime();
   await mockProgram(page, {
     mode: "mystats",
     children: [child({ bonusBalance: 45, bonusLedger: ledger(now) })],
@@ -1127,7 +1211,12 @@ test("s06 бонусы ребёнка и промокод", async ({ page }) => 
   await page.goto("/");
   const box = page.getByRole("region", { name: "Бонусы" });
   await expect(box.getByText("Копилка: 45 мин")).toBeVisible();
-  await expect(box.getByText("+15 мин за неизрасходованное время прошлого дня")).toBeVisible();
+  // История копилки - одно место: раздел «Копилка» панели периода (M5), в «Бонусах» её нет.
+  await expect(box.getByRole("list")).toHaveCount(0);
+  await expect(page.getByRole("tab", { name: "Сегодня", exact: true })).toHaveAttribute("aria-selected", "true");
+  const piggy = page.getByRole("tabpanel", { name: "Сегодня" }).getByRole("region", { name: "Копилка" });
+  await expect(piggy.getByText("+15 мин за неизрасходованное время прошлого дня")).toBeVisible();
+  await expect(page.getByText("+15 мин за неизрасходованное время прошлого дня")).toHaveCount(1);
   await box.getByRole("textbox", { name: "Промокод" }).fill("a1234");
   await box.getByRole("button", { name: "Ввести промокод" }).click();
   await expect(box.getByText("Добавлено 30 минут")).toBeVisible();
@@ -1209,15 +1298,29 @@ async function decisionButtonsEven(page: Page) {
   }
 }
 
-/** Зазор между соседними блоками страницы не меньше 16 px (замер, не на глаз). */
+/**
+ * Зазор между соседними блоками страницы не меньше 16 px (замер, не на глаз). Блоки сравниваются в
+ * своей системе прокрутки (B-43): снаружи - заголовок, сообщение (если есть) и область списков
+ * целиком; внутри области списков - её блоки между собой. Блоки внутри прокрученной области
+ * сдвинуты все вместе, поэтому сравнивать их с заголовком снаружи нельзя.
+ */
 async function blocksApart(page: Page) {
-  const parts = page.locator("main.content .programs-page > *");
-  const n = await parts.count();
-  const boxes: Box[] = [];
-  for (let i = 0; i < n; i++) boxes.push(await boxOf(parts.nth(i)));
-  for (let i = 1; i < boxes.length; i++) {
-    expect(boxes[i].top - boxes[i - 1].bottom, `между блоками ${i - 1} и ${i} меньше 16 px`).toBeGreaterThanOrEqual(16 - 0.5);
-  }
+  const gapsOk = async (parts: ReturnType<Page["locator"]>, where: string) => {
+    const n = await parts.count();
+    const boxes: Box[] = [];
+    for (let i = 0; i < n; i++) {
+      const b = await boxOf(parts.nth(i));
+      if (b.height > 0) boxes.push(b);
+    }
+    for (let i = 1; i < boxes.length; i++) {
+      expect(boxes[i].top - boxes[i - 1].bottom, `${where}: между блоками ${i - 1} и ${i} меньше 16 px`).toBeGreaterThanOrEqual(16 - 0.5);
+    }
+  };
+  await gapsOk(
+    page.locator("main.content .programs-page > .page-head, main.content .programs-message > *, main.content .programs-scroll"),
+    "экран",
+  );
+  await gapsOk(page.locator("main.content .programs-scroll > *"), "область списков");
 }
 
 /** Ничего не вылезает из ячеек таблицы и из строк «Ждут решения». */
@@ -1273,6 +1376,35 @@ test("s11 программы: ждут решения и список", async ({
   await expect(longName).toContainText("…");
   await noHorizontalScroll(page);
   await page.screenshot({ path: `${SCREENS}/s11-programs.png`, fullPage: true });
+});
+
+// s11 — B-43: одно место сообщения без sticky (PL-25). Область списков прокручена вниз, категория
+// меняется в нижней строке: сообщение с «Отменить» и отсчётом стоит над областью списков, на виду;
+// окно целиком не прокручивается.
+test("s11 программы: «Отменить» на виду при прокрутке списка", async ({ page }) => {
+  await tallWindow(page, 640);
+  await openPrograms(page, { pending: pendingPrograms(Date.now()), programs: programList() });
+  const select = page.getByRole("combobox", { name: "Категория для «Учи.ру»" });
+  await select.scrollIntoViewIfNeeded();
+  await select.selectOption("other");
+  const msg = page.locator(".programs-message .programs-feedback");
+  await expect(msg).toContainText("Учи.ру");
+  await expect(msg.getByRole("button", { name: "Отменить" })).toBeVisible();
+  await expect(msg.locator(".undo-left")).toHaveText(/^\d+ с$/);
+  const scrolled = await page.locator(".programs-scroll").evaluate((el) => el.scrollTop);
+  expect(scrolled, "список не прокручен: проверка ничего не проверяет").toBeGreaterThan(0);
+  expect(await page.locator("main.content").evaluate((el) => el.scrollTop), "прокрутилось окно, а не область списков").toBe(0);
+  const content = await boxOf(page.locator("main.content"));
+  const box = await boxOf(msg);
+  const list = await boxOf(page.locator(".programs-scroll"));
+  expect(box.top, "сообщение выше области окна").toBeGreaterThanOrEqual(content.top - 0.5);
+  expect(box.bottom, "сообщение не над областью списков").toBeLessThanOrEqual(list.top + 0.5);
+  // Выбор категории, к которому вернулся фокус, виден в области списков.
+  const sel = await boxOf(select);
+  expect(sel.top).toBeGreaterThanOrEqual(list.top - 0.5);
+  expect(sel.bottom).toBeLessThanOrEqual(list.bottom + 0.5);
+  await noHorizontalScroll(page);
+  await page.screenshot({ path: `${SCREENS}/s11-programs-undo-scroll.png` });
 });
 
 // s11 — после «Игра»: сообщение «SuperGame: игра» с «Отменить», фильтр «Игры» и отмеченные строки.
@@ -1813,8 +1945,8 @@ for (const v of [
     });
     await page.goto("/");
     await page.getByRole("button", { name: "Дети" }).click();
-    await page.getByRole("tablist", { name: "Правила ребёнка" }).getByRole("tab", { name: "Отдых", exact: true }).click();
-    await expect(page.getByRole("checkbox", { name: "Перерывы на отдых" })).toBeChecked();
+    await page.getByRole("tablist", { name: "Правила ребёнка" }).getByRole("tab", { name: "Перерыв на отдых", exact: true }).click();
+    await expect(page.getByRole("checkbox", { name: "Перерыв на отдых" })).toBeChecked();
     await expect(page.getByLabel("Засчитать как отдых, если не играл подряд")).toHaveValue("30");
     await expect(
       page.getByText("После 60 мин игр ребёнок увидит «Пора отдохнуть», через 5 мин компьютер закроется на 15 мин. Если сам не играл 30 мин подряд, это засчитается как отдых"),
@@ -1833,7 +1965,7 @@ for (const v of [
     // Ошибка у поля: порог меньше отдыха.
     await page.getByLabel("Засчитать как отдых, если не играл подряд").fill("10");
     await page.getByRole("button", { name: "Сохранить" }).click();
-    await expect(page.getByText("Не меньше времени отдыха")).toBeVisible();
+    await expect(page.getByText("Не меньше 15 мин: столько длится отдых")).toBeVisible();
     await page.evaluate(() => Promise.all(document.getAnimations().map((a) => a.finished)));
     await restBlocksApart(page);
     await noHorizontalScroll(page);
@@ -1984,8 +2116,11 @@ async function openSites(page: Page, options: MockOptions = {}) {
   await expect(page.getByRole("tablist", { name: "Списки сайтов" })).toBeVisible();
 }
 
-/** Подсказка поля «Добавить сайт» на экране «Сайты» и в мастере. */
+/** Подсказка поля «Добавить сайт» в мастере. */
 const SITE_HINT = "Можно вставить адрес страницы целиком: программа возьмёт из него только сайт. Например: youtube.com";
+/** Та же подсказка на экране «Сайты»: там можно вставить сразу несколько адресов (B-49). */
+const SITES_HINT =
+  "Можно вставить адрес страницы целиком: программа возьмёт из него только сайт. Можно сразу несколько, по одному в строке. Например: youtube.com";
 
 const sitesTab = (page: Page, title: string) =>
   page.getByRole("tablist", { name: "Списки сайтов" }).getByRole("tab", { name: new RegExp(`^${title} \\d+$`) });
@@ -2068,6 +2203,34 @@ test("m4 сайты: тёмная тема", async ({ page }) => {
   await page.screenshot({ path: `${SCREENS}/m4-sites-dark.png`, fullPage: true });
 });
 
+// m5-checkboxes-dark — флажки своим оформлением в тёмной теме (ревью окна M5): пустые «18+» у Даши и строк
+// списка, отмеченные «18+» у Миши и строка casino.example, «выбрано не всё» у «Выбрать всё в списке».
+// Рамка 2 px цветом рамки поля, а не рамка браузера (в тёмной теме сливалась с карточкой).
+test("m5 флажки: тёмная тема, пустые и отмеченные", async ({ page }) => {
+  await page.emulateMedia({ colorScheme: "dark" });
+  await page.setViewportSize({ width: 1200, height: 820 });
+  await openSites(page);
+  const group = page.getByRole("group", { name: "Блокировать сайты 18+" });
+  await expect(group.getByRole("checkbox", { name: "Миша", exact: true })).toBeChecked();
+  await expect(group.getByRole("checkbox", { name: "Даша", exact: true })).not.toBeChecked();
+  // Щелчок по названию сайта отмечает строку (флажок и домен в одной подписи).
+  await page.locator(".sites-row", { hasText: "casino.example" }).locator(".sites-domain").click();
+  await expect(page.getByRole("checkbox", { name: "Отметить «casino.example»", exact: true })).toBeChecked();
+  await expect(page.getByText("Выбрано: 1", { exact: true })).toBeVisible();
+  const look = await page.evaluate(() =>
+    [...document.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')].map((el) => {
+      const cs = getComputedStyle(el);
+      // Ширина из стиля, а не из рамки: строки списка вне экрана не рисуются (content-visibility, B-51).
+      return { appearance: cs.appearance, border: cs.borderTopWidth, width: cs.width };
+    }),
+  );
+  expect(look.length).toBeGreaterThan(3);
+  for (const l of look) expect(l).toEqual({ appearance: "none", border: "2px", width: "18px" });
+  await siteRowsFit(page);
+  await wholePage(page);
+  await page.screenshot({ path: `${SCREENS}/m5-checkboxes-dark.png`, fullPage: true });
+});
+
 // m4-sites-960 — наименьшее окно 960 x 620: без прокрутки вбок, поле и «Добавить» в одну строку.
 test("m4 сайты: узкое окно", async ({ page }) => {
   await page.setViewportSize({ width: 960, height: 620 });
@@ -2096,7 +2259,7 @@ test("m4 сайты: ошибка у поля и отмена удаления",
   await expect(field).toHaveAttribute("aria-invalid", "true");
   await expect(field).toBeFocused();
   // Подсказка с примером не пропадает при ошибке: под ошибкой, в той же форме (ревью M4).
-  const hint = page.getByText(SITE_HINT, { exact: true });
+  const hint = page.getByText(SITES_HINT, { exact: true });
   await expect(hint).toBeVisible();
   expect((await boxOf(hint)).top, "подсказка не под ошибкой").toBeGreaterThanOrEqual((await boxOf(error)).bottom - 0.5);
   await page.screenshot({ path: `${SCREENS}/m4-sites-error.png`, fullPage: true });
@@ -2129,6 +2292,37 @@ test("m4 сайты: вкладка «Видео и соцсети»", async ({ 
   await noHorizontalScroll(page);
   await wholePage(page);
   await page.screenshot({ path: `${SCREENS}/m4-sites-video.png`, fullPage: true });
+});
+
+// m5-sites-paste, m5-sites-picked — несколько адресов по одному в строке (не-адрес остаётся в поле
+// с ошибкой) и отметка строк с «Выбрано: N» и «Удалить» (B-49); ссылка «Открыть лимиты» (B-50).
+test("m5 сайты: вставка нескольких адресов и отметка строк", async ({ page }) => {
+  await openSites(page);
+  const field = page.getByRole("textbox", { name: "Добавить сайт" });
+  await field.fill("kino.example\nhttps://www.New.example/page\nкотики видео");
+  await expect(field).toHaveAttribute("rows", "3");
+  await wholePage(page);
+  await page.screenshot({ path: `${SCREENS}/m5-sites-paste.png`, fullPage: true });
+  await field.press("Enter");
+  await expect(page.getByText("Добавлено сайтов: 2", { exact: true })).toBeVisible();
+  await expect(field).toHaveValue("котики видео");
+  await expect(page.getByText("Это не похоже на адрес сайта", { exact: true })).toBeVisible();
+  await expect(sitesTab(page, "Запрещённые")).toHaveText("Запрещённые 6");
+
+  await page.getByRole("checkbox", { name: "Отметить «casino.example»", exact: true }).check();
+  await page.getByRole("checkbox", { name: "Отметить «ads.example»", exact: true }).check();
+  await expect(page.getByText("Выбрано: 2", { exact: true })).toBeVisible();
+  await siteRowsFit(page);
+  await noHorizontalScroll(page);
+  await wholePage(page);
+  await page.screenshot({ path: `${SCREENS}/m5-sites-picked.png`, fullPage: true });
+  await page.getByRole("button", { name: "Удалить отмеченные", exact: true }).click();
+  await expect(page.getByText("Удалено сайтов: 2", { exact: true })).toBeVisible();
+  await expect(sitesTab(page, "Запрещённые")).toHaveText("Запрещённые 4");
+
+  await sitesTab(page, "Видео и соцсети").click();
+  await page.getByRole("button", { name: "Открыть лимиты", exact: true }).click();
+  await expect(page.getByRole("tab", { name: "Лимиты", exact: true })).toHaveAttribute("aria-selected", "true");
 });
 
 // --- M4: видео-лимит, шаг мастера «Сайты», «Итоги» по сайтам (T9) --------------------------
@@ -2349,4 +2543,629 @@ test("m4 статистика родителя: видео", async ({ page }) =>
   await noHorizontalScroll(page);
   await settled(page);
   await page.screenshot({ path: `${SCREENS}/m4-parent-stats-video.png`, fullPage: true });
+});
+
+// --- M5: разделы статистики за период, «По дням», очистка (S21, S22, S48; 8.2.6, 8.3.7) -----------
+
+/** Ребёнок эталонной недели G15 (вс 22.11.2026): пн 16 … сб 21 из «базы», сегодня game.exe 10 мин. */
+const g15 = (over: Partial<MockChild> = {}) => child({ ...g15Fields(), ...over });
+
+/** Родитель: окно статистики Миши через карточку «Сегодня». */
+async function openParentStats(page: Page, children: MockChild[], events = g15Events()) {
+  await mockProgram(page, { mode: "parent", sessionActive: true, children, events });
+  await page.goto("/");
+  await page.getByRole("article", { name: "Миша" }).getByRole("button", { name: "Статистика" }).click();
+  await expect(page.getByRole("region", { name: "Итоги" })).toBeVisible();
+}
+
+async function choosePeriod(page: Page, name: string, used: string) {
+  await page.getByRole("tablist", { name: "Период" }).getByRole("tab", { name, exact: true }).click();
+  await expect(page.getByRole("region", { name: "Итоги" }).locator(".stat-row").filter({ hasText: used })).toBeVisible();
+}
+
+const barHits = (page: Page) => page.getByRole("region", { name: "По дням" }).getByRole("group", { name: "Столбики: стрелки влево и вправо" }).getByRole("img");
+
+/** Прокрутка вбок только у графика: сколько он шире своей области (0 - помещается). */
+const chartOverflow = (page: Page) =>
+  page.locator(".daybars-scroll").evaluate((el) => ({ scroll: el.scrollWidth, client: el.clientWidth, left: el.scrollLeft }));
+
+/**
+ * Столбики и подписи «По дням» не налезают друг на друга, подписи внутри области графика, подсказка (если
+ * есть) целиком в кадре окна. Всё в одной строке ошибки (журналы Actions недоступны).
+ */
+async function barsFit(page: Page, where: string) {
+  const report = await page.locator("figure.daybars").evaluate((fig) => {
+    const r = (el: Element) => {
+      const b = el.getBoundingClientRect();
+      return { l: b.left, r: b.right, t: b.top, b: b.bottom };
+    };
+    const scroll = r(fig.querySelector(".daybars-scroll")!);
+    const labels = [...fig.querySelectorAll(".daybars-label")]
+      .filter((l) => (l.textContent ?? "") !== "")
+      .map((l) => {
+        const range = document.createRange();
+        range.selectNodeContents(l);
+        const b = range.getBoundingClientRect();
+        return { text: l.textContent ?? "", l: b.left, r: b.right };
+      });
+    // Подписи оси: прямоугольник текста, его рамка (обрезка overflow) и карточка «По дням».
+    const area = r(fig.querySelector(".daybars-area")!);
+    const figBox = r(fig);
+    const card = r(fig.closest(".card") ?? fig.closest("section") ?? fig);
+    const ticks = [...fig.querySelectorAll(".daybars-tick")].map((t) => {
+      const range = document.createRange();
+      range.selectNodeContents(t);
+      const b = range.getBoundingClientRect();
+      const el = t as HTMLElement;
+      return { text: t.textContent ?? "", l: b.left, r: b.right, mid: (b.top + b.bottom) / 2, scroll: el.scrollWidth, client: el.clientWidth };
+    });
+    const tip = fig.querySelector(".daybars-tip");
+    const content = r(document.querySelector("main.content")!);
+    return { scroll, area, fig: figBox, card, ticks, labels, tip: tip ? { ...r(tip), text: tip.textContent ?? "" } : null, content, vw: window.innerWidth, vh: window.innerHeight };
+  });
+  const problems: string[] = [];
+  report.labels.forEach((l, i) => {
+    const next = report.labels[i + 1];
+    if (next && l.r > next.l + 0.5) problems.push(`подписи «${l.text}» и «${next.text}» налезают`);
+  });
+  for (const t of report.ticks) {
+    // Ось стоит на месте слева от прокручиваемой части: правый край подписи - не дальше левого края
+    // видимой области столбиков (.daybars-scroll), левый - внутри рисунка.
+    if (t.l < report.fig.l - 0.5) problems.push(`подпись оси «${t.text}» обрезана слева`);
+    if (t.r > report.scroll.l + 0.5) problems.push(`подпись оси «${t.text}» заходит на столбики`);
+    if (t.l < report.card.l - 0.5 || t.r > report.card.r + 0.5) problems.push(`подпись оси «${t.text}» вне карточки`);
+    if (t.scroll > t.client + 1) problems.push(`подпись оси «${t.text}» обрезана (${t.scroll} > ${t.client})`);
+  }
+  // Ось на одной высоте со столбиками: «0» - у низа области графика, верхнее деление - у её верха.
+  const [zero, top] = [report.ticks[0], report.ticks[report.ticks.length - 1]];
+  if (zero && Math.abs(zero.mid - report.area.b) > 1.5) problems.push(`деление «${zero.text}» не у низа столбиков`);
+  if (top && Math.abs(top.mid - report.area.t) > 1.5) problems.push(`деление «${top.text}» не у верха области`);
+  if (report.tip) {
+    const t = report.tip;
+    if (t.l < report.content.l - 0.5 || t.r > report.content.r + 0.5 || t.r > report.vw + 0.5) problems.push(`подсказка «${t.text}» за краем окна`);
+    if (t.t < report.scroll.t - 0.5) problems.push(`подсказка «${t.text}» обрезана сверху`);
+  }
+  expect(problems, `${where}: ${problems.join("; ")} | ${JSON.stringify(report)}`).toEqual([]);
+}
+
+/**
+ * Плитки «Итогов» (возврат 2 T5): значение и подпись каждой плитки целиком внутри её рамки (ничего не
+ * обрезано и не торчит), плитки внутри карточки «Итогов». Всё в одной строке ошибки.
+ */
+async function tilesFit(page: Page, where: string) {
+  const report = await page.getByRole("region", { name: "Итоги" }).evaluate((box) => {
+    const r = (el: Element) => {
+      const b = el.getBoundingClientRect();
+      return { l: b.left, r: b.right, t: b.top, b: b.bottom };
+    };
+    const card = r(box);
+    return [...box.querySelectorAll('.totals-tab[role="tab"]')].map((t) => {
+      const parts = [...t.querySelectorAll(".totals-tab-label, .totals-tab-value")].map((p) => ({
+        text: p.textContent ?? "",
+        box: r(p),
+        scroll: (p as HTMLElement).scrollWidth,
+        client: (p as HTMLElement).clientWidth,
+      }));
+      return { text: t.textContent ?? "", box: r(t), scroll: (t as HTMLElement).scrollWidth, client: (t as HTMLElement).clientWidth, parts, card };
+    });
+  });
+  const problems: string[] = [];
+  for (const t of report) {
+    if (t.scroll > t.client + 1) problems.push(`плитка «${t.text}»: содержимое шире рамки (${t.scroll} > ${t.client})`);
+    if (t.box.l < t.card.l - 0.5 || t.box.r > t.card.r + 0.5) problems.push(`плитка «${t.text}» вне карточки`);
+    for (const p of t.parts) {
+      if (p.scroll > p.client + 1) problems.push(`«${p.text}» обрезано (${p.scroll} > ${p.client})`);
+      if (p.box.l < t.box.l - 0.5 || p.box.r > t.box.r + 0.5 || p.box.b > t.box.b + 0.5) problems.push(`«${p.text}» выходит за плитку «${t.text}»`);
+    }
+  }
+  expect(problems, `${where}: ${problems.join("; ")} | ${JSON.stringify(report.map((t) => [t.text, t.box, t.parts]))}`).toEqual([]);
+}
+
+// s21 — статистика родителя за неделю G15 (S21): «Итоги», «По дням» 7 столбиков (среда пустая), «Программы»,
+// «Сайты», «Нарушения», «Копилка»; подпись «Статистика ведётся с»; светлая и тёмная тема.
+for (const scheme of ["light", "dark"] as const) {
+  test(`s21 статистика родителя: неделя G15, тема ${scheme}`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: scheme });
+    await page.clock.setFixedTime(G15_NOW);
+    await page.setViewportSize({ width: 960, height: 900 });
+    await openParentStats(page, [g15()]);
+    await choosePeriod(page, "Неделя", "Использовано за неделю");
+    await expect(page.getByText("Статистика ведётся с 16 ноября 2026", { exact: true })).toBeVisible();
+    await expect(barHits(page)).toHaveCount(7);
+    await expect(barHits(page).nth(1)).toHaveAttribute("aria-label", "вт, 17 ноября: 2 ч 20 мин, учёба 0 мин");
+    await expect(page.locator("svg.daybars-svg")).toHaveAttribute("aria-label", "По дням за неделю: 12 ч 33 мин в счёт лимита, учёба 1 ч 35 мин");
+    await expect(page.locator("svg.daybars-svg line.daybar-empty")).toHaveCount(1);
+    await expect(page.getByRole("table", { name: "Программы" }).locator("tbody tr")).toHaveText(["game.exe4 ч 45 мин45%", "other.exe4 ч 08 мин39%", "study.exe1 ч 35 мин15%"]);
+    await expect(page.getByRole("table", { name: "Сайты" }).locator("tbody tr")).toHaveText(["youtube.com3 ч 40 мин100%"]);
+    await expect(page.getByRole("list", { name: "Нарушения" }).getByRole("listitem")).toHaveCount(1);
+    await expect(page.getByRole("region", { name: "Копилка" }).getByText("Сейчас в копилке: 25 мин", { exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Очистить статистику" })).toBeVisible();
+    expect((await chartOverflow(page)).scroll).toBeLessThanOrEqual((await chartOverflow(page)).client);
+    await barsFit(page, `неделя, тема ${scheme}`);
+    await tilesFit(page, `неделя 960, тема ${scheme}`);
+    await noHorizontalScroll(page);
+    await wholePage(page);
+    await page.screenshot({ path: `${SCREENS}/s21-parent-stats-week${scheme === "dark" ? "-dark" : ""}.png`, fullPage: true });
+  });
+}
+
+// s21 — год G15: столбики по месяцам январь…ноябрь, пустые месяцы - отметкой, ноябрь 12 ч 33 мин.
+test("s21 статистика родителя: год G15 по месяцам", async ({ page }) => {
+  await page.clock.setFixedTime(G15_NOW);
+  await page.setViewportSize({ width: 960, height: 900 });
+  await openParentStats(page, [g15()]);
+  await choosePeriod(page, "Год", "Использовано за год");
+  await expect(barHits(page)).toHaveCount(11);
+  await expect(barHits(page).last()).toHaveAttribute("aria-label", "ноябрь 2026: 12 ч 33 мин, учёба 1 ч 35 мин");
+  await expect(page.locator(".daybars-label")).toHaveText(["янв", "фев", "мар", "апр", "май", "июн", "июл", "авг", "сен", "окт", "ноя"]);
+  await expect(page.locator("svg.daybars-svg line.daybar-empty")).toHaveCount(10);
+  await barsFit(page, "год");
+  await noHorizontalScroll(page);
+  await wholePage(page);
+  await page.screenshot({ path: `${SCREENS}/s21-parent-stats-year.png`, fullPage: true });
+});
+
+/** Октябрь 2026 с временем через день: 31 столбик «Месяца» на 31.10.2026. */
+const october = () =>
+  Array.from({ length: 30 }, (_, i) => i + 1)
+    .filter((d) => d % 2 === 1)
+    .map((d) => ({ day: `2026-10-${String(d).padStart(2, "0")}`, totalS: (30 + (d % 7) * 20) * 60, gamesS: 1800 }));
+const OCT31 = new Date(2026, 9, 31, 15, 0, 0);
+
+// s21 — 31 столбик месяца помещается без прокрутки вбок и в 960, и в 800 px, и в окне ребёнка 640 px.
+for (const [w, h, mode] of [
+  [960, 900, "parent"],
+  [800, 640, "parent"],
+  [640, 520, "mystats"],
+] as const) {
+  test(`s21 статистика: месяц 31 столбик в окне ${w} x ${h} (${mode})`, async ({ page }) => {
+    await page.clock.setFixedTime(OCT31);
+    await page.setViewportSize({ width: w, height: h });
+    const kid = child({ usedS: 1200, gamesUsedS: 0, history: october() });
+    if (mode === "parent") {
+      await openParentStats(page, [kid], []);
+    } else {
+      await mockProgram(page, { mode: "mystats", children: [kid], myChildId: 1 });
+      await page.goto("/");
+    }
+    await choosePeriod(page, "Месяц", "Использовано за месяц");
+    await expect(barHits(page)).toHaveCount(31);
+    await expect(page.locator(".daybars-label").filter({ hasText: /\S/ })).toHaveText(["чт 1", "чт 8", "чт 15", "чт 22", "чт 29"]);
+    const o = await chartOverflow(page);
+    expect(o.scroll, `график шире своей области: ${JSON.stringify(o)}`).toBeLessThanOrEqual(o.client);
+    await barHits(page).nth(0).hover();
+    await barsFit(page, `месяц, первый столбик, ${w} x ${h}`);
+    await barHits(page).nth(30).hover();
+    await barsFit(page, `месяц, последний столбик, ${w} x ${h}`);
+    await page.mouse.move(1, 1);
+    await tilesFit(page, `месяц ${w} x ${h} (${mode})`);
+    await noHorizontalScroll(page);
+    if (w === 960) await page.screenshot({ path: `${SCREENS}/s21-parent-stats-month31.png`, fullPage: true });
+  });
+}
+
+// s21 — подписи оси любой длины целиком внутри графика и карточки: деления по 30 мин («1 ч 30 мин») и
+// по 3 ч («12 ч»), у родителя 960 px и в окне ребёнка 640 px. Столбики под подписями дней (barsFit).
+for (const [peak, ticks] of [
+  [7000, ["0", "30 мин", "1 ч", "1 ч 30 мин", "2 ч"]],
+  [40000, ["0", "3 ч", "6 ч", "9 ч", "12 ч"]],
+] as const) {
+  for (const [w, h, mode] of [
+    [960, 900, "parent"],
+    [640, 520, "mystats"],
+  ] as const) {
+    test(`s21 статистика: подписи оси до «${ticks[ticks.length - 1]}» в окне ${w} x ${h} (${mode})`, async ({ page }) => {
+      await page.clock.setFixedTime(OCT31);
+      await page.setViewportSize({ width: w, height: h });
+      const kid = child({ usedS: 1200, gamesUsedS: 0, history: [{ day: "2026-10-05", totalS: peak, gamesS: 0 }] });
+      if (mode === "parent") {
+        await openParentStats(page, [kid], []);
+      } else {
+        await mockProgram(page, { mode: "mystats", children: [kid], myChildId: 1 });
+        await page.goto("/");
+      }
+      await choosePeriod(page, "Месяц", "Использовано за месяц");
+      await expect(page.locator(".daybars-tick")).toHaveText([...ticks]);
+      await barsFit(page, `подписи оси до ${peak} с, ${w} x ${h}`);
+      await noHorizontalScroll(page);
+    });
+  }
+}
+
+// s21 — «Всё время» за 36 месяцев: прокручивается вбок только график (сегодня виден справа), окно - нет.
+test("s21 статистика родителя: всё время 36 месяцев", async ({ page }) => {
+  await page.clock.setFixedTime(G15_NOW);
+  await page.setViewportSize({ width: 960, height: 900 });
+  const months = Array.from({ length: 35 }, (_, i) => {
+    const d = new Date(2023, 11 + i, 10, 12);
+    return { day: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-10`, totalS: (600 + (i % 6) * 900) * 60, studyS: (i % 3) * 1200 };
+  });
+  await openParentStats(page, [g15({ history: months })], []);
+  await choosePeriod(page, "Всё время", "Использовано за всё время");
+  await expect(barHits(page)).toHaveCount(36);
+  await expect(barHits(page).first()).toHaveAttribute("aria-label", /^декабрь 2023: /);
+  await expect(page.locator(".daybars-label").first()).toHaveText("дек 2023");
+  const o = await chartOverflow(page);
+  expect(o.scroll, "36 месяцев должны прокручиваться внутри графика").toBeGreaterThan(o.client);
+  expect(o.left + o.client, `график не прокручен к сегодняшнему месяцу: ${JSON.stringify(o)}`).toBeGreaterThanOrEqual(o.scroll - 1);
+  await expect(barHits(page).last()).toBeInViewport();
+  await barsFit(page, "всё время");
+  await tilesFit(page, "всё время 36 месяцев");
+  await noHorizontalScroll(page);
+  await page.screenshot({ path: `${SCREENS}/s21-parent-stats-all36.png`, fullPage: true });
+});
+
+// s21 — подсказка с клавиатуры (WCAG 2.1.1, 1.4.13): Tab на «сегодня», стрелкой влево до вторника,
+// подсказка «вт, 17 ноября: …» над графиком и целиком в окне; Esc прячет.
+test("s21 статистика родителя: подсказка столбика с клавиатуры", async ({ page }) => {
+  await page.clock.setFixedTime(G15_NOW);
+  await page.setViewportSize({ width: 960, height: 900 });
+  await openParentStats(page, [g15()]);
+  await choosePeriod(page, "Неделя", "Использовано за неделю");
+  // Раздел целиком в кадре: подсказка стоит над графиком, фокус не должен прокрутить её за край.
+  await page.getByRole("region", { name: "По дням" }).scrollIntoViewIfNeeded();
+  // Столбик «сегодня» - единственный столбик в порядке Tab (tabIndex 0).
+  await expect(barHits(page).nth(6)).toHaveAttribute("tabindex", "0");
+  await barHits(page).nth(6).focus();
+  await expect(page.locator(".daybars-tip")).toHaveText("вс, 22 ноября: 10 мин, учёба 0 мин");
+  for (let i = 0; i < 5; i++) await page.keyboard.press("ArrowLeft");
+  await expect(barHits(page).nth(1)).toBeFocused();
+  const tip = page.locator(".daybars-tip");
+  await expect(tip).toHaveText("вт, 17 ноября: 2 ч 20 мин, учёба 0 мин");
+  await expect(tip).toBeInViewport({ ratio: 1 });
+  const [tb, area] = await Promise.all([boxOf(tip), boxOf(page.locator(".daybars-area"))]);
+  expect(tb.bottom, "подсказка накрывает столбики").toBeLessThanOrEqual(area.top + 0.5);
+  await barsFit(page, "подсказка вторника");
+  await noHorizontalScroll(page);
+  await page.screenshot({ path: `${SCREENS}/s21-parent-stats-tip.png` });
+  await page.keyboard.press("Escape");
+  await expect(tip).toHaveCount(0);
+  await expect(barHits(page).nth(1)).toBeFocused();
+});
+
+// s22 — «Моя статистика» за неделю G15 (S22): те же разделы о себе, без выбора ребёнка, очистки и полей
+// (кроме промокода); окно 800 x 640 не прокручивается целиком, шапка на месте (PL-25).
+for (const [scheme, w, h] of [
+  ["light", 800, 640],
+  ["dark", 800, 640],
+  ["light", 640, 520],
+] as const) {
+  test(`s22 моя статистика: неделя G15, тема ${scheme}, окно ${w} x ${h}`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: scheme });
+    await page.clock.setFixedTime(G15_NOW);
+    await page.setViewportSize({ width: w, height: h });
+    await mockProgram(page, { mode: "mystats", children: [g15()], myChildId: 1, events: g15Events() });
+    await page.goto("/");
+    await choosePeriod(page, "Неделя", "Использовано за неделю");
+    await expect(page.getByText("Статистика ведётся с 16 ноября 2026", { exact: true })).toBeVisible();
+    await expect(barHits(page)).toHaveCount(7);
+    await expect(page.getByRole("table", { name: "Программы" }).locator("tbody tr")).toHaveCount(3);
+    await expect(page.getByRole("list", { name: "Нарушения" }).getByRole("listitem")).toHaveCount(1);
+    await expect(page.getByRole("textbox")).toHaveCount(1);
+    await expect(page.getByRole("combobox")).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Очистить статистику" })).toHaveCount(0);
+    await expect(page.getByRole("group", { name: "Ребёнок" })).toHaveCount(0);
+    const head = await page.locator("header.topbar").evaluate((el) => el.getBoundingClientRect().bottom);
+    expect(await page.locator("main.content").evaluate((el) => el.getBoundingClientRect().top)).toBeGreaterThanOrEqual(head - 0.5);
+    expect(await page.evaluate(() => document.scrollingElement?.scrollTop ?? 0)).toBe(0);
+    await barsFit(page, `окно ребёнка ${w} x ${h}, тема ${scheme}`);
+    await tilesFit(page, `окно ребёнка ${w} x ${h}, тема ${scheme}`);
+    await noHorizontalScroll(page);
+    if (w !== 800) return;
+    await wholePage(page);
+    await inFrame(page, page.getByRole("button", { name: "Настройки для родителя" }));
+    await page.screenshot({ path: `${SCREENS}/s22-my-stats-week${scheme === "dark" ? "-dark" : ""}.png`, fullPage: true });
+  });
+}
+
+// s48 — «Очистить статистику» (FR-38, 8.3.7 п.3): окно подтверждения с фокусом на «Отмена», затем
+// «Статистика Миши очищена», «Итоги» нули и «Статистика ведётся с 22 ноября 2026».
+test("s48 очистка статистики: подтверждение и результат", async ({ page }) => {
+  await page.clock.setFixedTime(G15_NOW);
+  await page.setViewportSize({ width: 960, height: 900 });
+  await openParentStats(page, [g15(), child({ childId: 2, sid: "S-1-5-21-111-222-333-1002", name: "Даша", usedS: 600 })]);
+  await page.getByRole("group", { name: "Ребёнок" }).getByRole("button", { name: "Миша" }).click();
+  await choosePeriod(page, "Неделя", "Использовано за неделю");
+  // Окно открыто с клавиатуры: рамка фокуса (:focus-visible) на «Отмена» видна на снимке.
+  await page.getByRole("button", { name: "Очистить статистику" }).focus();
+  await page.keyboard.press("Enter");
+  const dialog = page.getByRole("dialog", { name: "Удалить всю статистику Миши?" });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByText("Остаток на сегодня и копилка не изменятся. Это нельзя отменить.", { exact: true })).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "Отмена" })).toBeFocused();
+  expect(await dialog.getByRole("button", { name: "Отмена" }).evaluate((el) => el.matches(":focus-visible")), "рамка фокуса на «Отмена» не видна").toBe(true);
+  await noHorizontalScroll(page);
+  await page.screenshot({ path: `${SCREENS}/s48-clear-stats-dialog.png` });
+  await dialog.getByRole("button", { name: "Удалить" }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(page.locator(".stat-clear-status")).toHaveText("Статистика Миши очищена");
+  await expect(page.getByText("Статистика ведётся с 22 ноября 2026", { exact: true })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Итоги" }).getByText("За этот период пока нет данных", { exact: true })).toBeVisible();
+  await page.getByRole("tablist", { name: "Период" }).getByRole("tab", { name: "Сегодня", exact: true }).click();
+  await expect(page.getByRole("region", { name: "Итоги" }).locator(".stat-row").filter({ hasText: "Использовано сегодня" })).toHaveText("Использовано сегодня0 мин");
+  await barsFit(page, "после очистки, 960");
+  await noHorizontalScroll(page);
+  await page.screenshot({ path: `${SCREENS}/s48-clear-stats-done.png`, fullPage: true });
+});
+
+// s48 — «Очистить журнал» (FR-38, 8.3.7 п.3): окно открыто с клавиатуры, фокус и рамка на «Отмена»;
+// после «Удалить» - «Журнал Миши очищен», в журнале Миши одна запись, у Даши записи на месте.
+for (const scheme of ["light", "dark"] as const) {
+  test(`s48 очистка журнала: подтверждение и результат${scheme === "dark" ? ", тёмная тема" : ""}`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: scheme });
+    await openJournal(page);
+    await page.getByLabel("Ребёнок").selectOption({ label: "Миша" });
+    await expect(page.locator(".journal-item")).toHaveCount(2);
+    await page.getByRole("button", { name: "Очистить журнал" }).focus();
+    await page.keyboard.press("Enter");
+    const dialog = page.getByRole("dialog", { name: "Удалить весь журнал Миши?" });
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByText("Это нельзя отменить.", { exact: true })).toBeVisible();
+    await expect(dialog.getByRole("button", { name: "Отмена" })).toBeFocused();
+    expect(await dialog.getByRole("button", { name: "Отмена" }).evaluate((el) => el.matches(":focus-visible")), "рамка фокуса на «Отмена» не видна").toBe(true);
+    await noHorizontalScroll(page);
+    const dark = scheme === "dark" ? "-dark" : "";
+    await page.screenshot({ path: `${SCREENS}/s48-clear-journal-dialog${dark}.png` });
+    // Esc закрывает окно, ничего не удаляя; фокус возвращается на кнопку.
+    await page.keyboard.press("Escape");
+    await expect(dialog).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Очистить журнал" })).toBeFocused();
+    await expect(page.locator(".journal-item")).toHaveCount(2);
+    await page.keyboard.press("Enter");
+    await dialog.getByRole("button", { name: "Удалить" }).click();
+    await expect(dialog).toHaveCount(0);
+    await expect(page.locator(".stat-clear-status")).toHaveText("Журнал Миши очищен");
+    await expect(page.locator(".journal-item")).toHaveCount(1);
+    await expect(page.locator(".journal-item .journal-text")).toHaveText("Миша: журнал очищен");
+    await noHorizontalScroll(page);
+    if (scheme === "light") await page.screenshot({ path: `${SCREENS}/s48-clear-journal-done.png`, fullPage: true });
+    await page.getByLabel("Ребёнок").selectOption({ label: "Даша" });
+    await expect(page.getByText("Даша: попытка открыть запрещённое: сайт example.com")).toBeVisible();
+    await expect(page.locator(".stat-clear-status")).toHaveText("");
+  });
+}
+
+// --- S49: раздел «Промокоды» (FR-35, R26, 8.3.10) ------------------------------------------
+
+const S49_NOW = new Date(2026, 10, 11, 18, 40, 0).getTime();
+const S49_DAY0 = new Date(2026, 10, 11, 9, 0, 0).getTime();
+const S49_FAMILY = () => [child({}), child({ childId: 2, sid: "S-1-5-21-111-222-333-1002", name: "Даша" })];
+
+/** 20 действующих кодов, каждый третий - 16 знаков (предел R26); создавались раз в полчаса. */
+const s49Active = () =>
+  Array.from({ length: 20 }, (_, i) => ({
+    codeDisplay: i % 3 === 0 ? `KANIKULY${String(i).padStart(2, "0")}MWQXYZ` : `LETO${String(i + 1).padStart(2, "0")}`,
+    minutes: [30, 15, 60, 120, 600][i % 5],
+    createdAtMs: S49_DAY0 + i * 30 * 60_000,
+  }));
+
+/** Использованные: у кого и когда; два кода по 16 знаков, один старый строчными (показ - заглавными). */
+const s49Used = () => [
+  { codeDisplay: "SUPERBONUS2026XY", minutes: 20, createdAtMs: S49_DAY0 - 86400_000, usedAtMs: S49_NOW - 10 * 60_000, usedByChild: 1 },
+  { codeDisplay: "pizza", minutes: 30, createdAtMs: S49_DAY0 - 2 * 86400_000, usedAtMs: S49_NOW - 3 * 3600_000, usedByChild: 2 },
+  { codeDisplay: "WWWWMMMMWWWWMMMM", minutes: 600, createdAtMs: S49_DAY0 - 3 * 86400_000, usedAtMs: S49_NOW - 26 * 3600_000, usedByChild: 1 },
+  { codeDisplay: "A1234", minutes: 15, createdAtMs: S49_DAY0 - 4 * 86400_000, usedAtMs: S49_NOW - 50 * 3600_000, usedByChild: 2 },
+];
+
+async function openPromos(page: Page, promos = [...s49Active(), ...s49Used()]) {
+  await page.clock.setFixedTime(S49_NOW);
+  await mockProgram(page, { mode: "parent", sessionActive: true, children: S49_FAMILY(), promos });
+  await page.goto("/");
+  await page.getByRole("navigation", { name: "Разделы" }).getByRole("button", { name: "Промокоды" }).click();
+  await expect(page.getByRole("heading", { name: "Промокоды", level: 2 })).toBeVisible();
+}
+
+/**
+ * Значение не обрезано: код в строке списка и в списке новых кодов целиком в своей рамке
+ * (scrollWidth <= clientWidth), строка не шире панели.
+ */
+async function codesNotClipped(page: Page) {
+  const bad = await page.evaluate(() => {
+    const out: string[] = [];
+    const panel = document.querySelector("#promos-panel")!.getBoundingClientRect();
+    for (const el of document.querySelectorAll<HTMLElement>(".promo-item .promo-code, .promo-codes li")) {
+      if (el.scrollWidth > el.clientWidth + 1) out.push(`«${el.textContent}» обрезан: ${el.scrollWidth} > ${el.clientWidth}`);
+    }
+    for (const li of document.querySelectorAll<HTMLElement>(".promo-item")) {
+      const r = li.getBoundingClientRect();
+      if (r.right > panel.right + 0.5) out.push(`строка «${li.textContent}» шире панели`);
+      for (const part of li.children) {
+        const p = part.getBoundingClientRect();
+        if (p.right > r.right + 0.5) out.push(`«${part.textContent}» за краем строки`);
+      }
+    }
+    return out;
+  });
+  expect(bad).toEqual([]);
+}
+
+for (const scheme of ["light", "dark"] as const) {
+  const dark = scheme === "dark" ? "-dark" : "";
+  test(`s49 промокоды: действующие${scheme === "dark" ? ", тёмная тема" : ""}`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: scheme });
+    await page.setViewportSize({ width: 960, height: 900 });
+    await openPromos(page);
+    const tabs = page.getByRole("tablist", { name: "Промокоды" });
+    await expect(tabs.getByRole("tab", { name: "Действующие (20)" })).toHaveAttribute("aria-selected", "true");
+    await expect(tabs.getByRole("tab", { name: "Использованные (4)" })).toBeVisible();
+    const list = page.getByRole("list", { name: "Действующие промокоды" });
+    await expect(list.getByRole("listitem")).toHaveCount(20);
+    // Новые сверху: последний созданный «LETO20» на 600 мин в 18:30.
+    await expect(list.getByRole("listitem").first()).toHaveText("LETO20600 минсоздан 11 ноября в 18:30");
+    await expect(list.locator(".promo-code").first()).toHaveCSS("font-family", /Cascadia Mono|Consolas|Courier New|monospace/);
+    await noHorizontalScroll(page);
+    await codesNotClipped(page);
+    await wholePage(page);
+    await page.screenshot({ path: `${SCREENS}/s49-promos-active${dark}.png`, fullPage: true });
+  });
+
+  test(`s49 промокоды: придумать коды${scheme === "dark" ? ", тёмная тема" : ""}`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: scheme });
+    await page.setViewportSize({ width: 960, height: 900 });
+    await openPromos(page);
+    const gen = page.getByRole("region", { name: "Придумать коды" });
+    await expect(gen.getByLabel("Сколько")).toHaveValue("10");
+    await expect(gen.getByLabel("Длина")).toHaveValue("6");
+    await expect(gen.getByRole("radio", { name: "Буквы и цифры" })).toBeChecked();
+    await expect(gen.getByLabel("Минуты")).toHaveValue("30");
+    await gen.getByRole("button", { name: "Придумать" }).click();
+    await expect(page.locator(".promo-status")).toHaveText("Готово: 10 кодов на 30 мин");
+    // Сообщение отделено от карточки «Создать код», как сообщения очистки статистики и журнала.
+    const gap = await page.evaluate(() => {
+      const st = document.querySelector(".promo-status")!.getBoundingClientRect();
+      const card = document.querySelector(".promo-status ~ .panel")!.getBoundingClientRect();
+      return card.top - st.bottom;
+    });
+    expect(gap, "«Готово» вплотную к карточке").toBeCloseTo(12, 0);
+    const fresh = gen.getByRole("list", { name: "Новые коды" });
+    await expect(fresh.getByRole("listitem")).toHaveCount(10);
+    for (const code of await fresh.getByRole("listitem").allTextContents()) expect(code).toMatch(/^[A-HJ-NP-Z2-9]{6}$/);
+    await expect(gen.getByRole("button", { name: "Скопировать все" })).toBeVisible();
+    await expect(page.getByRole("tab", { name: "Действующие (30)" })).toHaveAttribute("aria-selected", "true");
+    // Коды выделяются мышью (их можно скопировать вручную, если буфер обмена не дал).
+    await expect(fresh).toHaveCSS("user-select", "text");
+    await noHorizontalScroll(page);
+    await codesNotClipped(page);
+    await page.screenshot({ path: `${SCREENS}/s49-promos-generated${dark}.png` });
+  });
+}
+
+test("s49 промокоды: использованные", async ({ page }) => {
+  await page.setViewportSize({ width: 960, height: 900 });
+  await openPromos(page);
+  await page.getByRole("tab", { name: "Использованные (4)" }).click();
+  const list = page.getByRole("list", { name: "Использованные промокоды" });
+  await expect(list.getByRole("listitem")).toHaveCount(4);
+  await expect(list.getByRole("listitem").first()).toHaveText("SUPERBONUS2026XY20 миниспользован 11 ноября в 18:30, Миша");
+  await expect(list.getByText("PIZZA", { exact: true })).toBeVisible();
+  await expect(list.getByText("использован 11 ноября в 15:40, Даша", { exact: true })).toBeVisible();
+  // «Очистить историю» сверху справа, над списком.
+  const pos = await page.evaluate(() => {
+    const b = [...document.querySelectorAll("button")].find((x) => x.textContent === "Очистить историю")!.getBoundingClientRect();
+    const l = document.querySelector('[aria-label="Использованные промокоды"]')!.getBoundingClientRect();
+    return { btnRight: b.right, btnBottom: b.bottom, listRight: l.right, listTop: l.top };
+  });
+  expect(pos.btnBottom, "«Очистить историю» не над списком").toBeLessThanOrEqual(pos.listTop);
+  expect(Math.abs(pos.btnRight - pos.listRight), "«Очистить историю» не справа").toBeLessThan(2);
+  await noHorizontalScroll(page);
+  await codesNotClipped(page);
+  await page.screenshot({ path: `${SCREENS}/s49-promos-used.png`, fullPage: true });
+});
+
+test("s49 промокоды: ошибка у поля «Код»", async ({ page }) => {
+  await page.setViewportSize({ width: 960, height: 900 });
+  await openPromos(page);
+  const create = page.getByRole("region", { name: "Создать код" });
+  const code = create.getByLabel("Код", { exact: true });
+  await expect(code).toHaveAttribute("placeholder", "A1234");
+  // Ширина колонки «Код» не зависит от ошибки: «Минуты» и «Создать» стоят на месте.
+  const minutesBox = create.getByLabel("Минуты", { exact: true });
+  const submitBox = create.getByRole("button", { name: "Создать" });
+  const xBefore = { minutes: (await minutesBox.boundingBox())!.x, submit: (await submitBox.boundingBox())!.x };
+  await code.fill("код!");
+  await create.getByRole("button", { name: "Создать" }).click();
+  const error = create.getByText("Только латинские буквы A-Z и цифры", { exact: true });
+  await expect(error).toBeVisible();
+  expect((await minutesBox.boundingBox())!.x, "«Минуты» сдвинулись из-за ошибки").toBeCloseTo(xBefore.minutes, 0);
+  expect((await submitBox.boundingBox())!.x, "«Создать» сдвинулась из-за ошибки").toBeCloseTo(xBefore.submit, 0);
+  // Ошибка переносится в пределах ширины поля.
+  const errBox = (await error.boundingBox())!;
+  const codeBox = (await code.boundingBox())!;
+  expect(errBox.x + errBox.width, "ошибка шире поля «Код»").toBeLessThanOrEqual(codeBox.x + codeBox.width + 1);
+  await expect(code).toHaveAttribute("aria-invalid", "true");
+  await expect(code).toBeFocused();
+  // Ошибка под своим полем, а не общим абзацем под формой.
+  const pos = await page.evaluate(() => {
+    const input = document.querySelector<HTMLInputElement>('.promo-code-field input')!.getBoundingClientRect();
+    const err = document.querySelector(".promo-code-field .field-error")!.getBoundingClientRect();
+    return { inLeft: input.left, inBottom: input.bottom, errLeft: err.left, errTop: err.top };
+  });
+  expect(pos.errTop).toBeGreaterThanOrEqual(pos.inBottom);
+  expect(Math.abs(pos.errLeft - pos.inLeft)).toBeLessThan(2);
+  await expect(page.getByRole("tab", { name: "Действующие (20)" })).toBeVisible();
+  // Enter в поле нажимает «Создать»: латинский код создаётся и встаёт первым в «Действующих».
+  await code.fill("ab12");
+  await code.press("Enter");
+  await expect(page.locator(".promo-status")).toHaveText("Промокод «AB12» на 30 минут готов");
+  await expect(page.getByRole("list", { name: "Действующие промокоды" }).getByRole("listitem").first()).toContainText("AB12");
+  await code.fill("код!");
+  await code.press("Enter");
+  await expect(error).toBeVisible();
+  await noHorizontalScroll(page);
+  await page.screenshot({ path: `${SCREENS}/s49-promos-code-error.png` });
+});
+
+test("s49 промокоды: очистить историю", async ({ page }) => {
+  await page.setViewportSize({ width: 960, height: 900 });
+  await openPromos(page);
+  await page.getByRole("tab", { name: "Использованные (4)" }).click();
+  // Окно открыто с клавиатуры: рамка фокуса (:focus-visible) на «Отмена» видна на снимке.
+  const clear = page.getByRole("button", { name: "Очистить историю" });
+  await clear.focus();
+  await page.keyboard.press("Enter");
+  const dialog = page.getByRole("dialog", { name: "Удалить все использованные коды?" });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByText("Действующие останутся.", { exact: true })).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "Отмена" })).toBeFocused();
+  expect(await dialog.getByRole("button", { name: "Отмена" }).evaluate((el) => el.matches(":focus-visible")), "рамка фокуса на «Отмена» не видна").toBe(true);
+  // «Удалить» не красная (ТЗ 8.0 п.3): красный - только статус.
+  const del = await dialog.getByRole("button", { name: "Удалить" }).evaluate((el) => {
+    const css = getComputedStyle(el);
+    return { bg: css.backgroundColor, color: css.color, border: css.borderTopColor, radius: css.borderRadius };
+  });
+  expect(del.radius).toBe("6px");
+  for (const c of [del.bg, del.color, del.border]) expect(c, "«Удалить» красная").not.toBe("rgb(179, 38, 30)");
+  await noHorizontalScroll(page);
+  await page.screenshot({ path: `${SCREENS}/s49-promos-clear-dialog.png` });
+  // Esc закрывает окно, ничего не удаляя; фокус возвращается на кнопку.
+  await page.keyboard.press("Escape");
+  await expect(dialog).toHaveCount(0);
+  await expect(clear).toBeFocused();
+  await expect(page.getByRole("list", { name: "Использованные промокоды" }).getByRole("listitem")).toHaveCount(4);
+  await page.keyboard.press("Enter");
+  await dialog.getByRole("button", { name: "Удалить" }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(page.locator(".promo-status")).toHaveText("История промокодов очищена");
+  await expect(page.getByText("Использованных кодов нет", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Очистить историю" })).toHaveCount(0);
+  await expect(page.getByRole("tab", { name: "Использованные (0)" })).toBeFocused();
+  await expect(page.getByRole("tab", { name: "Действующие (20)" })).toBeVisible();
+});
+
+// Узкое окно: длинные коды (16 знаков) целиком и в 640, и в 960 px; без прокрутки вбок.
+for (const width of [640, 960]) {
+  test(`s49 промокоды: длинные коды не обрезаны, ${width} px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 800 });
+    await openPromos(page);
+    await noHorizontalScroll(page);
+    await codesNotClipped(page);
+    const gen = page.getByRole("region", { name: "Придумать коды" });
+    await gen.getByLabel("Длина").fill("12");
+    await gen.getByRole("button", { name: "Придумать" }).click();
+    await expect(gen.getByRole("list", { name: "Новые коды" }).getByRole("listitem")).toHaveCount(10);
+    await noHorizontalScroll(page);
+    await codesNotClipped(page);
+    await page.getByRole("tab", { name: "Использованные (4)" }).click();
+    await noHorizontalScroll(page);
+    await codesNotClipped(page);
+  });
+}
+
+// Окно 800×640: прокручивается только main.content, шапка на месте; стрелки переключают вкладки.
+test("s49 промокоды: окно 800×640 и клавиатура", async ({ page }) => {
+  await page.setViewportSize({ width: 800, height: 640 });
+  await openPromos(page);
+  await noHorizontalScroll(page);
+  const scroller = page.locator("main.content");
+  expect(await scroller.evaluate((el) => el.scrollHeight > el.clientHeight), "раздел помещается целиком: прокрутку не проверить").toBe(true);
+  const active = page.getByRole("tab", { name: "Действующие (20)" });
+  await active.focus();
+  await page.keyboard.press("ArrowRight");
+  await expect(page.getByRole("tab", { name: "Использованные (4)" })).toBeFocused();
+  await expect(page.getByRole("tab", { name: "Использованные (4)" })).toHaveAttribute("aria-selected", "true");
+  await page.keyboard.press("Home");
+  await expect(active).toBeFocused();
+  await scroller.evaluate((el) => el.scrollTo(0, el.scrollHeight));
+  await noHorizontalScroll(page);
+  expect(await page.evaluate(() => document.documentElement.scrollTop)).toBe(0);
 });

@@ -53,7 +53,7 @@ func (s *Service) hSaveSchedule(c *callCtx) ipc.Reply {
 	}
 	cs.rulesAt = c.real
 	s.applyRules(cs, s.readRules(cs.child.ID))
-	s.journal.Write(cs.child.ID, "settings_changed", map[string]any{"text": "изменены запретные часы"})
+	s.journal.Write(cs.child.ID, evSettingsChanged, map[string]any{"text": "изменены запретные часы"})
 	return ipc.OK(ipc.SaveScheduleReply{Intervals: toIPCIntervals(norm), Card: s.cardOf(cs), Message: textSaved})
 }
 
@@ -152,7 +152,7 @@ func (s *Service) hGrantBonus(c *callCtx) ipc.Reply {
 	}
 	rec := &undoRec{id: s.cfg.Rand(), minutes: req.Minutes, until: c.real.Add(undoLife)}
 	cs.bonusUndo = rec
-	s.journal.Write(cs.child.ID, "bonus_grant", map[string]any{
+	s.journal.Write(cs.child.ID, evBonusGrant, map[string]any{
 		"minutes": req.Minutes, "reason": req.Reason, "balance": bal,
 		"text": fmt.Sprintf("Начислено в копилку +%d мин: %s", req.Minutes, req.Reason),
 	})
@@ -180,7 +180,7 @@ func (s *Service) hUndoBonus(c *callCtx) ipc.Reply {
 	if err != nil {
 		return ipc.Fail(textRetry)
 	}
-	s.journal.Write(cs.child.ID, "bonus_undo", map[string]any{
+	s.journal.Write(cs.child.ID, evBonusUndo, map[string]any{
 		"minutes": rec.minutes, "text": fmt.Sprintf("Начисление копилки отменено: -%d мин", rec.minutes),
 	})
 	return ipc.OK(ipc.UndoBonusReply{BalanceAfter: bal, Message: "Начисление отменено"})
@@ -213,9 +213,7 @@ func (s *Service) hGetBonus(c *callCtx) ipc.Reply {
 	}
 	entries := make([]ipc.BonusEntry, 0, len(recs))
 	for _, r := range recs {
-		// Пояс службы на момент записи: окно показывает время записи по местным часам.
-		_, off := time.UnixMilli(r.AtMs).In(s.cfg.Loc).Zone()
-		entries = append(entries, ipc.BonusEntry{AtMs: r.AtMs, TzOffset: off / 60, DeltaMin: r.DeltaMin, Reason: r.Reason, Balance: r.Balance})
+		entries = append(entries, s.bonusEntryOf(r))
 	}
 	return ipc.OK(ipc.GetBonusReply{ChildID: cs.child.ID, Balance: bal, Entries: entries})
 }
