@@ -143,7 +143,7 @@ export default function MyStats() {
       ) : null}
 
       {data === null ? (
-        error ? null : <p className="panel-text">Загружаю данные</p>
+        error ? null : <p className="panel-text">Загружаю данные…</p>
       ) : (
         <>
           {data.status.status === "notChild" ? null : (

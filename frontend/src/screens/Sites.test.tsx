@@ -497,9 +497,9 @@ describe("Сайты: поиск", () => {
 describe("Сайты: загрузка и ошибки", () => {
   it("пока данные идут: «Загружаю данные»", async () => {
     setup();
-    expect(screen.getByText("Загружаю данные")).toBeTruthy();
+    expect(screen.getByText("Загружаю данные…")).toBeTruthy();
     expect(await screen.findByRole("tablist", { name: "Списки сайтов" })).toBeTruthy();
-    expect(screen.queryByText("Загружаю данные")).toBeNull();
+    expect(screen.queryByText("Загружаю данные…")).toBeNull();
   });
 
   it("нет связи: простыми словами и «Повторить»", async () => {

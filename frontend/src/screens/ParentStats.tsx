@@ -156,7 +156,7 @@ export default function ParentStats({ initialChildId }: { initialChildId?: numbe
         error ? null : <p className="panel-text">Пока нет ни одного ребёнка</p>
       ) : data === null ? (
         // Пока данных нет, нет и вкладок периода: им не на что ссылаться (B-46).
-        error ? null : <p className="panel-text">Загружаю данные</p>
+        error ? null : <p className="panel-text">Загружаю данные…</p>
       ) : (
         <>
           <StatsSince data={data} />

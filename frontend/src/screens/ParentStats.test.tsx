@@ -128,7 +128,7 @@ describe("ParentStats", () => {
     mock = installBackend({ sessionActive: true, children: [mockChild({ usedS: 2100 })] });
     mock.override("ParentStats", () => new Promise<never>(() => {}));
     render(<ParentStats />);
-    expect(await screen.findByText("Загружаю данные")).toBeTruthy();
+    expect(await screen.findByText("Загружаю данные…")).toBeTruthy();
     await vi.waitFor(() => expect(mock.count("ParentStats")).toBe(1));
     expect(screen.queryByRole("tablist")).toBeNull();
     expect(screen.queryByRole("tab")).toBeNull();

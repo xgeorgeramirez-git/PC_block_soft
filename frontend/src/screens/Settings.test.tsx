@@ -15,7 +15,7 @@ async function setup(opts: Parameters<typeof installBackend>[0] = {}) {
   openChildren = vi.fn<() => void>();
   const user = userEvent.setup();
   render(<Settings onOpenChildren={openChildren} />);
-  await vi.waitFor(() => expect(screen.queryByText("Загружаю данные")).toBeNull());
+  await vi.waitFor(() => expect(screen.queryByText("Загружаю данные…")).toBeNull());
   return user;
 }
 
@@ -238,7 +238,7 @@ describe("Settings: детские учётки", () => {
     mock = installBackend({ sessionActive: true });
     mock.override("ListAccounts", { ok: true, payload: { accounts: [] } });
     render(<Settings />);
-    await vi.waitFor(() => expect(screen.queryByText("Загружаю данные")).toBeNull());
+    await vi.waitFor(() => expect(screen.queryByText("Загружаю данные…")).toBeNull());
     expect(await screen.findByText("Учётная запись Windows не найдена на этом компьютере")).toBeTruthy();
   });
 

@@ -159,6 +159,8 @@ function MinutesField({ label, field, value, error, hint, disabled, onChange }: 
           className="field-input limits-num"
           type="text"
           inputMode="numeric"
+          autoComplete="off"
+          spellCheck={false}
           pattern="[0-9]*"
           maxLength={3}
           value={value === 0 ? "" : String(value)}

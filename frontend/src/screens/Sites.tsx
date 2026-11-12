@@ -261,7 +261,7 @@ export default function Sites() {
           </button>
         </div>
       ) : data === null ? (
-        <p className="panel-text">Загружаю данные</p>
+        <p className="panel-text">Загружаю данные…</p>
       ) : (
         <>
           <section className="programs-block sites-adult" aria-labelledby="sites-adult-title">
@@ -376,6 +376,7 @@ export default function Sites() {
                       type="search"
                       className="field-input"
                       autoComplete="off"
+                      spellCheck={false}
                       value={query}
                       onChange={(e) => setQuery(e.target.value)}
                     />

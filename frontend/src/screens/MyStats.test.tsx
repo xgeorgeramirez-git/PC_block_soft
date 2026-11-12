@@ -631,7 +631,7 @@ describe("MyStats: обновление и сбои", () => {
 
   it("пока данные грузятся, говорит об этом", () => {
     setup();
-    expect(screen.getByText("Загружаю данные")).toBeTruthy();
+    expect(screen.getByText("Загружаю данные…")).toBeTruthy();
   });
 });
 

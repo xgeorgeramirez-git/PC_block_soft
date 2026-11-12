@@ -230,6 +230,8 @@ export default function Promos() {
           className="field-input"
           type="text"
           inputMode="numeric"
+          autoComplete="off"
+          spellCheck={false}
           pattern="[0-9]*"
           maxLength={String(max).length}
           value={value}
@@ -307,6 +309,8 @@ export default function Promos() {
               className="field-input"
               type="text"
               inputMode="numeric"
+              autoComplete="off"
+              spellCheck={false}
               pattern="[0-9]*"
               maxLength={3}
               value={minutes}
@@ -415,7 +419,7 @@ export default function Promos() {
             </button>
           </>
         ) : active === null ? (
-          <p className="panel-text">Загружаю промокоды</p>
+          <p className="panel-text">Загружаю промокоды…</p>
         ) : tab === "active" ? (
           active.length === 0 ? (
             <p className="panel-text">Действующих кодов нет</p>

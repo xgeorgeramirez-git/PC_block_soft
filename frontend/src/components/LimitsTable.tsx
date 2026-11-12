@@ -112,6 +112,8 @@ function LimitCell({ limits, day, column, error, onChange }: CellProps) {
           className="field-input limits-num"
           type="text"
           inputMode="numeric"
+          autoComplete="off"
+          spellCheck={false}
           pattern="[0-9]*"
           maxLength={2}
           aria-label={`${labels.hours}, ${name}`}
@@ -127,6 +129,8 @@ function LimitCell({ limits, day, column, error, onChange }: CellProps) {
           className="field-input limits-num"
           type="text"
           inputMode="numeric"
+          autoComplete="off"
+          spellCheck={false}
           pattern="[0-9]*"
           maxLength={2}
           aria-label={`${labels.minutes}, ${name}`}

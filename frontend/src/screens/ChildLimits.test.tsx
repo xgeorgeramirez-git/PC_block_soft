@@ -128,6 +128,35 @@ describe("ChildLimits: таблица", () => {
   });
 });
 
+describe("ChildLimits: вкладки правил (B-38)", () => {
+  // Ловит: вкладки не связаны с панелью (нет aria-controls), все четыре в порядке Tab, стрелки не
+  // переключают.
+  it("aria-controls на панель, одна вкладка в Tab, стрелки, Home и End", async () => {
+    const user = setup();
+    await ready();
+    const tabs = within(screen.getByRole("tablist", { name: "Правила ребёнка" })).getAllByRole("tab");
+    expect(tabs.map((t) => t.textContent)).toEqual(["Лимиты", "Запретные часы", "Когда время вышло", "Отдых"]);
+    const panel = screen.getByRole("tabpanel", { name: "Лимиты" });
+    for (const t of tabs) expect(t.getAttribute("aria-controls")).toBe(panel.id);
+    expect(panel.id).toBe("limits-panel");
+    expect(tabs.map((t) => t.tabIndex)).toEqual([0, -1, -1, -1]);
+    tabs[0].focus();
+    await user.keyboard("{ArrowRight}");
+    expect(document.activeElement?.textContent).toBe("Запретные часы");
+    expect(screen.getByRole("tab", { name: "Запретные часы" }).getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByRole("tabpanel", { name: "Запретные часы" }).id).toBe("limits-panel");
+    await user.keyboard("{End}");
+    expect(document.activeElement?.textContent).toBe("Отдых");
+    await user.keyboard("{ArrowRight}");
+    expect(document.activeElement?.textContent).toBe("Лимиты");
+    await user.keyboard("{ArrowLeft}");
+    expect(document.activeElement?.textContent).toBe("Отдых");
+    await user.keyboard("{Home}");
+    expect(document.activeElement?.textContent).toBe("Лимиты");
+    expect(screen.getByRole("tab", { name: "Лимиты" }).tabIndex).toBe(0);
+  });
+});
+
 describe("ChildLimits: быстрые кнопки", () => {
   it("«Как в понедельник: на все будни»", async () => {
     const user = setup();

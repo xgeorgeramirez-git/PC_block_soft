@@ -251,7 +251,7 @@ export default function Journal({ violationsOnly = false }: Props) {
             </button>
           </div>
         ) : events === null ? (
-          <p className="panel-text">Загружаю журнал</p>
+          <p className="panel-text">Загружаю журнал…</p>
         ) : events.length === 0 ? (
           <p className="panel-text">За этот период таких событий нет</p>
         ) : (

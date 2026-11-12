@@ -153,6 +153,8 @@ function IntervalForm({ weekday, initialFrom = "", initialTo = "", submitLabel, 
           onChange={(e) => setFrom(maskClock(e.target.value))}
           placeholder="21:00"
           inputMode="numeric"
+          autoComplete="off"
+          spellCheck={false}
           maxLength={5}
           aria-label={edit ? `Новое начало запретного времени в ${day}` : `Начало запретного времени в ${day}`}
         />
@@ -165,6 +167,8 @@ function IntervalForm({ weekday, initialFrom = "", initialTo = "", submitLabel, 
           onChange={(e) => setTo(maskClock(e.target.value))}
           placeholder="07:00"
           inputMode="numeric"
+          autoComplete="off"
+          spellCheck={false}
           maxLength={5}
           aria-label={edit ? `Новый конец запретного времени в ${day}` : `Конец запретного времени в ${day}`}
         />
