@@ -25,6 +25,9 @@ const (
 	st1Limit       = time.Second
 )
 
+// st1ViolationKinds — виды «Нарушений» (journalGroups службы, RM5-5): как читает их статистика.
+var st1ViolationKinds = []string{"bypass", "program_forbidden_try", "site_forbidden_try"}
+
 // st1ProgramPaths — 50 путей exe реальной длины (нижний регистр, как хранит служба).
 func st1ProgramPaths() []string {
 	roots := []string{
@@ -87,10 +90,21 @@ func TestStatsST1(t *testing.T) {
 	}
 	defer s.Close()
 
+	// Запросы «Всё время» на ребёнка — те же, что myTodayOf службы (T11): снимок очистки, ряд дней
+	// (с дня очистки, если она была), учёт по программам и сайтам, копилка, нарушения за период
+	// (журнал с фильтром по виду, не больше 200) и «Статистика ведётся с» (первый день без очистки).
 	var worst time.Duration
-	for _, id := range ids {
+	for i, id := range ids {
 		t0 := time.Now()
-		days, err := s.DaysSeries(id, "0001-01-01", today)
+		from := "0001-01-01"
+		reset, resetOK, err := s.GetStatsReset(id)
+		if err != nil {
+			t.Fatalf("GetStatsReset: %v", err)
+		}
+		if resetOK && reset.Day > from {
+			from = reset.Day
+		}
+		days, err := s.DaysSeries(id, from, today)
 		if err != nil {
 			t.Fatalf("DaysSeries: %v", err)
 		}
@@ -98,10 +112,7 @@ func TestStatsST1(t *testing.T) {
 		for _, d := range days {
 			totalS += d.TotalS
 		}
-		if _, _, err := s.GetStatsReset(id); err != nil {
-			t.Fatalf("GetStatsReset: %v", err)
-		}
-		usage, err := s.PeriodUsage(id, "0001-01-01", today)
+		usage, err := s.PeriodUsage(id, from, today)
 		if err != nil {
 			t.Fatalf("PeriodUsage: %v", err)
 		}
@@ -110,18 +121,28 @@ func TestStatsST1(t *testing.T) {
 			t.Fatalf("ListBonus: %v", err)
 		}
 		child := id
-		events, err := s.ListEvents(EventFilter{ChildID: &child, Limit: maxEventLimit})
+		violations, err := s.ListEvents(EventFilter{ChildID: &child, Kinds: st1ViolationKinds, Limit: 200})
 		if err != nil {
-			t.Fatalf("ListEvents: %v", err)
+			t.Fatalf("ListEvents (нарушения): %v", err)
+		}
+		firstDay := ""
+		if !resetOK {
+			if firstDay, _, err = s.FirstStatsDay(id); err != nil {
+				t.Fatalf("FirstStatsDay: %v", err)
+			}
 		}
 		d := time.Since(t0)
 		worst = max(worst, d)
-		t.Logf("ребёнок %d: %v (дней %d, итог %d с, строк учёта %d, копилка %d, событий %d)",
-			id, d.Round(time.Millisecond), len(days), totalS, len(usage), len(bonus), len(events))
-		// Сверка, что запросы видят всё сгенерированное (литералы по RM5-7).
-		if len(usage) != 100 || len(bonus) != 550 || len(events) != 1000 || totalS == 0 {
-			t.Errorf("ребёнок %d: строк учёта %d (ждём 100), копилка %d (ждём 550), событий %d (ждём 1000), итог %d с",
-				id, len(usage), len(bonus), len(events), totalS)
+		t.Logf("ребёнок %d: %v (очистка %v с %s, дней %d, итог %d с, строк учёта %d, копилка %d, нарушений %d, первый день %q)",
+			id, d.Round(time.Millisecond), resetOK, reset.Day, len(days), totalS, len(usage), len(bonus), len(violations), firstDay)
+		// Сверка, что запросы видят всё сгенерированное (литералы по RM5-7): снимок очистки только у
+		// первого ребёнка, в день первой строки — ряд дней от него целиком.
+		if resetOK != (i == 0) || len(days) != st1Days || len(usage) != 100 || len(bonus) != 550 || len(violations) != 200 || totalS == 0 {
+			t.Errorf("ребёнок %d: очистка %v (ждём %v), дней %d (ждём %d), строк учёта %d (ждём 100), копилка %d (ждём 550), нарушений %d (ждём 200), итог %d с",
+				id, resetOK, i == 0, len(days), st1Days, len(usage), len(bonus), len(violations), totalS)
+		}
+		if !resetOK && firstDay == "" {
+			t.Errorf("ребёнок %d: нет первого дня статистики", id)
 		}
 	}
 
@@ -154,7 +175,8 @@ func st1Verdict(d time.Duration) string {
 }
 
 // st1Generate пишет данные одной транзакцией подготовленными выражениями: учёт по программам и
-// сайтам, строки дней, события журнала и копилку. Таблицы stats_reset пока нет (миграция 010 — T1b).
+// сайтам, строки дней, события журнала, копилку и строку stats_reset у первого ребёнка (RM5-7):
+// очистка в день первой строки, снимок — счётчики того дня, поэтому ряд дней читается целиком.
 func st1Generate(t *testing.T, s *Store, ids []int64, today string) {
 	t.Helper()
 	end, err := time.ParseInLocation(time.DateOnly, today, time.Local)
@@ -190,6 +212,11 @@ func st1Generate(t *testing.T, s *Store, ids []int64, today string) {
 		t.Fatal(err)
 	}
 	bonusStmt, err := tx.Prepare(`INSERT INTO bonus_ledger (child_id, at, delta_min, reason, balance_after) VALUES (?, ?, ?, ?, ?)`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resetStmt, err := tx.Prepare(`INSERT INTO stats_reset (child_id, cleared_at, day, total_s, games_s, video_s, study_s, extra_min)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -236,6 +263,12 @@ func st1Generate(t *testing.T, s *Store, ids []int64, today string) {
 			}
 			if _, err := dayStmt.Exec(id, day, total, games, video, study, (di*3)%60, nil, boolToInt(di%7 == 0), boolToInt(di%11 == 0), lastMin); err != nil {
 				t.Fatalf("day_state: %v", err)
+			}
+			if ci == 0 && di == 0 {
+				// Очистка в 18:00 дня первой строки: снимок — половина счётчиков того дня.
+				if _, err := resetStmt.Exec(id, dayAt.Add(18*time.Hour).UnixMilli(), day, total/2, games/2, video/2, study/2, 0); err != nil {
+					t.Fatalf("stats_reset: %v", err)
+				}
 			}
 		}
 		// Копилка: начисления и траты, баланс в пределах 0…600 (CHECK).
