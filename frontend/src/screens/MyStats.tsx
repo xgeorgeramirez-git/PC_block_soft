@@ -308,7 +308,7 @@ export function Totals({
               >
                 <span className="totals-tab-label">{t.label}</span>
                 <span id={`totals-value-${t.id}`} className="totals-tab-value" aria-hidden="true">
-                  {formatDuration(tabSeconds(data, t.id))}
+                  <DurationParts text={formatDuration(tabSeconds(data, t.id))} />
                 </span>
               </button>
             ))}
@@ -542,6 +542,20 @@ function Violations({ entries }: { entries: JournalEntry[] }) {
           {`Показать все (${entries.length})`}
         </button>
       ) : null}
+    </>
+  );
+}
+
+/**
+ * Длительность плитки «Итогов» частями «14 ч» и «08 мин»: длинное значение («1625 ч 00 мин») переносится
+ * между частями и не обрезается рамкой плитки; число с единицей не разрывается. Текст тот же.
+ */
+function DurationParts({ text }: { text: string }) {
+  const m = /^(\d+ ч) (\d+ мин)$/.exec(text);
+  if (!m) return <span className="totals-tab-part">{text}</span>;
+  return (
+    <>
+      <span className="totals-tab-part">{m[1]}</span> <span className="totals-tab-part">{m[2]}</span>
     </>
   );
 }

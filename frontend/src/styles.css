@@ -801,11 +801,20 @@ p {
   font-size: 14px;
 }
 
+/* Значение плитки не обрезается и не выходит за рамку: длинное («1625 ч 00 мин») переносится между
+   «ч» и «мин» (части - .totals-tab-part), число с единицей не разрывается. */
 .totals-tab-value {
+  max-width: 100%;
   font-family: var(--font-display);
   font-size: 18px;
   font-weight: 600;
+  line-height: 1.25;
   font-variant-numeric: tabular-nums;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.totals-tab-part {
   white-space: nowrap;
 }
 

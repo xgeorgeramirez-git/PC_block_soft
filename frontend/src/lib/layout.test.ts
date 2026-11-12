@@ -100,3 +100,15 @@ describe("«По дням»: график в своей области (PL-25)",
     expect(css).not.toMatch(/\.daybar[^{]*\{[^}]*--status-/);
   });
 });
+
+describe("плитки «Итогов»: значение не обрезается", () => {
+  // Ловит (возврат 2 T5): «14 ч 08 ми» без «н» и «1625 ч 00 мин» за рамкой плитки - значение в одну
+  // строку без переноса.
+  it("значение переносится между «ч» и «мин», части не разрываются", () => {
+    const r = rule(".totals-tab-value");
+    expect(r).not.toMatch(/white-space:\s*nowrap/);
+    expect(r).toMatch(/max-width:\s*100%/);
+    expect(rule(".totals-tab-part")).toMatch(/white-space:\s*nowrap/);
+    expect(rule(".totals-tab")).toMatch(/min-width:\s*0/);
+  });
+});

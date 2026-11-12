@@ -1120,3 +1120,16 @@ describe("MyStats: разделы за период (G15)", () => {
     expect(within(within(screen.getByRole("region", { name: "По дням" })).getByRole("group")).getAllByRole("img")).toHaveLength(22);
   });
 });
+
+describe("MyStats: значение плитки частями", () => {
+  // Ловит (возврат 2 T5): длинное значение плитки не делится на части и не переносится; текст плитки изменился.
+  it("«1 ч 15 мин» - две неразрывные части, текст прежний", async () => {
+    setup({ children: [mockChild({ usedS: 2100, gamesUsedS: 1200, videoUsedS: 300, studyUsedS: 2400 })] });
+    const box = await screen.findByRole("region", { name: "Итоги" });
+    const value = within(box).getByRole("tab", { name: "Всего" }).querySelector(".totals-tab-value")!;
+    expect(value.textContent).toBe("1 ч 15 мин");
+    expect(Array.from(value.querySelectorAll(".totals-tab-part")).map((p) => p.textContent)).toEqual(["1 ч", "15 мин"]);
+    const short = within(box).getByRole("tab", { name: "Игры" }).querySelector(".totals-tab-value")!;
+    expect(Array.from(short.querySelectorAll(".totals-tab-part")).map((p) => p.textContent)).toEqual(["20 мин"]);
+  });
+});
