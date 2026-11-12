@@ -100,6 +100,9 @@ type watchTarget struct {
 	sampleAt time.Time // момент снимка стража, по которому взяты inputAt и fg
 	fg       string
 	byPID    map[uint32]ProcInfo
+	// hold — пауза ребёнка (R11): процессы только читаются ради категории секунды учёта (B-30),
+	// ничего не закрывается и не пишется (watchHeld).
+	hold bool
 }
 
 // watchAct — процесс, который наблюдатель закрывает в этом проходе.
@@ -122,6 +125,9 @@ type watchState struct {
 	mu    sync.Mutex
 	gen   uint64
 	procs map[procKey]*watchEntry
+	// held — процессы сеансов на паузе (watchHeld): только отпечаток и издатель для учёта (B-30).
+	// Отдельно от procs: решения о запуске (ручной или сам) и «уже закрывали» пауза не трогает.
+	held map[procKey]*watchEntry
 	// metaBusy — пути, свойства которых сейчас читаются (B-32): зависший сетевой путь, запускаемый
 	// снова и снова, не плодит горутины. Под своим metaMu: горутина чтения снимает отметку сама,
 	// когда проход, начавший её, уже закончен.
@@ -174,6 +180,10 @@ func (s *Service) Watch(real time.Time) {
 			s.keepSession(t.session, gen)
 			continue
 		}
+		if t.hold {
+			s.watchHeld(t, list, gen)
+			continue
+		}
 		t.byPID = make(map[uint32]ProcInfo, len(list))
 		for _, p := range list {
 			t.byPID[p.PID] = p
@@ -201,6 +211,18 @@ func (s *Service) Watch(real time.Time) {
 			fps[e.norm] = e.fp
 		}
 		if e.pubRead {
+			pubs[e.norm] = e.pub
+		}
+	}
+	for k, e := range s.watch.held {
+		if e.seen != gen {
+			delete(s.watch.held, k)
+			continue
+		}
+		if _, ok := fps[e.norm]; !ok && e.fpRead {
+			fps[e.norm] = e.fp
+		}
+		if _, ok := pubs[e.norm]; !ok && e.pubRead {
 			pubs[e.norm] = e.pub
 		}
 	}
@@ -334,18 +356,64 @@ func (w *watchState) doneMeta(path string) {
 // keepSession помечает виденными процессы сеанса, список которого не прочитался: память о них
 // (и о том, что их уже закрывали) не теряется из-за одного сбоя.
 func (s *Service) keepSession(session uint32, gen uint64) {
-	for _, e := range s.watch.procs {
-		if e.session == session {
-			e.seen = gen
+	for _, m := range []map[procKey]*watchEntry{s.watch.procs, s.watch.held} {
+		for _, e := range m {
+			if e.session == session {
+				e.seen = gen
+			}
 		}
 	}
+}
+
+// watchHeld — проход по сеансу ребёнка на паузе (R11, B-30): учёт в паузе продолжается, и
+// категория секунды переднего плана сверяет отпечаток и издателя (fpSeen, pubSeen). Здесь они
+// только читаются (readMeta) для процессов ребёнка с прочитанным путём; ничего не закрывается,
+// «Ждут решения», журнал и плашки не трогаются. Вне s.mu, под watch.mu.
+func (s *Service) watchHeld(t *watchTarget, list []ProcInfo, gen uint64) {
+	if s.watch.held == nil {
+		s.watch.held = map[procKey]*watchEntry{}
+	}
+	for _, p := range list {
+		if p.SessionID != t.session || t.own[p.PID] || !p.UserOK || !strings.EqualFold(p.UserSID, t.sid) || !p.PathOK || p.Path == "" {
+			continue
+		}
+		key := procKey{pid: p.PID, stamp: p.Stamp}
+		e := s.watch.held[key]
+		if e == nil {
+			norm := programs.Normalize(p.Path)
+			if norm == "" {
+				continue
+			}
+			e = &watchEntry{session: t.session, path: p.Path, norm: norm}
+			s.watch.held[key] = e
+		}
+		e.seen = gen
+		s.readMeta(e)
+	}
+}
+
+// readMeta читает свойства файла процесса e, если решение о нём их ждёт: одно чтение на процесс,
+// отпечаток (RM3-12) и издатель (RM3-13) вместе. Читается и в тестовом режиме вне WatchDir (T6-5):
+// чтение ничего не закрывает, а без издателя Brave из профиля раннера был бы «незнакомой», и сайты
+// в нём не различались бы.
+func (s *Service) readMeta(e *watchEntry) {
+	c := s.classifier
+	needFP := !e.fpRead && !c.Roots().IsTrusted(e.norm) && c.NeedsFingerprint(e.norm)
+	needPub := !e.pubRead && c.NeedsPublisher(e.norm)
+	if !needFP && !needPub {
+		return
+	}
+	pub, _, fp := s.cfg.FileMeta(e.norm)
+	e.fp, e.pub = fp, programs.ClipName(pub)
+	e.fpRead, e.pubRead = true, true
 }
 
 // watchSnapshot снимает под s.mu то, что нужно проходу: сеансы детей (кроме администраторов, R1),
 // их решения ядра и свои процессы. ok = false — проход ничего не делает: служба не запущена или
 // останавливается, список программ не готов (RM3-10, R18), не определены папка Windows или
 // каталог установки (класс «система» был бы пуст), тестовый режим без WatchDir (RM3-8).
-// Пауза (R11) и безопасный режим (R18): у ребёнка ничего не закрывается, его сеанс не опрашивается.
+// Безопасный режим (R18): у ребёнка ничего не закрывается, его сеанс не опрашивается. Пауза (R11):
+// ничего не закрывается, сеанс опрашивается только ради свойств файлов для учёта (hold, B-30).
 // Сеансы взрослых (R19) и сеансы без пользователя не опрашиваются вовсе. Заодно снимаются факты
 // для «ручной или сам» (launchFacts): вход в сеанс, ввод и передний план по снимку стража этого
 // сеанса не старше sampleMaxAge; снимок с неактивным сеансом — данных о вводе нет.
@@ -381,7 +449,7 @@ func (s *Service) watchSnapshot(real time.Time) ([]watchTarget, bool) {
 			continue
 		}
 		d := cs.eng.Current()
-		if d.Status == core.StatusPaused || d.Status == core.StatusSafe {
+		if d.Status == core.StatusSafe {
 			continue
 		}
 		own := map[uint32]bool{}
@@ -395,7 +463,7 @@ func (s *Service) watchSnapshot(real time.Time) ([]watchTarget, bool) {
 				own[sp.pid] = true
 			}
 		}
-		t := watchTarget{session: id, childID: ss.childID, sid: cs.child.SID, d: d, own: own, at: real, logonAt: ss.since}
+		t := watchTarget{session: id, childID: ss.childID, sid: cs.child.SID, d: d, own: own, at: real, logonAt: ss.since, hold: d.Status == core.StatusPaused}
 		if sm := cs.sample; cs.haveSample && cs.sampleSess == id && real.Sub(cs.sampleAt) <= sampleMaxAge && sm.SessionActive && sm.LastInputAgoMs >= 0 {
 			t.inputAt, t.sampleAt = s.inputMoment(cs.sampleAt, sm.LastInputAgoMs), cs.sampleAt
 			t.fg = programs.Normalize(sm.ForegroundPath)
@@ -441,17 +509,7 @@ func (s *Service) watchDecide(t *watchTarget, p ProcInfo, gen uint64) (*watchAct
 	}
 	e.seen = gen
 	c := s.classifier
-	needFP := !e.fpRead && !c.Roots().IsTrusted(e.norm) && c.NeedsFingerprint(e.norm)
-	needPub := !e.pubRead && c.NeedsPublisher(e.norm)
-	if needFP || needPub {
-		// Одно чтение свойств на процесс: отпечаток (RM3-12) и издатель (RM3-13) вместе. Читается
-		// и в тестовом режиме вне WatchDir (T6-5): чтение ничего не закрывает, а без издателя Brave
-		// из профиля раннера был бы «незнакомой», и сайты в нём не различались бы.
-		var pub string
-		pub, _, e.fp = s.cfg.FileMeta(e.norm)
-		e.pub = programs.ClipName(pub)
-		e.fpRead, e.pubRead = true, true
-	}
+	s.readMeta(e)
 	if dir := s.cfg.Test.WatchDir; s.cfg.Test.Enabled && !strings.HasPrefix(e.norm, strings.TrimSuffix(dir, `\`)+`\`) {
 		return nil, skipNone // тестовый режим: закрывается только папка тестовых программ (RM3-8)
 	}
