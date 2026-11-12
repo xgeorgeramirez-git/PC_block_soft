@@ -535,7 +535,7 @@ func examples() map[string]example {
 			},
 		}),
 		"GuardPoll#closeWindow": ok(GuardPollRequest{Sample: SensorSample{AtMs: t0, SessionActive: true, Foreground: CatNameOther,
-			ForegroundPath: braveExe, DomainUnread: true}}, GuardPollReply{
+			ForegroundPath: braveExe, DomainUnread: true, DomainNoAddress: true}}, GuardPollReply{
 			Status: okStatus(), Warnings: []GuardWarning{}, Commands: []GuardCommand{{Kind: GuardCmdCloseBraveWindow}},
 		}),
 		"GuardState#closeTab": ok(nil, GuardStateReply{

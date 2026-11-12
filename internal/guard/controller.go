@@ -343,7 +343,7 @@ func (c *Controller) PollOnce() PollResult {
 	}
 	c.lastFg = req.Sample.ForegroundPath
 	if c.domSet && c.testMode && isBravePath(req.Sample.ForegroundPath) {
-		req.Sample.ForegroundDomain, req.Sample.DomainUnread = c.domText, false
+		req.Sample.ForegroundDomain, req.Sample.DomainUnread, req.Sample.DomainNoAddress = c.domText, false, false
 	}
 	c.lastDomain = req.Sample.ForegroundDomain
 	c.mu.Unlock()

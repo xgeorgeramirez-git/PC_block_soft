@@ -1368,6 +1368,7 @@
         "foregroundPath": "",
         "foregroundDomain": "",
         "domainUnread": false,
+        "domainNoAddress": false,
         "lockUnknown": false
       },
       "events": [
@@ -1479,6 +1480,7 @@
         "foregroundPath": "c:\\users\\миша\\downloads\\supergame.exe",
         "foregroundDomain": "",
         "domainUnread": false,
+        "domainNoAddress": false,
         "lockUnknown": false
       },
       "events": []
@@ -1556,6 +1558,7 @@
         "foregroundPath": "c:\\program files\\bravesoftware\\brave-browser\\application\\brave.exe",
         "foregroundDomain": "youtube.com",
         "domainUnread": false,
+        "domainNoAddress": false,
         "lockUnknown": false
       },
       "events": []
@@ -1637,6 +1640,7 @@
         "foregroundPath": "c:\\program files\\bravesoftware\\brave-browser\\application\\brave.exe",
         "foregroundDomain": "",
         "domainUnread": true,
+        "domainNoAddress": true,
         "lockUnknown": false
       },
       "events": []
@@ -1699,6 +1703,7 @@
         "foregroundPath": "",
         "foregroundDomain": "",
         "domainUnread": false,
+        "domainNoAddress": false,
         "lockUnknown": false
       },
       "events": []

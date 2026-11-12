@@ -167,7 +167,7 @@ const (
 )
 
 const (
-	// unreadCloseAfter — сколько подряд адрес окна Brave не читается, прежде чем окно закрывается
+	// unreadCloseAfter — сколько подряд у окна Brave нет адреса, прежде чем окно закрывается
 	// в «только учёбе» и при исчерпанном видео (S-3): свежее окно до 3,5 с без дерева доступности.
 	unreadCloseAfter = 5 * time.Second
 	// unreadLogEvery — строка «не удалось прочитать адрес» в журнал работы не чаще (RM4-1).
@@ -186,6 +186,10 @@ func (s *Service) siteGuard(cs *childState, ss *sessState, session uint32, sm ip
 	if !sm.DomainUnread {
 		cs.unreadSince = time.Time{}
 	}
+	noAddress := sm.DomainUnread && sm.DomainNoAddress
+	if !noAddress {
+		cs.noAddrSince = time.Time{}
+	}
 	if cs.admin || ss == nil || ss.childID != cs.child.ID || ss.offScreen() {
 		return
 	}
@@ -202,6 +206,9 @@ func (s *Service) siteGuard(cs *childState, ss *sessState, session uint32, sm ip
 			cs.unreadSince = real
 		}
 		s.noteUnread(cs, session, real)
+	}
+	if noAddress && cs.noAddrSince.IsZero() {
+		cs.noAddrSince = real
 	}
 	d := cs.eng.Current()
 	if d.Status == core.StatusPaused || d.Status == core.StatusSafe || d.Lock != core.LockNone {
@@ -234,9 +241,11 @@ func (s *Service) siteGuard(cs *childState, ss *sessState, session uint32, sm ip
 		if plate.Text == "" {
 			plate.Text = core.VideoOverPlateText(d.RemainingS, d.Unlimited)
 		}
-	case cls == siteNone && sm.DomainUnread && (d.StudyOnly || d.CloseVideo):
-		// Окно без адреса (S-3): закрыть, только если адрес не читается подряд unreadCloseAfter.
-		if real.Sub(cs.unreadSince) >= unreadCloseAfter {
+	case cls == siteNone && noAddress && (d.StudyOnly || d.CloseVideo):
+		// Окно без адреса (S-3): закрыть, только если «адреса нет» подряд unreadCloseAfter. Сбои
+		// чтения UIA отсчёт не ведут и окно не закрывают (B-55, PL-46): страж закроет только окно,
+		// у которого и сам увидит «адреса нет».
+		if real.Sub(cs.noAddrSince) >= unreadCloseAfter {
 			s.guardCmd[session] = append(s.guardCmd[session], ipc.GuardCommand{Kind: ipc.GuardCmdCloseBraveWindow})
 		}
 		return

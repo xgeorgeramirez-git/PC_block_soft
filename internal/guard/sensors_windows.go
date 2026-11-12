@@ -64,7 +64,7 @@ func readRaw() RawSensors {
 	locked, known := sessionLocked()
 	raw := RawSensors{IdleMs: idleMs(), Fullscreen: windowIsFullscreen(fg), Locked: locked, LockUnknown: !known, ForegroundPath: foregroundPath(fg)}
 	if isBravePath(raw.ForegroundPath) {
-		raw.ForegroundDomain, raw.DomainUnread, _ = braveDomain(windows.HWND(fg))
+		raw.ForegroundDomain, raw.DomainUnread, raw.DomainNoAddress = braveDomain(windows.HWND(fg))
 	}
 	return raw
 }
