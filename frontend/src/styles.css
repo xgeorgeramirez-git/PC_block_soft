@@ -1100,15 +1100,32 @@ input[type="radio"]:disabled {
   padding: 40px 8px 0 0;
 }
 
+/* Колонка оси - по самой длинной подписи («1 ч 30 мин», «12 ч»): подпись шире колонки ушла бы влево
+   за край .daybars-scroll, а прокрутка вбок обрезает то, что слева. Столбики и подписи дней - во второй
+   колонке, её наименьшая ширина - столбики не уже --col-min (иначе график прокручивается вбок). */
 .daybars-plot {
   display: grid;
-  grid-template-columns: 48px 1fr;
-  min-width: calc(48px + var(--n) * var(--col-min));
+  grid-template-columns: max-content minmax(calc(var(--n) * var(--col-min)), 1fr);
 }
 
 .daybars-axis {
   position: relative;
   height: 160px;
+  padding: 0 var(--space-2) 0 2px;
+}
+
+.daybars-axis-sizer {
+  height: 0;
+  overflow: hidden;
+  visibility: hidden;
+  font-size: 12px;
+  line-height: 1;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.daybars-axis-sizer > span {
+  display: block;
 }
 
 .daybars-tick {

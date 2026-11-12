@@ -80,6 +80,12 @@ export default function DayBars({ reply }: { reply: MyTodayReply }) {
       >
         <div className="daybars-plot">
           <div className="daybars-axis" aria-hidden="true">
+            {/* Замер: те же подписи в потоке, невидимые и без высоты, - колонка оси по самой длинной из них. */}
+            <div className="daybars-axis-sizer">
+              {ticks.map((t) => (
+                <span key={t}>{axisLabel(t)}</span>
+              ))}
+            </div>
             {ticks.map((t) => (
               <span key={t} className="daybars-tick" style={{ top: `${100 - (t / maxS) * 100}%` }}>
                 {axisLabel(t)}

@@ -2588,15 +2588,31 @@ async function barsFit(page: Page, where: string) {
         const b = range.getBoundingClientRect();
         return { text: l.textContent ?? "", l: b.left, r: b.right };
       });
+    // Подписи оси: прямоугольник текста, его рамка (обрезка overflow) и карточка «По дням».
+    const area = r(fig.querySelector(".daybars-area")!);
+    const card = r(fig.closest(".card") ?? fig.closest("section") ?? fig);
+    const ticks = [...fig.querySelectorAll(".daybars-tick")].map((t) => {
+      const range = document.createRange();
+      range.selectNodeContents(t);
+      const b = range.getBoundingClientRect();
+      const el = t as HTMLElement;
+      return { text: t.textContent ?? "", l: b.left, r: b.right, scroll: el.scrollWidth, client: el.clientWidth };
+    });
     const tip = fig.querySelector(".daybars-tip");
     const content = r(document.querySelector("main.content")!);
-    return { scroll, labels, tip: tip ? { ...r(tip), text: tip.textContent ?? "" } : null, content, vw: window.innerWidth, vh: window.innerHeight };
+    return { scroll, area, card, ticks, labels, tip: tip ? { ...r(tip), text: tip.textContent ?? "" } : null, content, vw: window.innerWidth, vh: window.innerHeight };
   });
   const problems: string[] = [];
   report.labels.forEach((l, i) => {
     const next = report.labels[i + 1];
     if (next && l.r > next.l + 0.5) problems.push(`подписи «${l.text}» и «${next.text}» налезают`);
   });
+  for (const t of report.ticks) {
+    if (t.l < report.scroll.l - 0.5) problems.push(`подпись оси «${t.text}» обрезана слева`);
+    if (t.r > report.area.l + 0.5) problems.push(`подпись оси «${t.text}» заходит на столбики`);
+    if (t.l < report.card.l - 0.5 || t.r > report.card.r + 0.5) problems.push(`подпись оси «${t.text}» вне карточки`);
+    if (t.scroll > t.client + 1) problems.push(`подпись оси «${t.text}» обрезана (${t.scroll} > ${t.client})`);
+  }
   if (report.tip) {
     const t = report.tip;
     if (t.l < report.content.l - 0.5 || t.r > report.content.r + 0.5 || t.r > report.vw + 0.5) problems.push(`подсказка «${t.text}» за краем окна`);
@@ -2721,6 +2737,34 @@ for (const [w, h, mode] of [
   });
 }
 
+// s21 — подписи оси любой длины целиком внутри графика и карточки: деления по 30 мин («1 ч 30 мин») и
+// по 3 ч («12 ч»), у родителя 960 px и в окне ребёнка 640 px. Столбики под подписями дней (barsFit).
+for (const [peak, ticks] of [
+  [7000, ["0", "30 мин", "1 ч", "1 ч 30 мин", "2 ч"]],
+  [40000, ["0", "3 ч", "6 ч", "9 ч", "12 ч"]],
+] as const) {
+  for (const [w, h, mode] of [
+    [960, 900, "parent"],
+    [640, 520, "mystats"],
+  ] as const) {
+    test(`s21 статистика: подписи оси до «${ticks[ticks.length - 1]}» в окне ${w} x ${h} (${mode})`, async ({ page }) => {
+      await page.clock.setFixedTime(OCT31);
+      await page.setViewportSize({ width: w, height: h });
+      const kid = child({ usedS: 1200, gamesUsedS: 0, history: [{ day: "2026-10-05", totalS: peak, gamesS: 0 }] });
+      if (mode === "parent") {
+        await openParentStats(page, [kid], []);
+      } else {
+        await mockProgram(page, { mode: "mystats", children: [kid], myChildId: 1 });
+        await page.goto("/");
+      }
+      await choosePeriod(page, "Месяц", "Использовано за месяц");
+      await expect(page.locator(".daybars-tick")).toHaveText([...ticks]);
+      await barsFit(page, `подписи оси до ${peak} с, ${w} x ${h}`);
+      await noHorizontalScroll(page);
+    });
+  }
+}
+
 // s21 — «Всё время» за 36 месяцев: прокручивается вбок только график (сегодня виден справа), окно - нет.
 test("s21 статистика родителя: всё время 36 месяцев", async ({ page }) => {
   await page.clock.setFixedTime(G15_NOW);
@@ -2832,6 +2876,7 @@ test("s48 очистка статистики: подтверждение и р�
   await expect(page.getByRole("region", { name: "Итоги" }).getByText("За этот период пока нет данных", { exact: true })).toBeVisible();
   await page.getByRole("tablist", { name: "Период" }).getByRole("tab", { name: "Сегодня", exact: true }).click();
   await expect(page.getByRole("region", { name: "Итоги" }).locator(".stat-row").filter({ hasText: "Использовано сегодня" })).toHaveText("Использовано сегодня0 мин");
+  await barsFit(page, "после очистки, 960");
   await noHorizontalScroll(page);
   await page.screenshot({ path: `${SCREENS}/s48-clear-stats-done.png`, fullPage: true });
 });
