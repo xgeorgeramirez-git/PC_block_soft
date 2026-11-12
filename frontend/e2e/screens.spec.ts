@@ -2846,6 +2846,13 @@ for (const scheme of ["light", "dark"] as const) {
     await expect(gen.getByLabel("Минуты")).toHaveValue("30");
     await gen.getByRole("button", { name: "Придумать" }).click();
     await expect(page.locator(".promo-status")).toHaveText("Готово: 10 кодов на 30 мин");
+    // Сообщение отделено от карточки «Создать код», как сообщения очистки статистики и журнала.
+    const gap = await page.evaluate(() => {
+      const st = document.querySelector(".promo-status")!.getBoundingClientRect();
+      const card = document.querySelector(".promo-status ~ .panel")!.getBoundingClientRect();
+      return card.top - st.bottom;
+    });
+    expect(gap, "«Готово» вплотную к карточке").toBeCloseTo(12, 0);
     const fresh = gen.getByRole("list", { name: "Новые коды" });
     await expect(fresh.getByRole("listitem")).toHaveCount(10);
     for (const code of await fresh.getByRole("listitem").allTextContents()) expect(code).toMatch(/^[A-HJ-NP-Z2-9]{6}$/);
@@ -2887,10 +2894,20 @@ test("s49 промокоды: ошибка у поля «Код»", async ({ pag
   const create = page.getByRole("region", { name: "Создать код" });
   const code = create.getByLabel("Код", { exact: true });
   await expect(code).toHaveAttribute("placeholder", "A1234");
+  // Ширина колонки «Код» не зависит от ошибки: «Минуты» и «Создать» стоят на месте.
+  const minutesBox = create.getByLabel("Минуты", { exact: true });
+  const submitBox = create.getByRole("button", { name: "Создать" });
+  const xBefore = { minutes: (await minutesBox.boundingBox())!.x, submit: (await submitBox.boundingBox())!.x };
   await code.fill("код!");
   await create.getByRole("button", { name: "Создать" }).click();
   const error = create.getByText("Только латинские буквы A-Z и цифры", { exact: true });
   await expect(error).toBeVisible();
+  expect((await minutesBox.boundingBox())!.x, "«Минуты» сдвинулись из-за ошибки").toBeCloseTo(xBefore.minutes, 0);
+  expect((await submitBox.boundingBox())!.x, "«Создать» сдвинулась из-за ошибки").toBeCloseTo(xBefore.submit, 0);
+  // Ошибка переносится в пределах ширины поля.
+  const errBox = (await error.boundingBox())!;
+  const codeBox = (await code.boundingBox())!;
+  expect(errBox.x + errBox.width, "ошибка шире поля «Код»").toBeLessThanOrEqual(codeBox.x + codeBox.width + 1);
   await expect(code).toHaveAttribute("aria-invalid", "true");
   await expect(code).toBeFocused();
   // Ошибка под своим полем, а не общим абзацем под формой.
