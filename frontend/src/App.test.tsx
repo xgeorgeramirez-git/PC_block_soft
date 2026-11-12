@@ -301,7 +301,8 @@ describe("меню окна родителя", () => {
     expect(screen.queryByRole("heading", { name: "Помощь" })).toBeNull();
   });
 
-  it("ссылка «Нарушения сегодня» открывает журнал нарушений", async () => {
+  // Ловит (8.3.7 п.2): ссылка открывает журнал без фильтра или за «Всё».
+  it("ссылка «Нарушения сегодня» открывает журнал: «Что: Нарушения» и вкладка «Сегодня»", async () => {
     const user = setup({
       events: [
         { atMs: Date.now() - 60_000, tzOffsetMin: 180, childId: 1, childName: "Миша", kind: "bypass", text: "Миша: попытка обойти защиту" },
@@ -309,8 +310,10 @@ describe("меню окна родителя", () => {
     });
     await login(user);
     await user.click(await screen.findByRole("button", { name: "Нарушения сегодня: 1" }));
-    expect(await screen.findByRole("heading", { name: "Журнал: нарушения" })).toBeTruthy();
-    expect(screen.getByText("Миша: попытка обойти защиту")).toBeTruthy();
+    expect(await screen.findByText("Миша: попытка обойти защиту")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Журнал" })).toBeTruthy();
+    expect((screen.getByLabelText("Что") as HTMLSelectElement).value).toBe("violations");
+    expect(screen.getByRole("tab", { name: "Сегодня" }).getAttribute("aria-selected")).toBe("true");
   });
 
   // Ловит: ссылка ведёт не туда или счётчик на «Сегодня» расходится с «Программами» (8.3.2 п.5).

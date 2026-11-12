@@ -1823,6 +1823,36 @@ html:has(.shell-child) body {
   color: var(--text-muted);
 }
 
+/* Фильтры «Ребёнок» и «Что» над списком, справа «Очистить журнал» (8.3.7 п.2, п.3). Ширина строки -
+   как у списка; на узком окне поля переносятся, а не уходят вбок. */
+.journal-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-3) var(--space-4);
+  max-width: 720px;
+  margin-bottom: var(--space-3);
+}
+
+.journal-filter {
+  flex: 0 1 220px;
+  min-width: 180px;
+}
+
+.journal-filter .field-label {
+  font-size: 14px;
+}
+
+.journal-more {
+  max-width: 720px;
+  margin-top: var(--space-3);
+  text-align: center;
+}
+
+.journal-screen .notice {
+  max-width: 720px;
+}
+
 /* --- Программы (FR-20, 8.3.4) --------------------------------------------------------- */
 
 /* Блоки страницы: между ними 16 px, как у остальных панелей. */
