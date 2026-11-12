@@ -111,6 +111,22 @@ describe("вкладки «Действующие» и «Использован�
     expect(screen.getByText("использован 19 октября в 11:40")).toBeTruthy();
   });
 
+  // Ловит (ревью окна M5): без времени использования строка «использован , Миша» с пробелом перед запятой.
+  it("использован без времени: «использован, Миша»", async () => {
+    mock = installBackend({ sessionActive: true, children: [mockChild({})] });
+    mock.override("ListPromos", {
+      ok: true,
+      payload: { active: [], used: [{ codeDisplay: "OLD1", minutes: 10, createdAtMs: CREATED, usedByName: "Миша" }] },
+    });
+    const user = userEvent.setup({ advanceTimers: (ms: number) => vi.advanceTimersByTime(ms) });
+    render(<Promos />);
+    await screen.findByText("Действующих кодов нет");
+    await user.click(tab(/^Использованные/));
+    const used = screen.getByRole("list", { name: "Использованные промокоды" });
+    expect(within(used).getByText("использован, Миша")).toBeTruthy();
+    expect(used.textContent).not.toMatch(/ ,/);
+  });
+
   // Ловит: сбой загрузки показывает технический текст или тупик без «Повторить».
   it("сбой загрузки: простыми словами и «Повторить»", async () => {
     mock = installBackend({ sessionActive: true, children: [mockChild({})] });

@@ -449,7 +449,7 @@ export default function Promos() {
                   <code className="promo-code">{p.codeDisplay}</code>
                   <span className="promo-minutes">{`${p.minutes} мин`}</span>
                   <span className="promo-when">
-                    {`использован ${p.usedAtMs ? when(p.usedAtMs) : ""}${p.usedByName ? `, ${p.usedByName}` : ""}`}
+                    {`использован${p.usedAtMs ? ` ${when(p.usedAtMs)}` : ""}${p.usedByName ? `, ${p.usedByName}` : ""}`}
                   </span>
                 </li>
               ))}
