@@ -125,6 +125,22 @@ function ruleVar(selector: string, prop: string): string {
   return m[2];
 }
 
+// Подсказка в пустом поле («A1234» у кода промокода): в тёмной теме цвет браузера по умолчанию
+// почти не виден (визуальная приёмка M5). Одно правило для всех полей: приглушённый текст палитры,
+// не меньше 4,5:1 на фоне поля в обеих темах, без прозрачности браузера.
+describe("подсказка в пустом поле (placeholder)", () => {
+  it("цвет — приглушённый текст, фон поля — поверхность, без прозрачности", () => {
+    expect(ruleVar("::placeholder", "color")).toBe("text-muted");
+    expect(ruleVar(".field-input", "background")).toBe("surface");
+    expect(blockOf(css, /(^|\n)::placeholder\s*\{/)).toMatch(/opacity\s*:\s*1\s*;/);
+  });
+
+  it("не меньше 4,5:1 на поле в обеих темах", () => {
+    expect(ratio(light["text-muted"], light.surface)).toBeGreaterThanOrEqual(4.5);
+    expect(ratio(dark["text-muted"], dark.surface)).toBeGreaterThanOrEqual(4.5);
+  });
+});
+
 // Кнопка «Запретить» на «Программах» - обычная «.btn», как «Игра»/«Учёба»/«Прочее»: цвет текста
 // тот же токен, что у соседних кнопок, а не приглушённый (иначе она выглядит неактивной, приёмка P2 п.1).
 describe("кнопка «Запретить» того же вида, что соседние", () => {
