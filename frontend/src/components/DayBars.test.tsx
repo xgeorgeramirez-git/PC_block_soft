@@ -104,6 +104,21 @@ describe("DayBars: неделя G15", () => {
     expect(document.activeElement).toBe(hits()[1]);
   });
 
+  // Ловит (WCAG 1.4.13): подсказку, открытую наведением мыши, Esc не прячет - фокус не на столбике.
+  it("Esc прячет подсказку, открытую наведением мыши", async () => {
+    const user = userEvent.setup({ advanceTimers: (ms) => vi.advanceTimersByTime(ms) });
+    render(<DayBars reply={await week()} />);
+    await user.hover(hits()[2]);
+    expect(tip()).not.toBeNull();
+    expect(document.activeElement).toBe(document.body);
+    await user.keyboard("{Escape}");
+    expect(tip()).toBeNull();
+    // Подсказки нет - Esc больше не слушается: обработчик снят.
+    await user.unhover(hits()[2]);
+    await user.hover(hits()[3]);
+    expect(tip()?.textContent).toBe(hits()[3].getAttribute("aria-label"));
+  });
+
   it("подсказка у краёв выровнена внутрь графика", async () => {
     render(<DayBars reply={await week()} />);
     fireEvent.mouseEnter(hits()[0]);

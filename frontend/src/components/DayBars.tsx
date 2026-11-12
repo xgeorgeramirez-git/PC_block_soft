@@ -11,8 +11,8 @@ const BAR = 6;
  * «По дням» (8.2.6 п.4, D-69, D-78): столбик на день или месяц периода, высота - время в счёт лимита,
  * учёба - отдельная часть сверху со штриховкой (отличается не только цветом). Только время: ни линии
  * лимита, ни отметок «сверх лимита». Подписи и подсказки - из ответа службы (RM5-3). Наведение или
- * фокус на столбик - подсказка; стрелки, Home и End ходят по столбикам, Esc прячет подсказку
- * (WCAG 1.4.13). Для экранного диктора - итог графика и скрытая таблица тех же чисел.
+ * фокус на столбик - подсказка; стрелки, Home и End ходят по столбикам, Esc прячет подсказку,
+ * открытую и мышью (WCAG 1.4.13). Для экранного диктора - итог графика и скрытая таблица тех же чисел.
  */
 export default function DayBars({ reply }: { reply: MyTodayReply }) {
   const bars = reply.bars;
@@ -35,6 +35,17 @@ export default function DayBars({ reply }: { reply: MyTodayReply }) {
     const el = scroll.current;
     if (el) el.scrollLeft = el.scrollWidth;
   }, [keys, home]);
+
+  // Esc прячет и подсказку, открытую мышью, где бы ни был фокус (WCAG 1.4.13): слушаем документ, пока она видна.
+  const tipOpen = tip !== null;
+  useEffect(() => {
+    if (!tipOpen) return;
+    const onEsc = (e: globalThis.KeyboardEvent) => {
+      if (e.key === "Escape") setTip(null);
+    };
+    document.addEventListener("keydown", onEsc);
+    return () => document.removeEventListener("keydown", onEsc);
+  }, [tipOpen]);
 
   if (n === 0) return null;
   const hasStudy = bars.some((b) => b.studyS > 0);
