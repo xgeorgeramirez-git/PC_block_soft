@@ -38,3 +38,4 @@
 | ревью окна | a0bd6839157da5bd6 | reviewer | done | With fixes: Important — период при ошибке, смена ребёнка, контраст checkbox/radio, wholePage снимков; Minor частично в фикс, остальное бэклог | — |
 | фикс-раунд службы | a766f9a2225c0f324 | writer | done | 1778daa…51bc892; GrantDayBonus в одной tx, граница autobonus_from_day вместо UPDATE в миграции, ТЗ 1.25 «Код от 3 до 16 знаков» | 0 |
 | разбор S21 | aedfea6561fec7570 | reader | done | служба верна; литерал скрипта 45180 включал сегодня → оркестратор поправил скрипт | 1 |
+| фикс-раунд окна | adefe2d10aa0325e0 | writer | done | 0175b58…c3eb662 (10 коммитов): период/ребёнок при сбое, свои checkbox/radio, h4, label, Esc | 0 |
