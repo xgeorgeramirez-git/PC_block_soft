@@ -2881,8 +2881,10 @@ html:has(.shell-child) body {
   white-space: nowrap;
 }
 
+/* Коды в столбик: до 16 знаков (R26) с разрядкой, код не сжимается и не обрезается. */
 .promo-item .promo-code {
-  min-width: 17ch;
+  flex-shrink: 0;
+  min-width: 18ch;
 }
 
 .promo-minutes {
