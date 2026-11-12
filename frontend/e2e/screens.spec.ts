@@ -392,7 +392,7 @@ test("s07 что нового", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("navigation", { name: "Разделы" }).getByRole("button", { name: "Что нового" }).click();
   await expect(page.getByRole("heading", { name: "Что нового", level: 2 })).toBeVisible();
-  await expect(page.getByRole("heading", { level: 3 }).first()).toHaveText("Версия 0.5.0. Статистика по дням, очистка и промокоды");
+  await expect(page.getByRole("heading", { level: 3 }).first()).toHaveText("Версия 0.5.1. Уточнён текст об очистке статистики");
   await expect(page.locator("main.content").getByRole("button")).toHaveCount(0);
   await noHorizontalScroll(page);
   await wholePage(page);
