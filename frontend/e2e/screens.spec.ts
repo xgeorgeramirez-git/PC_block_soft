@@ -2298,6 +2298,7 @@ test("m5 сайты: вставка нескольких адресов и от�
   const field = page.getByRole("textbox", { name: "Добавить сайт" });
   await field.fill("kino.example\nhttps://www.New.example/page\nкотики видео");
   await expect(field).toHaveAttribute("rows", "3");
+  await wholePage(page);
   await page.screenshot({ path: `${SCREENS}/m5-sites-paste.png`, fullPage: true });
   await field.press("Enter");
   await expect(page.getByText("Добавлено сайтов: 2", { exact: true })).toBeVisible();
@@ -2310,6 +2311,7 @@ test("m5 сайты: вставка нескольких адресов и от�
   await expect(page.getByText("Выбрано: 2", { exact: true })).toBeVisible();
   await siteRowsFit(page);
   await noHorizontalScroll(page);
+  await wholePage(page);
   await page.screenshot({ path: `${SCREENS}/m5-sites-picked.png`, fullPage: true });
   await page.getByRole("button", { name: "Удалить отмеченные", exact: true }).click();
   await expect(page.getByText("Удалено сайтов: 2", { exact: true })).toBeVisible();
