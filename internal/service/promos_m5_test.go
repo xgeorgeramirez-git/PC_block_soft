@@ -69,10 +69,17 @@ func promoHarness(t *testing.T) (*harness, string, int64) {
 func TestCreatePromoLatinOnlyAndUpper(t *testing.T) {
 	h, tok, id := promoHarness(t)
 
-	for _, code := range []string{"код!", "ab 12", "ＡＢ１２", "ab"} {
+	for _, code := range []string{"код!", "ab 12", "ＡＢ１２", "a!", "ABCDEFGHIJKLMNOPQ!"} {
 		f := h.fail(adminPeer(), tok, ipc.CmdCreatePromo, ipc.CreatePromoRequest{Code: code, Minutes: 30})
 		if f.Error != "Только латинские буквы A-Z и цифры" || f.Field != ipc.FieldCode {
 			t.Errorf("код %q: отказ %q у поля %q; want «Только латинские буквы A-Z и цифры» у code", code, f.Error, f.Field)
+		}
+	}
+	// Знаки допустимые, длина нет: отдельный текст у поля (R26).
+	for _, code := range []string{"ab", " ab ", "ABCDEFGHIJKLMNOPQ"} {
+		f := h.fail(adminPeer(), tok, ipc.CmdCreatePromo, ipc.CreatePromoRequest{Code: code, Minutes: 30})
+		if f.Error != "Код от 3 до 16 знаков" || f.Field != ipc.FieldCode {
+			t.Errorf("код %q: отказ %q у поля %q; want «Код от 3 до 16 знаков» у code", code, f.Error, f.Field)
 		}
 	}
 	if f := h.fail(adminPeer(), tok, ipc.CmdCreatePromo, ipc.CreatePromoRequest{Code: "  ", Minutes: 30}); f.Error != "Введите код" {

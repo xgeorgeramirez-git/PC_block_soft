@@ -88,3 +88,18 @@ func TestCheckNewPromoCode(t *testing.T) {
 		}
 	}
 }
+
+// Ловит (R26): код не той длины из допустимых знаков получает текст «Только латинские буквы»
+// (служба различает длину и знаки по PromoCodeLatinOnly); пустой код считается латинским.
+func TestPromoCodeLatinOnly(t *testing.T) {
+	for _, in := range []string{"ab", " ab ", "a1z", "abcdefgh123456789", "Z"} {
+		if !PromoCodeLatinOnly(in) {
+			t.Errorf("PromoCodeLatinOnly(%q) = false; ожидалось true", in)
+		}
+	}
+	for _, in := range []string{"ПРИВЕТ", "ab 12", "a!", "ＡＢ１２", "ﬁx12", "", "   "} {
+		if PromoCodeLatinOnly(in) {
+			t.Errorf("PromoCodeLatinOnly(%q) = true; ожидалось false", in)
+		}
+	}
+}

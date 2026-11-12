@@ -852,6 +852,8 @@ const promoNorm = (code: string) => code.trim().toLowerCase();
 
 /** Новый код как core.CheckNewPromoCode (RM5-11): только A-Z, a-z, 0-9, 3-16 знаков. */
 const PROMO_NEW_CODE = /^[A-Za-z0-9]{3,16}$/;
+/** Только допустимые знаки без проверки длины, как core.PromoCodeLatinOnly: отличает текст о длине (R26). */
+const PROMO_LATIN = /^[A-Za-z0-9]+$/;
 
 /** Составы «Придумать коды», как promoAlphabets службы (RM5-12): с буквами без I, O, 0, 1. */
 const PROMO_ALPHABETS: Record<string, string> = {
@@ -1475,7 +1477,9 @@ export function createBackend(opts: MockOptions = {}): MockBackend {
     CreatePromo: (req, now) => {
       const raw = String(req.code ?? "").trim();
       if (!raw) return fail("Введите код", "code");
-      if (!PROMO_NEW_CODE.test(raw)) return fail("Только латинские буквы A-Z и цифры", "code");
+      if (!PROMO_NEW_CODE.test(raw)) {
+        return fail(PROMO_LATIN.test(raw) ? "Код от 3 до 16 знаков" : "Только латинские буквы A-Z и цифры", "code");
+      }
       const code = raw.toUpperCase();
       if (!Number.isInteger(req.minutes) || req.minutes < 1 || req.minutes > 600) return fail("Можно от 1 до 600 минут", "minutes");
       if (state.promos.some((p) => promoNorm(p.codeDisplay) === promoNorm(code))) {

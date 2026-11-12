@@ -25,14 +25,27 @@ func PromoMinutesValid(minutes int) bool {
 // (ToUpper превратил бы «ﬁ» в «FI») не проходят.
 func CheckNewPromoCode(code string) (display string, ok bool) {
 	c := strings.TrimSpace(code)
-	if len(c) < 3 || len(c) > 16 {
+	if len(c) < 3 || len(c) > 16 || !latinDigits(c) {
 		return "", false
 	}
+	return strings.ToUpper(c), true
+}
+
+// PromoCodeLatinOnly сообщает, что код после TrimSpace не пуст и состоит только из ASCII A–Z, a–z,
+// 0–9, без проверки длины: служба по нему отличает «Код от 3 до 16 знаков» от «Только латинские
+// буквы A-Z и цифры» (R26).
+func PromoCodeLatinOnly(code string) bool {
+	c := strings.TrimSpace(code)
+	return c != "" && latinDigits(c)
+}
+
+// latinDigits — все байты c из ASCII A–Z, a–z, 0–9 (по байтам: кириллица и лигатуры не проходят).
+func latinDigits(c string) bool {
 	for i := 0; i < len(c); i++ {
 		b := c[i]
 		if !(b >= 'A' && b <= 'Z' || b >= 'a' && b <= 'z' || b >= '0' && b <= '9') {
-			return "", false
+			return false
 		}
 	}
-	return strings.ToUpper(c), true
+	return true
 }

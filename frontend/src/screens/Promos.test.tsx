@@ -166,6 +166,21 @@ describe("«Создать код» (8.3.10 п.2, RM5-11)", () => {
     expect(tab(/^Действующие/).textContent).toBe("Действующие (2)");
   });
 
+  // Ловит (R26): код из допустимых знаков, но короче 3, получает текст о знаках вместо текста о длине.
+  it("«ab» → у поля «Код» «Код от 3 до 16 знаков»", async () => {
+    const user = setup();
+    await activeList();
+    const box = createBox();
+    const code = within(box).getByLabelText("Код") as HTMLInputElement;
+    await user.type(code, "ab");
+    await user.click(within(box).getByRole("button", { name: "Создать" }));
+    const error = await within(box).findByText("Код от 3 до 16 знаков");
+    expect(code.getAttribute("aria-invalid")).toBe("true");
+    expect(code.getAttribute("aria-describedby")).toBe(error.id);
+    expect(within(box).queryByText("Только латинские буквы A-Z и цифры")).toBeNull();
+    expect(tab(/^Действующие/).textContent).toBe("Действующие (2)");
+  });
+
   // Ловит: повтор кода (другой регистр, пробелы по краям) создаёт второй такой же код.
   it("повтор кода → «Такой код уже есть, придумайте другой»", async () => {
     const user = setup();

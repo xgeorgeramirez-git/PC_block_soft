@@ -113,6 +113,9 @@ func (s *Service) hCreatePromo(c *callCtx) ipc.Reply {
 	// RM5-11: новый код — только A–Z и цифры, 3–16 знаков; хранится заглавными.
 	display, valid := core.CheckNewPromoCode(req.Code)
 	if !valid {
+		if core.PromoCodeLatinOnly(req.Code) {
+			return ipc.FailField("Код от 3 до 16 знаков", ipc.FieldCode)
+		}
 		return ipc.FailField("Только латинские буквы A-Z и цифры", ipc.FieldCode)
 	}
 	if !core.PromoMinutesValid(req.Minutes) {
