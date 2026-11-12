@@ -34,3 +34,7 @@
 | T8b возврат | aba4366bc1513d136 | writer | done | 1: 26a7705 Sites.test (оркестратор 6aea571 тип vi.fn) | 1 |
 | visual сайты/отдых | a2d26a9352c796c62 | visual | done | 8/13 PASS; в фикс-раунд: контраст пустых checkbox/radio в тёмной теме (3:1), снимок m5-sites-paste полной высоты; LOW: перенос даты в журнале копилки | — |
 | T10+T11 приёмка | a43297af647dbe030 | writer | done | 965dd06…5d54f48 (10 коммитов); ST1 с stats_reset 352 мс ncruces | 0 |
+| ревью службы | a75de3ae22e06e915 | reviewer | done | Ready to merge, 7 Minor: 1–4,7 → фикс-раунд; 5 (кэш свойств watch), 6 (AddSites транзакция) → бэклог | — |
+| ревью окна | a0bd6839157da5bd6 | reviewer | done | With fixes: Important — период при ошибке, смена ребёнка, контраст checkbox/radio, wholePage снимков; Minor частично в фикс, остальное бэклог | — |
+| фикс-раунд службы | a766f9a2225c0f324 | writer | done | 1778daa…51bc892; GrantDayBonus в одной tx, граница autobonus_from_day вместо UPDATE в миграции, ТЗ 1.25 «Код от 3 до 16 знаков» | 0 |
+| разбор S21 | aedfea6561fec7570 | reader | done | служба верна; литерал скрипта 45180 включал сегодня → оркестратор поправил скрипт | 1 |
