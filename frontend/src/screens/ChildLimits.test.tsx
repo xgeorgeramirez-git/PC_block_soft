@@ -135,7 +135,7 @@ describe("ChildLimits: вкладки правил (B-38)", () => {
     const user = setup();
     await ready();
     const tabs = within(screen.getByRole("tablist", { name: "Правила ребёнка" })).getAllByRole("tab");
-    expect(tabs.map((t) => t.textContent)).toEqual(["Лимиты", "Запретные часы", "Когда время вышло", "Отдых"]);
+    expect(tabs.map((t) => t.textContent)).toEqual(["Лимиты", "Запретные часы", "Когда время вышло", "Перерыв на отдых"]);
     const panel = screen.getByRole("tabpanel", { name: "Лимиты" });
     for (const t of tabs) expect(t.getAttribute("aria-controls")).toBe(panel.id);
     expect(panel.id).toBe("limits-panel");
@@ -146,11 +146,11 @@ describe("ChildLimits: вкладки правил (B-38)", () => {
     expect(screen.getByRole("tab", { name: "Запретные часы" }).getAttribute("aria-selected")).toBe("true");
     expect(screen.getByRole("tabpanel", { name: "Запретные часы" }).id).toBe("limits-panel");
     await user.keyboard("{End}");
-    expect(document.activeElement?.textContent).toBe("Отдых");
+    expect(document.activeElement?.textContent).toBe("Перерыв на отдых");
     await user.keyboard("{ArrowRight}");
     expect(document.activeElement?.textContent).toBe("Лимиты");
     await user.keyboard("{ArrowLeft}");
-    expect(document.activeElement?.textContent).toBe("Отдых");
+    expect(document.activeElement?.textContent).toBe("Перерыв на отдых");
     await user.keyboard("{Home}");
     expect(document.activeElement?.textContent).toBe("Лимиты");
     expect(screen.getByRole("tab", { name: "Лимиты" }).tabIndex).toBe(0);
@@ -596,7 +596,7 @@ describe("ChildLimits: «Когда время вышло» (FR-18, R8)", () => 
   it("два варианта с пояснениями, выбран сохранённый", async () => {
     const user = setup();
     await openEnd(user);
-    expect(screen.getAllByRole("tab").map((t) => t.textContent)).toEqual(["Лимиты", "Запретные часы", "Когда время вышло", "Отдых"]);
+    expect(screen.getAllByRole("tab").map((t) => t.textContent)).toEqual(["Лимиты", "Запретные часы", "Когда время вышло", "Перерыв на отдых"]);
     expect(lockRadio().checked).toBe(true);
     expect(studyRadio().checked).toBe(false);
     expect(screen.getByText("Компьютер закрывается экраном блокировки, игры закрываются, остальные окна сохраняются")).toBeTruthy();

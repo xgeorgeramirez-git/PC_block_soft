@@ -45,7 +45,7 @@ const TABS: { id: Tab; label: string }[] = [
   { id: "limits", label: "Лимиты" },
   { id: "schedule", label: "Запретные часы" },
   { id: "end", label: "Когда время вышло" },
-  { id: "rest", label: "Отдых" },
+  { id: "rest", label: "Перерыв на отдых" },
 ];
 const LIMITS_PANEL = "limits-panel";
 

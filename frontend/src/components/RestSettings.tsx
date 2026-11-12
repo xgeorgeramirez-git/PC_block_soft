@@ -30,7 +30,7 @@ const COUNTS: { value: BreakCounts; label: string }[] = [
 const two = (n: number) => String(n).padStart(2, "0");
 
 /**
- * Вкладка «Отдых» (FR-37, 8.3.3 п.7): переключатель, поля в минутах, что считать, сообщение на
+ * Вкладка «Перерыв на отдых» (FR-37, 8.3.3 п.7): переключатель, поля в минутах, что считать, сообщение на
  * экране перерыва с образцом «Как увидит ребёнок» и итог словами. Сохраняет общая панель (FR-19).
  */
 export default function RestSettings({ value, saved, onChange, errors }: Props) {
@@ -48,7 +48,7 @@ export default function RestSettings({ value, saved, onChange, errors }: Props) 
       <p className="panel-text">После долгой игры компьютер ненадолго закрывается, чтобы ребёнок отдохнул. Настройки свои у каждого ребёнка.</p>
       <label className="switch rest-switch">
         <input type="checkbox" checked={value.enabled} onChange={(e) => onChange(toggleBreak(value, e.target.checked, saved))} />
-        <span>Перерывы на отдых</span>
+        <span>Перерыв на отдых</span>
       </label>
       <div className="rest-layout">
         <fieldset className="rest-fields" disabled={off}>

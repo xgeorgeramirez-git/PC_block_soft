@@ -70,7 +70,7 @@ describe("черновик «Отдыха»", () => {
       "break.restMin": "Можно от 5 до 60 мин",
       "break.selfRestMin": "Можно от 5 до 120 мин",
     });
-    expect(validateBreak({ ...s43, restMin: 20, selfRestMin: 19 })).toEqual({ "break.selfRestMin": "Не меньше времени отдыха" });
+    expect(validateBreak({ ...s43, restMin: 20, selfRestMin: 19 })).toEqual({ "break.selfRestMin": "Не меньше 20 мин: столько длится отдых" });
     expect(validateBreak({ ...s43, message: "я".repeat(121) })).toEqual({ "break.message": "Не больше 120 символов" });
     expect(validateBreak({ ...s43, message: "я".repeat(120) })).toEqual({});
   });
@@ -92,7 +92,7 @@ describe("черновик «Отдыха»", () => {
     expect(breakSummary(s43)).toBe(
       "После 60 мин игр ребёнок увидит «Пора отдохнуть», через 5 мин компьютер закроется на 15 мин. Если сам не играл 30 мин подряд, это засчитается как отдых",
     );
-    expect(breakSummary(DEFAULT_BREAK)).toBe("Перерывы на отдых выключены");
+    expect(breakSummary(DEFAULT_BREAK)).toBe("Перерыв на отдых выключен");
     expect(breakSummary({ ...DEFAULT_BREAK, enabled: true })).toBe(
       "После 60 мин за компьютером ребёнок увидит «Пора отдохнуть», через 5 мин компьютер закроется на 15 мин. Если сам 15 мин подряд не был за компьютером или занимался только учёбой, это засчитается как отдых",
     );

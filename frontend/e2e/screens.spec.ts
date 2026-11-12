@@ -1945,8 +1945,8 @@ for (const v of [
     });
     await page.goto("/");
     await page.getByRole("button", { name: "Дети" }).click();
-    await page.getByRole("tablist", { name: "Правила ребёнка" }).getByRole("tab", { name: "Отдых", exact: true }).click();
-    await expect(page.getByRole("checkbox", { name: "Перерывы на отдых" })).toBeChecked();
+    await page.getByRole("tablist", { name: "Правила ребёнка" }).getByRole("tab", { name: "Перерыв на отдых", exact: true }).click();
+    await expect(page.getByRole("checkbox", { name: "Перерыв на отдых" })).toBeChecked();
     await expect(page.getByLabel("Засчитать как отдых, если не играл подряд")).toHaveValue("30");
     await expect(
       page.getByText("После 60 мин игр ребёнок увидит «Пора отдохнуть», через 5 мин компьютер закроется на 15 мин. Если сам не играл 30 мин подряд, это засчитается как отдых"),
@@ -1965,7 +1965,7 @@ for (const v of [
     // Ошибка у поля: порог меньше отдыха.
     await page.getByLabel("Засчитать как отдых, если не играл подряд").fill("10");
     await page.getByRole("button", { name: "Сохранить" }).click();
-    await expect(page.getByText("Не меньше времени отдыха")).toBeVisible();
+    await expect(page.getByText("Не меньше 15 мин: столько длится отдых")).toBeVisible();
     await page.evaluate(() => Promise.all(document.getAnimations().map((a) => a.finished)));
     await restBlocksApart(page);
     await noHorizontalScroll(page);

@@ -251,7 +251,7 @@ func examples() map[string]example {
 			Message: "Сохранено. Новые правила уже действуют",
 		}),
 		"SaveLimits#breakSelfRest": fail(SaveLimitsRequest{ChildID: 1, Limits: []WeekdayLimit{}, Break: ptrBreak(BreakRules{Enabled: true, AfterMin: 60, Counts: BreakCountsAll, WarnMin: 5, RestMin: 20, SelfRestMin: 15})},
-			"Не меньше времени отдыха", FieldBreakSelfRestMin, nil),
+			"Не меньше 20 мин: столько длится отдых", FieldBreakSelfRestMin, nil),
 		CmdEndBreak:           ok(ChildRequest{ChildID: 1}, CardReply{Card: card(okStatus(), 0, false), Message: "Перерыв закончен"}),
 		"EndBreak#none":       fail(ChildRequest{ChildID: 1}, "Перерыва сейчас нет", "", nil),
 		"GetChildStatus#rest": ok(nil, restStatus()),
