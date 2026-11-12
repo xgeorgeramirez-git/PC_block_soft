@@ -35,6 +35,7 @@ type fakeStore struct {
 	bonus            map[int64][]BonusRecord   // история копилки по ребёнку (M2)
 	promos           []*fakePromo              // промокоды (R26, D-50)
 	failCreatePromos bool                      // CreatePromos возвращает ошибку, ничего не создав (RM5-12)
+	failListPromos   bool                      // ListPromos возвращает ошибку
 
 	failLimits   bool // GetDayLimits возвращает ошибку
 	failSave     bool // SaveDayState возвращает ошибку
@@ -903,6 +904,9 @@ func (f *fakeStore) RedeemPromo(childID int64, code string, atMs int64) (int, st
 func (f *fakeStore) ListPromos() ([]PromoRecord, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.failListPromos {
+		return nil, errFake
+	}
 	idx := make([]int, len(f.promos))
 	for i := range idx {
 		idx[i] = i

@@ -97,7 +97,8 @@ func (s *Service) hGeneratePromos(c *callCtx) ipc.Reply {
 	}
 	list, err := s.cfg.Store.ListPromos()
 	if err != nil {
-		return ipc.Fail(textSaveFailed)
+		// Ещё ничего не сохранялось: «Не удалось выполнить», не «сохранить».
+		return ipc.Fail(textRetry)
 	}
 	taken := make(map[string]bool, len(list))
 	for _, p := range list {

@@ -334,6 +334,13 @@ func TestGeneratePromosLimitsAndFailure(t *testing.T) {
 	if f := h.fail(adminPeer(), tok, ipc.CmdGeneratePromos, base); f.Error != textRetry {
 		t.Errorf("сбой записи пачки: %q, want %q", f.Error, textRetry)
 	}
+	// Сбой чтения списка кодов: ничего не сохранялось — «Не удалось выполнить», а не «сохранить».
+	h.store.mu.Lock()
+	h.store.failCreatePromos, h.store.failListPromos = false, true
+	h.store.mu.Unlock()
+	if f := h.fail(adminPeer(), tok, ipc.CmdGeneratePromos, base); f.Error != textRetry {
+		t.Errorf("сбой чтения кодов: %q, want %q", f.Error, textRetry)
+	}
 	if a, u := h.promosIn(); len(a)+len(u) != 0 {
 		t.Errorf("после отказов в базе коды %v %v", a, u)
 	}
