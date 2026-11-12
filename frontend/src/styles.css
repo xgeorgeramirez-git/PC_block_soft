@@ -2445,6 +2445,8 @@ html:has(.shell-child) body {
 }
 
 .sites-add-button {
+  /* Многострочное поле выше кнопки: кнопка у первой строки, не тянется по высоте поля. */
+  align-self: start;
   white-space: nowrap;
 }
 
@@ -2477,6 +2479,23 @@ html:has(.shell-child) body {
   flex: 1 1 auto;
   min-width: 0;
   overflow-wrap: anywhere;
+}
+
+/* Флажок отметки строки (B-49) слева от домена. */
+.sites-check {
+  flex: none;
+  margin: 0;
+}
+
+/* «Выбрать всё в списке» над списком: отступ слева как у строк (4 px). */
+.sites-bulk {
+  padding: 0 var(--space-1);
+}
+
+/* Многострочное поле «Добавить сайт» (B-49): высоту задают строки, руками не тянется. */
+textarea.sites-add-input {
+  resize: none;
+  line-height: inherit;
 }
 
 .sites-row .btn {

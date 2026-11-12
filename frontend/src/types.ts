@@ -780,6 +780,26 @@ export interface RemoveSiteReply {
   sites: ListSitesReply;
 }
 
+/**
+ * Ответ AddSites (B-49): added - добавленные и перенесённые домены; rejected - строки ввода, не
+ * похожие на адрес (окно оставляет их в поле с fieldError); message - итог словами.
+ */
+export interface AddSitesReply {
+  message: string;
+  added: string[];
+  rejected: string[];
+  fieldError: string;
+  sites: ListSitesReply;
+}
+
+/** Ответ RemoveSites (B-49): «Отменить» до undoUntilMs - addSites доменов removed в их списки. */
+export interface RemoveSitesReply {
+  message: string;
+  removed: SiteDTO[];
+  undoUntilMs: number;
+  sites: ListSitesReply;
+}
+
 export interface SetAdultFilterReply {
   message: string;
   sites: ListSitesReply;

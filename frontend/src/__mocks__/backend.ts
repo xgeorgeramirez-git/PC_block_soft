@@ -838,6 +838,8 @@ const PARENT_COMMANDS = new Set([
   "ListSites",
   "AddSite",
   "RemoveSite",
+  "AddSites",
+  "RemoveSites",
   "SetAdultFilter",
   "ClearStats",
   "ClearJournal",
@@ -1762,6 +1764,86 @@ export function createBackend(opts: MockOptions = {}): MockBackend {
         message: `Удалён ${domain}`,
         domain,
         kind: gone.kind,
+        undoUntilMs: now + UNDO_WINDOW_MS,
+        sites: sitesReply(),
+      });
+    },
+
+    // Несколько сайтов за раз (B-49) как handlers_sites_many.go: строки, повтор один раз, предел 1000.
+    AddSites: (req, now) => {
+      const kind: unknown = req?.kind;
+      if (!isSiteKind(kind)) return fail("Не удалось разобрать запрос. Попробуйте ещё раз");
+      const lines = String(req.text ?? "")
+        .split("\n")
+        .map((l) => l.trim())
+        .filter((l) => l !== "");
+      if (lines.length > 1000) return fail("Можно вставить не больше 1000 адресов за раз", "domain");
+      const rejected: string[] = [];
+      const domains: string[] = [];
+      for (const line of lines) {
+        const d = cleanDomain(line);
+        if (!d) rejected.push(line);
+        else if (!domains.includes(d)) domains.push(d);
+      }
+      const rejectedText = (n: number) => (n === 1 ? NOT_DOMAIN_TEXT : "Эти строки не похожи на адрес сайта");
+      if (domains.length === 0) return fail(rejectedText(Math.max(rejected.length, 1)), "domain");
+      const added: string[] = [];
+      let fresh = 0;
+      let moved = 0;
+      let same = 0;
+      let full = 0;
+      for (const domain of domains) {
+        const known = state.sites.find((x) => x.domain === domain);
+        if (known?.kind === kind) {
+          same += 1;
+          continue;
+        }
+        if (kind === "blocked" && state.sites.filter((x) => x.kind === "blocked").length >= MAX_BLOCKED_SITES) {
+          full += 1;
+          continue;
+        }
+        if (known) {
+          known.kind = kind;
+          moved += 1;
+          addEvent(now, undefined, "site_moved", `Вы перенесли сайт ${domain} в ${SITE_LIST_NAMES[kind].acc}`);
+        } else {
+          state.sites.push({ domain, kind });
+          fresh += 1;
+          addEvent(now, undefined, "site_added", `Вы добавили сайт ${domain} в ${SITE_LIST_NAMES[kind].acc}`);
+        }
+        added.push(domain);
+      }
+      const parts = [
+        fresh > 0 ? `Добавлено сайтов: ${fresh}` : "",
+        moved > 0 ? `Перенесено сюда из других списков: ${moved}` : "",
+        same > 0 ? `Уже были в списке: ${same}` : "",
+        full > 0 ? `Не поместились (${full}): в списке запрещённых уже 1000 сайтов` : "",
+      ].filter((p) => p !== "");
+      return okReply({
+        message: parts.join(". "),
+        added,
+        rejected,
+        fieldError: rejected.length > 0 ? rejectedText(rejected.length) : "",
+        sites: sitesReply(),
+      });
+    },
+
+    RemoveSites: (req, now) => {
+      const list: unknown[] = Array.isArray(req?.domains) ? req.domains : [];
+      if (list.length === 0 || list.length > 1000) return fail("Не удалось разобрать запрос. Попробуйте ещё раз");
+      const removed: SiteDTO[] = [];
+      for (const raw of list) {
+        const domain = cleanDomain(String(raw));
+        const at = domain ? state.sites.findIndex((x) => x.domain === domain) : -1;
+        if (at < 0) continue;
+        const [gone] = state.sites.splice(at, 1);
+        removed.push({ domain, kind: gone.kind });
+        addEvent(now, undefined, "site_removed", `Вы удалили сайт ${domain} из ${SITE_LIST_NAMES[gone.kind].gen}`);
+      }
+      if (removed.length === 0) return fail("Этого сайта уже нет в списках");
+      return okReply({
+        message: removed.length === 1 ? `Удалён ${removed[0].domain}` : `Удалено сайтов: ${removed.length}`,
+        removed,
         undoUntilMs: now + UNDO_WINDOW_MS,
         sites: sitesReply(),
       });

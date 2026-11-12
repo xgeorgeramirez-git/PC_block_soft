@@ -67,8 +67,10 @@ import type {
   UndoProgramReply,
   WindowScreen,
   AddSiteReply,
+  AddSitesReply,
   ListSitesReply,
   RemoveSiteReply,
+  RemoveSitesReply,
   SetAdultFilterReply,
   SetupSites,
   SiteKind,
@@ -575,6 +577,18 @@ export async function addSite(domain: string, kind: SiteKind): Promise<AddSiteRe
 export async function removeSite(domain: string): Promise<RemoveSiteReply> {
   const r = await call<object, RemoveSiteReply>("RemoveSite", { domain });
   return { ...r, sites: sitesOf(r.sites) };
+}
+
+/** Вставить несколько адресов (по одному в строке) в список (8.3.5 п.2, B-49). */
+export async function addSites(text: string, kind: SiteKind): Promise<AddSitesReply> {
+  const r = await call<object, AddSitesReply>("AddSites", { text, kind });
+  return { ...r, added: r.added ?? [], rejected: r.rejected ?? [], fieldError: r.fieldError ?? "", sites: sitesOf(r.sites) };
+}
+
+/** Удалить отмеченные домены; «Отменить» - addSites доменов removed в их списки. */
+export async function removeSites(domains: string[]): Promise<RemoveSitesReply> {
+  const r = await call<object, RemoveSitesReply>("RemoveSites", { domains });
+  return { ...r, removed: r.removed ?? [], sites: sitesOf(r.sites) };
 }
 
 /** «Блокировать сайты 18+» ребёнку. */

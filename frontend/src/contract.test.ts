@@ -118,6 +118,8 @@ const CASES: [string, string, (req: any) => Promise<unknown>][] = [
   ["AddSite", "AddSite", (r) => api.addSite(r.domain, r.kind)],
   ["AddSite", "AddSite#moved", (r) => api.addSite(r.domain, r.kind)],
   ["RemoveSite", "RemoveSite", (r) => api.removeSite(r.domain)],
+  ["AddSites", "AddSites", (r) => api.addSites(r.text, r.kind)],
+  ["RemoveSites", "RemoveSites", (r) => api.removeSites(r.domains)],
   ["SetAdultFilter", "SetAdultFilter", (r) => api.setAdultFilter(r.childId, r.on)],
 ];
 
@@ -180,6 +182,7 @@ describe("отказы контракта", () => {
     ["AddSite", "AddSite#invalid", (r) => api.addSite(r.domain, r.kind)],
     ["AddSite", "AddSite#dup", (r) => api.addSite(r.domain, r.kind)],
     ["AddSite", "AddSite#full", (r) => api.addSite(r.domain, r.kind)],
+    ["AddSites", "AddSites#invalid", (r) => api.addSites(r.text, r.kind)],
     ["ClearStats", "ClearStats#noChild", (r) => api.clearStats(r.childId)],
     ["ClearJournal", "ClearJournal#noChild", (r) => api.clearJournal(r.childId)],
   ];
@@ -251,6 +254,8 @@ describe("полнота", () => {
       "ListSites",
       "AddSite",
       "RemoveSite",
+      "AddSites",
+      "RemoveSites",
       "SetAdultFilter",
       "ClearStats",
       "ClearJournal",

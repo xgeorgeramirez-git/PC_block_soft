@@ -2116,8 +2116,11 @@ async function openSites(page: Page, options: MockOptions = {}) {
   await expect(page.getByRole("tablist", { name: "Списки сайтов" })).toBeVisible();
 }
 
-/** Подсказка поля «Добавить сайт» на экране «Сайты» и в мастере. */
+/** Подсказка поля «Добавить сайт» в мастере. */
 const SITE_HINT = "Можно вставить адрес страницы целиком: программа возьмёт из него только сайт. Например: youtube.com";
+/** Та же подсказка на экране «Сайты»: там можно вставить сразу несколько адресов (B-49). */
+const SITES_HINT =
+  "Можно вставить адрес страницы целиком: программа возьмёт из него только сайт. Можно сразу несколько, по одному в строке. Например: youtube.com";
 
 const sitesTab = (page: Page, title: string) =>
   page.getByRole("tablist", { name: "Списки сайтов" }).getByRole("tab", { name: new RegExp(`^${title} \\d+$`) });
@@ -2228,7 +2231,7 @@ test("m4 сайты: ошибка у поля и отмена удаления",
   await expect(field).toHaveAttribute("aria-invalid", "true");
   await expect(field).toBeFocused();
   // Подсказка с примером не пропадает при ошибке: под ошибкой, в той же форме (ревью M4).
-  const hint = page.getByText(SITE_HINT, { exact: true });
+  const hint = page.getByText(SITES_HINT, { exact: true });
   await expect(hint).toBeVisible();
   expect((await boxOf(hint)).top, "подсказка не под ошибкой").toBeGreaterThanOrEqual((await boxOf(error)).bottom - 0.5);
   await page.screenshot({ path: `${SCREENS}/m4-sites-error.png`, fullPage: true });
@@ -2261,6 +2264,35 @@ test("m4 сайты: вкладка «Видео и соцсети»", async ({ 
   await noHorizontalScroll(page);
   await wholePage(page);
   await page.screenshot({ path: `${SCREENS}/m4-sites-video.png`, fullPage: true });
+});
+
+// m5-sites-paste, m5-sites-picked — несколько адресов по одному в строке (не-адрес остаётся в поле
+// с ошибкой) и отметка строк с «Выбрано: N» и «Удалить» (B-49); ссылка «Открыть лимиты» (B-50).
+test("m5 сайты: вставка нескольких адресов и отметка строк", async ({ page }) => {
+  await openSites(page);
+  const field = page.getByRole("textbox", { name: "Добавить сайт" });
+  await field.fill("kino.example\nhttps://www.New.example/page\nкотики видео");
+  await expect(field).toHaveAttribute("rows", "3");
+  await page.screenshot({ path: `${SCREENS}/m5-sites-paste.png`, fullPage: true });
+  await field.press("Enter");
+  await expect(page.getByText("Добавлено сайтов: 2", { exact: true })).toBeVisible();
+  await expect(field).toHaveValue("котики видео");
+  await expect(page.getByText("Это не похоже на адрес сайта", { exact: true })).toBeVisible();
+  await expect(sitesTab(page, "Запрещённые")).toHaveText("Запрещённые 6");
+
+  await page.getByRole("checkbox", { name: "Отметить «casino.example»", exact: true }).check();
+  await page.getByRole("checkbox", { name: "Отметить «ads.example»", exact: true }).check();
+  await expect(page.getByText("Выбрано: 2", { exact: true })).toBeVisible();
+  await siteRowsFit(page);
+  await noHorizontalScroll(page);
+  await page.screenshot({ path: `${SCREENS}/m5-sites-picked.png`, fullPage: true });
+  await page.getByRole("button", { name: "Удалить отмеченные", exact: true }).click();
+  await expect(page.getByText("Удалено сайтов: 2", { exact: true })).toBeVisible();
+  await expect(sitesTab(page, "Запрещённые")).toHaveText("Запрещённые 4");
+
+  await sitesTab(page, "Видео и соцсети").click();
+  await page.getByRole("button", { name: "Открыть лимиты", exact: true }).click();
+  await expect(page.getByRole("tab", { name: "Лимиты", exact: true })).toHaveAttribute("aria-selected", "true");
 });
 
 // --- M4: видео-лимит, шаг мастера «Сайты», «Итоги» по сайтам (T9) --------------------------
