@@ -555,15 +555,18 @@ export default function Sites({ onOpenLimits }: Props = {}) {
                       <ul className="sites-list" aria-label={`${current.title}: сайты`}>
                         {shown.map((s, i) => (
                           <li key={s.domain} className="sites-row" data-domain={s.domain}>
-                            <input
-                              type="checkbox"
-                              className="sites-check"
-                              aria-label={`Отметить «${s.domain}»`}
-                              checked={picked.has(s.domain)}
-                              disabled={busy !== null}
-                              onChange={() => togglePick(s.domain)}
-                            />
-                            <span className="sites-domain">{s.domain}</span>
+                            {/* Флажок и домен в одной подписи: щелчок по названию отмечает строку. */}
+                            <label className="sites-pick">
+                              <input
+                                type="checkbox"
+                                className="sites-check"
+                                aria-label={`Отметить «${s.domain}»`}
+                                checked={picked.has(s.domain)}
+                                disabled={busy !== null}
+                                onChange={() => togglePick(s.domain)}
+                              />
+                              <span className="sites-domain">{s.domain}</span>
+                            </label>
                             <button
                               type="button"
                               className="btn btn-small"

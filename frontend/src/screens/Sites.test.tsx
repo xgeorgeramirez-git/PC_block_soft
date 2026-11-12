@@ -479,6 +479,19 @@ describe("Сайты: несколько сайтов за раз", () => {
     expect(field().getAttribute("rows")).toBe("1");
   });
 
+  // Ловит (ревью окна M5): щелчок по названию сайта ничего не отмечает - попадать нужно в маленький флажок.
+  it("щелчок по названию сайта отмечает строку, повторный снимает", async () => {
+    const user = setup({ sites: blocked("a.test", "b.test") });
+    await screen.findByRole("tablist", { name: "Списки сайтов" });
+    const name = () => within(screen.getByRole("list", { name: "Запрещённые: сайты" })).getByText("a.test");
+    await user.click(name());
+    expect([rowBox("a.test").checked, rowBox("b.test").checked]).toEqual([true, false]);
+    expect(screen.getByText("Выбрано: 1")).toBeTruthy();
+    await user.click(name());
+    expect(rowBox("a.test").checked).toBe(false);
+    expect(mock.count("RemoveSite")).toBe(0);
+  });
+
   // Ловит: «Удалить отмеченные» удаляет по одному запросом на строку, удаляет скрытые поиском,
   // не говорит сколько; «Отменить» не возвращает их; отметка переживает смену вкладки.
   it("отмеченные удаляются одним запросом, «Отменить» возвращает все", async () => {

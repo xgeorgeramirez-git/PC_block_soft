@@ -2213,7 +2213,9 @@ test("m5 флажки: тёмная тема, пустые и отмеченны
   const group = page.getByRole("group", { name: "Блокировать сайты 18+" });
   await expect(group.getByRole("checkbox", { name: "Миша", exact: true })).toBeChecked();
   await expect(group.getByRole("checkbox", { name: "Даша", exact: true })).not.toBeChecked();
-  await page.getByRole("checkbox", { name: "Отметить «casino.example»", exact: true }).check();
+  // Щелчок по названию сайта отмечает строку (флажок и домен в одной подписи).
+  await page.locator(".sites-row", { hasText: "casino.example" }).locator(".sites-domain").click();
+  await expect(page.getByRole("checkbox", { name: "Отметить «casino.example»", exact: true })).toBeChecked();
   await expect(page.getByText("Выбрано: 1", { exact: true })).toBeVisible();
   const look = await page.evaluate(() =>
     [...document.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')].map((el) => {

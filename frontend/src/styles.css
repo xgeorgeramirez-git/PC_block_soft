@@ -2578,6 +2578,17 @@ html:has(.shell-child) body {
   overflow-wrap: anywhere;
 }
 
+/* Флажок отметки строки (B-49) и домен - одна подпись: щелчок по названию отмечает строку. Подпись
+   занимает место до «Удалить», зазор тот же, что был между флажком и доменом. */
+.sites-pick {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: var(--space-4);
+  min-width: 0;
+  cursor: pointer;
+}
+
 /* Флажок отметки строки (B-49) слева от домена. */
 .sites-check {
   flex: none;
