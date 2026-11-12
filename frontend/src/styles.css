@@ -1891,20 +1891,27 @@ html:has(.shell-child) body {
   border-left-color: var(--status-danger);
 }
 
-/* Одно место сообщения «Программ» (B-43): прилипает к верху области прокрутки, поверх списка. */
+/* Одно место сообщения «Программ» (B-43), без sticky (PL-25): экран занимает высоту области
+   прокрутки окна, заголовок и сообщение стоят над областью списков, прокручивается только она.
+   Поэтому «Отменить» с отсчётом всегда на виду, где бы в списке ни было действие. */
+.programs-page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.programs-page > .page-head,
 .programs-message {
-  position: sticky;
-  top: 0;
-  z-index: 2;
+  flex: none;
 }
 
-.programs-message .programs-feedback {
-  box-shadow: 0 2px 8px rgb(0 0 0 / 0.12);
-}
-
-/* Прилипшее сообщение не закрывает строку, к которой перешёл фокус. */
-.content:has(.programs-message:not(:empty)) {
-  scroll-padding-top: 4rem;
+.programs-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  /* Кольцо фокуса у края блока не обрезается краем области прокрутки. */
+  padding: 2px;
+  margin: -2px;
 }
 
 /* Отсчёт у «Отменить» (B-43): мелко и приглушённо, цифры одной ширины, строка не прыгает. */

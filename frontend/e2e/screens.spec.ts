@@ -1293,10 +1293,16 @@ async function decisionButtonsEven(page: Page) {
 
 /** Зазор между соседними блоками страницы не меньше 16 px (замер, не на глаз). */
 async function blocksApart(page: Page) {
-  const parts = page.locator("main.content .programs-page > *");
+  // Блоки: заголовок, сообщение (если есть) и блоки области списков (B-43: она прокручивается отдельно).
+  const parts = page.locator(
+    "main.content .programs-page > .page-head, main.content .programs-message > *, main.content .programs-scroll > *",
+  );
   const n = await parts.count();
   const boxes: Box[] = [];
-  for (let i = 0; i < n; i++) boxes.push(await boxOf(parts.nth(i)));
+  for (let i = 0; i < n; i++) {
+    const b = await boxOf(parts.nth(i));
+    if (b.height > 0) boxes.push(b);
+  }
   for (let i = 1; i < boxes.length; i++) {
     expect(boxes[i].top - boxes[i - 1].bottom, `между блоками ${i - 1} и ${i} меньше 16 px`).toBeGreaterThanOrEqual(16 - 0.5);
   }
@@ -1357,9 +1363,10 @@ test("s11 программы: ждут решения и список", async ({
   await page.screenshot({ path: `${SCREENS}/s11-programs.png`, fullPage: true });
 });
 
-// s11 — B-43: одно место сообщения. Список прокручен вниз, категория меняется в нижней строке:
-// сообщение с «Отменить» и отсчётом прилипло к верху области прокрутки и видно целиком.
-test("s11 программы: «Отменить» прилипает к верху при прокрутке", async ({ page }) => {
+// s11 — B-43: одно место сообщения без sticky (PL-25). Область списков прокручена вниз, категория
+// меняется в нижней строке: сообщение с «Отменить» и отсчётом стоит над областью списков, на виду;
+// окно целиком не прокручивается.
+test("s11 программы: «Отменить» на виду при прокрутке списка", async ({ page }) => {
   await tallWindow(page, 640);
   await openPrograms(page, { pending: pendingPrograms(Date.now()), programs: programList() });
   const select = page.getByRole("combobox", { name: "Категория для «Учи.ру»" });
@@ -1369,17 +1376,20 @@ test("s11 программы: «Отменить» прилипает к вер�
   await expect(msg).toContainText("Учи.ру");
   await expect(msg.getByRole("button", { name: "Отменить" })).toBeVisible();
   await expect(msg.locator(".undo-left")).toHaveText(/^\d+ с$/);
-  const scrolled = await page.locator("main.content").evaluate((el) => el.scrollTop);
-  expect(scrolled, "список не прокручен: проверка липкости ничего не проверяет").toBeGreaterThan(0);
+  const scrolled = await page.locator(".programs-scroll").evaluate((el) => el.scrollTop);
+  expect(scrolled, "список не прокручен: проверка ничего не проверяет").toBeGreaterThan(0);
+  expect(await page.locator("main.content").evaluate((el) => el.scrollTop), "прокрутилось окно, а не область списков").toBe(0);
   const content = await boxOf(page.locator("main.content"));
   const box = await boxOf(msg);
-  expect(box.top, "сообщение выше области прокрутки").toBeGreaterThanOrEqual(content.top - 0.5);
-  expect(box.bottom, "сообщение ушло вниз за край").toBeLessThanOrEqual(content.top + 120);
-  // Выбор категории, к которому вернулся фокус, не закрыт прилипшим сообщением.
+  const list = await boxOf(page.locator(".programs-scroll"));
+  expect(box.top, "сообщение выше области окна").toBeGreaterThanOrEqual(content.top - 0.5);
+  expect(box.bottom, "сообщение не над областью списков").toBeLessThanOrEqual(list.top + 0.5);
+  // Выбор категории, к которому вернулся фокус, виден в области списков.
   const sel = await boxOf(select);
-  expect(sel.top, "строка под прилипшим сообщением").toBeGreaterThanOrEqual(box.bottom - 0.5);
+  expect(sel.top).toBeGreaterThanOrEqual(list.top - 0.5);
+  expect(sel.bottom).toBeLessThanOrEqual(list.bottom + 0.5);
   await noHorizontalScroll(page);
-  await page.screenshot({ path: `${SCREENS}/s11-programs-sticky-undo.png` });
+  await page.screenshot({ path: `${SCREENS}/s11-programs-undo-scroll.png` });
 });
 
 // s11 — после «Игра»: сообщение «SuperGame: игра» с «Отменить», фильтр «Игры» и отмеченные строки.
