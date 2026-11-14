@@ -22,6 +22,7 @@ const (
 
 const (
 	SrcRun     = "run"
+	SrcRun32   = "run32" // общая HKLM\SOFTWARE\WOW6432Node\...\Run (состояние — StartupApproved\Run32)
 	SrcRunOnce = "runonce"
 	SrcFolder  = "startup_folder"
 	SrcTask    = "task"
@@ -31,7 +32,7 @@ const (
 // FromText — подпись «откуда» в строке списка (ТЗ 8.3.11); незнакомый источник — "".
 func FromText(e Entry) string {
 	switch e.Source {
-	case SrcRun:
+	case SrcRun, SrcRun32:
 		return "Реестр, при входе"
 	case SrcRunOnce:
 		return "Реестр, один раз при входе"

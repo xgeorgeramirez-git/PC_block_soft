@@ -388,6 +388,7 @@ func TestHidden(t *testing.T) {
 func TestFromText(t *testing.T) {
 	for src, want := range map[string]string{
 		SrcRun:     "Реестр, при входе",
+		SrcRun32:   "Реестр, при входе",
 		SrcRunOnce: "Реестр, один раз при входе",
 		SrcFolder:  "Папка «Автозагрузка»",
 		SrcTask:    "Планировщик заданий, при входе",
@@ -404,6 +405,12 @@ func TestFromText(t *testing.T) {
 // сливаются), изменение команды или издателя не замечено, решение пропавшей теряется
 // молча, nil вместо [] (RM5b-4).
 func TestCompare(t *testing.T) {
+	// Общие записи 64-битной Run и WOW6432Node\Run с одним именем — разные записи (SrcRun32).
+	r64 := Entry{Scope: ScopeShared, Source: SrcRun, Name: "Same", Command: "a.exe"}
+	r32 := Entry{Scope: ScopeShared, Source: SrcRun32, Name: "Same", Command: "a.exe"}
+	if got := Compare([]Entry{r64}, []Entry{r64, r32}); len(got.New) != 1 || got.New[0] != r32 {
+		t.Errorf("Run и Run32 с одним именем: New = %+v, want [%+v]", got.New, r32)
+	}
 	a := Entry{Scope: ScopeOwn, Source: SrcRun, Name: "A", Command: "a.exe"}
 	aShared := Entry{Scope: ScopeShared, Source: SrcRun, Name: "A", Command: "a.exe"}
 	aOnce := Entry{Scope: ScopeOwn, Source: SrcRunOnce, Name: "A", Command: "a.exe"}
