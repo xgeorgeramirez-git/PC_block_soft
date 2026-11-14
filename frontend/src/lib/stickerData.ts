@@ -49,7 +49,8 @@ type FetchFn = (url: string) => Promise<Response>;
  */
 export async function tgsText(bytes: Uint8Array<ArrayBuffer>): Promise<string> {
   if (bytes.length < 2 || bytes[0] !== 0x1f || bytes[1] !== 0x8b) return new TextDecoder().decode(bytes);
-  const plain = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("gzip"));
+  // Поток из Response, а не Blob.stream(): у Blob в jsdom (тесты) метода stream нет.
+  const plain = new Response(bytes).body!.pipeThrough(new DecompressionStream("gzip"));
   return new Response(plain).text();
 }
 
