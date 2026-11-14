@@ -528,6 +528,7 @@ func TestStartupJournalTexts(t *testing.T) {
 		want string
 	}{
 		{evStartupNew, map[string]any{"name": "Roblox"}, "Миша: новая запись автозагрузки «Roblox» выключена и ждёт решения"},
+		{evStartupNew, map[string]any{"name": "Roblox", "changed": true}, "Миша: запись автозагрузки «Roblox» изменилась, выключена и ждёт решения"},
 		{evStartupDecided, map[string]any{"name": "Roblox", "on": true}, "Миша: автозагрузка «Roblox» включена"},
 		{evStartupDecided, map[string]any{"name": "Roblox", "on": false}, "Миша: автозагрузка «Roblox» выключена"},
 		{evStartupClosed, map[string]any{"name": "Teams"}, "Миша: запись автозагрузки «Teams» запускалась сама и закрыта"},

@@ -150,6 +150,9 @@ func eventText(kind, name string, d map[string]any) string {
 		body = "правила Brave восстановлены"
 	case evStartupNew:
 		body = "новая запись автозагрузки «" + programs.ClipName(detStr(d, "name")) + "» выключена и ждёт решения"
+		if d["changed"] == true {
+			body = "запись автозагрузки «" + programs.ClipName(detStr(d, "name")) + "» изменилась, выключена и ждёт решения"
+		}
 	case evStartupDecided:
 		body = "автозагрузка «" + programs.ClipName(detStr(d, "name")) + "» выключена"
 		if d["on"] == true {

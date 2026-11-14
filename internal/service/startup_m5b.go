@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"pcblock/internal/ipc"
+	"pcblock/internal/programs"
 	"pcblock/internal/startup"
 )
 
@@ -31,6 +32,92 @@ const (
 	settingStartupBaseline       = "startup.baseline."        // + id ребёнка: UTC мс первой полной проверки
 	settingStartupBaselineShared = "startup.baseline_shared." // + id ребёнка: UTC мс первой проверки общих записей
 )
+
+// startupKey — запись автозагрузки ребёнка: Scope + Source + Name (RM5b-4).
+type startupKey struct{ scope, source, name string }
+
+func startupKeyOf(scope, source, name string) startupKey { return startupKey{scope, source, name} }
+
+// startupHit — строка автозагрузки в наборе наблюдателя (RM5b-3): id и название для журнала.
+type startupHit struct {
+	id   int64
+	name string
+}
+
+// plateStartup — вид закрытия «запись автозагрузки запустилась сама» (watchAct.plateKind): плашки
+// нет, стражу не уходит.
+const plateStartup = "startup"
+
+// startupCreatedSlack — насколько раньше момента, когда служба увидела вход ребёнка, мог быть
+// создан процесс, чтобы правило автозагрузки его ещё закрывало: служба могла увидеть сеанс позже
+// входа (запуск при загрузке). Созданный раньше — шёл до перезапуска службы (Review Focus 1).
+const startupCreatedSlack = 2 * time.Minute
+
+// filetimeEpoch — 1 января 1970 года в FILETIME (100 нс с 1601 года).
+const filetimeEpoch = 116444736000000000
+
+// procCreated — момент создания процесса по ProcInfo.Stamp (FILETIME); ok = false — не похоже
+// на момент (раньше 1970 года).
+func procCreated(stamp uint64) (time.Time, bool) {
+	if stamp <= filetimeEpoch {
+		return time.Time{}, false
+	}
+	return time.Unix(0, int64(stamp-filetimeEpoch)*100), true
+}
+
+// startupLaunch — процесс p с записью e запущен автоматически при входе (RM5b-3): запуск не
+// ручной (launchKind), увиден в первые manualLogonGrace после входа и создан не раньше входа (с
+// запасом startupCreatedSlack). Момент входа или создания неизвестен — нет («не знаю — не
+// трогать»): после перезапуска службы первые 60 с считаются «после входа» (RF18-3), а программы,
+// давно запущенные ребёнком, этим правилом не закрываются.
+func startupLaunch(p ProcInfo, e *watchEntry) bool {
+	f := e.facts
+	if e.manual || f.LogonAt.IsZero() || f.At.Sub(f.LogonAt) >= manualLogonGrace {
+		return false
+	}
+	created, ok := procCreated(p.Stamp)
+	return ok && !created.Before(f.LogonAt.Add(-startupCreatedSlack))
+}
+
+// recordStartupClosed — запись автозагрузки запустилась сама и закрыта (RM5b-3): ребёнку ничего,
+// нарушения нет; родителю — строка журнала раз в день на строку автозагрузки (дочерние процессы
+// того же exe — та же строка). Под s.mu.
+func (s *Service) recordStartupClosed(cs *childState, a *watchAct, real time.Time) {
+	if s.autoClosedOnce(cs.child.ID, a.t.d.Day, fmt.Sprint("startup|", a.startup.id), real) {
+		s.journal.Write(cs.child.ID, evStartupClosed, map[string]any{"name": a.startup.name, "path": a.e.key})
+	}
+}
+
+// startupWatchSet пересобирает набор наблюдателя ребёнка (RM5b-3, уточнение 1): exe записей с
+// решением off или pending, общих и своих, по exe последней удачной проверки. Exe, у которого
+// есть и включённая запись, в набор не входит: запуск мог быть от неё. Сбой базы — набор прежний.
+// Под s.mu.
+func (s *Service) startupWatchSet(cs *childState) {
+	items, err := s.cfg.Store.ListStartupItems(cs.child.ID)
+	if err != nil {
+		s.logRate(fmt.Sprint("startupdb", cs.child.ID), "автозагрузка %s: база не прочитана, набор наблюдателя прежний: %v", cs.child.Name, err)
+		return
+	}
+	set, on := map[string]startupHit{}, map[string]bool{}
+	for _, r := range items {
+		norm := programs.Normalize(cs.startupExe[startupKeyOf(r.Scope, r.Source, r.Name)])
+		if norm == "" {
+			continue
+		}
+		switch r.Decision {
+		case ipc.StartupOn:
+			on[norm] = true
+		case ipc.StartupOff, ipc.StartupPending:
+			if _, dup := set[norm]; !dup {
+				set[norm] = startupHit{id: r.ID, name: startupName(r)}
+			}
+		}
+	}
+	for norm := range on {
+		delete(set, norm)
+	}
+	cs.startupOff = set
+}
 
 // startupFlight — идущая проверка ребёнка: again — попросили ещё раз, full — следующий проход
 // полный (под s.mu).
@@ -201,13 +288,29 @@ func (s *Service) startupApply(id int64, full bool, found []startup.Entry, listE
 		}
 		found = shared
 	}
-	type key struct{ scope, source, name string }
+	type key = startupKey
 	isNew := map[key]bool{}
 	for _, e := range startup.Compare(storedE, found).New {
 		isNew[key{e.Scope, e.Source, e.Name}] = true
 	}
+	// Включённая запись со сменившейся командой (другой exe под тем же именем) снова ждёт решения
+	// (решение оркестратора по Open T4a): своя выключается в Windows, как новая.
+	changed := map[key]bool{}
+	for _, r := range stored {
+		if r.Decision != ipc.StartupOn {
+			continue
+		}
+		for _, e := range found {
+			if e.Scope == r.Scope && e.Source == r.Source && e.Name == r.Name && e.Command != r.Command {
+				changed[key{e.Scope, e.Source, e.Name}] = true
+			}
+		}
+	}
 	for _, e := range found {
 		rec := StartupRecord{Scope: e.Scope, Source: e.Source, Name: e.Name, Command: e.Command, Publisher: e.Publisher}
+		if changed[key{e.Scope, e.Source, e.Name}] {
+			rec.Decision = ipc.StartupPending
+		}
 		if isNew[key{e.Scope, e.Source, e.Name}] {
 			first := !baseFull
 			if e.Scope == startup.ScopeShared {
@@ -224,11 +327,23 @@ func (s *Service) startupApply(id int64, full bool, found []startup.Entry, listE
 		}
 		records = append(records, rec)
 	}
-	added, err := s.cfg.Store.SyncStartupItems(id, records, ipc.StartupPending, now.UnixMilli())
+	added, err := s.startupSync(id, records, changed, now)
 	if err != nil {
 		s.logRate(fmt.Sprint("startupdb", id), "автозагрузка %s: итог проверки не записан: %v", cs.child.Name, err)
 		return nil, false
 	}
+	exe := map[key]string{}
+	if !full {
+		for k, v := range cs.startupExe {
+			if k.scope == startup.ScopeOwn {
+				exe[k] = v
+			}
+		}
+	}
+	for _, e := range found {
+		exe[key{e.Scope, e.Source, e.Name}] = e.Exe
+	}
+	cs.startupExe = exe
 	stamp := strconv.FormatInt(now.UnixMilli(), 10)
 	if full && !baseFull {
 		s.setStartupBaseline(settingStartupBaseline, id, stamp)
@@ -243,9 +358,14 @@ func (s *Service) startupApply(id int64, full bool, found []startup.Entry, listE
 	for _, r := range added {
 		decision[key{r.Scope, r.Source, r.Name}] = r.Decision
 		if r.Decision == ipc.StartupPending {
-			s.journal.Write(id, evStartupNew, map[string]any{"name": startupName(r), "scope": r.Scope, "source": r.Source})
+			d := map[string]any{"name": startupName(r), "scope": r.Scope, "source": r.Source}
+			if changed[key{r.Scope, r.Source, r.Name}] {
+				d["changed"] = true
+			}
+			s.journal.Write(id, evStartupNew, d)
 		}
 	}
+	s.startupWatchSet(cs)
 	s.startupDone[id] = now
 	var switches []startupSwitch
 	if !full {
@@ -258,6 +378,31 @@ func (s *Service) startupApply(id int64, full bool, found []startup.Entry, listE
 		}
 	}
 	return switches, true
+}
+
+// startupSync записывает итог проверки (SyncStartupItems). Строки changed (включённые со сменившейся
+// командой) хранилище меняет только как новые: первый вызов без них их удаляет, второй вставляет
+// с решением pending. Сбой между вызовами — строк нет, следующая проверка найдёт их новыми
+// (pending): решение «on» не остаётся у другой команды. Под s.mu.
+func (s *Service) startupSync(id int64, records []StartupRecord, changed map[startupKey]bool, now time.Time) ([]StartupRecord, error) {
+	if len(changed) == 0 {
+		return s.cfg.Store.SyncStartupItems(id, records, ipc.StartupPending, now.UnixMilli())
+	}
+	var rest []StartupRecord
+	for _, r := range records {
+		if !changed[startupKeyOf(r.Scope, r.Source, r.Name)] {
+			rest = append(rest, r)
+		}
+	}
+	added, err := s.cfg.Store.SyncStartupItems(id, rest, ipc.StartupPending, now.UnixMilli())
+	if err != nil {
+		return nil, err
+	}
+	again, err := s.cfg.Store.SyncStartupItems(id, records, ipc.StartupPending, now.UnixMilli())
+	if err != nil {
+		return nil, err
+	}
+	return append(added, again...), nil
 }
 
 // startupBaseline — есть ли граница prefix+id. Под s.mu.
@@ -400,6 +545,7 @@ func (s *Service) hSetStartup(c *callCtx) ipc.Reply {
 		return ipc.Fail(textSaveFailed)
 	}
 	s.journal.Write(id, evStartupDecided, map[string]any{"name": startupName(saved), "on": req.On, "scope": saved.Scope, "source": saved.Source})
+	s.startupWatchSet(cs)
 	s.checkStartup(cs, s.childInSession(id))
 	msg := "Не будет запускаться при входе " + genitiveName(cs.child.Name)
 	if req.On {

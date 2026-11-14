@@ -103,6 +103,9 @@ type watchTarget struct {
 	sampleAt time.Time // момент снимка стража, по которому взяты inputAt и fg
 	fg       string
 	byPID    map[uint32]ProcInfo
+	// startupOff — exe выключенных и ждущих решения записей автозагрузки ребёнка (RM5b-3); только
+	// чтение.
+	startupOff map[string]startupHit
 	// hold — пауза ребёнка (R11): процессы только читаются ради категории секунды учёта (B-30),
 	// ничего не закрывается и не пишется (watchHeld).
 	hold bool
@@ -117,6 +120,7 @@ type watchAct struct {
 	cat       core.Category // для закрытия по правилу (игры, только учёба)
 	plateKind string        // ipc.Blocked*
 	auto      bool          // запрещённая запустилась сама (R13, D-65): без плашки и нарушения
+	startup   startupHit    // plateKind = plateStartup: какая запись автозагрузки запустилась сама
 	killed    bool
 	again     bool // процесс уже закрывали: без записей
 	publisher string
@@ -577,7 +581,8 @@ func (s *Service) watchSnapshot(real time.Time) ([]watchTarget, bool) {
 				own[sp.pid] = true
 			}
 		}
-		t := watchTarget{session: id, childID: ss.childID, sid: cs.child.SID, d: d, own: own, at: real, logonAt: ss.since, hold: d.Status == core.StatusPaused}
+		t := watchTarget{session: id, childID: ss.childID, sid: cs.child.SID, d: d, own: own, at: real, logonAt: ss.since, hold: d.Status == core.StatusPaused,
+			startupOff: cs.startupOff}
 		if sm := cs.sample; cs.haveSample && cs.sampleSess == id && real.Sub(cs.sampleAt) <= sampleMaxAge && sm.SessionActive && sm.LastInputAgoMs >= 0 {
 			t.inputAt, t.sampleAt = s.inputMoment(cs.sampleAt, sm.LastInputAgoMs), cs.sampleAt
 			t.fg = programs.Normalize(sm.ForegroundPath)
@@ -638,6 +643,11 @@ func (s *Service) watchDecide(t *watchTarget, p ProcInfo, e *watchEntry) *watchA
 	}
 	if res.Verdict == programs.VerdictSystem || res.Verdict == programs.VerdictHidden {
 		return nil // скрытую родителем не закрывает ни одно правило (D-57, RF9-2)
+	}
+	if hit, ok := t.startupOff[e.norm]; ok && startupLaunch(p, e) {
+		// Выключенная родителем или ждущая решения запись автозагрузки запустилась сама при входе
+		// (RM5b-3): закрыть до вердикта программы, без плашки и нарушения.
+		return &watchAct{t: t, p: p, e: e, res: res, again: e.closed, plateKind: plateStartup, auto: true, startup: hit}
 	}
 	a := &watchAct{t: t, p: p, e: e, res: res, again: e.closed}
 	switch res.Verdict {
@@ -802,6 +812,10 @@ func closedName(a *watchAct) (string, map[string]any) {
 
 // recordClosed — записи о закрытой программе: журнал, «Ждут решения» и плашка.
 func (s *Service) recordClosed(cs *childState, a *watchAct, real time.Time) {
+	if a.plateKind == plateStartup {
+		s.recordStartupClosed(cs, a, real)
+		return
+	}
 	name, details := closedName(a)
 	var kind, text string
 	plate := ipc.BlockedPlate{Kind: a.plateKind, ShowS: blockedPlateShowS, Path: a.e.key}

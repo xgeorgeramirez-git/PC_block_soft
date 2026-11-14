@@ -153,6 +153,11 @@ type childState struct {
 	usage         map[progUsageKey]int // учёт по программам с прошлого сохранения (RM3-6); пишется в saveState
 	unreadSince   time.Time            // с какого момента подряд адрес Brave не читается (RM4-1, S-3); нулевой — читается
 	noAddrSince   time.Time            // с какого момента подряд у окна Brave нет адреса (не сбой UIA, B-55); нулевой — есть или сбой
+	// Автозагрузка (RM5b-3): exe записей по последней удачной проверке и набор наблюдателя —
+	// нормализованный exe записи с решением off или pending → строка (startupWatchSet). Набор
+	// заменяется целиком, не меняется на месте: проход наблюдателя читает его вне s.mu.
+	startupExe map[startupKey]string
+	startupOff map[string]startupHit
 }
 
 // Service — служба PCBlock без привязки к Windows: логика на портах (doc.go).
