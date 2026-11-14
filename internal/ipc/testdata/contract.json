@@ -2327,6 +2327,76 @@
       }
     }
   },
+  "ListStartup": {
+    "request": {
+      "childId": 1,
+      "refresh": true
+    },
+    "reply": {
+      "ok": true,
+      "payload": {
+        "pending": [
+          {
+            "id": 7,
+            "scope": "own",
+            "source": "run",
+            "name": "Discord",
+            "publisher": "Discord Inc.",
+            "from": "Реестр, при входе",
+            "decision": "pending"
+          }
+        ],
+        "own": [
+          {
+            "id": 3,
+            "scope": "own",
+            "source": "startup_folder",
+            "name": "Steam.lnk",
+            "publisher": "Valve Corp.",
+            "from": "Папка «Автозагрузка»",
+            "decision": "on"
+          },
+          {
+            "id": 4,
+            "scope": "own",
+            "source": "store_app",
+            "name": "SpotifyMusic",
+            "publisher": "",
+            "from": "Приложение из магазина",
+            "decision": "off"
+          }
+        ],
+        "shared": [
+          {
+            "id": 5,
+            "scope": "shared",
+            "source": "task",
+            "name": "\\OneDrive Standalone Update Task",
+            "publisher": "Microsoft Corporation",
+            "from": "Планировщик заданий, при входе",
+            "decision": "on"
+          }
+        ],
+        "checkedAt": 1760000000000,
+        "checking": true
+      }
+    }
+  },
+  "ListStartup#empty": {
+    "request": {
+      "childId": 2
+    },
+    "reply": {
+      "ok": true,
+      "payload": {
+        "pending": [],
+        "own": [],
+        "shared": [],
+        "checkedAt": 0,
+        "checking": false
+      }
+    }
+  },
   "Login": {
     "request": {
       "password": "секрет-123"
@@ -4617,6 +4687,39 @@
       }
     }
   },
+  "SetStartup": {
+    "request": {
+      "childId": 1,
+      "id": 7,
+      "on": false
+    },
+    "reply": {
+      "ok": true,
+      "payload": {
+        "item": {
+          "id": 7,
+          "scope": "own",
+          "source": "run",
+          "name": "Discord",
+          "publisher": "Discord Inc.",
+          "from": "Реестр, при входе",
+          "decision": "off"
+        },
+        "message": "Не будет запускаться при входе Миши"
+      }
+    }
+  },
+  "SetStartup#failed": {
+    "request": {
+      "childId": 1,
+      "id": 7,
+      "on": true
+    },
+    "reply": {
+      "ok": false,
+      "error": "Не удалось сохранить. Попробуйте ещё раз"
+    }
+  },
   "Setup": {
     "request": {
       "password": "секрет-123",
@@ -5031,6 +5134,16 @@
       "event": "logoff",
       "sessionId": 7,
       "sid": "S-1-5-21-1-2-3-1001"
+    },
+    "reply": {
+      "ok": true,
+      "payload": {}
+    }
+  },
+  "TestSession#logon": {
+    "request": {
+      "event": "logon",
+      "sessionId": 2
     },
     "reply": {
       "ok": true,
