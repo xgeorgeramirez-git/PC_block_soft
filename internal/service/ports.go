@@ -452,10 +452,13 @@ type Policy interface {
 // winhost). List — записи ребёнка с SID sid: свои (раздел и профиль ребёнка; профиль не
 // загружен — подгружается, профиля нет — своих записей нет) и общие (для всех пользователей);
 // скрываемое (RM5b-7) не входит. Ошибка — проверка не удалась, а не «записей нет» (PL-46).
+// ListShared — только общие записи: ничей профиль не подгружается (проверка детей, которые сейчас
+// не вошли: вход ребёнка в момент подгрузки его профиля мог бы сломаться, как T5-4).
 // SetEnabled штатно включает или выключает свою запись e (RM5b-2): общую — ErrSharedNotWritable,
 // RunOnce — ErrNotSwitchable.
 type StartupSource interface {
 	List(sid string) ([]startup.Entry, error)
+	ListShared() ([]startup.Entry, error)
 	SetEnabled(sid string, e startup.Entry, on bool) error
 }
 

@@ -85,8 +85,25 @@ func (s *startupSource) List(sid string) ([]startup.Entry, error) {
 	if err != nil {
 		return nil, err
 	}
-	out = append(out, tasks...)
+	return s.visible(append(out, tasks...)), nil
+}
 
+// ListShared — только общие записи (реестр HKLM, общая папка, общие задания), без скрываемого:
+// ничей профиль не читается и не подгружается.
+func (s *startupSource) ListShared() ([]startup.Entry, error) {
+	shared, err := s.sharedEntries()
+	if err != nil {
+		return nil, err
+	}
+	tasks, err := s.taskEntries("")
+	if err != nil {
+		return nil, err
+	}
+	return s.visible(append(shared, tasks...)), nil
+}
+
+// visible ставит издателя по exe и убирает скрываемое (RM5b-7).
+func (s *startupSource) visible(out []startup.Entry) []startup.Entry {
 	visible := out[:0]
 	for _, e := range out {
 		if e.Exe != "" && s.meta != nil {
@@ -96,7 +113,7 @@ func (s *startupSource) List(sid string) ([]startup.Entry, error) {
 			visible = append(visible, e)
 		}
 	}
-	return visible, nil
+	return visible
 }
 
 // --- свои записи ---------------------------------------------------------------------------
@@ -367,8 +384,8 @@ func quoteCmd(exe, args string) string {
 
 // --- задания Планировщика -------------------------------------------------------------------
 
-// taskEntries — задания «при входе» ребёнка и общие (startup.TaskScope) из файлов
-// %WINDIR%\System32\Tasks. Папка \Microsoft пропускается целиком: её задания скрываются
+// taskEntries — задания «при входе» ребёнка sid и общие (startup.TaskScope; sid пуст — только
+// общие) из файлов %WINDIR%\System32\Tasks. Папка \Microsoft пропускается целиком: её задания скрываются
 // (RM5b-7). Файл не читается — ошибка; не разбирается — пропускается (это не задание).
 func (s *startupSource) taskEntries(sid string) ([]startup.Entry, error) {
 	out := []startup.Entry{}
@@ -376,13 +393,16 @@ func (s *startupSource) taskEntries(sid string) ([]startup.Entry, error) {
 		return out, nil
 	}
 	root := filepath.Join(s.windir, "System32", "Tasks")
-	account := accountOf(sid)
-	dir, hasProfile, err := profileDir(sid)
-	if err != nil {
-		return nil, err
+	account, ownEnv := "", userEnv("", false)
+	if sid != "" { // sid пуст — только общие задания (ListShared): TaskScope своих не найдёт
+		account = accountOf(sid)
+		dir, hasProfile, err := profileDir(sid)
+		if err != nil {
+			return nil, err
+		}
+		ownEnv = userEnv(dir, hasProfile)
 	}
-	ownEnv := userEnv(dir, hasProfile)
-	err = filepath.WalkDir(root, func(path string, de fs.DirEntry, err error) error {
+	err := filepath.WalkDir(root, func(path string, de fs.DirEntry, err error) error {
 		if err != nil {
 			if path == root && errors.Is(err, fs.ErrNotExist) {
 				return fs.SkipAll
