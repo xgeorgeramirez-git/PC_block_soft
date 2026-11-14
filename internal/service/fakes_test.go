@@ -71,6 +71,10 @@ type fakeStore struct {
 	sites     map[string]string // списки сайтов (M4): домен → blocked|study|video_social
 	adultOff  map[int64]bool    // ребёнок с выключенным списком 18+ (M4); нет записи — включён
 	failSites bool              // ListSiteRules возвращает ошибку (M4)
+
+	startup     []StartupRecord // автозагрузка всех детей по порядку появления (M5b)
+	nextStartup int64           // номер последней строки автозагрузки
+	failStartup bool            // методы автозагрузки возвращают ошибку, ничего не меняя (M5b, PL-46)
 }
 
 // fakeStarterVideo — стартовый набор «Видео и соцсети», как в миграции 009 (R14).
@@ -2111,4 +2115,90 @@ func TestFakeStoreMatchesStorageM5(t *testing.T) {
 	if n, _ := f.ClearUsedPromos(); n != 1 || codes() != "N2 N1" {
 		t.Errorf("ClearUsedPromos = %d, список %q", n, codes())
 	}
+}
+
+// --- автозагрузка (M5b, FR-39) — как storage.SyncStartupItems / SetStartupDecision --------------
+
+func fakeStartupDecision(d string) bool { return d == "pending" || d == "on" || d == "off" }
+
+func (f *fakeStore) ListStartupItems(childID int64) ([]StartupRecord, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.failStartup {
+		return nil, errFake
+	}
+	out := []StartupRecord{}
+	for _, r := range f.startup {
+		if r.ChildID == childID {
+			out = append(out, r)
+		}
+	}
+	return out, nil
+}
+
+func (f *fakeStore) SyncStartupItems(childID int64, found []StartupRecord, newDecision string, now int64) ([]StartupRecord, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.failStartup || !fakeStartupDecision(newDecision) {
+		return nil, errFake
+	}
+	type key struct{ scope, source, name string }
+	seen := map[key]bool{}
+	for _, r := range found {
+		k := key{r.Scope, r.Source, r.Name}
+		if (r.Scope != "own" && r.Scope != "shared") || r.Source == "" || r.Name == "" ||
+			(r.Decision != "" && !fakeStartupDecision(r.Decision)) || seen[k] {
+			return nil, errFake
+		}
+		seen[k] = true
+	}
+	if _, ok := f.children[childID]; !ok {
+		return nil, errFake // внешний ключ child_id
+	}
+	known := map[key]int{}
+	kept := make([]StartupRecord, 0, len(f.startup)+len(found))
+	for _, r := range f.startup {
+		if r.ChildID == childID {
+			k := key{r.Scope, r.Source, r.Name}
+			if !seen[k] {
+				continue // пропала из Windows
+			}
+			known[k] = len(kept)
+		}
+		kept = append(kept, r)
+	}
+	added := []StartupRecord{}
+	for _, r := range found {
+		k := key{r.Scope, r.Source, r.Name}
+		if i, ok := known[k]; ok {
+			kept[i].Command, kept[i].Publisher = r.Command, r.Publisher
+			continue
+		}
+		d := r.Decision
+		if d == "" {
+			d = newDecision
+		}
+		f.nextStartup++
+		rec := StartupRecord{ID: f.nextStartup, ChildID: childID, Scope: r.Scope, Source: r.Source, Name: r.Name,
+			Command: r.Command, Publisher: r.Publisher, Decision: d, FirstSeen: now}
+		kept = append(kept, rec)
+		added = append(added, rec)
+	}
+	f.startup = kept
+	return added, nil
+}
+
+func (f *fakeStore) SetStartupDecision(childID, id int64, decision string, now int64) (StartupRecord, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.failStartup || (decision != "on" && decision != "off") {
+		return StartupRecord{}, errFake
+	}
+	for i := range f.startup {
+		if f.startup[i].ID == id && f.startup[i].ChildID == childID {
+			f.startup[i].Decision, f.startup[i].DecidedAt = decision, now
+			return f.startup[i], nil
+		}
+	}
+	return StartupRecord{}, errFake
 }

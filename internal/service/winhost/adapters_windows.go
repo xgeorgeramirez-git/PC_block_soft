@@ -413,6 +413,53 @@ func promoRecordOf(p storage.Promo) service.PromoRecord {
 	return r
 }
 
+func (a storeAdapter) ListStartupItems(childID int64) ([]service.StartupRecord, error) {
+	list, err := a.s.ListStartupItems(childID)
+	if err != nil {
+		return nil, err
+	}
+	return startupRecordsOf(list), nil
+}
+
+func (a storeAdapter) SyncStartupItems(childID int64, found []service.StartupRecord, newDecision string, now int64) ([]service.StartupRecord, error) {
+	in := make([]storage.StartupItem, 0, len(found))
+	for _, r := range found {
+		in = append(in, storage.StartupItem{Scope: r.Scope, Source: r.Source, Name: r.Name,
+			Command: r.Command, Publisher: r.Publisher, Decision: r.Decision})
+	}
+	added, err := a.s.SyncStartupItems(childID, in, newDecision, now)
+	if err != nil {
+		return nil, err
+	}
+	return startupRecordsOf(added), nil
+}
+
+func (a storeAdapter) SetStartupDecision(childID, id int64, decision string, now int64) (service.StartupRecord, error) {
+	it, err := a.s.SetStartupDecision(childID, id, decision, now)
+	if err != nil {
+		return service.StartupRecord{}, err
+	}
+	return startupRecordOf(it), nil
+}
+
+// startupRecordOf приводит storage.StartupItem к service.StartupRecord: decided_at NULL — 0.
+func startupRecordOf(it storage.StartupItem) service.StartupRecord {
+	r := service.StartupRecord{ID: it.ID, ChildID: it.ChildID, Scope: it.Scope, Source: it.Source, Name: it.Name,
+		Command: it.Command, Publisher: it.Publisher, Decision: it.Decision, FirstSeen: it.FirstSeen}
+	if it.DecidedAt != nil {
+		r.DecidedAt = *it.DecidedAt
+	}
+	return r
+}
+
+func startupRecordsOf(list []storage.StartupItem) []service.StartupRecord {
+	out := make([]service.StartupRecord, 0, len(list))
+	for _, it := range list {
+		out = append(out, startupRecordOf(it))
+	}
+	return out
+}
+
 func (a storeAdapter) LoadDayState(childID int64, day string) (core.DayState, error) {
 	return a.s.LoadDayState(childID, day)
 }
