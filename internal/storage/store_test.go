@@ -77,6 +77,7 @@ func TestOpenCreatesFullSchema(t *testing.T) {
 		"events":             {"id", "child_id", "at", "tz_offset_min", "kind", "details"},
 		"promo_codes":        {"id", "code_norm", "code_display", "minutes", "created_at", "used_at", "used_by_child"},
 		"stats_reset":        {"child_id", "cleared_at", "day", "total_s", "games_s", "video_s", "study_s", "extra_min"},
+		"startup_items":      {"id", "child_id", "scope", "source", "name", "command", "publisher", "decision", "first_seen", "decided_at"},
 		"parent_auth":        {"id", "hash", "failed_count", "blocked_until", "changed_at"},
 		"settings":           {"key", "value"},
 		"schema_migrations":  {"version", "applied_at"},
@@ -212,16 +213,16 @@ func TestOpenTwiceKeepsDataAndMigrationOnce(t *testing.T) {
 		t.Fatalf("второе Open: %v", err)
 	}
 	defer s2.Close()
-	if n := rawNull(t, s2, `SELECT count(*) FROM schema_migrations`); n.Int64 != 10 {
-		t.Errorf("строк schema_migrations = %d, want 10", n.Int64)
+	if n := rawNull(t, s2, `SELECT count(*) FROM schema_migrations`); n.Int64 != 11 {
+		t.Errorf("строк schema_migrations = %d, want 11", n.Int64)
 	}
-	if v := rawNull(t, s2, `SELECT max(version) FROM schema_migrations`); v.Int64 != 10 {
-		t.Errorf("последняя миграция = %d, want 10", v.Int64)
+	if v := rawNull(t, s2, `SELECT max(version) FROM schema_migrations`); v.Int64 != 11 {
+		t.Errorf("последняя миграция = %d, want 11", v.Int64)
 	}
 	if at := rawNull(t, s2, `SELECT applied_at FROM schema_migrations WHERE version = 1`); at.Int64 != 1_000 {
 		t.Errorf("applied_at миграции 1 = %d, want 1000 (момент первого применения)", at.Int64)
 	}
-	for _, v := range []int{2, 3, 4, 5, 6, 7, 8, 9} {
+	for _, v := range []int{2, 3, 4, 5, 6, 7, 8, 9, 10, 11} {
 		if at := rawNull(t, s2, `SELECT applied_at FROM schema_migrations WHERE version = ?`, v); at.Int64 != 1_000 {
 			t.Errorf("applied_at миграции %d = %d, want 1000 (все применяются при первом открытии, не повторно)", v, at.Int64)
 		}
