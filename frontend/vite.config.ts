@@ -1,9 +1,17 @@
 /// <reference types="vitest/config" />
-import { defineConfig } from "vite";
+import { fileURLToPath } from "node:url";
+import { defineConfig, searchForWorkspaceRoot } from "vite";
 import react from "@vitejs/plugin-react";
 
 export default defineConfig({
   plugins: [react()],
+  // Стикеры промокода берутся из assets/stickers/ вне папки фронта (RM5b-8): окну разработки
+  // (vite dev, wails dev) их можно отдавать; сборке это не нужно.
+  server: {
+    fs: {
+      allow: [searchForWorkspaceRoot(process.cwd()), fileURLToPath(new URL("../assets/stickers", import.meta.url))],
+    },
+  },
   build: {
     outDir: "dist",
     emptyOutDir: true,
