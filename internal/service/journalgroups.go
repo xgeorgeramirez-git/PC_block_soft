@@ -22,6 +22,7 @@ var journalGroups = map[string][]string{
 		evProgramAutoClosed, evProgramClosedGames, evProgramClosedStudyOnly,
 		evSiteClosedVideo, evSiteClosedStudyOnly, evSiteUnread, evSiteAdded, evSiteMoved, evSiteRemoved,
 		evSiteAdultFilter, evBraveRestored,
+		evStartupNew, evStartupDecided, evStartupClosed,
 	},
 	// Отметка «детская» снята или учётка стала администратором (R1) — здесь, не нарушение.
 	ipc.JournalGroupSettings: {

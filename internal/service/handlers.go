@@ -1250,6 +1250,15 @@ func (s *Service) hTestSession(c *callCtx) ipc.Reply {
 		ev = SessionDisconnect
 	case ipc.TestSessionLogoff:
 		ev = SessionLogoff
+	case ipc.TestSessionLogon:
+		// «Ребёнок снова вошёл» (S50): момент входа — сейчас, и сверка сеансов проходит путь
+		// «ребёнок появился в сеансе» (автозагрузка, R1, политика), как после настоящего входа.
+		ss := s.sessions[req.SessionID]
+		if ss == nil {
+			return bad()
+		}
+		ss.since, ss.childID = c.real, 0
+		ev = SessionLogon
 	default:
 		return bad()
 	}

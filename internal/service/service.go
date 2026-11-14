@@ -224,6 +224,15 @@ type Service struct {
 	braveReady   bool
 	braveAt      time.Time
 	braveLogAt   map[int64]time.Time
+
+	// Автозагрузка (M5b, startup_m5b.go): идущая проверка ребёнка (не больше одной, RM5b-5),
+	// блокировка «чтение и запись Windows» ребёнка (проверка и SetStartup по очереди), момент
+	// последней удачной проверки, последний проход раз в 10 минут, горутины проверок (ждут тесты).
+	startupRun  map[int64]*startupFlight
+	startupLk   map[int64]*sync.Mutex
+	startupDone map[int64]time.Time
+	startupAt   time.Time
+	startupWG   sync.WaitGroup
 }
 
 // New собирает службу. Ничего не запускает: Start читает базу и поднимает сеансные части.
@@ -272,6 +281,7 @@ func New(cfg Config) (*Service, error) {
 		guardCmd: map[uint32][]ipc.GuardCommand{}, guardUI: map[uint32]*guardView{},
 		errAt: map[string]time.Time{}, logCount: map[string]int{}, names: map[int64]string{},
 		classifier: programs.NewClassifier(cfg.Roots, programs.DefaultCatalog),
+		startupRun: map[int64]*startupFlight{}, startupLk: map[int64]*sync.Mutex{}, startupDone: map[int64]time.Time{},
 	}
 	if s.journal == nil {
 		s.journal = StoreJournal{Store: cfg.Store, Clock: cfg.Clock, Loc: cfg.Loc, Logf: cfg.Logf}
@@ -338,7 +348,13 @@ func (s *Service) Start(real time.Time) error {
 	}
 	s.braveAt = real
 	s.started = true
-	s.syncSessions(real)
+	s.syncSessions(real) // вошедшие дети: полная проверка автозагрузки (ребёнок появился в сеансе)
+	s.startupAt = real
+	for _, id := range s.childOrder() {
+		if !s.childInSession(id) {
+			s.checkStartup(s.children[id], false) // невошедшие: только общие, профиль не трогается
+		}
+	}
 	return nil
 }
 

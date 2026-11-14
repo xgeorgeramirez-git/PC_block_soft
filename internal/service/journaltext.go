@@ -148,6 +148,15 @@ func eventText(kind, name string, d map[string]any) string {
 		body = fmt.Sprintf("история промокодов очищена (%d)", detInt(d, "count"))
 	case evBraveRestored:
 		body = "правила Brave восстановлены"
+	case evStartupNew:
+		body = "новая запись автозагрузки «" + programs.ClipName(detStr(d, "name")) + "» выключена и ждёт решения"
+	case evStartupDecided:
+		body = "автозагрузка «" + programs.ClipName(detStr(d, "name")) + "» выключена"
+		if d["on"] == true {
+			body = "автозагрузка «" + programs.ClipName(detStr(d, "name")) + "» включена"
+		}
+	case evStartupClosed:
+		body = "запись автозагрузки «" + programs.ClipName(detStr(d, "name")) + "» запускалась сама и закрыта"
 	case core.EvRestBreak, core.EvRestEnded:
 		// «Миша: перерыв на отдых: 15 мин после 60 мин за компьютером», «Миша: вы закончили перерыв».
 		body = decapitalize(detStr(d, "text"))

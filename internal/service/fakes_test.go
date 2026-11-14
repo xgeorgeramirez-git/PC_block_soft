@@ -11,6 +11,7 @@ import (
 
 	"pcblock/internal/auth"
 	"pcblock/internal/core"
+	"pcblock/internal/startup"
 )
 
 // --- хранилище ------------------------------------------------------------------------
@@ -2201,4 +2202,167 @@ func (f *fakeStore) SetStartupDecision(childID, id int64, decision string, now i
 		}
 	}
 	return StartupRecord{}, errFake
+}
+
+// --- автозагрузка в Windows (M5b, порт StartupSource) -------------------------------------------
+
+// fakeStartupSource — автозагрузка компьютера в памяти: свои записи по SID и общие. Включённость
+// меняет SetEnabled (общая — ErrSharedNotWritable, RunOnce — ErrNotSwitchable, как winhost).
+// listErr / setErr — сбой чтения или записи; block — List и ListShared ждут закрытия канала
+// (проверка «две проверки одного ребёнка не идут одновременно»).
+type fakeStartupSource struct {
+	mu      sync.Mutex
+	own     map[string][]startup.Entry
+	shared  []startup.Entry
+	listErr error
+	setErr  error
+	block   chan struct{}
+
+	calls    []string // "list <sid>", "shared", "set <sid> <name> <on>"
+	inFlight int      // сколько List/ListShared идут сейчас
+	maxIn    int
+}
+
+func newStartupSource() *fakeStartupSource {
+	return &fakeStartupSource{own: map[string][]startup.Entry{}}
+}
+
+func withStartup(src *fakeStartupSource) hopt {
+	return func(h *harness) { h.cfg.Startup = src }
+}
+
+func (f *fakeStartupSource) enter(call string) (chan struct{}, error) {
+	f.mu.Lock()
+	f.calls = append(f.calls, call)
+	f.inFlight++
+	if f.inFlight > f.maxIn {
+		f.maxIn = f.inFlight
+	}
+	b, err := f.block, f.listErr
+	f.mu.Unlock()
+	return b, err
+}
+
+func (f *fakeStartupSource) leave() {
+	f.mu.Lock()
+	f.inFlight--
+	f.mu.Unlock()
+}
+
+func (f *fakeStartupSource) List(sid string) ([]startup.Entry, error) {
+	b, err := f.enter("list " + sid)
+	defer f.leave()
+	if b != nil {
+		<-b
+	}
+	if err != nil {
+		return nil, err
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := append([]startup.Entry{}, f.own[sid]...)
+	return append(out, f.shared...), nil
+}
+
+func (f *fakeStartupSource) ListShared() ([]startup.Entry, error) {
+	b, err := f.enter("shared")
+	defer f.leave()
+	if b != nil {
+		<-b
+	}
+	if err != nil {
+		return nil, err
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]startup.Entry{}, f.shared...), nil
+}
+
+func (f *fakeStartupSource) SetEnabled(sid string, e startup.Entry, on bool) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls = append(f.calls, fmt.Sprintf("set %s %s %v", sid, e.Name, on))
+	if e.Scope != startup.ScopeOwn {
+		return ErrSharedNotWritable
+	}
+	if e.Source == startup.SrcRunOnce {
+		return ErrNotSwitchable
+	}
+	if f.setErr != nil {
+		return f.setErr
+	}
+	for i, x := range f.own[sid] {
+		if x.Source == e.Source && x.Name == e.Name {
+			f.own[sid][i].Enabled = on
+			return nil
+		}
+	}
+	return errFake
+}
+
+// addOwn и addShared кладут запись (включённую, если не сказано иное).
+func (f *fakeStartupSource) addOwn(sid string, e startup.Entry) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	e.Scope = startup.ScopeOwn
+	f.own[sid] = append(f.own[sid], e)
+}
+
+func (f *fakeStartupSource) addShared(e startup.Entry) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	e.Scope = startup.ScopeShared
+	f.shared = append(f.shared, e)
+}
+
+func (f *fakeStartupSource) removeOwn(sid, name string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	keep := []startup.Entry{}
+	for _, e := range f.own[sid] {
+		if e.Name != name {
+			keep = append(keep, e)
+		}
+	}
+	f.own[sid] = keep
+}
+
+// setOwnEnabled — ребёнок сам включил или выключил запись (Параметры → Автозагрузка).
+func (f *fakeStartupSource) setOwnEnabled(sid, name string, on bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for i, e := range f.own[sid] {
+		if e.Name == name {
+			f.own[sid][i].Enabled = on
+		}
+	}
+}
+
+func (f *fakeStartupSource) ownEnabled(sid, name string) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, e := range f.own[sid] {
+		if e.Name == name {
+			return e.Enabled
+		}
+	}
+	return false
+}
+
+func (f *fakeStartupSource) callsFrom(n int) []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string{}, f.calls[n:]...)
+}
+
+func (f *fakeStartupSource) callN() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.calls)
+}
+
+func (f *fakeStartupSource) setFail(list, set error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.listErr, f.setErr = list, set
 }

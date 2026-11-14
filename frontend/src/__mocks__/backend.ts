@@ -234,6 +234,7 @@ export const MOCK_JOURNAL_GROUPS: Record<Exclude<JournalGroup, "">, readonly str
     "program_auto_closed", "program_closed_games", "program_closed_study_only",
     "site_closed_video", "site_closed_study_only", "site_unread", "site_added", "site_moved", "site_removed",
     "site_adult_filter", "brave_restored",
+    "startup_new", "startup_decided", "startup_closed",
   ],
   settings: [
     "setup_done", "password_failed", "password_changed", "password_reset", "uninstall_forgot",
