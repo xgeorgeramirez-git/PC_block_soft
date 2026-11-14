@@ -248,6 +248,11 @@ jobs:
           $lic = Join-Path $dir "LICENSE-UT1.txt"
           if (-not (Test-Path -LiteralPath $lic)) { Write-Host "::error title=Лицензия UT1::После установки нет $lic (project.nsi: File LICENSE-UT1.txt после wails.files)"; exit 1 }
           if (-not (Get-Content -LiteralPath $lic -Raw -Encoding UTF8).Contains("CC BY-SA 4.0")) { Write-Host "::error title=Лицензия UT1::В $lic ($((Get-Item -LiteralPath $lic).Length) б) нет «CC BY-SA 4.0»"; exit 1 }
+          # Лицензия проигрывателя стикеров lottie-web (MIT) рядом с программой (M5b, уточнение 12 плана; project.nsi).
+          $licLottie = Join-Path $dir "LICENSE-lottie-web.txt"
+          if (-not (Test-Path -LiteralPath $licLottie)) { Write-Host "::error title=Лицензия lottie-web::После установки нет $licLottie (project.nsi: File LICENSE-lottie-web.txt после wails.files)"; exit 1 }
+          $licLottieText = Get-Content -LiteralPath $licLottie -Raw -Encoding UTF8
+          if (-not ($licLottieText.Contains("The MIT License") -and $licLottieText.Contains("lottie-web 5.13.0"))) { Write-Host "::error title=Лицензия lottie-web::В $licLottie ($((Get-Item -LiteralPath $licLottie).Length) б) нет «The MIT License» или «lottie-web 5.13.0»"; exit 1 }
           $svc = Get-Service -Name PCBlock -ErrorAction SilentlyContinue
           if (-not $svc -or $svc.Status -ne "Running") { Write-Host "::error::После тихой установки служба PCBlock не работает: $($svc.Status)"; exit 1 }
           $lnkDir = Join-Path $env:ProgramData "Microsoft\Windows\Start Menu\Programs"
@@ -260,7 +265,7 @@ jobs:
           if ($lnkText -notmatch [regex]::Escape("--reset-password") -or $lnkText -notmatch [regex]::Escape("PCBlock.exe")) {
             Write-Host "::error::Ярлык сброса пароля ведёт не туда: в $($lnk.FullName) ($($lnk.Length) б) нет --reset-password или PCBlock.exe"; exit 1
           }
-          Write-Host "::notice title=Установка::$($exe.FullName); служба PCBlock работает; ярлык «$($lnk.BaseName)» ведёт на --reset-password; LICENSE-UT1.txt рядом с программой"
+          Write-Host "::notice title=Установка::$($exe.FullName); служба PCBlock работает; ярлык «$($lnk.BaseName)» ведёт на --reset-password; LICENSE-UT1.txt и LICENSE-lottie-web.txt рядом с программой"
           $un = Join-Path $dir "uninstall.exe"
           if (-not (Test-Path $un)) { Write-Host "::error::Нет uninstall.exe в $dir"; exit 1 }
           Start-Process $un -ArgumentList "/S" -Wait
