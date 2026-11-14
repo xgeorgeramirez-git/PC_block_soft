@@ -1198,6 +1198,11 @@ for (const [w, h] of [
 
 test("s06 бонусы ребёнка и промокод", async ({ page }) => {
   await tallWindow(page, 1000);
+  // Ответ на код - стикер и надпись (R26): выбор без случая, стикер стоит на последнем кадре.
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.addInitScript(() => {
+    Math.random = () => 0;
+  });
   // Полдень: автобонус (10 ч назад) - сегодня, он виден в «Копилке» периода «Сегодня» (по умолчанию).
   const nowDate = new Date(2026, 9, 19, 12, 0, 0);
   await page.clock.setFixedTime(nowDate);
@@ -1219,10 +1224,102 @@ test("s06 бонусы ребёнка и промокод", async ({ page }) => 
   await expect(page.getByText("+15 мин за неизрасходованное время прошлого дня")).toHaveCount(1);
   await box.getByRole("textbox", { name: "Промокод" }).fill("a1234");
   await box.getByRole("button", { name: "Ввести промокод" }).click();
-  await expect(box.getByText("Добавлено 30 минут")).toBeVisible();
+  await expect(box.getByRole("status")).toHaveText("Ура! +30 минут");
+  await expect(box.locator(".promo-sticker svg")).toHaveCount(1);
   await noHorizontalScroll(page);
   await page.screenshot({ path: `${SCREENS}/s06-my-bonuses.png`, fullPage: true });
 });
+
+// s52 — ответ на промокод в окне ребёнка (R26, D-83, 8.2.6 п.11, S52): справа от поля (в узком блоке
+// под ним) стикер 160 x 160 и крупная надпись. CD34 на 1 минуту - «Ура! +1 минута»; повтор того же
+// кода - стикер и надпись неудачи, код в поле остаётся; второй неверный - другие стикер и надпись.
+// Анимации выключены (как в Windows без анимаций) - стикер стоит на последнем кадре, снимок стабилен.
+type StickerRect = { left: number; right: number; top: number; bottom: number; width: number; height: number };
+const stickerRectOf = (l: ReturnType<Page["locator"]>) =>
+  l.evaluate((el) => {
+    const r = el.getBoundingClientRect();
+    return { left: r.left, right: r.right, top: r.top, bottom: r.bottom, width: r.width, height: r.height };
+  });
+const rectsApart = (a: StickerRect, b: StickerRect) => a.right <= b.left || b.right <= a.left || a.bottom <= b.top || b.bottom <= a.top;
+
+/** Стикер нарисован, 160 x 160, целиком в видимой области окна и не лежит на поле и кнопке. */
+async function stickerInPlace(page: Page, box: ReturnType<Page["locator"]>) {
+  const sticker = box.locator(".promo-sticker");
+  await expect(sticker.locator("svg")).toHaveCount(1);
+  await sticker.scrollIntoViewIfNeeded();
+  const s = await stickerRectOf(sticker);
+  expect([Math.round(s.width), Math.round(s.height)], "размер стикера").toEqual([160, 160]);
+  const view = await stickerRectOf(page.locator("main.content"));
+  expect(
+    s.left >= view.left - 0.5 && s.right <= view.right + 0.5 && s.top >= view.top - 0.5 && s.bottom <= view.bottom + 0.5,
+    `стикер виден не целиком: ${JSON.stringify({ s, view })}`,
+  ).toBe(true);
+  const field = await stickerRectOf(box.getByRole("textbox", { name: "Промокод" }));
+  const send = await stickerRectOf(box.getByRole("button", { name: "Ввести промокод" }));
+  // Кольцо фокуса (2 px и отступ) вокруг поля и кнопки тоже не накрыто стикером.
+  const ring = (b: StickerRect): StickerRect => ({ ...b, left: b.left - 4, right: b.right + 4, top: b.top - 4, bottom: b.bottom + 4 });
+  expect(rectsApart(s, ring(field)), `стикер на поле: ${JSON.stringify({ s, field })}`).toBe(true);
+  expect(rectsApart(s, ring(send)), `стикер на кнопке: ${JSON.stringify({ s, send })}`).toBe(true);
+  const text = await stickerRectOf(box.locator(".promo-answer-text"));
+  expect(rectsApart(s, text), `стикер на надписи: ${JSON.stringify({ s, text })}`).toBe(true);
+  return { s, field };
+}
+
+for (const [w, h, scheme] of [
+  [800, 640, "light"],
+  [800, 640, "dark"],
+  [640, 520, "light"],
+] as const) {
+  const tail = `${scheme === "dark" ? "-dark" : ""}${w === 640 ? "-small" : ""}`;
+  test(`s52 промокод в окне ребёнка: стикер, окно ${w} x ${h}, ${scheme === "dark" ? "тёмная" : "светлая"} тема`, async ({ page }) => {
+    await page.setViewportSize({ width: w, height: h });
+    await page.emulateMedia({ colorScheme: scheme, reducedMotion: "reduce" });
+    await page.addInitScript(() => {
+      Math.random = () => 0;
+    });
+    await mockProgram(page, {
+      mode: "mystats",
+      children: [child({ bonusBalance: 45 })],
+      myChildId: 1,
+      promos: [{ codeDisplay: "CD34", minutes: 1, createdAtMs: Date.now() - 3600_000 }],
+    });
+    await page.goto("/");
+    const box = page.getByRole("region", { name: "Бонусы" });
+    const field = box.getByRole("textbox", { name: "Промокод" });
+    const send = box.getByRole("button", { name: "Ввести промокод" });
+
+    await field.fill("cd34");
+    await send.click();
+    await expect(box.getByRole("status")).toHaveText("Ура! +1 минута");
+    await expect(box.locator(".promo-sticker")).toHaveAttribute("data-sticker", "017");
+    await expect(field).toHaveValue("");
+    const ok = await stickerInPlace(page, box);
+    // Широкий блок - стикер справа от поля; узкий (меньше 520 px) - под полем.
+    const narrow = await box.locator(".promo-redeem").evaluate((el) => el.getBoundingClientRect().width < 520);
+    if (narrow) expect(ok.s.top, "в узком блоке стикер под полем").toBeGreaterThanOrEqual(ok.field.bottom);
+    else expect(ok.s.left, "стикер справа от поля").toBeGreaterThanOrEqual(ok.field.right);
+    await expect(page.getByRole("textbox")).toHaveCount(1);
+    await noHorizontalScroll(page);
+    await page.screenshot({ path: `${SCREENS}/s52-promo-ok${tail}.png` });
+
+    await field.fill("cd34");
+    await expect(box.getByRole("status")).toHaveCount(0);
+    await expect(box.locator(".promo-sticker")).toHaveCount(0);
+    await send.click();
+    await expect(box.getByRole("alert")).toHaveText("Такого кода нет. Проверь буквы и цифры");
+    await expect(box.locator(".promo-sticker")).toHaveAttribute("data-sticker", "023");
+    await expect(field).toHaveValue("cd34");
+    await stickerInPlace(page, box);
+    await noHorizontalScroll(page);
+    await page.screenshot({ path: `${SCREENS}/s52-promo-bad${tail}.png` });
+
+    await field.fill("cd35");
+    await send.click();
+    await expect(box.getByRole("alert")).toHaveText("Хм, код не подходит. Посмотри внимательнее");
+    await expect(box.locator(".promo-sticker")).toHaveAttribute("data-sticker", "028");
+    await stickerInPlace(page, box);
+  });
+}
 
 // --- M3: экран «Программы» (FR-20, 8.3.4) -----------------------------------------------
 

@@ -51,7 +51,7 @@ jobs:
       - name: Сборка фронта — стикеры и проигрыватель
         run: |
           exec > >(tee -a "$RUNNER_TEMP/ci.log") 2>&1
-          bash tools/check-dist.sh frontend/dist
+          bash tools/check-dist.sh --tgs-exact 17 --player frontend/dist
 
       # В облачной песочнице агента прокси модулей Go закрыт, поэтому go.sum обновляет CI:
       # в рабочей ветке сборка сама коммитит результат go mod tidy (как схему базы в Android-проекте).
