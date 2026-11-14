@@ -6,6 +6,7 @@ import (
 
 	"pcblock/internal/auth"
 	"pcblock/internal/core"
+	"pcblock/internal/startup"
 )
 
 // Порты службы (ТЗ 3.3, план M1 T9): всё, что связано с базой, Windows и паролем, служба
@@ -446,6 +447,25 @@ type Policy interface {
 	// RemoveBraveRules снимает ветку правил Brave целиком; её нет — nil.
 	RemoveBraveRules(sid string) error
 }
+
+// StartupSource — автозагрузка учётки ребёнка в Windows (FR-39, RM5b-1, RM5b-2; реализация в
+// winhost). List — записи ребёнка с SID sid: свои (раздел и профиль ребёнка; профиль не
+// загружен — подгружается, профиля нет — своих записей нет) и общие (для всех пользователей);
+// скрываемое (RM5b-7) не входит. Ошибка — проверка не удалась, а не «записей нет» (PL-46).
+// SetEnabled штатно включает или выключает свою запись e (RM5b-2): общую — ErrSharedNotWritable,
+// RunOnce — ErrNotSwitchable.
+type StartupSource interface {
+	List(sid string) ([]startup.Entry, error)
+	SetEnabled(sid string, e startup.Entry, on bool) error
+}
+
+// ErrSharedNotWritable — общую запись автозагрузки служба в Windows не меняет (уточнение 1
+// плана M5b): решение родителя по ней — только в базе и правило наблюдателя.
+var ErrSharedNotWritable = errors.New("service: общая запись автозагрузки не меняется")
+
+// ErrNotSwitchable — запись автозагрузки штатного выключателя не имеет (RunOnce, RM5b-2): для неё
+// действует только правило наблюдателя.
+var ErrNotSwitchable = errors.New("service: запись автозагрузки не выключается штатно")
 
 // Journal — запись событий журнала (R22). childID 0: событие не про ребёнка. Ошибки записи
 // журнала службу не останавливают (R18), адаптер пишет их в журнал работы.

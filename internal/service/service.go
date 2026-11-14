@@ -109,6 +109,8 @@ type Config struct {
 	// Watcher — процессы сеансов для наблюдателя (R12, R13, R5, R8, NFR-6): закрывает незнакомое,
 	// запрещённое и то, что сейчас нельзя. nil: наблюдение выключено, ничего не закрывается.
 	Watcher ProcessWatcher
+	// Startup — автозагрузка учёток детей (M5b, FR-39). nil: раздел «Автозагрузка» пуст.
+	Startup StartupSource
 	// Adult открывает список сайтов «18+» (M4, R14, D-67). nil: встроенный в программу
 	// (sites.Embedded).
 	Adult func() (sites.AdultList, error)
