@@ -46,6 +46,28 @@ func FromText(e Entry) string {
 	return ""
 }
 
+// DisplayName — название записи в строке списка: у приложения магазина — понятное имя по
+// семейству пакета (часть до «_» без издательского префикса до первой точки: «SpotifyMusic»
+// из «SpotifyAB.SpotifyMusic_zpdnekdrzrea0»; без пакета — по Name до «!»); у остальных — Name.
+// Пустое имя не получается: тогда остаётся Name.
+func DisplayName(e Entry) string {
+	if e.Source != SrcStore {
+		return e.Name
+	}
+	pkg := e.Package
+	if pkg == "" {
+		pkg, _, _ = strings.Cut(e.Name, "!")
+	}
+	family, _, _ := strings.Cut(pkg, "_")
+	if _, app, ok := strings.Cut(family, "."); ok && app != "" {
+		return app
+	}
+	if family == "" {
+		return e.Name
+	}
+	return family
+}
+
 // Hidden — запись не показывается и не выключается (RM5b-7, Global Constraint 8): пустая
 // команда, задание под \Microsoft\, exe под windir (кроме windir\Temp, куда пишут установщики),
 // exe в папке установки PC Block. Пустой windir или pcblockDir — эта проверка не делается;

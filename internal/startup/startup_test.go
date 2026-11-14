@@ -440,3 +440,29 @@ func TestCompare(t *testing.T) {
 		t.Errorf("та же запись: %#v; want пустые []", same)
 	}
 }
+
+// Ловит: строка приложения магазина показывает «SpotifyAB.SpotifyMusic_zpdnekdrzrea0!Spotify»
+// вместо понятного имени; издательский префикс до первой точки не снят или снят до пустого;
+// остальные записи переименованы.
+func TestDisplayName(t *testing.T) {
+	for _, c := range []struct {
+		e    Entry
+		want string
+	}{
+		{Entry{Source: SrcStore, Name: "SpotifyAB.SpotifyMusic_zpdnekdrzrea0!Spotify", Package: "SpotifyAB.SpotifyMusic_zpdnekdrzrea0"}, "SpotifyMusic"},
+		{Entry{Source: SrcStore, Package: "5319275A.WhatsAppDesktop_cv1g1gvanyjgm"}, "WhatsAppDesktop"},
+		{Entry{Source: SrcStore, Package: "Microsoft.Windows.Photos_8wekyb3d8bbwe"}, "Windows.Photos"},
+		{Entry{Source: SrcStore, Package: "Discord_abc123"}, "Discord"},
+		{Entry{Source: SrcStore, Package: "Plain"}, "Plain"},
+		{Entry{Source: SrcStore, Package: "Odd._x"}, "Odd."},
+		{Entry{Source: SrcStore, Package: ".Lead_x"}, "Lead"},
+		{Entry{Source: SrcStore, Name: "Pub.App_h!Task"}, "App"},
+		{Entry{Source: SrcStore, Name: "Pub.App_h!Task", Package: "_h"}, "Pub.App_h!Task"},
+		{Entry{Source: SrcRun, Name: "Pub.App_h"}, "Pub.App_h"},
+		{Entry{Source: SrcTask, Name: `\Folder\Updater`}, `\Folder\Updater`},
+	} {
+		if got := DisplayName(c.e); got != c.want {
+			t.Errorf("DisplayName(%+v) = %q, want %q", c.e, got, c.want)
+		}
+	}
+}
