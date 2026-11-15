@@ -82,6 +82,22 @@ function Wait-Fresh([scriptblock]$Cond, [double]$Seconds, [string]$What, [script
   try { Wait-Until $Cond $Seconds $What 300 } catch { throw "$($_.Exception.Message); $(& $Detail)" }
 }
 
+# Ждёт у невошедшего ребёнка (Коля) законченную проверку общих записей после refresh и строку Name в общих с
+# решением Decision. checkedAt («Проверено в …») ставит только полная проверка, а у невошедшего проверяются
+# только общие записи: признак свежей проверки здесь — сама строка и «проверка не идёт».
+function Wait-SharedDecision([int64]$ChildId, [string]$Name, [string]$Decision, [string]$What) {
+  [void](Get-Startup $ChildId $true)
+  $script:LastStartup = $null
+  Wait-Fresh {
+    $l = Get-Startup $ChildId
+    $script:LastStartup = $l
+    $it = Find-StartupItem $l "shared" $Name
+    (-not $l.checking) -and ($null -ne $it) -and ([string]$it.decision -eq $Decision)
+  } 30 "проверка общих записей: $What, $Name в общих с решением $Decision" { "последний ответ: $(if ($script:LastStartup) { Format-Startup $script:LastStartup } else { 'нет' }); журнал службы: $(Get-StartupLog)" }
+  Write-Log "Автозагрузка, $What`: $(Format-Startup $script:LastStartup)"
+  return $script:LastStartup
+}
+
 function Get-NowMs { return [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() }
 
 # Первый байт значения StartupApproved (0x02 — включено, 0x03 — выключено); -1 — значения нет.
@@ -169,7 +185,11 @@ Invoke-Scenario "S50" "Автозагрузка: новая запись ждё�
     $since = Get-NowMs
     Use-Parent {
       foreach ($c in @(@{ id = $script:Misha; name = "Миша" }, @{ id = $script:Kolya; name = "Коля" })) {
-        $l = Wait-StartupCheck $c.id $since $true "первая проверка, $($c.name)"
+        if ($c.id -eq $script:Misha) {
+          $l = Wait-StartupCheck $c.id $since $true "первая проверка, $($c.name)" # вошёл: полная проверка, checkedAt
+        } else {
+          $l = Wait-SharedDecision $c.id $script:SharedName "on" "первая проверка, $($c.name)" # не входил: только общие
+        }
         $it = Find-StartupItem $l "shared" $script:SharedName
         Assert-That ($null -ne $it -and [string]$it.decision -eq "on") "У ребёнка $($c.name) $($script:SharedName) не «включена» в общих: $(Format-Startup $l)"
         Assert-That ($null -eq (Find-StartupItem $l "pending" $script:SharedName)) "У ребёнка $($c.name) $($script:SharedName) в «Ждут решения» после первой проверки: $(Format-Startup $l)"
@@ -270,9 +290,8 @@ Invoke-Scenario "S50" "Автозагрузка: новая запись ждё�
   }
 
   Step "У Коли PCBSharedTest по-прежнему включена (Ruling T6-1)" {
-    $since = Get-NowMs
     Use-Parent {
-      $l = Wait-StartupCheck $script:Kolya $since $true "Коля после выключения у Миши"
+      $l = Wait-SharedDecision $script:Kolya $script:SharedName "on" "Коля после выключения у Миши"
       $it = Find-StartupItem $l "shared" $script:SharedName
       Assert-That ($null -ne $it -and [string]$it.decision -eq "on") "У Коли $($script:SharedName) не «включена»: $(Format-Startup $l)"
       $m = Get-Startup $script:Misha
