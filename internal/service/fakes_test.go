@@ -73,9 +73,10 @@ type fakeStore struct {
 	adultOff  map[int64]bool    // ребёнок с выключенным списком 18+ (M4); нет записи — включён
 	failSites bool              // ListSiteRules возвращает ошибку (M4)
 
-	startup     []StartupRecord // автозагрузка всех детей по порядку появления (M5b)
-	nextStartup int64           // номер последней строки автозагрузки
-	failStartup bool            // методы автозагрузки возвращают ошибку, ничего не меняя (M5b, PL-46)
+	startup        []StartupRecord // автозагрузка всех детей по порядку появления (M5b)
+	nextStartup    int64           // номер последней строки автозагрузки
+	failStartup    bool            // методы автозагрузки возвращают ошибку, ничего не меняя (M5b, PL-46)
+	failStartupSet bool            // только SetStartupDecision возвращает ошибку (запись решения после Windows)
 }
 
 // fakeStarterVideo — стартовый набор «Видео и соцсети», как в миграции 009 (R14).
@@ -2192,7 +2193,7 @@ func (f *fakeStore) SyncStartupItems(childID int64, found []StartupRecord, newDe
 func (f *fakeStore) SetStartupDecision(childID, id int64, decision string, now int64) (StartupRecord, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if f.failStartup || (decision != "on" && decision != "off") {
+	if f.failStartup || f.failStartupSet || (decision != "on" && decision != "off") {
 		return StartupRecord{}, errFake
 	}
 	for i := range f.startup {
@@ -2217,6 +2218,7 @@ type fakeStartupSource struct {
 	listErr error
 	setErr  error
 	block   chan struct{}
+	onList  func() // вызывается в List вне блокировок (гонка «проверка поменяла строку», уточнение 4)
 
 	calls    []string // "list <sid>", "shared", "set <sid> <name> <on>"
 	inFlight int      // сколько List/ListShared идут сейчас
@@ -2254,6 +2256,12 @@ func (f *fakeStartupSource) List(sid string) ([]startup.Entry, error) {
 	defer f.leave()
 	if b != nil {
 		<-b
+	}
+	f.mu.Lock()
+	hook := f.onList
+	f.mu.Unlock()
+	if hook != nil {
+		hook()
 	}
 	if err != nil {
 		return nil, err

@@ -28,6 +28,18 @@ import (
 
 const startupCheckEvery = 10 * time.Minute // проверка детей раз в столько (RM5b-5)
 
+// startupErrLogEvery — строка «автозагрузка не прочитана» в журнал работы не чаще, на ребёнка.
+const startupErrLogEvery = time.Hour
+
+// logEvery пишет строку в журнал работы не чаще every по ключу (настоящие часы службы). Под s.mu.
+func (s *Service) logEvery(key string, every time.Duration, format string, args ...any) {
+	if last, ok := s.errAt[key]; ok && s.real.Sub(last) < every && !s.real.Before(last) {
+		return
+	}
+	s.errAt[key] = s.real
+	s.cfg.Logf(format, args...)
+}
+
 const (
 	settingStartupBaseline       = "startup.baseline."        // + id ребёнка: UTC мс первой полной проверки
 	settingStartupBaselineShared = "startup.baseline_shared." // + id ребёнка: UTC мс первой проверки общих записей
@@ -269,7 +281,9 @@ func (s *Service) startupApply(id int64, full bool, found []startup.Entry, listE
 		what = "все записи"
 	}
 	if listErr != nil {
-		s.logRate(fmt.Sprint("startuplist", id), "автозагрузка %s (%s) не прочитана, строки не меняются: %v", cs.child.Name, what, listErr)
+		// Сбой датчика не равен «записей нет» (PL-46): строки и решения не трогаются. Повтор идёт
+		// каждые 10 минут, поэтому строка в журнал работы — не чаще startupErrLogEvery на ребёнка.
+		s.logEvery(fmt.Sprint("startuplist", id), startupErrLogEvery, "автозагрузка %s (%s) не прочитана, строки не меняются: %v", cs.child.Name, what, listErr)
 		return nil, false
 	}
 	stored, err := s.cfg.Store.ListStartupItems(id)
@@ -362,6 +376,7 @@ func (s *Service) startupApply(id int64, full bool, found []startup.Entry, listE
 	cs.startupExe = exe
 	if full {
 		cs.startupFullAt = now
+		s.startupDone[id] = now // «Проверено в …»: только полная проверка (свои записи тоже прочитаны)
 	}
 	stamp := strconv.FormatInt(now.UnixMilli(), 10)
 	if full && !baseFull {
@@ -385,7 +400,6 @@ func (s *Service) startupApply(id int64, full bool, found []startup.Entry, listE
 		}
 	}
 	s.startupWatchSet(cs)
-	s.startupDone[id] = now
 	var switches []startupSwitch
 	if !full {
 		return switches, true
@@ -504,7 +518,10 @@ func (s *Service) hListStartup(c *callCtx) ipc.Reply {
 
 // hSetStartup — решение родителя по строке (Review Focus 3, уточнение 4): своя запись — сначала
 // Windows (вне s.mu, по свежему List: путь задания и пакет — из найденной записи), затем база;
-// сбой Windows — решение не сохраняется. Общая и RunOnce — только база (уточнения 1, 16).
+// сбой Windows — решение не сохраняется; сбой записи в базу или строки уже нет — Windows
+// возвращается в прежнее состояние. Общая и RunOnce — только база (уточнения 1, 16). У
+// невошедшего ребёнка List и SetEnabled подгружают его ветку дважды (Ruling: редкое действие
+// родителя, ветка выгружается сразу; свежий List нужен ради пути задания и пакета).
 func (s *Service) hSetStartup(c *callCtx) ipc.Reply {
 	var req ipc.SetStartupRequest
 	if c.msg.Into(&req) != nil {
@@ -532,6 +549,7 @@ func (s *Service) hSetStartup(c *callCtx) ipc.Reply {
 	if rec == nil {
 		return ipc.Fail(textSaveFailed)
 	}
+	var undo func() // вернуть Windows в прежнее состояние, если решение не сохранится (вне s.mu)
 	if rec.Scope == startup.ScopeOwn && rec.Source != startup.SrcRunOnce {
 		mu, sid, want := s.startupLock(id), cs.child.SID, *rec
 		locked := false
@@ -541,12 +559,26 @@ func (s *Service) hSetStartup(c *callCtx) ipc.Reply {
 			}
 		}()
 		var werr error
+		var prev startup.Entry
+		var switched bool
 		s.unlocked(func() {
 			mu.Lock()
 			locked = true
-			werr = s.startupWrite(sid, want, req.On)
+			prev, switched, werr = s.startupWrite(sid, want, req.On)
 		})
+		if switched {
+			undo = func() {
+				var uerr error
+				s.unlocked(func() { uerr = s.cfg.Startup.SetEnabled(sid, prev, prev.Enabled) })
+				if uerr != nil {
+					s.logRate(fmt.Sprint("startupundo", id), "автозагрузка %s: «%s» не возвращена в прежнее состояние: %v", cs.child.Name, startupName(want), uerr)
+				}
+			}
+		}
 		if s.stopping || s.children[id] != cs {
+			if undo != nil {
+				undo()
+			}
 			return ipc.Fail(textNoSuchChild)
 		}
 		if werr != nil {
@@ -554,14 +586,35 @@ func (s *Service) hSetStartup(c *callCtx) ipc.Reply {
 			return ipc.Fail(textSaveFailed)
 		}
 	}
+	fail := func(format string, args ...any) ipc.Reply {
+		s.logRate(fmt.Sprint("startupdb", id), "автозагрузка %s: "+format, append([]any{cs.child.Name}, args...)...)
+		if undo != nil {
+			undo()
+		}
+		return ipc.Fail(textSaveFailed)
+	}
+	// Пока шла запись в Windows, проверка могла удалить и вставить строку заново (смена команды):
+	// решение — по строке с тем же Scope+Source+Name, какой она стала (уточнение 4).
+	items, err = s.cfg.Store.ListStartupItems(id)
+	if err != nil {
+		return fail("база не прочитана: %v", err)
+	}
+	var cur *StartupRecord
+	for i := range items {
+		if items[i].Scope == rec.Scope && items[i].Source == rec.Source && items[i].Name == rec.Name {
+			cur = &items[i]
+		}
+	}
+	if cur == nil {
+		return fail("строки «%s» уже нет, решение не записано", startupName(*rec))
+	}
 	decision := ipc.StartupOff
 	if req.On {
 		decision = ipc.StartupOn
 	}
-	saved, err := s.cfg.Store.SetStartupDecision(id, rec.ID, decision, s.cfg.RealNow().UnixMilli())
+	saved, err := s.cfg.Store.SetStartupDecision(id, cur.ID, decision, s.cfg.RealNow().UnixMilli())
 	if err != nil {
-		s.logRate(fmt.Sprint("startupdb", id), "автозагрузка %s: решение не записано: %v", cs.child.Name, err)
-		return ipc.Fail(textSaveFailed)
+		return fail("решение не записано: %v", err)
 	}
 	s.journal.Write(id, evStartupDecided, map[string]any{"name": startupName(saved), "on": req.On, "scope": saved.Scope, "source": saved.Source})
 	s.startupWatchSet(cs)
@@ -577,16 +630,20 @@ func (s *Service) hSetStartup(c *callCtx) ipc.Reply {
 var errStartupGone = errors.New("запись автозагрузки не найдена в Windows")
 
 // startupWrite — вне s.mu, под startupLock: свежий List ребёнка, поиск записи по
-// Scope+Source+Name и штатное включение или выключение (RM5b-2).
-func (s *Service) startupWrite(sid string, rec StartupRecord, on bool) error {
+// Scope+Source+Name и штатное включение или выключение (RM5b-2). prev — запись до переключения;
+// switched — состояние Windows изменилось (откат возвращает prev.Enabled).
+func (s *Service) startupWrite(sid string, rec StartupRecord, on bool) (prev startup.Entry, switched bool, err error) {
 	found, err := s.cfg.Startup.List(sid)
 	if err != nil {
-		return err
+		return prev, false, err
 	}
 	for _, e := range found {
 		if e.Scope == rec.Scope && e.Source == rec.Source && e.Name == rec.Name {
-			return s.cfg.Startup.SetEnabled(sid, e, on)
+			if err := s.cfg.Startup.SetEnabled(sid, e, on); err != nil {
+				return e, false, err
+			}
+			return e, e.Enabled != on, nil
 		}
 	}
-	return errStartupGone
+	return prev, false, errStartupGone
 }

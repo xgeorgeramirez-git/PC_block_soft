@@ -599,3 +599,147 @@ func TestSetStartupFindsByScopeSourceName(t *testing.T) {
 		t.Errorf("ярлык папки не выключен: %v", src.callsFrom(n))
 	}
 }
+
+// Ловит (возврат 1 T4a, п.1): Windows переключён, а решение в базу не записалось — Windows
+// остаётся в новом состоянии, база в старом, и проверка этого не выравнивает.
+func TestSetStartupDecisionFailRollsBackWindows(t *testing.T) {
+	src := newStartupSource()
+	src.addOwn(childSID, runE("Discord", true))
+	h, tok := startupHarness(t, src)
+	h.childLogsIn()
+	h.svc.waitStartup()
+	id := h.childID(childSID)
+	it := h.listStartup(tok, id, false).Own[0]
+
+	h.store.failStartupSet = true
+	n := src.callN()
+	f := h.fail(adminPeer(), tok, ipc.CmdSetStartup, ipc.SetStartupRequest{ChildID: id, ID: it.ID, On: false})
+	if f.Error != "Не удалось сохранить. Попробуйте ещё раз" {
+		t.Errorf("ответ %q", f.Error)
+	}
+	want := []string{"set " + childSID + " Discord false", "set " + childSID + " Discord true"}
+	if got := setCalls(src.callsFrom(n)); !reflect.DeepEqual(got, want) {
+		t.Errorf("Windows = %v, want %v (выключить и вернуть)", got, want)
+	}
+	if !src.ownEnabled(childSID, "Discord") {
+		t.Error("Windows не возвращён: Discord выключен, а в базе «on»")
+	}
+	h.store.failStartupSet = false
+	if d := h.startupItem(tok, id, "Discord").Decision; d != ipc.StartupOn {
+		t.Errorf("решение %s, want on", d)
+	}
+}
+
+// Ловит (возврат 1 T4a, п.2, уточнение 4): пока SetStartup писал в Windows, проверка удалила и
+// вставила строку заново (новый id) — решение сохраняется по старому id или теряется; строку
+// удалили совсем — Windows остаётся переключённым.
+func TestSetStartupRereadsRowAfterWindows(t *testing.T) {
+	src := newStartupSource()
+	src.addOwn(childSID, runE("Discord", true))
+	h, tok := startupHarness(t, src)
+	h.childLogsIn()
+	h.svc.waitStartup()
+	id := h.childID(childSID)
+	old := h.listStartup(tok, id, false).Own[0]
+	rec := StartupRecord{Scope: "own", Source: startup.SrcRun, Name: "Discord", Command: `C:\Apps\Discord.exe`}
+
+	// Строку пересоздали (как смена команды): новый id, решение pending.
+	src.mu.Lock()
+	src.onList = func() {
+		src.onList = nil
+		if _, err := h.store.SyncStartupItems(id, []StartupRecord{}, "pending", 1); err != nil {
+			t.Error(err)
+		}
+		if _, err := h.store.SyncStartupItems(id, []StartupRecord{rec}, "pending", 2); err != nil {
+			t.Error(err)
+		}
+	}
+	src.mu.Unlock()
+	var rep ipc.SetStartupReply
+	h.ok(adminPeer(), tok, ipc.CmdSetStartup, ipc.SetStartupRequest{ChildID: id, ID: old.ID, On: false}, &rep)
+	h.svc.waitStartup()
+	now := h.listStartup(tok, id, false)
+	if len(now.Own) != 1 || now.Own[0].ID == old.ID || now.Own[0].Decision != ipc.StartupOff || rep.Item.ID != now.Own[0].ID {
+		t.Errorf("после пересоздания: ответ %+v, список %+v; want решение off у новой строки", rep.Item, now)
+	}
+
+	// Строку удалили совсем: «Не удалось сохранить», Windows возвращён.
+	src.mu.Lock()
+	src.onList = func() {
+		src.onList = nil
+		if _, err := h.store.SyncStartupItems(id, []StartupRecord{}, "pending", 3); err != nil {
+			t.Error(err)
+		}
+	}
+	src.mu.Unlock()
+	cur := now.Own[0]
+	f := h.fail(adminPeer(), tok, ipc.CmdSetStartup, ipc.SetStartupRequest{ChildID: id, ID: cur.ID, On: true})
+	if f.Error != "Не удалось сохранить. Попробуйте ещё раз" {
+		t.Errorf("строка удалена: %q", f.Error)
+	}
+	if src.ownEnabled(childSID, "Discord") {
+		t.Error("Windows не возвращён после удаления строки")
+	}
+}
+
+// Ловит (возврат 1 T4a, п.3): «Проверено в …» обновляется проверкой только общих записей
+// (ребёнок не входил — его свои записи не проверялись).
+func TestStartupCheckedAtOnlyFullCheck(t *testing.T) {
+	src := newStartupSource()
+	src.addShared(runE("OneDrive", true))
+	h, tok := startupHarness(t, src)
+	id := h.childID(childSID)
+	if rep := h.listStartup(tok, id, true); rep.CheckedAt != 0 {
+		t.Errorf("до входа checkedAt = %d, want 0", rep.CheckedAt)
+	}
+	h.real.Advance(time.Minute)
+	h.childLogsIn()
+	h.svc.waitStartup()
+	at := h.real.Now().UnixMilli()
+	if rep := h.listStartup(tok, id, false); rep.CheckedAt != at {
+		t.Errorf("после входа checkedAt = %d, want %d", rep.CheckedAt, at)
+	}
+	h.launcher.setSessions()
+	h.svc.OnSession(SessionLogoff, childSession, h.real.Now())
+	h.real.Advance(time.Minute)
+	if rep := h.listStartup(tok, id, true); rep.CheckedAt != at {
+		t.Errorf("после проверки общих checkedAt = %d, want %d", rep.CheckedAt, at)
+	}
+}
+
+// Ловит (возврат 1 T4a, п.5, PL-46): сбой проверки автозагрузки не виден в журнале работы, пишется
+// без текста ошибки или чаще раза в час на ребёнка.
+func TestStartupListErrorLoggedHourly(t *testing.T) {
+	src := newStartupSource()
+	src.addOwn(childSID, runE("Discord", true))
+	h, tok := startupHarness(t, src)
+	h.childLogsIn()
+	h.svc.waitStartup()
+	id := h.childID(childSID)
+	src.setFail(errors.New("файл задания повреждён"), nil)
+	count := func() int {
+		return strings.Count(h.logText(), "автозагрузка Миша (все записи) не прочитана, строки не меняются: файл задания повреждён")
+	}
+	tick := func(d time.Duration) {
+		h.real.Advance(d)
+		h.svc.Housekeep(h.real.Now())
+		tok = h.login(adminPeer())
+	}
+	h.listStartup(tok, id, true)
+	if count() != 1 {
+		t.Fatalf("строк о сбое %d, want 1\n%s", count(), h.logText())
+	}
+	tick(59 * time.Minute)
+	h.listStartup(tok, id, true)
+	if count() != 1 {
+		t.Errorf("через 59 мин строк %d, want 1\n%s", count(), h.logText())
+	}
+	tick(time.Minute)
+	h.listStartup(tok, id, true)
+	if count() != 2 {
+		t.Errorf("через час строк %d, want 2", count())
+	}
+	if d := h.startupItem(tok, id, "Discord").Decision; d != ipc.StartupOn {
+		t.Errorf("сбой поменял решение: %s", d)
+	}
+}
