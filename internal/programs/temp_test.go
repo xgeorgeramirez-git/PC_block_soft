@@ -138,3 +138,24 @@ func TestInTempApp(t *testing.T) {
 		}
 	}
 }
+
+// Ловит (B-67): строка журнала о первом решении не может сказать, совпал ли отпечаток файла с
+// сохранённым решением родителя (нет записи, запись без отпечатка, запись с отпечатком).
+func TestSavedFingerprint(t *testing.T) {
+	c := NewClassifier(testRoots, DefaultCatalog)
+	c.Reload(append([]Entry{{Path: `c:\users\danila\downloads\nofp.exe`, Name: "N", Category: "games"}}, tempEntries...))
+	cases := []struct {
+		path  string
+		fp    string
+		known bool
+	}{
+		{`c:\users\danila\appdata\local\temp\roblox\robloxplayerinstaller.exe`, "5000:1", true},
+		{`c:\users\danila\downloads\nofp.exe`, "", true},
+		{`c:\users\danila\downloads\other.exe`, "", false},
+	}
+	for _, k := range cases {
+		if fp, known := c.SavedFingerprint(k.path); fp != k.fp || known != k.known {
+			t.Errorf("SavedFingerprint(%q) = %q, %v; want %q, %v", k.path, fp, known, k.fp, k.known)
+		}
+	}
+}

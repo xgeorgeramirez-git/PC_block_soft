@@ -239,12 +239,17 @@ func (s *Service) Watch(real time.Time) {
 	for _, path := range s.fetchMeta(need, real) {
 		notes = append(notes, fmt.Sprintf("watch-meta|%s\x00наблюдатель: свойства %s читаются дольше %v, решение отложено", path, path, metaBudget))
 	}
+	var firsts []watchNote // первые решения вне доверенных папок (B-67): пишутся под s.mu
 	for _, it := range items {
 		if s.needsMeta(it.e) {
 			continue // отпечаток или издатель ещё читаются: «не знаю» — не трогать (PL-9)
 		}
+		first := !it.e.classified
 		if a := s.watchDecide(it.t, it.p, it.e); a != nil {
 			acts = append(acts, *a)
+		}
+		if first && it.e.classified && !it.e.quiet && !s.classifier.Roots().IsTrusted(it.e.norm) {
+			firsts = append(firsts, s.firstDecisionNote(it.p, it.e))
 		}
 	}
 	fps, pubs := map[string]string{}, map[string]string{}
@@ -285,6 +290,63 @@ func (s *Service) Watch(real time.Time) {
 	s.fpSeen = fps   // категория секунды переднего плана сверяет тот же отпечаток (RM3-12)
 	s.pubSeen = pubs // и того же издателя (RM3-13)
 	s.applyWatch(acts, notes, unreadable, others, real)
+	s.logFirstDecisions(firsts)
+}
+
+// watchNote — строка подробного журнала работы с ключом «не чаще раза на ключ».
+type watchNote struct{ key, line string }
+
+// maxFirstLogged — сколько ключей первых решений помнится; больше — память сбрасывается.
+const maxFirstLogged = 1000
+
+// firstDecisionNote — строка о первом решении по процессу p вне доверенных папок (B-67, FB-22):
+// путь, вердикт, издатель, совпал ли отпечаток с сохранённым решением. Ключ — путь и отпечаток:
+// тот же файл новым процессом строки не даёт, перезаписанный — даёт. Вне s.mu.
+func (s *Service) firstDecisionNote(p ProcInfo, e *watchEntry) watchNote {
+	c := s.classifier
+	res := c.Classify(e.path, e.fp, e.pub)
+	pub := "не читался"
+	if e.pubRead {
+		pub = fmt.Sprintf("%q", e.pub)
+	}
+	fp := "отпечаток не читался"
+	if e.fpRead {
+		switch saved, known := c.SavedFingerprint(e.norm); {
+		case !known:
+			fp = fmt.Sprintf("отпечаток %q, в списке программ пути нет", e.fp)
+		case saved == "":
+			fp = fmt.Sprintf("отпечаток %q, сохранён без отпечатка", e.fp)
+		default:
+			match := "не совпал"
+			if saved == e.fp {
+				match = "совпал"
+			}
+			fp = fmt.Sprintf("отпечаток %q, сохранённый %q: %s", e.fp, saved, match)
+		}
+	}
+	return watchNote{
+		key:  e.norm + "|" + e.fp,
+		line: fmt.Sprintf("наблюдатель: первое решение по %s (PID %d): %s, категория %q; издатель %s; %s", e.norm, p.PID, res.Verdict, res.Category, pub, fp),
+	}
+}
+
+// logFirstDecisions пишет строки о первых решениях при подробных логах, одну на ключ (PL-53).
+// Ключ запоминается только при подробных логах: включённые позже логи покажут следующий запуск.
+// Под s.mu.
+func (s *Service) logFirstDecisions(firsts []watchNote) {
+	if !s.verbose {
+		return
+	}
+	for _, n := range firsts {
+		if s.firstLogged[n.key] {
+			continue
+		}
+		if s.firstLogged == nil || len(s.firstLogged) >= maxFirstLogged {
+			s.firstLogged = map[string]bool{}
+		}
+		s.firstLogged[n.key] = true
+		s.vlogf("%s", n.line)
+	}
 }
 
 // killAll закрывает процессы прохода пулом из killWorkers горутин (B-37) и ждёт все. Каждая

@@ -1,6 +1,7 @@
 package service
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -224,5 +225,79 @@ func TestWatchTempPublisherRetryClockBack(t *testing.T) {
 	h.svc.Watch(h.real.Now().Add(-time.Hour))
 	if n := countOf(meta.askedPaths(), pathRobloxTempInstaller); n < 2 {
 		t.Errorf("после перевода часов на час назад прочитано %d раз, want повторное чтение", n)
+	}
+}
+
+// Ловит (B-67 п. 1, FB-22): при подробных логах в журнале работы нет строки о первом решении по
+// процессу вне доверенных папок (путь, вердикт, издатель, совпал ли отпечаток), по которой видно,
+// почему установщик во временной папке ждал решения; или строка пишется на каждом проходе и
+// каждом процессе того же файла (PL-53); или пишется без подробных логов; или о системной программе.
+func TestWatchFirstDecisionVerboseLine(t *testing.T) {
+	const marker = "наблюдатель: первое решение по "
+	w, meta := newWatcher(), newMeta()
+	meta.set(pathRobloxTempInstaller, robloxCorp, "Roblox", "5100:2")
+	h := watchHarness(t, w, withMeta(meta))
+	if err := h.store.UpsertProgram(Program{Path: pathRobloxTempInstaller, Name: "RobloxPlayerInstaller", Publisher: robloxCorp,
+		Category: "games", Source: "parent", Fingerprint: "5000:1", DecidedAt: 1}); err != nil {
+		t.Fatal(err)
+	}
+	h.svc.mu.Lock()
+	h.svc.reloadPrograms()
+	h.svc.mu.Unlock()
+	lines := func() []string {
+		var out []string
+		for _, l := range strings.Split(h.logText(), "\n") {
+			if strings.Contains(l, marker) {
+				out = append(out, l)
+			}
+		}
+		return out
+	}
+	setVerbose := func(v bool) {
+		h.svc.mu.Lock()
+		h.svc.verbose = v
+		h.svc.mu.Unlock()
+	}
+	// Без подробных логов строки нет, и включение позже не теряет её у нового процесса.
+	p := w.start(childSession, pathRobloxTempInstaller)
+	h.watch()
+	if got := lines(); len(got) != 0 {
+		t.Fatalf("без подробных логов: %q", got)
+	}
+	w.exit(p)
+	h.watch()
+	setVerbose(true)
+	p = w.start(childSession, pathRobloxTempInstaller)
+	w.start(childSession, pathNotepad)
+	for i := 0; i < 3; i++ {
+		h.watch()
+	}
+	got := lines()
+	if len(got) != 1 {
+		t.Fatalf("строк о первом решении %d, want 1: %q", len(got), got)
+	}
+	for _, want := range []string{pathRobloxTempInstaller, "разрешена", `издатель "Roblox Corporation"`, `отпечаток "5100:2", сохранённый "5000:1": не совпал`} {
+		if !strings.Contains(got[0], want) {
+			t.Errorf("в строке %q нет %q", got[0], want)
+		}
+	}
+	if strings.Contains(h.logText(), marker+pathNotepad) {
+		t.Error("строка о первом решении по системной программе")
+	}
+	// Тот же файл новым процессом — строки нет; файл перезаписан — новая строка.
+	w.exit(p)
+	h.watch()
+	p = w.start(childSession, pathRobloxTempInstaller)
+	h.watch()
+	if n := len(lines()); n != 1 {
+		t.Errorf("тот же файл новым процессом: строк %d, want 1", n)
+	}
+	w.exit(p)
+	h.watch()
+	meta.set(pathRobloxTempInstaller, robloxCorp, "Roblox", "5200:3")
+	w.start(childSession, pathRobloxTempInstaller)
+	h.watch()
+	if n := len(lines()); n != 2 {
+		t.Errorf("перезаписанный файл: строк %d, want 2", n)
 	}
 }

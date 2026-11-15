@@ -185,6 +185,9 @@ type Service struct {
 	started     bool
 	loaded      bool // список детей прочитан из базы
 	verbose     bool // «Подробные логи для диагностики» включены (FR-25, D-42)
+	// firstLogged — ключи (путь|отпечаток) первых решений наблюдателя, уже записанных подробным
+	// журналом (B-67). Под mu.
+	firstLogged map[string]bool
 	errAt       map[string]time.Time
 	logCount    map[string]int // последнее записанное число по ключу logCountRate
 
