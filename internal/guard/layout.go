@@ -63,6 +63,26 @@ func Flow(area Rect, top int32, items []FlowItem) []Rect {
 	return out
 }
 
+// Ответ на промокод на экране блокировки (R26, 8.2.3 п.3): стикер, под ним надпись.
+const (
+	StickerGapPx     = 24 // от блока выше до стикера
+	StickerTextGapPx = 8  // от стикера до надписи
+	stickerMinPx     = 64 // стикер меньше этого не показывается: на низком экране важнее кнопки
+	stickerMarginPx  = 24 // поле столбца сверху и снизу (как FlowTop экрана блокировки)
+)
+
+// PromoStickerSize — сторона стикера в пикселях: StickerPx(dpi), если столбец экрана без стикера
+// (columnH, с надписью и кнопками) вместе с ним помещается в высоту areaH с полями; иначе меньше;
+// меньше 64 px при 100 % — без стикера (0), остаётся надпись.
+func PromoStickerSize(dpi int, areaH, columnH int32) int32 {
+	free := areaH - 2*Scaled(stickerMarginPx, dpi) - columnH - Scaled(StickerGapPx, dpi)
+	size := min(StickerPx(dpi), free)
+	if size < Scaled(stickerMinPx, dpi) {
+		return 0
+	}
+	return size
+}
+
 // PlateLayout — раскладка текстовой плашки справа внизу (плашка 1 мин, «Добавлено N минут»,
 // плашки о закрытых программах): размер окна, область текста, крестик в правом верхнем углу и
 // кнопки под текстом. Координаты клиентские, в пикселях экрана.

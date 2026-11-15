@@ -128,3 +128,81 @@ func TestPlateLayoutNoOverlap(t *testing.T) {
 		}
 	}
 }
+
+// promoColumn — столбец экрана блокировки с ответом на промокод при dpi (высоты текстов —
+// как у шрифтов экрана: заголовок 40 px, текст 22, мелкий 17): индекс места стикера и кнопок.
+func promoColumn(dpi int, fail bool) (items []FlowItem, sticker int, buttons []int) {
+	s := func(px int) int32 { return Scaled(px, dpi) }
+	items = []FlowItem{
+		{W: s(900), H: s(54)},             // «Время на сегодня закончилось»
+		{W: s(900), H: s(30), Gap: s(16)}, // «Можно снова: завтра»
+		{W: s(900), H: s(30), Gap: s(6)},  // «Сегодня: …»
+		{W: s(900), H: s(30), Gap: s(16)}, // «Попроси родителя…»
+	}
+	sticker = len(items)
+	items = append(items, FlowItem{}, FlowItem{W: s(900), H: s(30), Gap: s(StickerTextGapPx)}) // стикер, надпись
+	if fail {
+		items = append(items,
+			FlowItem{W: s(900), H: s(23), Gap: s(24)}, // «Промокод»
+			FlowItem{W: s(380), H: s(52), Gap: s(8)},  // поле
+		)
+		buttons = []int{len(items), len(items) + 1}
+		items = append(items, FlowItem{W: s(380), H: s(54), Gap: s(32)}, FlowItem{W: s(380), H: s(54), Gap: s(14)})
+		return
+	}
+	for i := 0; i < 4; i++ { // «Пароль родителя» и три выхода
+		gap := s(14)
+		switch i {
+		case 0:
+			gap = s(32)
+		case 1:
+			gap = s(28)
+		}
+		buttons = append(buttons, len(items))
+		items = append(items, FlowItem{W: s(380), H: s(54), Gap: gap})
+	}
+	return
+}
+
+// Ловит: стикер ответа на промокод при 100/125/150 % наезжает на кнопки и поле или выталкивает
+// кнопки за низ экрана (Review Focus 5, PL-26, PL-61); на большом экране стикер не своего размера.
+func TestPromoStickerLayoutFits(t *testing.T) {
+	for _, c := range []struct {
+		dpi  int
+		w, h int32
+		full bool // места хватает: стикер полного размера
+	}{
+		{96, 1920, 1080, true}, {96, 1366, 768, false}, {120, 1920, 1080, true}, {120, 1366, 768, false},
+		{144, 1920, 1080, false}, {144, 2560, 1440, true}, {144, 1600, 900, false},
+	} {
+		for _, fail := range []bool{true, false} {
+			area := Rect{0, 0, c.w, c.h}
+			items, si, buttons := promoColumn(c.dpi, fail)
+			size := PromoStickerSize(c.dpi, c.h, FlowHeight(items))
+			if c.full && size != StickerPx(c.dpi) {
+				t.Errorf("dpi %d %dx%d fail=%v: стикер %d, ждали %d", c.dpi, c.w, c.h, fail, size, StickerPx(c.dpi))
+			}
+			if size != 0 && size < Scaled(64, c.dpi) || size > StickerPx(c.dpi) {
+				t.Errorf("dpi %d %dx%d: размер %d вне 64…%d", c.dpi, c.w, c.h, size, StickerPx(c.dpi))
+			}
+			if size > 0 {
+				items[si] = FlowItem{W: size, H: size, Gap: Scaled(StickerGapPx, c.dpi)}
+			}
+			margin := Scaled(24, c.dpi)
+			rects := Flow(area, FlowTop(area, FlowHeight(items), margin), items)
+			for i, r := range rects {
+				if r.Top < area.Top || r.Bottom > area.Bottom {
+					t.Errorf("dpi %d %dx%d fail=%v: блок %d вне экрана: %+v", c.dpi, c.w, c.h, fail, i, r)
+				}
+			}
+			ring := Scaled(4, c.dpi) // кольцо фокуса вокруг кнопки и поля
+			st := rects[si]
+			for _, b := range append(buttons, si+1) {
+				r := rects[b]
+				if size > 0 && b != si+1 && st.Bottom+ring > r.Top && st.Top < r.Bottom+ring {
+					t.Errorf("dpi %d %dx%d fail=%v: стикер %+v наезжает на %+v", c.dpi, c.w, c.h, fail, st, r)
+				}
+			}
+		}
+	}
+}
