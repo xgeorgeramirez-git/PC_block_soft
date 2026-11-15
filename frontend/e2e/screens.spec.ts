@@ -3266,3 +3266,109 @@ test("s49 промокоды: окно 800×640 и клавиатура", async 
   await noHorizontalScroll(page);
   expect(await page.evaluate(() => document.documentElement.scrollTop)).toBe(0);
 });
+
+// s50 — вкладка «Автозагрузка» (FR-39, 8.3.11): «Ждут решения» сверху, «Учётка Миши», «Для всех
+// пользователей»; выключатель действует сразу: включённая запись notes переезжает в «Учётку»,
+// сообщение под списком. Светлая и тёмная тема, пустой список, окно 960 при масштабе 150 %
+// (640 px CSS) с длинными названиями: без прокрутки вбок, название обрезано многоточием.
+async function openStartupTab(page: Page, options: MockOptions = {}) {
+  await mockProgram(page, { mode: "parent", sessionActive: true, children: [child({})], ...options });
+  await page.goto("/");
+  await page.getByRole("button", { name: "Дети" }).click();
+  await page.getByRole("tablist", { name: "Правила ребёнка" }).getByRole("tab", { name: "Автозагрузка", exact: true }).click();
+}
+
+/** Строки и выключатели не выходят за край своего блока (кольцо фокуса и подпись не срезаны). */
+async function startupRowsInside(page: Page) {
+  const bad = await page.evaluate(() => {
+    const out: string[] = [];
+    for (const row of document.querySelectorAll(".startup-row")) {
+      const box = row.closest(".startup-block")!.getBoundingClientRect();
+      for (const el of row.querySelectorAll(".startup-switch, .startup-name, .startup-meta")) {
+        const r = el.getBoundingClientRect();
+        if (r.left < box.left - 0.5 || r.right > box.right + 0.5) out.push(`${el.className} «${(row.textContent ?? "").slice(0, 30)}»`);
+      }
+    }
+    return out;
+  });
+  expect(bad, "в «Автозагрузке» строка вылезает из блока").toEqual([]);
+}
+
+for (const v of [
+  { name: "s50-startup", scheme: "light" as const },
+  { name: "s50-startup-dark", scheme: "dark" as const },
+]) {
+  test(`s50 автозагрузка: ${v.name}`, async ({ page }) => {
+    await page.setViewportSize({ width: 1200, height: 820 });
+    await page.emulateMedia({ colorScheme: v.scheme });
+    await openStartupTab(page);
+    const heads = page.locator(".startup h3");
+    await expect(heads).toHaveText(["Ждут решения", "Учётка Миши", "Для всех пользователей"]);
+    await expect(page.getByRole("switch", { name: "OneDrive Reporting Task" })).toHaveAttribute("aria-checked", "true");
+    await expect(page.getByRole("switch", { name: "notes" })).toHaveAttribute("aria-checked", "false");
+    await expect(page.getByText(/^Проверено в \d\d:\d\d$/)).toBeVisible();
+    await startupRowsInside(page);
+    await noHorizontalScroll(page);
+    await wholePage(page);
+    await page.screenshot({ path: `${SCREENS}/${v.name}.png`, fullPage: true });
+
+    // Включить notes: строка уходит из «Ждут решения» в «Учётку Миши», сообщение видно, «Сохранить» нет.
+    await page.getByRole("switch", { name: "notes" }).click();
+    await expect(page.locator(".startup-message")).toHaveText("Будет запускаться при входе Миши");
+    await expect(page.locator(".startup-message")).toBeInViewport();
+    await expect(heads).toHaveText(["Учётка Миши", "Для всех пользователей"]);
+    const own = page.getByRole("region", { name: "Учётка Миши" });
+    await expect(own.getByRole("switch", { name: "notes" })).toHaveAttribute("aria-checked", "true");
+    await expect(page.getByRole("switch", { name: "notes" })).toHaveCount(1);
+    await expect(page.getByRole("switch", { name: "notes" })).toBeFocused();
+    await expect(page.getByText("Есть несохранённые изменения")).toHaveCount(0);
+    await noHorizontalScroll(page);
+    if (v.scheme === "light") {
+      // Клавиатура: пробел на выключателе в фокусе, кольцо фокуса видно.
+      await page.keyboard.press("Space");
+      await expect(page.locator(".startup-message")).toHaveText("Не будет запускаться при входе Миши");
+      await expect(page.getByRole("switch", { name: "notes" })).toHaveAttribute("aria-checked", "false");
+      await page.keyboard.press("Shift+Tab");
+      await page.keyboard.press("Tab");
+      expect(await page.getByRole("switch", { name: "notes" }).evaluate((el) => getComputedStyle(el).outlineStyle)).toBe("solid");
+      await wholePage(page);
+      await page.screenshot({ path: `${SCREENS}/s50-startup-after.png`, fullPage: true });
+    }
+  });
+}
+
+test("s50 автозагрузка: пусто", async ({ page }) => {
+  await page.setViewportSize({ width: 1200, height: 820 });
+  await openStartupTab(page, { startup: [] });
+  await expect(page.getByText("При входе Миши ничего не запускается", { exact: true })).toBeVisible();
+  await expect(page.getByRole("switch")).toHaveCount(0);
+  await expect(page.locator(".startup h3")).toHaveCount(0);
+  await noHorizontalScroll(page);
+  await page.screenshot({ path: `${SCREENS}/s50-startup-empty.png`, fullPage: true });
+});
+
+test.describe("s50 автозагрузка: окно 960 при масштабе 150 %", () => {
+  test.use({ deviceScaleFactor: 1.5 });
+  test("s50 автозагрузка: длинные названия в 640 px", async ({ page }) => {
+    await page.setViewportSize({ width: 640, height: 420 });
+    await openStartupTab(page, {
+      startup: [
+        { id: 1, scope: "own", source: "task", name: "\\Vendor\\Очень длинное название задания обновления программы при входе-S-1-5-21-111-222-333-1001", publisher: "Очень Длинное Название Издателя Программного Обеспечения Inc.", from: "Планировщик заданий, при входе", decision: "on" },
+        { id: 2, scope: "own", source: "store_app", name: "SpotifyMusic", publisher: "", from: "Приложение из магазина", decision: "off" },
+        { id: 3, scope: "shared", source: "run", name: "AVeryLongRegistryValueNameWithoutAnySpacesThatCannotWrapAnywhere", publisher: "Adobe Inc.", from: "Реестр, при входе", decision: "on" },
+        { id: 7, scope: "own", source: "runonce", name: "notes", publisher: "", from: "Реестр, один раз при входе", decision: "pending" },
+      ],
+    });
+    await expect(page.locator(".startup h3")).toHaveText(["Ждут решения", "Учётка Миши", "Для всех пользователей"]);
+    const longName = page.locator(".startup-name", { hasText: "Очень длинное название" });
+    await expect(longName).toHaveAttribute("title", "\\Vendor\\Очень длинное название задания обновления программы при входе-S-1-5-21-111-222-333-1001");
+    expect(await longName.evaluate((el) => el.scrollWidth > el.clientWidth), "длинное название обрезано многоточием").toBe(true);
+    await startupRowsInside(page);
+    await noHorizontalScroll(page);
+    await page.getByRole("switch", { name: "notes" }).click();
+    await expect(page.locator(".startup-message")).toHaveText("Будет запускаться при входе Миши");
+    await startupRowsInside(page);
+    await noHorizontalScroll(page);
+    await page.screenshot({ path: `${SCREENS}/s50-startup-narrow.png` });
+  });
+});
