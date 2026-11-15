@@ -3149,23 +3149,25 @@ textarea.sites-add-input {
 }
 
 /* Промокод в окне ребёнка (8.2.6 п.11, R26): слева поле и кнопка, справа ответ - стикер 160 x 160
-   и крупная надпись. Узкий блок (меньше 520 px, например окно 640 px при 150 %) - ответ под полем.
+   и крупная надпись. Ответ встаёт рядом, только если надписи остаётся не меньше 220 px (стикер 160,
+   зазор 12, надпись 220 = 392 px); иначе он переносится под поле и кнопку на всю ширину блока, и
+   надпись идёт в одну-две строки. Совсем узко (меньше 392 px) надпись сама уходит под стикер.
    Ничего не обрезается (overflow не скрыт): кольцо фокуса поля и кнопки видно целиком (PL-26, PL-61). */
 .promo-redeem {
-  container-type: inline-size;
-  display: grid;
-  grid-template-columns: max-content minmax(0, 1fr);
+  display: flex;
+  flex-wrap: wrap;
   align-items: center;
   column-gap: var(--space-6);
-  row-gap: var(--space-3);
+  row-gap: var(--space-4);
 }
 
 .promo-redeem-form {
+  flex: none;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
   gap: var(--space-2);
-  min-width: 0;
+  max-width: 100%;
 }
 
 .promo-redeem .field {
@@ -3177,11 +3179,13 @@ textarea.sites-add-input {
 }
 
 .promo-answer {
+  flex: 1 1 392px;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: var(--space-3);
   min-width: 0;
+  max-width: 100%;
 }
 
 /* Фон прозрачный: стикер одинаково ложится на светлую и тёмную поверхность. */
@@ -3197,7 +3201,7 @@ textarea.sites-add-input {
 }
 
 .promo-answer-text {
-  flex: 1 1 140px;
+  flex: 1 1 220px;
   min-width: 0;
   margin: 0;
   color: var(--text);
@@ -3206,13 +3210,6 @@ textarea.sites-add-input {
   font-weight: 600;
   line-height: 1.3;
   overflow-wrap: anywhere;
-}
-
-@container (max-width: 519.98px) {
-  .promo-redeem-form,
-  .promo-answer {
-    grid-column: 1 / -1;
-  }
 }
 
 /* --- Автозагрузка (FR-39, 8.3.11) ------------------------------------------------------ */

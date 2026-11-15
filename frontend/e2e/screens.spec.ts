@@ -1230,8 +1230,9 @@ test("s06 бонусы ребёнка и промокод", async ({ page }) => 
   await page.screenshot({ path: `${SCREENS}/s06-my-bonuses.png`, fullPage: true });
 });
 
-// s52 — ответ на промокод в окне ребёнка (R26, D-83, 8.2.6 п.11, S52): справа от поля (в узком блоке
-// под ним) стикер 160 x 160 и крупная надпись. CD34 на 1 минуту - «Ура! +1 минута»; повтор того же
+// s52 — ответ на промокод в окне ребёнка (R26, D-83, 8.2.6 п.11, S52): стикер 160 x 160 и крупная
+// надпись справа от поля, если надписи остаётся не меньше 220 px, иначе под полем и кнопкой.
+// Окно 480 px уже самого узкого окна ребёнка (640): проверяется только ответ, без прокрутки вбок. CD34 на 1 минуту - «Ура! +1 минута»; повтор того же
 // кода - стикер и надпись неудачи, код в поле остаётся; второй неверный - другие стикер и надпись.
 // Анимации выключены (как в Windows без анимаций) - стикер стоит на последнем кадре, снимок стабилен.
 type StickerRect = { left: number; right: number; top: number; bottom: number; width: number; height: number };
@@ -1242,8 +1243,12 @@ const stickerRectOf = (l: ReturnType<Page["locator"]>) =>
   });
 const rectsApart = (a: StickerRect, b: StickerRect) => a.right <= b.left || b.right <= a.left || a.bottom <= b.top || b.bottom <= a.top;
 
-/** Стикер нарисован, 160 x 160, целиком в видимой области окна и не лежит на поле и кнопке. */
-async function stickerInPlace(page: Page, box: ReturnType<Page["locator"]>) {
+/**
+ * Стикер нарисован, 160 x 160, целиком в видимой области окна и не лежит на поле и кнопке.
+ * Узкое окно (small): ответ под кнопкой, надпись не выше двух строк. Широкое: ответ рядом с полем
+ * только при надписи не уже 220 px (иначе под кнопкой), надпись не выше трёх строк.
+ */
+async function stickerInPlace(page: Page, box: ReturnType<Page["locator"]>, small: boolean) {
   const sticker = box.locator(".promo-sticker");
   await expect(sticker.locator("svg")).toHaveCount(1);
   await sticker.scrollIntoViewIfNeeded();
@@ -1262,15 +1267,29 @@ async function stickerInPlace(page: Page, box: ReturnType<Page["locator"]>) {
   expect(rectsApart(s, ring(send)), `стикер на кнопке: ${JSON.stringify({ s, send })}`).toBe(true);
   const text = await stickerRectOf(box.locator(".promo-answer-text"));
   expect(rectsApart(s, text), `стикер на надписи: ${JSON.stringify({ s, text })}`).toBe(true);
-  return { s, field };
+  const lineHeight = await box.locator(".promo-answer-text").evaluate((el) => parseFloat(getComputedStyle(el).lineHeight));
+  const lines = Math.round(text.height / lineHeight);
+  const below = s.top >= send.bottom;
+  if (small) {
+    expect(below, `в узком окне стикер под кнопкой: ${JSON.stringify({ s, send })}`).toBe(true);
+    expect(lines, `надпись в ${lines} строк: ${JSON.stringify(text)}`).toBeLessThanOrEqual(2);
+  } else {
+    if (!below) {
+      expect(s.left, "стикер справа от поля").toBeGreaterThanOrEqual(field.right);
+      expect(text.width, `рядом с полем надписи мало места: ${JSON.stringify(text)}`).toBeGreaterThanOrEqual(219.5);
+    }
+    expect(lines, `надпись в ${lines} строк: ${JSON.stringify(text)}`).toBeLessThanOrEqual(3);
+  }
 }
 
 for (const [w, h, scheme] of [
   [800, 640, "light"],
   [800, 640, "dark"],
   [640, 520, "light"],
+  [480, 520, "light"],
 ] as const) {
-  const tail = `${scheme === "dark" ? "-dark" : ""}${w === 640 ? "-small" : ""}`;
+  const small = w <= 640;
+  const tail = `${scheme === "dark" ? "-dark" : ""}${w === 640 ? "-small" : ""}${w === 480 ? "-480" : ""}`;
   test(`s52 промокод в окне ребёнка: стикер, окно ${w} x ${h}, ${scheme === "dark" ? "тёмная" : "светлая"} тема`, async ({ page }) => {
     await page.setViewportSize({ width: w, height: h });
     await page.emulateMedia({ colorScheme: scheme, reducedMotion: "reduce" });
@@ -1293,13 +1312,9 @@ for (const [w, h, scheme] of [
     await expect(box.getByRole("status")).toHaveText("Ура! +1 минута");
     await expect(box.locator(".promo-sticker")).toHaveAttribute("data-sticker", "017");
     await expect(field).toHaveValue("");
-    const ok = await stickerInPlace(page, box);
-    // Широкий блок - стикер справа от поля; узкий (меньше 520 px) - под полем.
-    const narrow = await box.locator(".promo-redeem").evaluate((el) => el.getBoundingClientRect().width < 520);
-    if (narrow) expect(ok.s.top, "в узком блоке стикер под полем").toBeGreaterThanOrEqual(ok.field.bottom);
-    else expect(ok.s.left, "стикер справа от поля").toBeGreaterThanOrEqual(ok.field.right);
+    await stickerInPlace(page, box, small);
     await expect(page.getByRole("textbox")).toHaveCount(1);
-    await noHorizontalScroll(page);
+    if (w >= 640) await noHorizontalScroll(page);
     await page.screenshot({ path: `${SCREENS}/s52-promo-ok${tail}.png` });
 
     await field.fill("cd34");
@@ -1309,15 +1324,15 @@ for (const [w, h, scheme] of [
     await expect(box.getByRole("alert")).toHaveText("Такого кода нет. Проверь буквы и цифры");
     await expect(box.locator(".promo-sticker")).toHaveAttribute("data-sticker", "023");
     await expect(field).toHaveValue("cd34");
-    await stickerInPlace(page, box);
-    await noHorizontalScroll(page);
+    await stickerInPlace(page, box, small);
+    if (w >= 640) await noHorizontalScroll(page);
     await page.screenshot({ path: `${SCREENS}/s52-promo-bad${tail}.png` });
 
     await field.fill("cd35");
     await send.click();
     await expect(box.getByRole("alert")).toHaveText("Хм, код не подходит. Посмотри внимательнее");
     await expect(box.locator(".promo-sticker")).toHaveAttribute("data-sticker", "028");
-    await stickerInPlace(page, box);
+    await stickerInPlace(page, box, small);
   });
 }
 
