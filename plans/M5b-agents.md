@@ -35,3 +35,6 @@
 | T5 возврат 1 | ac88ed1491045c822 | writer | done | 168134aa, 8f0f17bb «Оставить выключенной», hover | 1 |
 | полный accept | — | runner | done | 43686143655 (до ревью-фиксов): S1…S22, S25…S27, S33…S52, LE1, LE2, FB1, FB5, TMP1 PASS | — |
 | T8 возврат 2 | a4651b6ac0b075eb7 | writer | running | фокус после ответа, aria-live, комментарий | 2 |
+| T5 возврат 2 | ac88ed1491045c822 | writer | done | 31e7e9f1 порог 600 px для кнопки под названием | 2 |
+| R4 | — | runner | done | 43690784962 зелёная | — |
+| visual s50/s52/whatsnew | a6885485fe1354bf7 | visual | done | 12/17 PASS; s50-after — по задумке теста (вкл → выкл клавишей); узкое меню обрезано — было и раньше (B-73); обрезанные кадры 480/narrow-pending — LOW (B-73) | — |
