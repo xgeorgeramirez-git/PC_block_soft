@@ -76,3 +76,12 @@ describe("«Автозагрузка»: строка не уходит вбок 
     expect(rule(".startup-from")).toMatch(/overflow-wrap:\s*anywhere/);
   });
 });
+
+describe("«Автозагрузка»: «Оставить выключенной» в узком списке (8.3.11 п.2)", () => {
+  // Ловит (ci 43690777846): окно 960 при 150 % даёт список около 560 px, и при пороге 520 кнопка
+  // вставала рядом с выключателем, сжимая название до 200 px. Порог - 600 px, кнопка второй строкой.
+  it("порог 600 px, кнопка на всю ширину под названием", () => {
+    expect(css).toMatch(/@container startup-list \(max-width: 599\.98px\)/);
+    expect(rule(".startup-row-pending .startup-keep")).toMatch(/grid-column:\s*2\s*\/\s*-1/);
+  });
+});

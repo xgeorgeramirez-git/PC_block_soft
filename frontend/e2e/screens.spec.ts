@@ -3410,10 +3410,16 @@ test.describe("s50 автозагрузка: окно 960 при масштаб�
     expect(await longName.evaluate((el) => el.scrollWidth > el.clientWidth), "длинное название обрезано многоточием").toBe(true);
     await startupRowsInside(page);
     await noHorizontalScroll(page);
-    // Узкий список: «Оставить выключенной» второй строкой под названием, не сжимает его.
+    // Узкий список (около 560 px, меньше порога 600): «Оставить выключенной» второй строкой под
+    // названием и «откуда», не сжимает название и не наезжает на выключатель.
     const keepBox = await page.getByRole("button", { name: "Оставить выключенной: notes" }).boundingBox();
-    const nameBox = await page.locator(".startup-name", { hasText: "notes" }).boundingBox();
-    expect(keepBox!.y, "кнопка под названием").toBeGreaterThanOrEqual(nameBox!.y + nameBox!.height);
+    const notesRow = page.locator(".startup-row", { has: page.getByRole("switch", { name: "notes" }) });
+    const mainBox = await notesRow.locator(".startup-main").boundingBox();
+    const switchBox = await page.getByRole("switch", { name: "notes" }).boundingBox();
+    const listWidth = await notesRow.evaluate((el) => el.parentElement!.getBoundingClientRect().width);
+    expect(listWidth, "список уже порога 600 px").toBeLessThan(600);
+    expect(keepBox!.y, `кнопка под названием и «откуда»: ${JSON.stringify({ keepBox, mainBox })}`).toBeGreaterThanOrEqual(mainBox!.y + mainBox!.height - 0.5);
+    expect(keepBox!.y, "кнопка под выключателем").toBeGreaterThanOrEqual(switchBox!.y + switchBox!.height - 0.5);
     await page.screenshot({ path: `${SCREENS}/s50-startup-narrow-pending.png` });
     await page.getByRole("switch", { name: "notes" }).click();
     await expect(page.locator(".startup-message")).toHaveText("Будет запускаться при входе Миши");
