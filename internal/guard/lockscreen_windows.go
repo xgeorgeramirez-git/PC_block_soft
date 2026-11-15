@@ -270,6 +270,9 @@ func (u *lockUI) layout() {
 	u.texts, u.hasFrame = u.texts[:0], false
 	u.rest.showCat, u.rest.showTiles = false, false
 	u.sticker.show = false
+	if v.Promo == nil {
+		u.sticker.free() // ответа нет: полоса кадров (до 13 МБ при 150 %) не держится
+	}
 	want := map[Button]rect{}
 	var order []Button
 	for i, e := range es {
