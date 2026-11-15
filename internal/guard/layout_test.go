@@ -1,6 +1,9 @@
 package guard
 
-import "testing"
+import (
+	"fmt"
+	"testing"
+)
 
 func TestScaled(t *testing.T) {
 	cases := []struct{ px, dpi, want int }{
@@ -164,45 +167,105 @@ func promoColumn(dpi int, fail bool) (items []FlowItem, sticker int, buttons []i
 	return
 }
 
-// Ловит: стикер ответа на промокод при 100/125/150 % наезжает на кнопки и поле или выталкивает
-// кнопки за низ экрана (Review Focus 5, PL-26, PL-61); на большом экране стикер не своего размера.
+// placePromo раскладывает столбец с ответом на промокод так же, как экран блокировки: стикер в
+// столбце, если помещается; иначе стикер и надпись слева от поля (неудача) или первой кнопки (удача).
+func placePromo(dpi int, area Rect, fail bool) (rects []Rect, anchors []int, sticker, text Rect, side bool, size int32) {
+	s := func(px int) int32 { return Scaled(px, dpi) }
+	items, si, buttons := promoColumn(dpi, fail)
+	margin := s(24)
+	size = PromoStickerSize(dpi, area.Bottom-area.Top, FlowHeight(items))
+	anchors = buttons
+	if fail {
+		anchors = append([]int{buttons[0] - 1}, buttons...) // поле и кнопки
+	}
+	if size > 0 {
+		items[si] = FlowItem{W: size, H: size, Gap: s(StickerGapPx)}
+		rects = Flow(area, FlowTop(area, FlowHeight(items), margin), items)
+		return rects, anchors, rects[si], rects[si+1], false, size
+	}
+	items[si], items[si+1] = FlowItem{}, FlowItem{}
+	rects = Flow(area, FlowTop(area, FlowHeight(items), margin), items)
+	textH := 3 * s(30) // надпись в узком месте сбоку: до трёх строк
+	size, sticker, text = PromoSide(dpi, area, s(380), rects[anchors[0]].Top, textH)
+	return rects, anchors, sticker, text, true, size
+}
+
+// Ловит: стикер ответа на промокод при 100/125/150 % наезжает на кнопки и поле, выталкивает кнопки
+// за низ экрана или пропадает на частом экране ноутбука 1366×768 при 125 % и на 1280×720 при 150 %
+// (Review Focus 5, PL-26, PL-61); на большом экране стикер не своего размера.
 func TestPromoStickerLayoutFits(t *testing.T) {
 	for _, c := range []struct {
 		dpi  int
 		w, h int32
-		full bool // места хватает: стикер полного размера
+		full bool // места хватает: стикер полного размера в столбце
 	}{
 		{96, 1920, 1080, true}, {96, 1366, 768, false}, {120, 1920, 1080, true}, {120, 1366, 768, false},
-		{144, 1920, 1080, false}, {144, 2560, 1440, true}, {144, 1600, 900, false},
+		{144, 1920, 1080, false}, {144, 2560, 1440, true}, {144, 1600, 900, false}, {144, 1280, 720, false},
 	} {
 		for _, fail := range []bool{true, false} {
+			name := fmt.Sprintf("dpi %d %dx%d fail=%v", c.dpi, c.w, c.h, fail)
 			area := Rect{0, 0, c.w, c.h}
-			items, si, buttons := promoColumn(c.dpi, fail)
-			size := PromoStickerSize(c.dpi, c.h, FlowHeight(items))
-			if c.full && size != StickerPx(c.dpi) {
-				t.Errorf("dpi %d %dx%d fail=%v: стикер %d, ждали %d", c.dpi, c.w, c.h, fail, size, StickerPx(c.dpi))
+			rects, anchors, st, tx, side, size := placePromo(c.dpi, area, fail)
+			if c.full && (side || size != StickerPx(c.dpi)) {
+				t.Errorf("%s: стикер %d (сбоку %v), ждали %d в столбце", name, size, side, StickerPx(c.dpi))
 			}
-			if size != 0 && size < Scaled(64, c.dpi) || size > StickerPx(c.dpi) {
-				t.Errorf("dpi %d %dx%d: размер %d вне 64…%d", c.dpi, c.w, c.h, size, StickerPx(c.dpi))
+			if size < Scaled(96, c.dpi) || size > StickerPx(c.dpi) {
+				t.Errorf("%s: стикер %d вне %d…%d (сбоку %v)", name, size, Scaled(96, c.dpi), StickerPx(c.dpi), side)
 			}
-			if size > 0 {
-				items[si] = FlowItem{W: size, H: size, Gap: Scaled(StickerGapPx, c.dpi)}
+			in := func(r Rect) bool {
+				return r.Left >= area.Left && r.Right <= area.Right && r.Top >= area.Top && r.Bottom <= area.Bottom
 			}
-			margin := Scaled(24, c.dpi)
-			rects := Flow(area, FlowTop(area, FlowHeight(items), margin), items)
-			for i, r := range rects {
-				if r.Top < area.Top || r.Bottom > area.Bottom {
-					t.Errorf("dpi %d %dx%d fail=%v: блок %d вне экрана: %+v", c.dpi, c.w, c.h, fail, i, r)
+			if !in(st) || !in(tx) {
+				t.Errorf("%s: стикер %+v или надпись %+v вне экрана", name, st, tx)
+			}
+			if !side {
+				for i, r := range rects {
+					if !in(r) {
+						t.Errorf("%s: блок %d вне экрана: %+v", name, i, r)
+					}
 				}
 			}
 			ring := Scaled(4, c.dpi) // кольцо фокуса вокруг кнопки и поля
-			st := rects[si]
-			for _, b := range append(buttons, si+1) {
-				r := rects[b]
-				if size > 0 && b != si+1 && st.Bottom+ring > r.Top && st.Top < r.Bottom+ring {
-					t.Errorf("dpi %d %dx%d fail=%v: стикер %+v наезжает на %+v", c.dpi, c.w, c.h, fail, st, r)
+			hit := func(a, b Rect) bool {
+				return a.Left < b.Right+ring && b.Left < a.Right+ring && a.Top < b.Bottom+ring && b.Top < a.Bottom+ring
+			}
+			for _, i := range anchors {
+				if hit(st, rects[i]) || side && hit(tx, rects[i]) {
+					t.Errorf("%s: стикер %+v или надпись %+v наезжает на %+v", name, st, tx, rects[i])
 				}
 			}
+			if st.Bottom > tx.Top {
+				t.Errorf("%s: надпись %+v не под стикером %+v", name, tx, st)
+			}
 		}
+	}
+}
+
+// Ловит: сбоку стикер больше места (налезает на столбец) или выходит за низ экрана; при нехватке
+// места стикер рисуется меньше 96 px при 100 % вместо того, чтобы остаться только надписью.
+func TestPromoSide(t *testing.T) {
+	area := Rect{0, 0, 1366, 768}
+	size, st, tx := PromoSide(120, area, 475, 381, 113)
+	if size != 234 || st != (Rect{30 + (385-234)/2, 381, 30 + (385-234)/2 + 234, 615}) || tx != (Rect{30, 625, 415, 738}) {
+		t.Fatalf("сбоку: %d %+v %+v", size, st, tx)
+	}
+	if size, st, tx := PromoSide(120, area, 475, 600, 113); size != 0 || st != (Rect{}) || tx.Top != 600 {
+		t.Fatalf("без места: %d %+v %+v", size, st, tx)
+	}
+	if size, st, _ := PromoSide(120, Rect{0, 0, 900, 1080}, 475, 100, 38); size != 152 || st.Right-st.Left != 152 {
+		t.Fatalf("узкое место сбоку: стикер %d %+v, want 152 по ширине", size, st)
+	}
+	// В столбце: свободно 80 px при 100 % — меньше 96, стикер в столбец не ставится.
+	if got := PromoStickerSize(96, 768, 768-48-24-80); got != 0 {
+		t.Fatalf("в столбце при 80 px свободных стикер %d, want 0", got)
+	}
+	if got := PromoStickerSize(96, 768, 768-48-24-96); got != 96 {
+		t.Fatalf("в столбце при 96 px свободных стикер %d, want 96", got)
+	}
+	if w := PromoSideWidth(96, Rect{0, 0, 600, 768}, 380); w != 62 {
+		t.Fatalf("ширина места сбоку %d, want 62", w)
+	}
+	if w := PromoSideWidth(96, Rect{0, 0, 400, 768}, 380); w != 0 {
+		t.Fatalf("ширина места сбоку на узком экране %d, want 0", w)
 	}
 }

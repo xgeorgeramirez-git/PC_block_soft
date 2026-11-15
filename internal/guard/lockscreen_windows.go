@@ -242,12 +242,20 @@ func (u *lockUI) layout() {
 	for i, e := range es {
 		items[i] = e.item
 	}
+	areaRc := Rect{area.left, area.top, area.right, area.bottom}
+	colW := s(380) // ширина поля и кнопок
+	side := false  // стикер и надпись слева от поля или первой кнопки (PromoSide)
 	if sticker >= 0 {
-		// Стикер 200 px при 100 %; на низком экране меньше или без него (PromoStickerSize):
-		// кнопки и поле важнее.
-		if size := PromoStickerSize(u.dpi, area.bottom-area.top, FlowHeight(items)); size > 0 && u.sticker.prepare(hdc, v.Promo.Sticker, size) {
+		// Стикер 200 px при 100 %; на низком экране меньше (не меньше 96 px при 100 %), а если и
+		// так не помещается в столбец — слева от поля или кнопок (1366×768 при 125 %).
+		size := PromoStickerSize(u.dpi, area.bottom-area.top, FlowHeight(items))
+		switch {
+		case size > 0 && u.sticker.prepare(hdc, v.Promo.Sticker, size):
 			es[sticker].item = FlowItem{W: size, H: size, Gap: s(StickerGapPx)}
-		} else if sticker+1 < len(es) {
+		case size == 0 && PromoSideWidth(u.dpi, areaRc, colW) >= s(96) && sticker+1 < len(es):
+			side = true
+			es[sticker+1].item = FlowItem{} // надпись встанет сбоку под стикером
+		case sticker+1 < len(es):
 			es[sticker+1].item.Gap = s(StickerGapPx) // без стикера надпись стоит на его месте
 		}
 		items[sticker] = es[sticker].item
@@ -275,10 +283,17 @@ func (u *lockUI) layout() {
 	}
 	want := map[Button]rect{}
 	var order []Button
+	anchorTop := int32(-1) // верх поля (неудача) или первой кнопки (удача): сюда встаёт ответ сбоку
 	for i, e := range es {
 		rc := toRect(rects[i])
+		if side && anchorTop < 0 && (e.kind == entEdit || e.kind == entButton) {
+			anchorTop = rc.top
+		}
 		switch e.kind {
 		case entText:
+			if side && i == sticker+1 {
+				continue // надпись ответа — сбоку (ниже)
+			}
 			u.texts = append(u.texts, lockText{text: e.text, rc: rc, font: e.font, color: e.color})
 		case entEdit:
 			u.frame, u.hasFrame = rc, true
@@ -294,6 +309,17 @@ func (u *lockUI) layout() {
 			order = append(order, e.btn.Button)
 			u.views[e.btn.Button] = e.btn
 		}
+	}
+	if side && anchorTop >= 0 {
+		w := PromoSideWidth(u.dpi, areaRc, colW)
+		textH := measureHeight(hdc, u.fonts.button, v.Promo.Text, w)
+		size, st, tx := PromoSide(u.dpi, areaRc, colW, anchorTop, textH)
+		if size > 0 && u.sticker.prepare(hdc, v.Promo.Sticker, size) {
+			u.sticker.show, u.sticker.rc = true, toRect(st)
+		} else {
+			tx = Rect{tx.Left, anchorTop, tx.Right, anchorTop + textH}
+		}
+		u.texts = append(u.texts, lockText{text: v.Promo.Text, rc: toRect(tx), font: u.fonts.button, color: colorText})
 	}
 	u.frameErr = v.PasswordError != "" && v.PasswordEnabled
 
