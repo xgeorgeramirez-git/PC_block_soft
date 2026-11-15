@@ -1,10 +1,11 @@
-﻿# S52. Стикеры и надписи в ответ на промокод (R26, FR-35, D-83, план M5b T9).
+﻿# S52. Стикеры и надписи в ответ на промокод (R26, FR-35, D-83, D-84, D-85, план M5b T9, фидбек 0.6.1).
 # Дано: время вышло, экран блокировки «Время вышло»; родитель создал коды AB12 на 30 мин и CD34 на 1 мин.
 # Когда: на экране блокировки неверный код два раза подряд, затем CD34; время (1 мин) кончается, экран
-# возвращается; снова CD34, затем AB12. Ввод CD34 в окне «Моя статистика» проверяют vitest и e2e (T8): скрипт
+# возвращается; снова CD34, минута без нажатий, затем AB12. Ввод CD34 в окне «Моя статистика» проверяют vitest и e2e (T8): скрипт
 # приёмки работает повышенным администратором, команду ребёнка от него служба не принимает (Ruling).
-# Тогда: неверный — стикер из набора неудачи и надпись неудачи (GuardState promoSticker/promoText), второй
-# неверный — другие стикер и надпись, лимит прежний; CD34 — стикер удачи и надпись с «+1 минута», экран снят,
+# Тогда: неверный — стикер из набора неудачи и надпись неудачи (GuardState promoSticker/promoText); ввод в
+# поле ответ не убирает (стикер идёт по кругу, пока не введён верный код); второй неверный — другие стикер и
+# надпись, лимит прежний; без нажатий 60 с панель промокода закрывается сама (обычные кнопки, ответа нет); CD34 — стикер удачи и надпись с «+1 минута», экран снят,
 # лимит +1 мин; повтор CD34 — стикер неудачи, лимит прежний; AB12 — другой стикер удачи и надпись с «+30 минут»,
 # экран держится одно проигрывание стикера (не меньше 2 с) и снимается (не позже 6 с), плашки «Добавлено» нет,
 # лимит +31 мин всего.
@@ -53,11 +54,14 @@ Invoke-Scenario "S52" "Промокод: стикер и надпись на э�
     Write-Log "Первый неверный: стикер $($a.promoSticker), «$($a.promoText)»"
     Assert-That ((@(List $a.fields) | Where-Object { $_.id -eq "promo" -and $_.text -eq "WRONG1" }).Count -eq 1) "Код в поле после отказа не остался: $(Format-GuardState $a)"
     Save-Screen "s52-lock-bad"
-    # Новый ввод убирает прошлый ответ (R26: ответ остаётся, пока ребёнок не начнёт вводить новый код).
+    # Новый ввод прошлый ответ не убирает (R26, D-85: стикер неудачи остаётся, пока не введён верный код).
     Enter-GuardPromo "WRONG2"
-    [void](Wait-GuardState { param($s) [string]$s.promoSticker -eq "" } 5 "ответ исчез после нового ввода")
+    Start-Sleep -Milliseconds 700
+    $k = Get-GuardState
+    Assert-That ([string]$k.promoSticker -eq [string]$a.promoSticker -and [string]$k.promoText -eq [string]$a.promoText) "Ввод в поле убрал или сменил ответ на неверный код: $(Format-GuardState $k)"
     Invoke-GuardClick "submitPromo"
-    $b = Wait-PromoBad
+    $first = [string]$a.promoSticker
+    $b = Wait-GuardState { param($s) $s.lockShown -and ($script:PromoBadStickers -contains [string]$s.promoSticker) -and [string]$s.promoSticker -ne $first -and ($script:PromoBadTexts -contains [string]$s.promoText) } 8 "новый стикер и надпись неудачи после второго неверного кода"
     Write-Log "Второй неверный: стикер $($b.promoSticker), «$($b.promoText)»"
     Assert-That ([string]$b.promoSticker -ne [string]$a.promoSticker) "Второй неверный код показал тот же стикер $($b.promoSticker)"
     Assert-That ([string]$b.promoText -ne [string]$a.promoText) "Второй неверный код показал ту же надпись «$($b.promoText)»"
@@ -91,7 +95,26 @@ Invoke-Scenario "S52" "Промокод: стикер и надпись на э�
     Assert-That ([int]$st.limitS -eq $script:LimitBefore + 60 -and $st.lock -ne "none") "После повтора CD34 лимит $($st.limitS) с (ждали $($script:LimitBefore + 60)), блокировка '$($st.lock)'"
   }
 
-  Step "AB12: стикер удачи с «+30 минут», экран держится одно проигрывание и снимается, лимит +30 мин" {
+  Step "Без нажатий 60 с панель промокода закрывается сама: обычные кнопки, стикера и надписи нет" {
+    # Ввод в поле — нажатие: отсчёт 60 с идёт от него. Стикер неудачи при этом остаётся и идёт по кругу.
+    Enter-GuardPromo "ZZ"
+    $sw = [Diagnostics.Stopwatch]::StartNew()
+    $bad = [string](Get-GuardState).promoSticker
+    Assert-That ($script:PromoBadStickers -contains $bad) "После ввода в поле стикера неудачи нет: '$bad'"
+    Start-Sleep -Seconds 40
+    $g = Get-GuardState
+    Assert-That ($g.lockShown -and [string]$g.promoSticker -eq $bad -and (@(List $g.fields) | Where-Object { $_.id -eq "promo" }).Count -eq 1) "Через 40 с без нажатий панель или стикер пропали: $(Format-GuardState $g)"
+    $g = Wait-GuardState { param($s) $s.lockShown -and (@(List $s.fields) | Where-Object { $_.id -eq "promo" }).Count -eq 0 } 35 "панель промокода закрылась сама"
+    Assert-Between $sw.Elapsed.TotalSeconds 55 72 "Панель промокода закрылась без нажатий через, с"
+    Assert-That ([string]$g.promoSticker -eq "" -and [string]$g.promoText -eq "") "После закрытия панели остался ответ: $(Format-GuardState $g)"
+    Assert-That (Test-HasButton $g "promo") "После закрытия панели нет кнопки «Ввести промокод»: $(Format-GuardState $g)"
+    $st = Get-Status
+    Assert-That ([int]$st.limitS -eq $script:LimitBefore + 60 -and $st.lock -ne "none") "После закрытия панели лимит $($st.limitS) с, блокировка '$($st.lock)'"
+  }
+
+  Step "AB12: стикер удачи с «+30 минут», экран держится один круг стикера и снимается, лимит +30 мин" {
+    Invoke-GuardClick "promo"
+    [void](Wait-GuardState { param($s) (@(List $s.fields) | Where-Object { $_.id -eq "promo" }).Count -ge 1 } 8 "панель промокода открыта")
     Enter-GuardPromo "ab12"
     $sw = [Diagnostics.Stopwatch]::StartNew()
     Invoke-GuardClick "submitPromo"
@@ -113,5 +136,5 @@ Invoke-Scenario "S52" "Промокод: стикер и надпись на э�
     Assert-That ([int]$st.limitS -eq $script:LimitBefore + 1860) "Лимит дня $($st.limitS) с, ждали $($script:LimitBefore + 1860) (+1 мин CD34 и +30 мин AB12)"
   }
 
-  Write-Log "S52: неверные коды — разные стикеры и надписи неудачи, верный — стикер удачи на одно проигрывание"
+  Write-Log "S52: неверные коды — разные стикеры и надписи неудачи, ввод их не убирает, панель закрывается через 60 с без нажатий, верный — стикер удачи на один круг"
 }

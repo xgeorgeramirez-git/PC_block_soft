@@ -10,6 +10,8 @@ export interface AnimationItem {
   stop(): void;
   goToAndStop(value: number, isFrame?: boolean): void;
   addEventListener(name: "complete" | "DOMLoaded" | "data_failed", cb: () => void): void;
+  /** Длина анимации: в секундах (inFrames = false) или в кадрах. */
+  getDuration(inFrames?: boolean): number;
   destroy(): void;
 }
 

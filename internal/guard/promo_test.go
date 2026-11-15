@@ -107,7 +107,8 @@ func promoModel(t *testing.T, d core.Decision) *Model {
 
 // Ловит: неверный код показан старым текстом службы у поля, а не стикером и надписью неудачи
 // (R26, D-83, PL-49); код в поле стирается; второй неверный повторяет первый ответ; ответ не
-// исчезает, когда ребёнок начал печатать новый код.
+// исчезает, когда ребёнок начал печатать новый код (D-85: остаётся до верного кода), или стоит
+// после первого круга (D-84: движется по кругу).
 func TestPromoBadCodeSticker(t *testing.T) {
 	m := promoModel(t, timeUpDecision())
 	seq := m.View(t0).PasswordClearSeq
@@ -122,26 +123,38 @@ func TestPromoBadCodeSticker(t *testing.T) {
 	if v.Promo == nil || v.Promo.OK || v.Promo.Sticker != "023" || v.Promo.Text != "Такого кода нет. Проверь буквы и цифры" {
 		t.Fatalf("ответ на неверный код: %+v", v.Promo)
 	}
-	if v.Promo.Frame != 0 || v.Promo.Frames != 32 || !v.Promo.Started.Equal(t0) {
+	if v.Promo.Frame != 0 || v.Promo.Frames != 79 || !v.Promo.Started.Equal(t0) || v.Promo.Still {
 		t.Fatalf("кадры неудачи: %+v", v.Promo)
 	}
-	if f := m.View(at(time.Second)).Promo.Frame; f != 12 {
-		t.Fatalf("через 1 с кадр %d, want 12", f)
+	if f := m.View(at(time.Second)).Promo.Frame; f != 30 {
+		t.Fatalf("через 1 с кадр %d, want 30", f)
 	}
-	// Ребёнок начал печатать новый код: ответ исчезает, панель остаётся.
+	// Ребёнок печатает новый код: стикер и надпись остаются (D-85), показ не начинается заново.
 	m.OnFieldEdit(at(2 * time.Second))
-	if v := m.View(at(2 * time.Second)); v.Promo != nil || v.Panel != PanelPromo {
-		t.Fatalf("после ввода ответ остался: %+v, Panel=%v", v.Promo, v.Panel)
+	v = m.View(at(2 * time.Second))
+	if v.Promo == nil || v.Promo.Sticker != "023" || v.Promo.Text != "Такого кода нет. Проверь буквы и цифры" || !v.Promo.Started.Equal(t0) || v.Panel != PanelPromo {
+		t.Fatalf("после ввода в поле: %+v, Panel=%v", v.Promo, v.Panel)
 	}
-	m.Press(at(3*time.Second), ButtonSubmitPromo, "nope2")
-	m.OnPromoResult(at(3*time.Second), PromoResult{Error: "Код не подходит", BadCode: true})
-	v = m.View(at(3 * time.Second))
-	if v.Promo == nil || v.Promo.Sticker != "028" || v.Promo.Text != "Хм, код не подходит. Посмотри внимательнее" || !v.Promo.Started.Equal(at(3*time.Second)) {
+	// 79 кадров при 30 кадрах/с — круг 2,633 с: в 3 с идёт второй круг (кадр 90-79 = 11), в 8 с — четвёртый.
+	if f := m.View(at(3 * time.Second)).Promo.Frame; f != 11 {
+		t.Fatalf("в 3 с кадр %d, want 11 (второй круг)", f)
+	}
+	if f := m.View(at(8 * time.Second)).Promo.Frame; f != 3 {
+		t.Fatalf("в 8 с кадр %d, want 3 (240 по модулю 79)", f)
+	}
+	// «Применить» старый ответ не убирает: он стоит, пока служба не ответила.
+	m.Press(at(9*time.Second), ButtonSubmitPromo, "nope2")
+	if v := m.View(at(9 * time.Second)); v.Promo == nil || v.Promo.Sticker != "023" {
+		t.Fatalf("после «Применить» до ответа: %+v", v.Promo)
+	}
+	m.OnPromoResult(at(9*time.Second), PromoResult{Error: "Код не подходит", BadCode: true})
+	v = m.View(at(9 * time.Second))
+	if v.Promo == nil || v.Promo.Sticker != "028" || v.Promo.Text != "Хм, код не подходит. Посмотри внимательнее" || !v.Promo.Started.Equal(at(9*time.Second)) || v.Promo.Frame != 0 {
 		t.Fatalf("второй неверный код: %+v", v.Promo)
 	}
 	// «Отмена» убирает ответ вместе с панелью.
-	m.Press(at(4*time.Second), ButtonCancel, "")
-	if v := m.View(at(4 * time.Second)); v.Promo != nil || v.Panel != PanelNone {
+	m.Press(at(10*time.Second), ButtonCancel, "")
+	if v := m.View(at(10 * time.Second)); v.Promo != nil || v.Panel != PanelNone {
 		t.Fatalf("после «Отмена» ответ %+v", v.Promo)
 	}
 }
@@ -187,7 +200,7 @@ func TestPromoSuccessHoldsScreen(t *testing.T) {
 	if !v.LockShown || !v.SuppressKeys || v.Panel != PanelNone || v.PasswordEnabled {
 		t.Fatalf("показ удачи: shown=%v keys=%v Panel=%v field=%v", v.LockShown, v.SuppressKeys, v.Panel, v.PasswordEnabled)
 	}
-	if v.Promo == nil || !v.Promo.OK || v.Promo.Sticker != "017" || v.Promo.Text != "Ура! +30 минут" || v.Promo.Frames != 33 {
+	if v.Promo == nil || !v.Promo.OK || v.Promo.Sticker != "017" || v.Promo.Text != "Ура! +30 минут" || v.Promo.Frames != 81 {
 		t.Fatalf("ответ на верный код: %+v", v.Promo)
 	}
 	if v.Lock.Reason != "Время вышло" || v.Lock.Until != "Можно снова: завтра" {
@@ -201,12 +214,13 @@ func TestPromoSuccessHoldsScreen(t *testing.T) {
 	if fmt.Sprint(got) != fmt.Sprint([]Button{ButtonParentPassword, ButtonShutdown, ButtonLogoff, ButtonSwitchUser}) {
 		t.Fatalf("кнопки показа удачи %v", got)
 	}
-	// 33 кадра при 12 кадрах/с — 2,75 с: в 2,7 с экран ещё есть, на последнем кадре.
-	if v := m.View(at(2700 * time.Millisecond)); !v.LockShown || v.Promo == nil || v.Promo.Frame != 32 {
-		t.Fatalf("в 2,7 с: shown=%v promo=%+v", v.LockShown, v.Promo)
+	// 81 кадр при 30 кадрах/с — круг 2,7 с: в 2,69 с экран ещё есть, на последнем кадре.
+	if v := m.View(at(2690 * time.Millisecond)); !v.LockShown || v.Promo == nil || v.Promo.Frame != 80 {
+		t.Fatalf("в 2,69 с: shown=%v promo=%+v", v.LockShown, v.Promo)
 	}
-	m.Tick(at(2750 * time.Millisecond))
-	v = m.View(at(2750 * time.Millisecond))
+	// Ровно один круг: в 2,7 с экрана уже нет (второго круга удачи нет).
+	m.Tick(at(2700 * time.Millisecond))
+	v = m.View(at(2700 * time.Millisecond))
 	if v.LockShown || v.SuppressKeys || v.Promo != nil {
 		t.Fatalf("после проигрывания экран остался: shown=%v promo=%+v", v.LockShown, v.Promo)
 	}
@@ -249,8 +263,14 @@ func TestPromoStillWhenAnimationsOff(t *testing.T) {
 	m.SetAnimations(false)
 	m.Press(t0, ButtonSubmitPromo, "nope")
 	m.OnPromoResult(t0, PromoResult{Error: "Код не подходит", BadCode: true})
-	if p := m.View(t0).Promo; p == nil || p.Frame != p.Frames-1 {
-		t.Fatalf("без анимаций кадр %+v, ждали последний", p)
+	for _, d := range []time.Duration{0, time.Second, 7 * time.Second} {
+		v := m.View(at(d))
+		if p := v.Promo; p == nil || p.Frame != 78 || !p.Still || StickerFrame(p, at(d)) != 78 {
+			t.Fatalf("без анимаций в %v кадр %+v, ждали последний (78) без движения", d, p)
+		}
+		if StickerAnimating(v) {
+			t.Fatal("без анимаций окну назначен таймер кадров")
+		}
 	}
 }
 
@@ -322,11 +342,12 @@ func TestPromoSuccessInForbidden(t *testing.T) {
 	if v := m.View(at(time.Second)); !v.LockShown || v.Promo == nil || !v.Promo.OK || v.Promo.Text != "Ура! +20 минут" {
 		t.Fatalf("показ удачи в запретный интервал: %+v", v.Promo)
 	}
-	// После проигрывания экран остаётся, стикер стоит на последнем кадре, кнопки обычные.
+	// После первого круга экран остаётся, стикер удачи идёт по кругу (81 кадр: в 5 с кадр 150-81 = 69),
+	// кнопки обычные.
 	m.Tick(at(5 * time.Second))
 	m.OnDecision(at(5*time.Second), d, false, nil)
 	v := m.View(at(5 * time.Second))
-	if !v.LockShown || v.Promo == nil || v.Promo.Frame != v.Promo.Frames-1 || buttonOf(v.Buttons, ButtonPromo) == nil {
+	if !v.LockShown || v.Promo == nil || v.Promo.Frame != 69 || !StickerAnimating(v) || buttonOf(v.Buttons, ButtonPromo) == nil {
 		t.Fatalf("после показа: shown=%v promo=%+v buttons=%+v", v.LockShown, v.Promo, v.Buttons)
 	}
 	// Новое нажатие убирает ответ: после «Пароль родителя» и «Отмена» стикера нет.
@@ -401,10 +422,10 @@ func TestControllerRedeemPromo(t *testing.T) {
 	if len(warmed) != 1 || warmed[0] != first.Sticker {
 		t.Fatalf("кадры стикера не подготовлены заранее: %v", warmed)
 	}
-	// Ребёнок печатает: ответ исчезает.
+	// Ребёнок печатает: ответ остаётся (D-85).
 	r.ctl.FieldEdited()
-	if v := r.ctl.View(); v.Promo != nil {
-		t.Fatalf("после ввода ответ остался: %+v", v.Promo)
+	if v := r.ctl.View(); v.Promo == nil || v.Promo.Sticker != first.Sticker || v.Promo.Text != first.Text {
+		t.Fatalf("после ввода ответ пропал или сменился: %+v", v.Promo)
 	}
 	r.ctl.Run(r.ctl.Press(ButtonSubmitPromo, "nope"))
 	if v := r.ctl.View(); v.Promo == nil || v.Promo.Sticker == first.Sticker || v.Promo.Text == first.Text {
@@ -481,13 +502,20 @@ func TestLayoutKeyIgnoresStickerFrame(t *testing.T) {
 	if LayoutKey(a, "") != LayoutKey(b, "") {
 		t.Fatal("смена кадра стикера перестраивает окно")
 	}
-	if !StickerChanged(a, b) || StickerChanged(b, b) {
-		t.Fatal("смена кадра не замечена или замечена без смены")
+	if a.Promo.Frame == b.Promo.Frame {
+		t.Fatal("за секунду кадр не сменился")
 	}
-	if StickerAnimating(m.View(at(5*time.Second))) || !StickerAnimating(a) || StickerAnimating(View{}) {
-		t.Fatal("признак анимации: идёт на последнем кадре или не идёт на первом")
+	// Стикер идёт по кругу: таймер кадров нужен и после первого круга; без ответа — не нужен.
+	if !StickerAnimating(m.View(at(5*time.Second))) || !StickerAnimating(a) || StickerAnimating(View{}) {
+		t.Fatal("признак анимации: не идёт после первого круга, не идёт на первом кадре или идёт без стикера")
+	}
+	if StickerAnimating(View{Promo: &PromoStickerView{Sticker: "017", Frames: 1}}) {
+		t.Fatal("стикеру из одного кадра назначен шаг кадров")
 	}
 	m.OnFieldEdit(at(2 * time.Second))
+	if LayoutKey(b, "") != LayoutKey(m.View(at(2*time.Second)), "") {
+		t.Fatal("ввод в поле перестраивает окно, хотя ответ тот же")
+	}
 	m.Press(at(2*time.Second), ButtonSubmitPromo, "nope")
 	m.OnPromoResult(at(2*time.Second), PromoResult{Error: "Код не подходит", BadCode: true})
 	c := m.View(at(2 * time.Second))
@@ -522,5 +550,222 @@ func TestPromoSuccessAfterLockLifted(t *testing.T) {
 	m.OnPromoResult(at(300*time.Millisecond), PromoResult{OK: true, Minutes: 30})
 	if v := m.View(at(400 * time.Millisecond)); v.LockShown || v.SuppressKeys || v.Promo != nil || v.Warning != nil {
 		t.Fatalf("ответ вернул экран: shown=%v keys=%v promo=%+v plate=%+v", v.LockShown, v.SuppressKeys, v.Promo, v.Warning)
+	}
+}
+
+// Ловит: открытая панель промокода висит без нажатий дольше 60 с или закрывается раньше (D-85); ввод
+// в поле и кнопки панели отсчёт не начинают заново; закрытие оставляет стикер, надпись, ошибку поля
+// или набранный код; без Tick вид этого не показывает.
+func TestPromoPanelClosesAfterIdle(t *testing.T) {
+	sec := func(n int) time.Time { return at(time.Duration(n) * time.Second) }
+	d := timeUpDecision()
+	var m *Model
+	// view — вид в секунду n после свежего ответа службы (как при опросе раз в секунду; иначе обрыв связи).
+	// Ответ приходит за миллисекунду до вида: сам вид должен показать закрытие без Tick.
+	last := 0
+	view := func(n int) View {
+		for s := last + 5; s < n; s += 5 {
+			m.OnDecision(sec(s), d, false, nil)
+		}
+		last = n
+		m.OnDecision(sec(n).Add(-time.Millisecond), d, false, nil)
+		return m.View(sec(n))
+	}
+	if promoIdleClose != 60*time.Second {
+		t.Fatalf("promoIdleClose = %v, want 60 с", promoIdleClose)
+	}
+	// Панель просто открыта, стикера нет: 59 с открыта, в 60 с закрыта.
+	m = promoModel(t, d)
+	seq := m.View(t0).PasswordClearSeq
+	if v := view(59); v.Panel != PanelPromo || !v.PasswordEnabled {
+		t.Fatalf("в 59 с панель закрыта: %v", v.Panel)
+	}
+	v := view(60) // вид без Tick: чистая функция времени
+	if v.Panel != PanelNone || v.PasswordEnabled || v.Promo != nil || !v.LockShown || buttonOf(v.Buttons, ButtonPromo) == nil || len(v.Choices) != 0 {
+		t.Fatalf("в 60 с: Panel=%v field=%v promo=%+v buttons=%+v", v.Panel, v.PasswordEnabled, v.Promo, v.Buttons)
+	}
+	m.Tick(sec(60))
+	if v := view(60); v.Panel != PanelNone || v.PasswordClearSeq != seq+1 {
+		t.Fatalf("после закрытия: Panel=%v clear %d→%d (поле не очищено)", v.Panel, seq, v.PasswordClearSeq)
+	}
+	// Закрытая панель «Применить» не принимает; открыть снова — отсчёт с нуля.
+	if a := m.Press(sec(61), ButtonSubmitPromo, "ab12"); a.Kind != ActNone {
+		t.Fatalf("закрытая панель отправила код: %+v", a)
+	}
+	view(99)
+	m.Press(sec(100), ButtonPromo, "")
+	if v := view(159); v.Panel != PanelPromo {
+		t.Fatal("после нового открытия панель закрылась раньше 60 с")
+	}
+	if v := view(160); v.Panel != PanelNone {
+		t.Fatal("после нового открытия панель не закрылась через 60 с")
+	}
+
+	// Стикер неудачи: ввод в поле в 50 с начинает отсчёт заново — в 109 с открыта, в 110 с закрыта.
+	m, last = promoModel(t, d), 0
+	m.Press(t0, ButtonSubmitPromo, "nope")
+	m.OnPromoResult(t0, PromoResult{Error: "Код не подходит", BadCode: true})
+	view(49)
+	m.OnFieldEdit(sec(50))
+	if v := view(109); v.Panel != PanelPromo || v.Promo == nil || v.Promo.Sticker != "023" {
+		t.Fatalf("в 109 с (ввод был в 50 с): Panel=%v promo=%+v", v.Panel, v.Promo)
+	}
+	m.Tick(sec(110))
+	if v := view(110); v.Panel != PanelNone || v.Promo != nil || v.PasswordError != "" || StickerAnimating(v) {
+		t.Fatalf("в 110 с: Panel=%v promo=%+v err=%q", v.Panel, v.Promo, v.PasswordError)
+	}
+	// Открыть снова: прошлого ответа нет.
+	m.Press(sec(111), ButtonPromo, "")
+	if v := view(111); v.Panel != PanelPromo || v.Promo != nil || v.PasswordError != "" {
+		t.Fatalf("после нового открытия: promo=%+v err=%q", v.Promo, v.PasswordError)
+	}
+
+	// «Применить» (и пустое) — тоже нажатие: отсчёт заново. Ответ службы — не нажатие.
+	m, last = promoModel(t, d), 0
+	view(39)
+	m.Press(sec(40), ButtonSubmitPromo, "  ")
+	if v := view(99); v.Panel != PanelPromo || v.PasswordError != "Введи код" {
+		t.Fatalf("в 99 с (нажатие было в 40 с): Panel=%v err=%q", v.Panel, v.PasswordError)
+	}
+	m.Press(sec(99), ButtonSubmitPromo, "nope")
+	view(119)
+	m.OnPromoResult(sec(120), PromoResult{Error: "Код не подходит", BadCode: true})
+	if v := view(158); v.Panel != PanelPromo || v.Promo == nil {
+		t.Fatalf("в 158 с (нажатие было в 99 с): Panel=%v promo=%+v", v.Panel, v.Promo)
+	}
+	if v := view(159); v.Panel != PanelNone || v.Promo != nil {
+		t.Fatalf("в 159 с: Panel=%v promo=%+v", v.Panel, v.Promo)
+	}
+	// Ответ службы на закрывшуюся панель её не возвращает.
+	m.Tick(sec(159))
+	m.OnPromoResult(sec(160), PromoResult{Error: "Код не подходит", BadCode: true})
+	if v := view(160); v.Panel != PanelNone || v.Promo != nil {
+		t.Fatalf("опоздавший отказ вернул панель: Panel=%v promo=%+v", v.Panel, v.Promo)
+	}
+
+	// Панель пароля сама не закрывается (срок только у промокода).
+	m, last = locked(d), 0
+	m.Press(t0, ButtonParentPassword, "")
+	if v := view(120); v.Panel != PanelPassword {
+		t.Fatalf("панель пароля закрылась: %v", v.Panel)
+	}
+	// Ввод в поле пароля отсчёт промокода не заводит.
+	m.OnFieldEdit(sec(121))
+	m.Press(sec(122), ButtonCancel, "")
+	m.Press(sec(123), ButtonPromo, "")
+	if v := view(182); v.Panel != PanelPromo {
+		t.Fatal("панель промокода закрылась по старой отметке")
+	}
+}
+
+// Ловит: стикер удачи в запретный интервал крутится часами (таймер кадров и до 32 МБ кадров не
+// освобождаются): без нажатий 60 с ответ убирается, экран остаётся (Ruling 0.6.1).
+func TestPromoSuccessInForbiddenIdle(t *testing.T) {
+	d := timeUpDecision()
+	d.Lock, d.Status = core.LockForbidden, core.StatusForbidden
+	m := promoModel(t, d)
+	m.Press(t0, ButtonSubmitPromo, "ab12")
+	m.OnPromoResult(at(time.Second), PromoResult{OK: true, Minutes: 20})
+	for s := 5; s < 60; s += 5 {
+		m.OnDecision(at(time.Duration(s)*time.Second), d, false, nil)
+		if v := m.View(at(time.Duration(s) * time.Second)); v.Promo == nil || !StickerAnimating(v) {
+			t.Fatalf("в %d с стикер удачи не идёт: %+v", s, v.Promo)
+		}
+	}
+	if v := m.View(at(60 * time.Second)); !v.LockShown || v.Promo == nil || !v.Promo.OK {
+		t.Fatalf("в 60 с (ответ был в 1 с): %+v", v.Promo)
+	}
+	v := m.View(at(61 * time.Second))
+	if !v.LockShown || v.Promo != nil || v.Panel != PanelNone || buttonOf(v.Buttons, ButtonPromo) == nil {
+		t.Fatalf("в 61 с: shown=%v promo=%+v", v.LockShown, v.Promo)
+	}
+	m.Tick(at(61 * time.Second))
+	m.OnDecision(at(62*time.Second), d, false, nil)
+	if v := m.View(at(62 * time.Second)); !v.LockShown || v.Promo != nil {
+		t.Fatalf("после закрытия: shown=%v promo=%+v", v.LockShown, v.Promo)
+	}
+}
+
+// Ловит: показ стикера считается от ответа службы, а кадры разбираются ещё долю секунды — первые
+// кадры пропадают, а круг удачи обрывается раньше конца; повторная готовность сдвигает показ снова.
+func TestPromoReadyRestartsShow(t *testing.T) {
+	m := promoModel(t, timeUpDecision())
+	m.PromoReady(t0) // ответа нет: ничего
+	m.Press(t0, ButtonSubmitPromo, "ab12")
+	m.OnPromoResult(t0, PromoResult{OK: true, Minutes: 30})
+	m.PromoReady(at(400 * time.Millisecond))
+	v := m.View(at(400 * time.Millisecond))
+	if v.Promo == nil || !v.Promo.Started.Equal(at(400*time.Millisecond)) || v.Promo.Frame != 0 {
+		t.Fatalf("после готовности кадров: %+v", v.Promo)
+	}
+	m.PromoReady(at(900 * time.Millisecond)) // второй раз не сдвигает
+	// Круг 2,7 с от готовности: в 3,09 с экран ещё есть, в 3,1 с снят.
+	m.OnDecision(at(time.Second), runningDecision(1800), false, nil)
+	if v := m.View(at(3090 * time.Millisecond)); !v.LockShown || v.Promo == nil || v.Promo.Frame != 80 {
+		t.Fatalf("в 3,09 с: shown=%v promo=%+v", v.LockShown, v.Promo)
+	}
+	if v := m.View(at(3100 * time.Millisecond)); v.LockShown {
+		t.Fatal("в 3,1 с экран остался")
+	}
+}
+
+// Ловит: окно считает кадр не по кругу или не от начала показа; конец круга удачи не замечен (экран
+// исчезает с опозданием до тика 250 мс, стикер успевает начать второй круг).
+func TestStickerFrameAndRoundEnd(t *testing.T) {
+	p := &PromoStickerView{Sticker: "017", OK: true, Started: t0, Frames: 81}
+	for ms, want := range map[int]int{0: 0, 33: 0, 34: 1, 1000: 30, 2699: 80, 2700: 0, 2734: 1, 5400: 0, 6000: 18} {
+		if got := StickerFrame(p, at(msDur(ms))); got != want {
+			t.Fatalf("StickerFrame(%d мс) = %d, want %d", ms, got, want)
+		}
+	}
+	if StickerFrame(nil, t0) != 0 {
+		t.Fatal("StickerFrame(nil) != 0")
+	}
+	if StickerRoundEnded(p, at(2699*time.Millisecond)) || !StickerRoundEnded(p, at(2700*time.Millisecond)) {
+		t.Fatal("конец круга удачи: не в 2,7 с")
+	}
+	fail := &PromoStickerView{Sticker: "023", Started: t0, Frames: 79}
+	if StickerRoundEnded(fail, at(time.Hour)) || StickerRoundEnded(nil, t0) {
+		t.Fatal("у неудачи конца круга нет: она идёт, пока не введён верный код")
+	}
+}
+
+// Ловит: кадры стикера разбираются уже после начала показа (первые кадры и конец круга удачи
+// пропадают): показ начинается, когда кадры готовы; нажатие «Применить», пока служба отвечает на
+// прошлое, не считается нажатием для срока без нажатий (панель закрывается под рукой).
+func TestControllerPromoReadyAndBusyTouch(t *testing.T) {
+	r := newCtRig()
+	r.ctl.SetStickerWarmer(func(string) { r.clk.Advance(400 * time.Millisecond) }) // разбор кадров
+	r.svc.status = ctTimeUpStatus()
+	r.poll()
+	r.ctl.Press(ButtonPromo, "")
+	r.svc.reply[ipc.CmdRedeemPromo] = func(m ipc.Msg) ipc.Reply { return ipc.FailField("Код не подходит", ipc.FieldCode) }
+	r.ctl.Run(r.ctl.Press(ButtonSubmitPromo, "nope"))
+	v := r.ctl.View()
+	if v.Promo == nil || !v.Promo.Started.Equal(t0.Add(400*time.Millisecond)) || v.Promo.Frame != 0 {
+		t.Fatalf("показ начат не с готовности кадров: %+v", v.Promo)
+	}
+	// wait — n секунд с опросом раз в секунду (связь есть).
+	wait := func(n int) View {
+		for i := 0; i < n; i++ {
+			r.clk.Advance(time.Second)
+			r.poll()
+		}
+		return r.ctl.View()
+	}
+	act := r.ctl.Press(ButtonSubmitPromo, "nope") // запрос ушёл, ответа пока нет
+	wait(50)
+	if a := r.ctl.Press(ButtonSubmitPromo, "nope"); a.Kind != ActNone {
+		t.Fatalf("второй «Применить» во время запроса: %+v", a)
+	}
+	if v := wait(59); v.Panel != PanelPromo {
+		t.Fatal("нажатие во время запроса не начало срок заново: панель закрылась")
+	}
+	if v := wait(1); v.Panel != PanelNone || v.Promo != nil {
+		t.Fatalf("через 60 с после нажатия: Panel=%v promo=%+v", v.Panel, v.Promo)
+	}
+	r.ctl.Run(act)
+	if v := r.ctl.View(); v.Panel != PanelNone || v.Promo != nil {
+		t.Fatalf("опоздавший ответ вернул панель: Panel=%v promo=%+v", v.Panel, v.Promo)
 	}
 }

@@ -77,7 +77,7 @@ func LayoutKey(v View, notice string) string {
 	}
 	if p := v.Promo; p != nil {
 		// Кадр стикера в подпись не входит: его перерисовывает только прямоугольник стикера.
-		key += fmt.Sprintf("|promo:%s|%s|%v|%d|%d", p.Sticker, p.Text, p.OK, p.Started.UnixMilli(), p.Frames)
+		key += fmt.Sprintf("|promo:%s|%s|%v|%d|%d|%v", p.Sticker, p.Text, p.OK, p.Started.UnixMilli(), p.Frames, p.Still)
 	}
 	return key
 }
@@ -87,14 +87,10 @@ func TimerChanged(old, now View) bool {
 	return old.Rest != nil && now.Rest != nil && old.Rest.Tiles != now.Rest.Tiles
 }
 
-// StickerChanged: у стикера ответа на промокод сменился кадр.
-func StickerChanged(old, now View) bool {
-	return old.Promo != nil && now.Promo != nil && old.Promo.Frame != now.Promo.Frame
-}
-
-// StickerAnimating: стикер ещё не дошёл до последнего кадра — окну нужен таймер анимации.
+// StickerAnimating: стикер ответа на промокод показан и движется (по кругу, пока ответ на экране) —
+// окну нужен шаг кадров. Анимации Windows выключены или кадр один — шаг не нужен.
 func StickerAnimating(v View) bool {
-	return v.Promo != nil && v.Promo.Frame < v.Promo.Frames-1
+	return v.Promo != nil && !v.Promo.Still && v.Promo.Frames > 1
 }
 
 // timerText — таймер перерыва словами для отчёта стража: «00:14:59».

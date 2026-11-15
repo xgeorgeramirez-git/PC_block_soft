@@ -127,16 +127,37 @@ type PromoResult struct {
 	BadCode bool
 }
 
-// PromoStickerView — ответ ребёнку на промокод (R26, D-83): стикер Sticker с надписью Text.
-// OK — удача: стикер стоит вместо панели поля; неудача — над полем. Frame — кадр сейчас (идут
-// StickerFPS в секунду от Started и останавливаются на последнем, Frames-1); окно перерисовывает
-// только стикер, пока кадр меняется.
+// PromoStickerView — ответ ребёнку на промокод (R26, D-83…D-85): стикер Sticker с надписью Text.
+// OK — удача: стикер стоит вместо панели поля; неудача — над полем. Frame — кадр в момент вида:
+// кадры идут StickerFPS в секунду от Started по кругу (Frames в круге). Still — анимации Windows
+// выключены: стикер стоит на последнем кадре. Окно между видами считает кадр само (StickerFrame) и
+// перерисовывает только стикер.
 type PromoStickerView struct {
 	Sticker, Text string
 	OK            bool
 	Started       time.Time
 	Frame         int
 	Frames        int
+	Still         bool
+}
+
+// promoIdleClose — сколько панель промокода ждёт без нажатий (ввод в поле, кнопки панели), прежде чем
+// закрыться самой (R26, D-85). Столько же без нажатий стоит ответ удачи на экране, который остался
+// после верного кода (запретный интервал).
+const promoIdleClose = 60 * time.Second
+
+// StickerFrame — кадр стикера p в момент now (для окна: кадр меняется чаще, чем приходит вид).
+func StickerFrame(p *PromoStickerView, now time.Time) int {
+	if p == nil {
+		return 0
+	}
+	return stickerFrameAt(p.Started, now, p.Frames, p.Still)
+}
+
+// StickerRoundEnded: стикер удачи прошёл свой круг — экран пора сверить с моделью, не дожидаясь
+// обычного тика (иначе стикер успевает начать второй круг перед тем, как экран исчезнет).
+func StickerRoundEnded(p *PromoStickerView, now time.Time) bool {
+	return p != nil && p.OK && !now.Before(p.Started.Add(stickerDuration(p.Frames)))
 }
 
 // ButtonView — кнопка для рисования.
@@ -414,12 +435,15 @@ type Model struct {
 	restDeadline time.Time // конец перерыва по настоящим часам для таймера экрана перерыва
 	restWait     *restWait // плашка отдыха ждёт, пока закроется более важная (Ruling FB14-9)
 
-	// Ответ на промокод (R26, D-83): стикер и надпись. Удача держит экран одно проигрывание стикера,
+	// Ответ на промокод (R26, D-83…D-85): стикер и надпись. Удача держит экран один круг стикера,
 	// даже если служба уже сняла блокировку (lockDec — тексты последнего показанного экрана).
-	promo   *promoShow
-	picker  *stickerPicker
-	still   bool          // анимации Windows выключены: стикер сразу на последнем кадре
-	lockDec core.Decision // последнее решение с экраном блокировки
+	promo  *promoShow
+	picker *stickerPicker
+	// promoTouch — последнее нажатие на панели промокода (открытие, ввод в поле, кнопки) или ответ удачи:
+	// от него идёт срок promoIdleClose. Нулевое значение — отсчёта нет.
+	promoTouch time.Time
+	still      bool          // анимации Windows выключены: стикер стоит на последнем кадре
+	lockDec    core.Decision // последнее решение с экраном блокировки
 
 	events []Event
 }
@@ -429,9 +453,10 @@ type promoShow struct {
 	pick    StickerPick
 	started time.Time
 	frames  int
+	ready   bool // кадры разобраны, показ начат заново с первого кадра (PromoReady)
 }
 
-// end — конец одного проигрывания стикера.
+// end — конец первого круга стикера.
 func (p *promoShow) end() time.Time { return p.started.Add(stickerDuration(p.frames)) }
 
 // NewModel создаёт модель без решений: пока служба не ответила, ничего не показывается.
@@ -469,10 +494,30 @@ func (m *Model) lockActive() bool {
 	return m.hasDec && !m.hidden && m.dec.Lock != core.LockNone
 }
 
-// promoHeld: идёт показ удачи промокода — экран держится до конца проигрывания стикера, даже
-// если решение службы уже без блокировки (8.2.3 п.3).
+// promoHeld: идёт показ удачи промокода — экран держится один круг стикера, даже если решение
+// службы уже без блокировки (8.2.3 п.3).
 func (m *Model) promoHeld(now time.Time) bool {
 	return m.promo != nil && m.promo.pick.OK && now.Before(m.promo.end())
+}
+
+// promoIdle: срок без нажатий вышел (R26, D-85) — панель промокода закрывается сама, ответ убирается.
+// Чистая функция времени: вид показывает закрытие и до advance.
+func (m *Model) promoIdle(now time.Time) bool {
+	if m.promoTouch.IsZero() || now.Sub(m.promoTouch) < promoIdleClose {
+		return false
+	}
+	return m.panel == PanelPromo || m.promo != nil
+}
+
+// closePromo закрывает панель промокода: обычный экран с кнопками, без ответа; поле очищается.
+func (m *Model) closePromo() {
+	if m.panel == PanelPromo {
+		m.panel = PanelNone
+		m.clearSeq++
+	}
+	m.promoErr = ""
+	m.promo = nil
+	m.promoTouch = time.Time{}
 }
 
 // screenShown: экран блокировки виден сейчас.
@@ -492,6 +537,7 @@ func (m *Model) resetPanels() {
 	m.pwdErr = ""
 	m.promoErr = ""
 	m.promo = nil
+	m.promoTouch = time.Time{}
 }
 
 // resetUI сбрасывает всё, что относится к показанному: панели, паузу, плашку. Вызывается,
@@ -545,6 +591,9 @@ func (m *Model) advance(now time.Time) {
 	if !m.blockedUntil.IsZero() && !now.Before(m.blockedUntil) {
 		m.blockedUntil = time.Time{}
 		m.pwdErr = ""
+	}
+	if m.promoIdle(now) {
+		m.closePromo()
 	}
 }
 
@@ -858,12 +907,14 @@ func (m *Model) OnPlateNotice(now time.Time, text string) {
 	m.blocked = &plate{id: m.plateSeq, kind: plateBlocked, text: text, shownAt: now, blockedKind: ipc.PlateNotice, showFor: blockedLife}
 }
 
-// OnPromoResult принимает ответ службы на промокод (R26, D-83). Принят: панель закрывается, вместо неё
-// стикер и надпись удачи; экран держится одно проигрывание стикера и снимается, плашки «Добавлено N
-// минут» нет (надпись уже сказала). Если экран к ответу уже снят (опрос службы успел раньше), ответ его
-// не возвращает. Неверный код (BadCode) — стикер и надпись неудачи над полем; другой отказ — текст
-// службы у поля. Панель остаётся, набранный код не стирается (можно поправить опечатку). Если панель
-// промокода уже закрыта («Отмена»), отказ игнорируется.
+// OnPromoResult принимает ответ службы на промокод (R26, D-83…D-85). Принят: панель закрывается, вместо
+// неё стикер и надпись удачи; экран держится один круг стикера и снимается, плашки «Добавлено N минут»
+// нет (надпись уже сказала). Если экран к ответу уже снят (опрос службы успел раньше), ответ его не
+// возвращает. Неверный код (BadCode) — стикер и надпись неудачи над полем: стикер идёт по кругу и вместе с
+// надписью стоит, пока не введён верный код, не пришёл ответ на следующий код или панель не закрылась;
+// новый неверный код — новый стикер и надпись. Другой отказ — текст службы у поля. Панель остаётся,
+// набранный код не стирается (можно поправить опечатку). Если панель промокода уже закрыта («Отмена»,
+// срок без нажатий), отказ игнорируется. Ответ службы — не нажатие: срок без нажатий он не двигает.
 func (m *Model) OnPromoResult(now time.Time, r PromoResult) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -882,6 +933,9 @@ func (m *Model) OnPromoResult(now time.Time, r PromoResult) {
 		// Стикер и надпись удачи вместо панели; плашки «Добавлено N минут» нет: надпись уже сказала.
 		pick := m.picker.success(r.Minutes)
 		m.promo = &promoShow{pick: pick, started: now, frames: stickerFrames(pick.Sticker)}
+		// Экран, оставшийся после круга удачи (запретный интервал), держит ответ не дольше срока без
+		// нажатий: стикер не крутится часами.
+		m.promoTouch = now
 		return
 	}
 	if m.panel != PanelPromo || !m.screenShown(now) {
@@ -901,14 +955,23 @@ func (m *Model) OnPromoResult(now time.Time, r PromoResult) {
 	}
 }
 
-// OnFieldEdit: ребёнок изменил текст в поле. На панели промокода ответ на прошлый неверный код
-// исчезает: начат новый ввод (R26).
+// OnFieldEdit: ребёнок изменил текст в поле. На панели промокода это нажатие: срок без нажатий идёт
+// заново. Ответ на прошлый неверный код остаётся (R26, D-85).
 func (m *Model) OnFieldEdit(now time.Time) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.advance(now)
-	if m.panel == PanelPromo && m.promo != nil && !m.promo.pick.OK {
-		m.promo = nil
+	m.promoTouch = now
+}
+
+// PromoReady: кадры показанного стикера разобраны (доля секунды после ответа службы) — показ
+// начинается заново с первого кадра, круг удачи идёт целиком. Один раз на ответ.
+func (m *Model) PromoReady(now time.Time) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.advance(now)
+	if p := m.promo; p != nil && !p.ready {
+		p.started, p.ready = now, true
 	}
 }
 
@@ -972,7 +1035,7 @@ func (m *Model) Press(now time.Time, b Button, password string) Action {
 	case PanelConfirmShutdown:
 		return m.pressConfirmShutdown(b)
 	case PanelPromo:
-		return m.pressPromo(b, password)
+		return m.pressPromo(now, b, password)
 	default:
 		return m.pressScreen(now, b)
 	}
@@ -980,13 +1043,11 @@ func (m *Model) Press(now time.Time, b Button, password string) Action {
 
 // pressPromo: панель промокода. «Применить» отправляет код службе (без пароля родителя,
 // R26); пустой код — подсказка у поля. code — то, что набрано в поле.
-func (m *Model) pressPromo(b Button, code string) Action {
+func (m *Model) pressPromo(now time.Time, b Button, code string) Action {
+	m.promoTouch = now // любое нажатие на панели: срок без нажатий идёт заново
 	switch b {
 	case ButtonCancel:
-		m.panel = PanelNone
-		m.promoErr = ""
-		m.promo = nil
-		m.clearSeq++
+		m.closePromo()
 	case ButtonSubmitPromo:
 		if strings.TrimSpace(code) == "" {
 			m.promoErr = textEnterCode
@@ -1032,6 +1093,7 @@ func (m *Model) pressScreen(now time.Time, b Button) Action {
 		}
 		m.panel = PanelPromo
 		m.promoErr = ""
+		m.promoTouch = now
 		m.clearSeq++
 	case ButtonLogoff:
 		m.panel = PanelConfirmLogoff
@@ -1224,13 +1286,21 @@ func (m *Model) View(now time.Time) View {
 	default:
 		v.Lock.Hint = textChildAskParent
 	}
-	v.Panel = m.panel
-	v.PasswordClearSeq = m.clearSeq
-	if p := m.promo; p != nil && (p.pick.OK && m.panel == PanelNone || !p.pick.OK && m.panel == PanelPromo) {
-		v.Promo = &PromoStickerView{Sticker: p.pick.Sticker, Text: p.pick.Text, OK: p.pick.OK, Started: p.started,
-			Frame: stickerFrameAt(p.started, now, p.frames, m.still), Frames: p.frames}
+	// Срок без нажатий вышел, а advance ещё не было: вид уже без панели промокода и без ответа.
+	panel, promo, promoErr := m.panel, m.promo, m.promoErr
+	if m.promoIdle(now) {
+		promo, promoErr = nil, ""
+		if panel == PanelPromo {
+			panel = PanelNone
+		}
 	}
-	switch m.panel {
+	v.Panel = panel
+	v.PasswordClearSeq = m.clearSeq
+	if p := promo; p != nil && (p.pick.OK && panel == PanelNone || !p.pick.OK && panel == PanelPromo) {
+		v.Promo = &PromoStickerView{Sticker: p.pick.Sticker, Text: p.pick.Text, OK: p.pick.OK, Started: p.started,
+			Frame: stickerFrameAt(p.started, now, p.frames, m.still), Frames: p.frames, Still: m.still}
+	}
+	switch panel {
 	case PanelNone:
 		v.Buttons = m.lockButtons(d)
 		if held {
@@ -1240,7 +1310,7 @@ func (m *Model) View(now time.Time) View {
 		m.passwordView(now, &v)
 	case PanelPromo:
 		v.PasswordEnabled, v.FieldPlain, v.FieldLabel = true, true, textPromoLabel
-		v.PasswordError = m.promoErr
+		v.PasswordError = promoErr
 		v.Choices = []ButtonView{
 			{Button: ButtonSubmitPromo, Label: textSubmitPromo, Main: true, Enabled: true},
 			{Button: ButtonCancel, Label: textCancel, Enabled: true},

@@ -392,7 +392,7 @@ test("s07 что нового", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("navigation", { name: "Разделы" }).getByRole("button", { name: "Что нового" }).click();
   await expect(page.getByRole("heading", { name: "Что нового", level: 2 })).toBeVisible();
-  await expect(page.getByRole("heading", { level: 3 }).first()).toHaveText("Версия 0.6.0. Автозагрузка и стикеры за промокод");
+  await expect(page.getByRole("heading", { level: 3 }).first()).toHaveText("Версия 0.6.1. Стикеры за промокод: плавно и по кругу");
   await expect(page.locator("main.content").getByRole("button")).toHaveCount(0);
   await noHorizontalScroll(page);
   await wholePage(page);
@@ -1234,7 +1234,9 @@ test("s06 бонусы ребёнка и промокод", async ({ page }) => 
 // надпись справа от поля, если надписи остаётся не меньше 220 px, иначе под полем и кнопкой.
 // Окно 480 px уже самого узкого окна ребёнка (640): проверяется только ответ, без прокрутки вбок. CD34 на 1 минуту - «Ура! +1 минута»; повтор того же
 // кода - стикер и надпись неудачи, код в поле остаётся; второй неверный - другие стикер и надпись.
-// Анимации выключены (как в Windows без анимаций) - стикер стоит на последнем кадре, снимок стабилен.
+// Анимации выключены (как в Windows без анимаций) - стикер стоит на последнем кадре около 3 с и
+// исчезает (D-85). Часы страницы встают, как только стикер нарисован: снимки делаются до его исчезновения, затем
+// часы идут 4 с - стикера нет, надпись на месте, поле и кнопка не сдвинулись (s52-promo-ok-after).
 type StickerRect = { left: number; right: number; top: number; bottom: number; width: number; height: number };
 const stickerRectOf = (l: ReturnType<Page["locator"]>) =>
   l.evaluate((el) => {
@@ -1304,8 +1306,15 @@ for (const [w, h, scheme] of [
       myChildId: 1,
       promos: [{ codeDisplay: "CD34", minutes: 1, createdAtMs: Date.now() - 3600_000 }],
     });
+    await page.clock.install();
     await page.goto("/");
     const box = page.getByRole("region", { name: "Бонусы" });
+    // Стикер нарисован - часы страницы встают (до его исчезновения через 3 с ещё далеко); пока
+    // стикер грузится, часы идут: проигрывателю при загрузке могут быть нужны таймеры.
+    const freeze = async () => {
+      await expect(box.locator(".promo-sticker svg")).toHaveCount(1);
+      await page.clock.pauseAt((await page.evaluate(() => Date.now())) + 100);
+    };
     const field = box.getByRole("textbox", { name: "Промокод" });
     const send = box.getByRole("button", { name: "Ввести промокод" });
 
@@ -1314,10 +1323,37 @@ for (const [w, h, scheme] of [
     await expect(box.getByRole("status")).toHaveText("Ура! +1 минута");
     await expect(box.locator(".promo-sticker")).toHaveAttribute("data-sticker", "017");
     await expect(field).toHaveValue("");
+    await freeze();
     await stickerInPlace(page, box, small);
     await expect(page.getByRole("textbox")).toHaveCount(1);
     if (w >= 640) await noHorizontalScroll(page);
     await page.screenshot({ path: `${SCREENS}/s52-promo-ok${tail}.png` });
+
+    // Стикер доиграл и исчез: надпись осталась, поле и кнопка там же (относительно блока промокода:
+    // сама страница могла стать короче и прокрутиться).
+    const places = () =>
+      box.locator(".promo-redeem").evaluate((el) => {
+        const o = el.getBoundingClientRect();
+        const at = (sel: string) => {
+          const r = el.querySelector(sel)!.getBoundingClientRect();
+          return [Math.round(r.left - o.left), Math.round(r.top - o.top), Math.round(r.width), Math.round(r.height)];
+        };
+        return { field: at("input"), send: at("button") };
+      });
+    const withSticker = await places();
+    await page.clock.runFor(4000);
+    await expect(box.locator(".promo-sticker")).toHaveCount(0);
+    await expect(box.getByRole("status")).toHaveText("Ура! +1 минута");
+    expect(await places(), "поле и кнопка сдвинулись после исчезновения стикера").toEqual(withSticker);
+    const caption = box.locator(".promo-answer-text");
+    await caption.scrollIntoViewIfNeeded();
+    await expect(caption).toBeInViewport({ ratio: 1 });
+    // Пустого места 160 px от стикера не осталось: ответ не выше трёх строк надписи.
+    const answerHeight = await box.locator(".promo-answer").evaluate((el) => el.getBoundingClientRect().height);
+    expect(answerHeight, "после стикера осталось пустое место").toBeLessThan(100);
+    if (w >= 640) await noHorizontalScroll(page);
+    await page.screenshot({ path: `${SCREENS}/s52-promo-ok-after${tail}.png` });
+    await page.clock.resume();
 
     await field.fill("cd34");
     // Живая зона ответа стоит всегда (диктор читает смену текста), ввод только очищает её.
@@ -1328,14 +1364,17 @@ for (const [w, h, scheme] of [
     await expect(field).toBeFocused();
     await expect(box.locator(".promo-sticker")).toHaveAttribute("data-sticker", "023");
     await expect(field).toHaveValue("cd34");
+    await freeze();
     await stickerInPlace(page, box, small);
     if (w >= 640) await noHorizontalScroll(page);
     await page.screenshot({ path: `${SCREENS}/s52-promo-bad${tail}.png` });
 
+    await page.clock.resume();
     await field.fill("cd35");
     await send.click();
     await expect(box.getByRole("status")).toHaveText("Хм, код не подходит. Посмотри внимательнее");
     await expect(box.locator(".promo-sticker")).toHaveAttribute("data-sticker", "028");
+    await freeze();
     await stickerInPlace(page, box, small);
   });
 }
