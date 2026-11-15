@@ -1320,10 +1320,12 @@ for (const [w, h, scheme] of [
     await page.screenshot({ path: `${SCREENS}/s52-promo-ok${tail}.png` });
 
     await field.fill("cd34");
-    await expect(box.getByRole("status")).toHaveCount(0);
+    // Живая зона ответа стоит всегда (диктор читает смену текста), ввод только очищает её.
+    await expect(box.getByRole("status")).toHaveText("");
     await expect(box.locator(".promo-sticker")).toHaveCount(0);
     await send.click();
-    await expect(box.getByRole("alert")).toHaveText("Такого кода нет. Проверь буквы и цифры");
+    await expect(box.getByRole("status")).toHaveText("Такого кода нет. Проверь буквы и цифры");
+    await expect(field).toBeFocused();
     await expect(box.locator(".promo-sticker")).toHaveAttribute("data-sticker", "023");
     await expect(field).toHaveValue("cd34");
     await stickerInPlace(page, box, small);
@@ -1332,7 +1334,7 @@ for (const [w, h, scheme] of [
 
     await field.fill("cd35");
     await send.click();
-    await expect(box.getByRole("alert")).toHaveText("Хм, код не подходит. Посмотри внимательнее");
+    await expect(box.getByRole("status")).toHaveText("Хм, код не подходит. Посмотри внимательнее");
     await expect(box.locator(".promo-sticker")).toHaveAttribute("data-sticker", "028");
     await stickerInPlace(page, box, small);
   });

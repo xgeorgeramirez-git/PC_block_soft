@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import MyStats from "./MyStats";
 import {
@@ -756,7 +756,7 @@ describe("MyStats: «Бонусы» (R25, R26, D-49, D-50)", () => {
     await user.type(field, " a1234 ");
     await user.click(screen.getByRole("button", { name: "Ввести промокод" }));
     const box = screen.getByRole("region", { name: "Бонусы" });
-    expect((await within(box).findByRole("status")).textContent).toBe("Ура! +30 минут");
+    await waitFor(() => expect(within(box).getByRole("status").textContent).toBe("Ура! +30 минут"));
     expect(box.querySelector(".promo-sticker")?.getAttribute("data-sticker")).toBe("017");
     expect(screen.queryByText("Добавлено 30 минут")).toBeNull();
     expect(mock.state.children[0].extraMin).toBe(30);
@@ -778,7 +778,7 @@ describe("MyStats: «Бонусы» (R25, R26, D-49, D-50)", () => {
     await user.type(field, "a1234");
     await user.click(screen.getByRole("button", { name: "Ввести промокод" }));
     const box = screen.getByRole("region", { name: "Бонусы" });
-    expect((await within(box).findByRole("alert")).textContent).toBe("Такого кода нет. Проверь буквы и цифры");
+    await waitFor(() => expect(within(box).getByRole("status").textContent).toBe("Такого кода нет. Проверь буквы и цифры"));
     expect(box.querySelector(".promo-sticker")?.getAttribute("data-sticker")).toBe("023");
     expect(screen.queryByText("Код не подходит")).toBeNull();
     expect((field as HTMLInputElement).value).toBe("a1234");

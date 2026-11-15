@@ -54,6 +54,12 @@ function setup(opts: { picker?: StickerPicker; myChildId?: number | null } = {})
   return { user, field, send, onRedeemed };
 }
 
+/** Постоянная живая зона ответа (одна на поле промокода). */
+const zone = () => screen.getByRole("status");
+
+/** Ждёт надпись ответа в живой зоне. */
+const answerIs = (text: string) => waitFor(() => expect(zone().textContent).toBe(text));
+
 /** Номер показанного стикера (рамка проигрывателя). */
 const shownSticker = () => document.querySelector(".promo-sticker")?.getAttribute("data-sticker") ?? null;
 
@@ -70,7 +76,7 @@ describe("PromoRedeem: ответ стикером (R26)", () => {
   it("верный CD34: стикер удачи и «Ура! +1 минута», поле пустое, остаток перечитан", async () => {
     const { field, send, onRedeemed } = setup();
     await send("cd34");
-    expect((await screen.findByRole("status")).textContent).toBe("Ура! +1 минута");
+    await answerIs("Ура! +1 минута");
     expect(shownSticker()).toBe("017");
     expect(screen.queryByText("Добавлено 1 минуту")).toBeNull();
     expect(field.value).toBe("");
@@ -84,10 +90,11 @@ describe("PromoRedeem: ответ стикером (R26)", () => {
     await send("CD34");
     await screen.findByText("Ура! +1 минута");
     await send("cd34");
-    expect((await screen.findByRole("alert")).textContent).toBe("Такого кода нет. Проверь буквы и цифры");
+    await answerIs("Такого кода нет. Проверь буквы и цифры");
     expect(shownSticker()).toBe("023");
     expect(screen.queryByText("Код не подходит")).toBeNull();
-    expect(screen.queryByRole("status")).toBeNull();
+    expect(screen.queryByText("Ура! +1 минута")).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
     expect(field.value).toBe("cd34");
     expect(mock.state.children[0].extraMin).toBe(1);
   });
@@ -99,7 +106,7 @@ describe("PromoRedeem: ответ стикером (R26)", () => {
     await screen.findByText("Такого кода нет. Проверь буквы и цифры");
     const first = shownSticker();
     await send("ZZZ2");
-    expect((await screen.findByRole("alert")).textContent).toBe("Хм, код не подходит. Посмотри внимательнее");
+    await answerIs("Хм, код не подходит. Посмотри внимательнее");
     expect(shownSticker()).toBe("028");
     expect(first).toBe("023");
   });
@@ -117,7 +124,7 @@ describe("PromoRedeem: ответ стикером (R26)", () => {
       uninstallBackend();
       const b = setup({ picker: promoPicker });
       await b.send("ZZZ1");
-      expect((await screen.findByRole("alert")).textContent).toBe("Хм, код не подходит. Посмотри внимательнее");
+      await answerIs("Хм, код не подходит. Посмотри внимательнее");
       expect(shownSticker()).toBe("028");
     } finally {
       vi.restoreAllMocks();
@@ -128,10 +135,10 @@ describe("PromoRedeem: ответ стикером (R26)", () => {
   it("ввод в поле скрывает стикер и надпись", async () => {
     const { user, field, send } = setup();
     await send("nope");
-    await screen.findByRole("alert");
+    await answerIs("Такого кода нет. Проверь буквы и цифры");
     expect(shownSticker()).not.toBeNull();
     await user.type(field, "1");
-    expect(screen.queryByRole("alert")).toBeNull();
+    expect(zone().textContent).toBe("");
     expect(shownSticker()).toBeNull();
     expect(field.value).toBe("nope1");
   });
@@ -141,6 +148,7 @@ describe("PromoRedeem: ответ стикером (R26)", () => {
     const { user } = setup();
     await user.click(screen.getByRole("button", { name: "Ввести промокод" }));
     expect(screen.getByRole("alert").textContent).toBe("Введи код");
+    expect(zone().textContent).toBe("");
     expect(shownSticker()).toBeNull();
     expect(mock.count("RedeemPromo")).toBe(0);
   });
@@ -160,6 +168,39 @@ describe("PromoRedeem: ответ стикером (R26)", () => {
     await send("AB12");
     expect((await screen.findByRole("alert")).textContent).toBe(CHILD_LINK_ERROR_TEXT);
     expect(shownSticker()).toBeNull();
+  });
+
+  // Ловит: живая зона появляется вместе с надписью (диктор может её не прочитать) или каждый
+  // ответ создаёт новую зону.
+  it("живая зона стоит до ответа и та же после: меняется только её текст", async () => {
+    const { send } = setup();
+    const before = zone();
+    expect(before.getAttribute("aria-live")).toBe("polite");
+    expect(before.textContent).toBe("");
+    await send("ZZZ1");
+    await answerIs("Такого кода нет. Проверь буквы и цифры");
+    expect(zone()).toBe(before);
+    await send("CD34");
+    await answerIs("Ура! +1 минута");
+    expect(zone()).toBe(before);
+  });
+
+  // Ловит: после ответа фокус остался «нигде» (поле было выключено на время запроса), и
+  // набранный ребёнком текст никуда не идёт.
+  it("после ответа фокус снова в поле: неверный, верный и сбой связи", async () => {
+    const { user, field, send } = setup();
+    await send("ZZZ1");
+    await answerIs("Такого кода нет. Проверь буквы и цифры");
+    await waitFor(() => expect(document.activeElement).toBe(field));
+    await user.keyboard("9");
+    expect(field.value).toBe("ZZZ19");
+    await send("CD34");
+    await answerIs("Ура! +1 минута");
+    await waitFor(() => expect(document.activeElement).toBe(field));
+    window.go!.ui!.App!.Call = () => Promise.reject(new Error("мост закрыт"));
+    await send("AB12");
+    await screen.findByText(CHILD_LINK_ERROR_TEXT);
+    await waitFor(() => expect(document.activeElement).toBe(field));
   });
 
   // Ловит: стикер не дождался загрузки (рамка пустая) - проигрыватель получает рамку ответа.

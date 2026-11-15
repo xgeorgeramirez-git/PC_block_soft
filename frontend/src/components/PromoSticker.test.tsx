@@ -65,8 +65,9 @@ afterEach(() => {
 
 describe("PromoSticker", () => {
   // Ловит: не тот проигрыватель (canvas), повтор по кругу, стикер не в своей рамке, картинка
-  // читается диктором, надпись удачи без role="status".
-  it("удача: svg, один раз, автозапуск; картинка скрыта от диктора, надпись - статус", async () => {
+  // читается диктором; надпись сама объявляет себя живой зоной (появляется вместе с текстом,
+  // диктор может не прочитать: зона - постоянная, в PromoRedeem).
+  it("удача: svg, один раз, автозапуск; картинка скрыта от диктора, надпись без своей живой зоны", async () => {
     const { container } = render(<PromoSticker sticker="017" text="Ура! +30 минут" ok />);
     await waitFor(() => expect(lottie.made).toHaveLength(1));
     const { params, item } = lottie.made[0];
@@ -78,15 +79,17 @@ describe("PromoSticker", () => {
     expect(params.animationData).toEqual({ sticker: "017" });
     expect(box?.getAttribute("aria-hidden")).toBe("true");
     expect(item.calls).not.toContain("goToAndStop 89 true");
-    expect(screen.getByRole("status").textContent).toBe("Ура! +30 минут");
+    expect(screen.getByText("Ура! +30 минут").getAttribute("role")).toBeNull();
+    expect(screen.queryByRole("status")).toBeNull();
     expect(screen.queryByRole("alert")).toBeNull();
   });
 
-  // Ловит: неудача объявляется вежливым статусом (диктор может промолчать).
-  it("неудача: надпись - предупреждение", async () => {
-    render(<PromoSticker sticker="023" text="Ой, мимо! Сверь код с запиской" ok={false} />);
-    expect(screen.getByRole("alert").textContent).toBe("Ой, мимо! Сверь код с запиской");
-    expect(screen.queryByRole("status")).toBeNull();
+  // Ловит: неудача оформлена как удача (общий класс ответа).
+  it("неудача: свой класс ответа, надпись без своей живой зоны", async () => {
+    const { container } = render(<PromoSticker sticker="023" text="Ой, мимо! Сверь код с запиской" ok={false} />);
+    expect(container.querySelector(".promo-answer-bad")?.textContent).toBe("Ой, мимо! Сверь код с запиской");
+    expect(container.querySelector(".promo-answer-ok")).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
     await waitFor(() => expect(lottie.made).toHaveLength(1));
   });
 
@@ -124,7 +127,7 @@ describe("PromoSticker", () => {
     data.fail = true;
     const { container } = render(<PromoSticker sticker="110" text="Код не сработал. Может, его уже использовали?" ok={false} />);
     await waitFor(() => expect(container.querySelector(".promo-sticker")).toBeNull());
-    expect(screen.getByRole("alert").textContent).toBe("Код не сработал. Может, его уже использовали?");
+    expect(screen.getByText("Код не сработал. Может, его уже использовали?")).toBeTruthy();
     expect(lottie.made).toHaveLength(0);
   });
 });

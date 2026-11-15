@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { redeemPromo } from "../api";
 import { CallError, childErrorText } from "../lib/errors";
 import { promoPicker, type StickerAnswer, type StickerPicker } from "../lib/stickers";
@@ -18,6 +18,10 @@ interface Props {
  * Ответ на код - стикер и надпись (R26): удача с минутами кода, неудача по полю ошибки «code»
  * (RM5b-10; текст службы «Код не подходит» остаётся для журнала и старых клиентов). Ответ виден,
  * пока ребёнок не начнёт вводить новый код.
+ * Надпись ответа читается экранным диктором: живая зона стоит на странице всегда, меняется только
+ * её содержимое (зона, появившаяся вместе с текстом, может остаться непрочитанной). Пока идёт
+ * запрос, поле выключено и теряет фокус; после ответа фокус возвращается в поле, чтобы ребёнок
+ * мог сразу исправить код.
  */
 export default function PromoRedeem({ onRedeemed, picker = promoPicker }: Props) {
   const [code, setCode] = useState("");
@@ -25,6 +29,16 @@ export default function PromoRedeem({ onRedeemed, picker = promoPicker }: Props)
   const [answer, setAnswer] = useState<(StickerAnswer & { key: number }) | null>(null);
   const [busy, setBusy] = useState(false);
   const shown = useRef(0);
+  const input = useRef<HTMLInputElement>(null);
+  const refocus = useRef(false);
+
+  // Фокус в поле - только когда оно снова включено (выключенное поле фокус не принимает).
+  useEffect(() => {
+    if (!busy && refocus.current) {
+      refocus.current = false;
+      input.current?.focus();
+    }
+  }, [busy]);
 
   const show = (a: StickerAnswer) => {
     shown.current += 1;
@@ -48,6 +62,7 @@ export default function PromoRedeem({ onRedeemed, picker = promoPicker }: Props)
       if (e instanceof CallError && !e.link && e.field === "code") show(picker.fail());
       else setError(childErrorText(e));
     } finally {
+      refocus.current = true;
       setBusy(false);
     }
   };
@@ -58,6 +73,7 @@ export default function PromoRedeem({ onRedeemed, picker = promoPicker }: Props)
         <label className="field">
           <span className="field-label">Промокод</span>
           <input
+            ref={input}
             className={error ? "field-input field-input-error" : "field-input"}
             value={code}
             maxLength={32}
@@ -84,7 +100,14 @@ export default function PromoRedeem({ onRedeemed, picker = promoPicker }: Props)
           </p>
         ) : null}
       </div>
-      {answer ? <PromoSticker key={answer.key} sticker={answer.sticker} text={answer.text} ok={answer.ok} /> : null}
+      <div
+        className={answer ? "promo-answer-slot" : "promo-answer-slot promo-answer-slot-empty"}
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+      >
+        {answer ? <PromoSticker key={answer.key} sticker={answer.sticker} text={answer.text} ok={answer.ok} /> : null}
+      </div>
     </div>
   );
 }

@@ -7,7 +7,7 @@ interface Props {
   sticker: string;
   /** Надпись ребёнку («Ура! +30 минут»). */
   text: string;
-  /** Верный код: надпись - статус; неверный - предупреждение. */
+  /** Верный код (оформление удачи) или неверный. */
   ok: boolean;
 }
 
@@ -20,7 +20,7 @@ function reducedMotion(): boolean {
  * Ответ на промокод в окне ребёнка (R26, D-83, 8.2.6 п.11): стикер 160 x 160, проигрывается
  * один раз и остаётся на последнем кадре; при выключенных анимациях стоит на последнем кадре
  * сразу. Стикер не загрузился - остаётся только надпись. Картинка скрыта от экранного диктора,
- * смысл несёт надпись.
+ * смысл несёт надпись; живую зону для неё держит PromoRedeem (постоянную, не вместе с текстом).
  */
 export default function PromoSticker({ sticker, text, ok }: Props) {
   const box = useRef<HTMLDivElement>(null);
@@ -63,7 +63,7 @@ export default function PromoSticker({ sticker, text, ok }: Props) {
   return (
     <div className={ok ? "promo-answer promo-answer-ok" : "promo-answer promo-answer-bad"}>
       {failed ? null : <div ref={box} className="promo-sticker" aria-hidden="true" data-sticker={sticker} />}
-      <p className="promo-answer-text" role={ok ? "status" : "alert"}>
+      <p className="promo-answer-text">
         {text}
       </p>
     </div>
