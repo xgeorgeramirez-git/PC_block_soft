@@ -5,6 +5,7 @@ import Notice from "../components/Notice";
 import RestSettings from "../components/RestSettings";
 import SaveBar from "../components/SaveBar";
 import ScheduleEditor from "../components/ScheduleEditor";
+import StartupList from "../components/StartupList";
 import { useRegisterGuard } from "../guard";
 import { CallError, errorText } from "../lib/errors";
 import { copyDay, limitErrorKey, limitsEqual, normalizeLimits, validateLimits, wireLimits, WORKDAYS } from "../lib/limits";
@@ -39,19 +40,22 @@ const END_MODES: { mode: EndMode; title: string; text: string }[] = [
   },
 ];
 
-type Tab = "limits" | "schedule" | "end" | "rest";
+type Tab = "limits" | "schedule" | "end" | "rest" | "startup";
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "limits", label: "Лимиты" },
   { id: "schedule", label: "Запретные часы" },
   { id: "end", label: "Когда время вышло" },
   { id: "rest", label: "Перерыв на отдых" },
+  // Выключатели «Автозагрузки» действуют сразу (FR-39): вкладка вне черновика панели «Сохранить».
+  { id: "startup", label: "Автозагрузка" },
 ];
 const LIMITS_PANEL = "limits-panel";
 
 /**
- * Правила ребёнка (FR-16…FR-19, FR-33, FR-37): вкладки «Лимиты», «Запретные часы», «Когда время
- * вышло» и «Отдых», одна панель «Сохранить».
+ * Правила ребёнка (FR-16…FR-19, FR-33, FR-37, FR-39): вкладки «Лимиты», «Запретные часы», «Когда
+ * время вышло» и «Отдых» с одной панелью «Сохранить»; «Автозагрузка» действует сразу и в черновик
+ * не входит (не делает правки несохранёнными, «Отменить изменения» её не трогает).
  */
 export default function ChildLimits({ childId, others = [], onSaved, onOpenPrograms }: Props) {
   const [tab, setTab] = useState<Tab>("limits");
@@ -351,6 +355,11 @@ export default function ChildLimits({ childId, others = [], onSaved, onOpenProgr
       {tab === "rest" ? (
         <div role="tabpanel" id={LIMITS_PANEL} aria-labelledby="limits-tab-rest" ref={restPanel}>
           <RestSettings value={draftBreak} saved={savedBreak} onChange={changeBreak} errors={errors} />
+        </div>
+      ) : null}
+      {tab === "startup" ? (
+        <div role="tabpanel" id={LIMITS_PANEL} aria-labelledby="limits-tab-startup">
+          <StartupList childId={childId} childName={name} />
         </div>
       ) : null}
 

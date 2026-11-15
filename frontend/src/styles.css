@@ -3214,3 +3214,223 @@ textarea.sites-add-input {
     grid-column: 1 / -1;
   }
 }
+
+/* --- Автозагрузка (FR-39, 8.3.11) ------------------------------------------------------ */
+/* Блоки как у «Программ»; строка - значок вида записи, название с издателем и «откуда», выключатель.
+   Длинное название и издатель обрезаются многоточием (полный текст в title), «откуда» переносится:
+   строка не уходит вбок и на ширине окна 640. Цвет статуса не используется (8.0 п.3). */
+
+.startup {
+  max-width: 760px;
+}
+
+.startup-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-1) var(--space-4);
+  margin-bottom: var(--space-4);
+}
+
+.startup-intro {
+  flex: 1 1 320px;
+  min-width: 0;
+  color: var(--text-muted);
+}
+
+.startup-checked {
+  flex: none;
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+.startup-empty {
+  padding: var(--space-6);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-panel);
+}
+
+.startup-block {
+  margin-bottom: var(--space-4);
+  padding: var(--space-4) var(--space-6);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-panel);
+}
+
+.startup-lead {
+  margin-bottom: var(--space-2);
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+.startup-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.startup-row {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: var(--space-3);
+  padding: var(--space-3) 0;
+  border-top: 1px solid var(--line);
+}
+
+.startup-row:first-child {
+  border-top: 0;
+}
+
+.startup-icon {
+  align-self: start;
+  margin-top: 2px;
+  fill: none;
+  stroke: var(--text-muted);
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.startup-main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.startup-name {
+  overflow: hidden;
+  font-weight: 600;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.startup-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 var(--space-3);
+  min-width: 0;
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+.startup-publisher {
+  max-width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.startup-from {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* Выключатель (role="switch"): дорожка рамкой поля (3:1 и больше к карточке в обеих темах, PL-61),
+   включено - заливка основной кнопки; подпись «Включено / Выключено» рядом. Внутренний отступ
+   больше кольца фокуса: кольцо не обрезается краем строки. */
+.startup-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  padding: var(--space-1);
+  background: none;
+  border: 0;
+  border-radius: var(--radius-control);
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.startup-switch:focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: 2px;
+}
+
+.startup-switch[aria-disabled="true"] {
+  cursor: progress;
+  opacity: 0.6;
+}
+
+.startup-switch-track {
+  position: relative;
+  flex: none;
+  width: 36px;
+  height: 20px;
+  background: var(--surface);
+  border: 2px solid var(--field-border);
+  border-radius: 10px;
+}
+
+.startup-switch-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 12px;
+  height: 12px;
+  background: var(--field-border);
+  border-radius: 50%;
+}
+
+.startup-switch[aria-checked="true"] .startup-switch-track {
+  background: var(--primary);
+  border-color: var(--primary);
+}
+
+.startup-switch[aria-checked="true"] .startup-switch-thumb {
+  background: var(--primary-text);
+  transform: translateX(16px);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .startup-switch-thumb {
+    transition: transform 120ms ease-out;
+  }
+}
+
+/* Подпись одной ширины в обоих положениях: выключатель не прыгает при нажатии. */
+.startup-switch-text {
+  min-width: 5.6em;
+  text-align: left;
+}
+
+@media (forced-colors: active) {
+  .startup-switch-track {
+    border-color: ButtonText;
+  }
+
+  .startup-switch-thumb {
+    background: ButtonText;
+  }
+
+  .startup-switch[aria-checked="true"] .startup-switch-track {
+    background: Highlight;
+    border-color: Highlight;
+  }
+
+  .startup-switch[aria-checked="true"] .startup-switch-thumb {
+    background: HighlightText;
+  }
+}
+
+.startup-message {
+  min-height: 0;
+}
+
+.startup-feedback {
+  margin: 0;
+  padding: var(--space-2) var(--space-4);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--text-muted);
+  border-radius: var(--radius-control);
+}
+
+.startup-feedback.field-error {
+  border-left-color: var(--status-danger);
+}

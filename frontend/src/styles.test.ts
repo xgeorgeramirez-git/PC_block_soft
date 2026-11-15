@@ -63,3 +63,16 @@ describe("длинный список сайтов (до 1000 строк, B-51)"
     expect(rule(".sites-row")).toMatch(/padding:\s*var\(--space-2\)\s+var\(--space-1\)/);
   });
 });
+
+describe("«Автозагрузка»: строка не уходит вбок (8.3.11)", () => {
+  // Ловит: длинное название или издатель растягивают строку шире окна 640; «откуда» не переносится.
+  it("название и издатель обрезаются многоточием, середина строки сжимается", () => {
+    expect(rule(".startup-row")).toMatch(/grid-template-columns:\s*20px\s+minmax\(0,\s*1fr\)\s+auto/);
+    expect(rule(".startup-main")).toMatch(/min-width:\s*0/);
+    for (const sel of [".startup-name", ".startup-publisher"]) {
+      expect(rule(sel)).toMatch(/text-overflow:\s*ellipsis/);
+      expect(rule(sel)).toMatch(/overflow:\s*hidden/);
+    }
+    expect(rule(".startup-from")).toMatch(/overflow-wrap:\s*anywhere/);
+  });
+});
