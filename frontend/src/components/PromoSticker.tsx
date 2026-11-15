@@ -16,20 +16,33 @@ function reducedMotion(): boolean {
   return typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 }
 
+/** Сколько стоит неподвижный стикер, если длина анимации неизвестна (стикеры идут около 3 с). */
+const STILL_MS = 3000;
+
 /**
- * Ответ на промокод в окне ребёнка (R26, D-83, 8.2.6 п.11): стикер 160 x 160, проигрывается
- * один раз и остаётся на последнем кадре; при выключенных анимациях стоит на последнем кадре
- * сразу. Стикер не загрузился - остаётся только надпись. Картинка скрыта от экранного диктора,
- * смысл несёт надпись; живую зону для неё держит PromoRedeem (постоянную, не вместе с текстом).
+ * Ответ на промокод в окне ребёнка (R26, D-83, D-85, 8.2.6 п.11): стикер 160 x 160 проигрывается
+ * один раз и после конца проигрывания исчезает (места не занимает), надпись остаётся. При
+ * выключенных анимациях стикер стоит неподвижно на последнем кадре столько, сколько длится
+ * анимация (около 3 с), и тоже исчезает. Стикер не загрузился - только надпись. Картинка скрыта
+ * от экранного диктора, смысл несёт надпись; живую зону для неё держит PromoRedeem.
  */
 export default function PromoSticker({ sticker, text, ok }: Props) {
   const box = useRef<HTMLDivElement>(null);
-  const [failed, setFailed] = useState(false);
+  /** Картинки нет: стикер не загрузился или уже доигран. */
+  const [gone, setGone] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
     let anim: AnimationItem | null = null;
-    setFailed(false);
+    let timer: number | undefined;
+    setGone(false);
+    const finish = () => {
+      if (cancelled) return;
+      window.clearTimeout(timer);
+      anim?.destroy();
+      anim = null;
+      setGone(true);
+    };
     Promise.all([loadLottie(), loadStickerData(sticker)])
       .then(([player, data]) => {
         const el = box.current;
@@ -48,13 +61,18 @@ export default function PromoSticker({ sticker, text, ok }: Props) {
           const toEnd = () => a.goToAndStop(Math.max(0, a.totalFrames - 1), true);
           a.addEventListener("DOMLoaded", toEnd);
           if (a.totalFrames > 0) toEnd();
+          const ms = a.getDuration(false) * 1000;
+          timer = window.setTimeout(finish, Number.isFinite(ms) && ms > 0 ? ms : STILL_MS);
+        } else {
+          a.addEventListener("complete", finish);
         }
       })
       .catch(() => {
-        if (!cancelled) setFailed(true);
+        if (!cancelled) setGone(true);
       });
     return () => {
       cancelled = true;
+      window.clearTimeout(timer);
       anim?.destroy();
       anim = null;
     };
@@ -62,10 +80,8 @@ export default function PromoSticker({ sticker, text, ok }: Props) {
 
   return (
     <div className={ok ? "promo-answer promo-answer-ok" : "promo-answer promo-answer-bad"}>
-      {failed ? null : <div ref={box} className="promo-sticker" aria-hidden="true" data-sticker={sticker} />}
-      <p className="promo-answer-text">
-        {text}
-      </p>
+      {gone ? null : <div ref={box} className="promo-sticker" aria-hidden="true" data-sticker={sticker} />}
+      <p className="promo-answer-text">{text}</p>
     </div>
   );
 }
