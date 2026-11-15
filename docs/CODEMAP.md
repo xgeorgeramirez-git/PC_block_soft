@@ -65,6 +65,7 @@
 - `src/components/ScheduleEditor.tsx`
 - `src/components/ServiceNotices.tsx`
 - `src/components/SpendBonusDialog.tsx`
+- `src/components/StartupList.tsx`
 - `src/components/TextField.tsx`
 - `src/components/UndoLine.tsx`
 - `src/components/usePause.ts`
@@ -85,6 +86,7 @@
 - `src/lib/rest.ts`
 - `src/lib/schedule.ts`
 - `src/lib/sites.ts`
+- `src/lib/startup.ts`
 - `src/lib/status.ts`
 - `src/lib/stickerData.ts`
 - `src/lib/stickers.ts`
