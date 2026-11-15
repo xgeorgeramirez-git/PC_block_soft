@@ -1,12 +1,13 @@
 ﻿# S52. Стикеры и надписи в ответ на промокод (R26, FR-35, D-83, план M5b T9).
 # Дано: время вышло, экран блокировки «Время вышло»; родитель создал коды AB12 на 30 мин и CD34 на 1 мин.
-# Когда: на экране блокировки неверный код два раза подряд, затем AB12; затем ребёнок вводит CD34 (как в окне
-# «Моя статистика»: RedeemPromo от ребёнка) и CD34 ещё раз.
+# Когда: на экране блокировки неверный код два раза подряд, затем CD34; время (1 мин) кончается, экран
+# возвращается; снова CD34, затем AB12. Ввод CD34 в окне «Моя статистика» проверяют vitest и e2e (T8): скрипт
+# приёмки работает повышенным администратором, команду ребёнка от него служба не принимает (Ruling).
 # Тогда: неверный — стикер из набора неудачи и надпись неудачи (GuardState promoSticker/promoText), второй
-# неверный — другие стикер и надпись, лимит прежний; AB12 — стикер удачи и надпись с «+30 минут», экран держится
-# одно проигрывание стикера (не меньше 2 с) и снимается (не позже 6 с), плашки «Добавлено» нет, лимит +30 мин;
-# CD34 — служба принимает (+1 мин), повтор — отказ у поля code, лимит прежний. Надпись «+1 минута» в окне
-# ребёнка проверяют vitest и снимки Playwright (T8).
+# неверный — другие стикер и надпись, лимит прежний; CD34 — стикер удачи и надпись с «+1 минута», экран снят,
+# лимит +1 мин; повтор CD34 — стикер неудачи, лимит прежний; AB12 — другой стикер удачи и надпись с «+30 минут»,
+# экран держится одно проигрывание стикера (не меньше 2 с) и снимается (не позже 6 с), плашки «Добавлено» нет,
+# лимит +31 мин всего.
 # Часы ядра идут в 60 раз быстрее (лимит 5 мин). Ввод в поле стража и нажатия идут через TestGuard (Ruling 5).
 # Снимки настоящего экрана в момент показа: s52-lock-bad.png (стикер неудачи над полем), s52-lock-ok.png (стикер удачи).
 $ErrorActionPreference = "Stop"
@@ -64,12 +65,39 @@ Invoke-Scenario "S52" "Промокод: стикер и надпись на э�
     Assert-That ([int]$st.limitS -eq $script:LimitBefore -and $st.lock -ne "none") "После неверных кодов лимит $($st.limitS) с (был $($script:LimitBefore)), блокировка '$($st.lock)'"
   }
 
+  Step "CD34 на экране блокировки: стикер удачи с «+1 минута», экран снят, лимит +1 мин" {
+    Enter-GuardPromo "cd34"
+    Invoke-GuardClick "submitPromo"
+    $g = Wait-PromoOk "1 минута"
+    Write-Log "CD34: стикер $($g.promoSticker), «$($g.promoText)»"
+    $script:FirstOk = [string]$g.promoSticker
+    [void](Wait-LockHidden 10)
+    $st = Get-Status
+    Assert-That ($st.lock -eq "none") "Блокировка после CD34: '$($st.lock)'"
+    Assert-That ([int]$st.limitS -eq $script:LimitBefore + 60) "Лимит дня $($st.limitS) с, ждали $($script:LimitBefore + 60) (+1 мин по CD34)"
+  }
+
+  Step "Минута кончилась, экран вернулся: повтор CD34 — стикер неудачи, лимит прежний" {
+    Resume-Clock
+    $g = Wait-LockShown 40 "timeUp"
+    Suspend-Clock
+    Invoke-GuardClick "promo"
+    [void](Wait-GuardState { param($s) (@(List $s.fields) | Where-Object { $_.id -eq "promo" }).Count -ge 1 } 8 "панель промокода открыта")
+    Enter-GuardPromo "CD34"
+    Invoke-GuardClick "submitPromo"
+    $c = Wait-PromoBad
+    Write-Log "Повтор CD34: стикер $($c.promoSticker), «$($c.promoText)»"
+    $st = Get-Status
+    Assert-That ([int]$st.limitS -eq $script:LimitBefore + 60 -and $st.lock -ne "none") "После повтора CD34 лимит $($st.limitS) с (ждали $($script:LimitBefore + 60)), блокировка '$($st.lock)'"
+  }
+
   Step "AB12: стикер удачи с «+30 минут», экран держится одно проигрывание и снимается, лимит +30 мин" {
     Enter-GuardPromo "ab12"
     $sw = [Diagnostics.Stopwatch]::StartNew()
     Invoke-GuardClick "submitPromo"
     $g = Wait-PromoOk "30 минут"
     Write-Log ("Удача за {0:N1} с: стикер {1}, «{2}»" -f $sw.Elapsed.TotalSeconds, $g.promoSticker, $g.promoText)
+    Assert-That ([string]$g.promoSticker -ne $script:FirstOk) "AB12 показал тот же стикер удачи, что CD34: $($g.promoSticker)"
     Save-Screen "s52-lock-ok"
     Assert-That (@(List $g.fields).Count -eq 0) "Во время показа удачи осталось поле: $(Format-GuardState $g)"
     Assert-That (Test-HasButton $g "parentPassword") "Во время показа удачи нет «Пароль родителя»: $(Format-GuardState $g)"
@@ -82,21 +110,7 @@ Invoke-Scenario "S52" "Промокод: стикер и надпись на э�
     Assert-That ([string]$after.promoSticker -eq "") "Стикер остался после снятия экрана: $(Format-GuardState $after)"
     $st = Get-Status
     Assert-That ($st.lock -eq "none") "Блокировка после AB12: '$($st.lock)'"
-    Assert-That ([int]$st.limitS -eq $script:LimitBefore + 1800) "Лимит дня $($st.limitS) с, ждали $($script:LimitBefore + 1800) (+30 мин по коду)"
-  }
-
-  Step "CD34 от ребёнка (окно «Моя статистика»): +1 мин; повтор — отказ у поля code, лимит прежний" {
-    $r = Send-Pcb "RedeemPromo" @{ code = "cd34" }
-    Assert-Reply $r "RedeemPromo CD34"
-    Write-Log "CD34: добавлено $($r.payload.addedMin) мин, «$($r.payload.message)»"
-    Assert-That ([int]$r.payload.addedMin -eq 1) "CD34 добавил $($r.payload.addedMin) мин, ждали 1"
-    $st = Get-Status
-    Assert-That ([int]$st.limitS -eq $script:LimitBefore + 1860) "Лимит дня $($st.limitS) с, ждали $($script:LimitBefore + 1860) (+1 мин по CD34)"
-    $again = Send-Pcb "RedeemPromo" @{ code = "CD34" }
-    Write-Log "Повтор CD34: ok=$($again.ok), поле $($again.field), «$($again.error)»"
-    Assert-That (-not $again.ok -and [string]$again.field -eq "code") "Повтор CD34 принят или отказ не у поля code: ok=$($again.ok) field=$($again.field)"
-    $st = Get-Status
-    Assert-That ([int]$st.limitS -eq $script:LimitBefore + 1860) "После повтора CD34 лимит $($st.limitS) с, ждали $($script:LimitBefore + 1860)"
+    Assert-That ([int]$st.limitS -eq $script:LimitBefore + 1860) "Лимит дня $($st.limitS) с, ждали $($script:LimitBefore + 1860) (+1 мин CD34 и +30 мин AB12)"
   }
 
   Write-Log "S52: неверные коды — разные стикеры и надписи неудачи, верный — стикер удачи на одно проигрывание"
