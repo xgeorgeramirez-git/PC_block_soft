@@ -53,6 +53,12 @@ const plateStartup = "startup"
 // входа (запуск при загрузке). Созданный раньше — шёл до перезапуска службы (Review Focus 1).
 const startupCreatedSlack = 2 * time.Minute
 
+// startupCheckSlack — сколько после окна manualLogonGrace правило ещё закрывает процесс, увиденный
+// в это окно: первая полная проверка после входа (загрузка куста, задания Планировщика, папка
+// автозагрузки, приложения магазина; при загрузке компьютера диск занят) должна успеть собрать
+// набор. Позже процесс считается оставленным: ребёнок мог им уже пользоваться.
+const startupCheckSlack = 3 * time.Minute
+
 // filetimeEpoch — 1 января 1970 года в FILETIME (100 нс с 1601 года).
 const filetimeEpoch = 116444736000000000
 
@@ -65,14 +71,18 @@ func procCreated(stamp uint64) (time.Time, bool) {
 	return time.Unix(0, int64(stamp-filetimeEpoch)*100), true
 }
 
-// startupLaunch — процесс p с записью e запущен автоматически при входе (RM5b-3): запуск не
-// ручной (launchKind), увиден в первые manualLogonGrace после входа и создан не раньше входа (с
-// запасом startupCreatedSlack). Момент входа или создания неизвестен — нет («не знаю — не
-// трогать»): после перезапуска службы первые 60 с считаются «после входа» (RF18-3), а программы,
-// давно запущенные ребёнком, этим правилом не закрываются.
-func startupLaunch(p ProcInfo, e *watchEntry) bool {
+// startupLaunch — процесс p сеанса t с записью e закрывается правилом автозагрузки (RM5b-3):
+// запуск не ручной (launchKind), увиден в первые manualLogonGrace после входа, создан не раньше
+// входа (с запасом startupCreatedSlack), проход идёт не позже manualLogonGrace +
+// startupCheckSlack после входа и прошлые проходы с готовым набором процесс не оставили живым
+// (startupSpared): решение родителя или смена команды позже не закрывают программу, которой
+// ребёнок уже пользуется. Момент входа или создания неизвестен — нет («не знаю — не трогать»):
+// после перезапуска службы первые 60 с считаются «после входа» (RF18-3), а программы, давно
+// запущенные ребёнком, этим правилом не закрываются.
+func startupLaunch(t *watchTarget, p ProcInfo, e *watchEntry) bool {
 	f := e.facts
-	if e.manual || f.LogonAt.IsZero() || f.At.Sub(f.LogonAt) >= manualLogonGrace {
+	if e.manual || e.startupSpared || f.LogonAt.IsZero() || f.At.Sub(f.LogonAt) >= manualLogonGrace ||
+		t.at.Sub(f.LogonAt) >= manualLogonGrace+startupCheckSlack {
 		return false
 	}
 	created, ok := procCreated(p.Stamp)
@@ -117,6 +127,12 @@ func (s *Service) startupWatchSet(cs *childState) {
 		delete(set, norm)
 	}
 	cs.startupOff = set
+}
+
+// startupReady — набор наблюдателя ребёнка собран полной проверкой не раньше входа since: только
+// тогда «правило не закрыло процесс» значит «оставлен» (startupSpared). Под s.mu.
+func startupReady(cs *childState, since time.Time) bool {
+	return !cs.startupFullAt.IsZero() && !cs.startupFullAt.Before(since)
 }
 
 // startupFlight — идущая проверка ребёнка: again — попросили ещё раз, full — следующий проход
@@ -344,6 +360,9 @@ func (s *Service) startupApply(id int64, full bool, found []startup.Entry, listE
 		exe[key{e.Scope, e.Source, e.Name}] = e.Exe
 	}
 	cs.startupExe = exe
+	if full {
+		cs.startupFullAt = now
+	}
 	stamp := strconv.FormatInt(now.UnixMilli(), 10)
 	if full && !baseFull {
 		s.setStartupBaseline(settingStartupBaseline, id, stamp)

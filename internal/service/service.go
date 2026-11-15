@@ -158,6 +158,8 @@ type childState struct {
 	// заменяется целиком, не меняется на месте: проход наблюдателя читает его вне s.mu.
 	startupExe map[startupKey]string
 	startupOff map[string]startupHit
+	// startupFullAt — когда набор собран последней удачной полной проверкой (startupReady).
+	startupFullAt time.Time
 }
 
 // Service — служба PCBlock без привязки к Windows: логика на портах (doc.go).

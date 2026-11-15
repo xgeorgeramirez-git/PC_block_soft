@@ -355,3 +355,110 @@ func TestWatchStartupSetAfterDecision(t *testing.T) {
 		t.Error("выключенная общая запись не закрыта, пока идёт проверка")
 	}
 }
+
+// Ловит (возврат 1 ревью T4b): решение «выключить» или смена команды у записи, чья программа
+// запустилась при входе и уже работает, молча закрывает её позже — набор пересобран, а момент
+// запуска по-прежнему «в первые 60 с после входа».
+func TestWatchStartupRunningNotClosedLater(t *testing.T) {
+	cases := []struct {
+		name  string
+		after time.Duration // через сколько после входа меняется набор
+		mod   func(h *harness, src *fakeStartupSource, tok string)
+	}{
+		{"решение off через 20 с", 20 * time.Second, func(h *harness, src *fakeStartupSource, tok string) {
+			h.setStartup(tok, h.childID(childSID), "GeoGebra", false)
+		}},
+		{"решение off через час", time.Hour, func(h *harness, src *fakeStartupSource, tok string) {
+			h.setStartup(tok, h.childID(childSID), "GeoGebra", false)
+		}},
+		{"смена команды через 10 мин", 10 * time.Minute, func(h *harness, src *fakeStartupSource, tok string) {
+			src.mu.Lock()
+			src.own[childSID][0].Command += " --hidden" // тот же exe, другая команда
+			src.mu.Unlock()
+			h.listStartup(tok, h.childID(childSID), true)
+			if it := h.startupItem(tok, h.childID(childSID), "GeoGebra"); it.Decision != ipc.StartupPending {
+				h.t.Fatalf("GeoGebra = %q, want pending", it.Decision)
+			}
+		}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			src := newStartupSource()
+			src.addOwn(childSID, geogebraEntry("GeoGebra"))
+			w := newWatcher()
+			h, _ := startupWatchHarness(t, src, w)
+			ex1, _ := h.startupLogIn(w)
+			h.real.Advance(5 * time.Second)
+			p := w.startCreated(childSession, pathGeoGebra, childSID, ex1, h.real.Now())
+			h.watch()
+			h.real.Advance(c.after - 5*time.Second)
+			c.mod(h, src, h.login(adminPeer()))
+			h.watch()
+			if !w.alive(p) {
+				t.Error("работающая с входа программа закрыта правилом автозагрузки")
+			}
+			// Её дочерний процесс того же exe, появившийся после решения, тоже оставлен.
+			q := w.startCreated(childSession, pathGeoGebra, childSID, p, h.real.Now())
+			h.watch()
+			if !w.alive(q) {
+				t.Error("дочерний процесс оставленной программы закрыт")
+			}
+			if ev := h.store.eventsOf(evStartupClosed); len(ev) != 0 {
+				t.Errorf("журнал: %+v", ev)
+			}
+		})
+	}
+}
+
+// Ловит (RM5b-3, страховка от гонки; возврат 1 ревью T4b): программа, запущенная Проводником при
+// входе, пока первая проверка автозагрузки ещё идёт, остаётся жить («оставлена» до готовности
+// набора) или закрывается, когда проверка закончилась много позже входа.
+func TestWatchStartupBeforeFirstCheck(t *testing.T) {
+	for _, c := range []struct {
+		name   string
+		check  time.Duration // когда после входа закончилась первая проверка
+		closed bool
+	}{
+		{"проверка через 2 мин", 2 * time.Minute, true},
+		{"проверка через 10 мин", 10 * time.Minute, false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			src := newStartupSource()
+			src.addOwn(childSID, runE("Discord", true))
+			w := newWatcher()
+			h, _ := startupWatchHarness(t, src, w)
+			h.childLogsInBoth()
+			h.svc.waitStartup() // первая полная проверка: Discord on, граница записана
+			src.addOwn(childSID, geogebraEntry("GeoGebra"))
+			h.real.Advance(time.Hour)
+			block := make(chan struct{})
+			src.mu.Lock()
+			src.block = block
+			src.mu.Unlock()
+			// Выход и новый вход Миши; проверка после входа висит.
+			h.launcher.setSessions()
+			h.svc.OnSession(SessionLogoff, childSession, h.real.Now())
+			h.childLogsInBoth()
+			ex1 := w.start(childSession, pathExplorer)
+			h.real.Advance(3 * time.Second)
+			p := w.startCreated(childSession, pathGeoGebra, childSID, ex1, h.real.Now())
+			h.watch() // набор ещё прежний: GeoGebra в нём нет
+			h.real.Advance(c.check - 3*time.Second)
+			src.mu.Lock()
+			src.block = nil
+			src.mu.Unlock()
+			close(block)
+			h.svc.waitStartup()
+			if it := h.startupItem(h.login(adminPeer()), h.childID(childSID), "GeoGebra"); it.Decision != ipc.StartupPending {
+				t.Fatalf("GeoGebra = %q, want pending", it.Decision)
+			}
+			h.watch()
+			if w.alive(p) == c.closed {
+				t.Errorf("закрыт = %v, want %v", !w.alive(p), c.closed)
+			}
+			if n := len(h.store.eventsOf(evStartupClosed)); (n == 1) != c.closed {
+				t.Errorf("строк startup_closed %d", n)
+			}
+		})
+	}
+}

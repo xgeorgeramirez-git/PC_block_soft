@@ -81,6 +81,9 @@ type watchEntry struct {
 	// запуск может быть «сам»; запрещённая после запуска закрывается с плашкой, как раньше.
 	classified       bool
 	forbiddenAtStart bool
+	// startupSpared — проход с готовым набором автозагрузки оставил процесс живым (RM5b-3):
+	// правило автозагрузки его больше не закрывает; дочерний процесс того же exe наследует.
+	startupSpared bool
 }
 
 // launchPending — запрещённая, закрытая как «запустилась сама», ждёт уточнения до until: снимка
@@ -111,8 +114,9 @@ type watchTarget struct {
 	fg       string
 	byPID    map[uint32]ProcInfo
 	// startupOff — exe выключенных и ждущих решения записей автозагрузки ребёнка (RM5b-3); только
-	// чтение.
-	startupOff map[string]startupHit
+	// чтение. startupReady — набор собран проверкой после этого входа (startupReady).
+	startupOff   map[string]startupHit
+	startupReady bool
 	// hold — пауза ребёнка (R11): процессы только читаются ради категории секунды учёта (B-30),
 	// ничего не закрывается и не пишется (watchHeld).
 	hold bool
@@ -693,7 +697,7 @@ func (s *Service) watchSnapshot(real time.Time) ([]watchTarget, bool) {
 			}
 		}
 		t := watchTarget{session: id, childID: ss.childID, sid: cs.child.SID, d: d, own: own, at: real, logonAt: ss.since, hold: d.Status == core.StatusPaused,
-			startupOff: cs.startupOff}
+			startupOff: cs.startupOff, startupReady: startupReady(cs, ss.since)}
 		if sm := cs.sample; cs.haveSample && cs.sampleSess == id && real.Sub(cs.sampleAt) <= sampleMaxAge && sm.SessionActive && sm.LastInputAgoMs >= 0 {
 			t.inputAt, t.sampleAt = s.inputMoment(cs.sampleAt, sm.LastInputAgoMs), cs.sampleAt
 			t.fg = programs.Normalize(sm.ForegroundPath)
@@ -755,10 +759,13 @@ func (s *Service) watchDecide(t *watchTarget, p ProcInfo, e *watchEntry) *watchA
 	if res.Verdict == programs.VerdictSystem || res.Verdict == programs.VerdictHidden {
 		return nil // скрытую родителем не закрывает ни одно правило (D-57, RF9-2)
 	}
-	if hit, ok := t.startupOff[e.norm]; ok && startupLaunch(p, e) {
+	if hit, ok := t.startupOff[e.norm]; ok && startupLaunch(t, p, e) {
 		// Выключенная родителем или ждущая решения запись автозагрузки запустилась сама при входе
 		// (RM5b-3): закрыть до вердикта программы, без плашки и нарушения.
 		return &watchAct{t: t, p: p, e: e, res: res, again: e.closed, plateKind: plateStartup, auto: true, startup: hit}
+	}
+	if t.startupReady {
+		e.startupSpared = true // правило автозагрузки оставило процесс живым: позже не закрывает
 	}
 	a := &watchAct{t: t, p: p, e: e, res: res, again: e.closed}
 	switch res.Verdict {
@@ -805,6 +812,7 @@ func (s *Service) newWatchEntry(t *watchTarget, p ProcInfo, norm string, gen uin
 			s.watch.procs[pk] = pe
 		}
 		e.manual, e.why, e.quiet = pe.manual, "дочерний процесс того же exe: "+pe.why, true
+		e.startupSpared = pe.startupSpared
 		return e
 	}
 	e.manual, e.why = launchKind(e.facts)
