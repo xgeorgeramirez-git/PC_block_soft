@@ -80,6 +80,13 @@ describe("массивы в ответах: null становится пусты
     mock.override("SetChildren", { ok: true, payload: { children: null } });
     expect(await api.setChildren({ remove: [1] })).toEqual([]);
   });
+
+  // Ловит (L-22): пустой блок «Автозагрузки» приходит null, и вкладка падает на .length.
+  it("listStartup", async () => {
+    const mock = installBackend({ sessionActive: true });
+    mock.override("ListStartup", { ok: true, payload: { pending: null, own: null, shared: null } });
+    expect(await api.listStartup(1)).toEqual({ pending: [], own: [], shared: [], checkedAt: 0, checking: false });
+  });
 });
 
 describe("запросы", () => {
@@ -93,6 +100,17 @@ describe("запросы", () => {
     const mock = installBackend({ sessionActive: true });
     await api.listEvents();
     expect(mock.calls.at(-1)?.payload).toEqual({ childId: 0, fromMs: 0, toMs: 0, group: "", beforeAtMs: 0, beforeId: 0, limit: 0 });
+  });
+
+  // Ловит: проверка Windows запускается при каждом чтении списка (refresh только при открытии вкладки).
+  it("listStartup шлёт refresh только по просьбе, setStartup - номер и решение", async () => {
+    const mock = installBackend({ sessionActive: true });
+    await api.listStartup(1, true);
+    expect(mock.calls.at(-1)).toEqual({ command: "ListStartup", payload: { childId: 1, refresh: true } });
+    await api.listStartup(1);
+    expect(mock.calls.at(-1)).toEqual({ command: "ListStartup", payload: { childId: 1 } });
+    await api.setStartup(1, 7, true);
+    expect(mock.calls.at(-1)).toEqual({ command: "SetStartup", payload: { childId: 1, id: 7, on: true } });
   });
 
   it("команды без данных шлют пустой объект", async () => {

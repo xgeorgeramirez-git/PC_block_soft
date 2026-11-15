@@ -73,6 +73,8 @@ import type {
   RemoveSitesReply,
   SetAdultFilterReply,
   SetupSites,
+  ListStartupReply,
+  SetStartupReply,
   SiteKind,
 } from "./types";
 
@@ -595,4 +597,24 @@ export async function removeSites(domains: string[]): Promise<RemoveSitesReply> 
 export async function setAdultFilter(childId: number, on: boolean): Promise<SetAdultFilterReply> {
   const r = await call<object, SetAdultFilterReply>("SetAdultFilter", { childId, on });
   return { ...r, sites: sitesOf(r.sites) };
+}
+
+/**
+ * Вкладка «Автозагрузка» ребёнка (FR-39, 8.3.11); refresh - служба запускает проверку Windows и
+ * отвечает, не дожидаясь её (checking = true). Блоки всегда списки, не null (L-22).
+ */
+export async function listStartup(childId: number, refresh = false): Promise<ListStartupReply> {
+  const r = await call<object, ListStartupReply>("ListStartup", refresh ? { childId, refresh: true } : { childId });
+  return {
+    pending: r.pending ?? [],
+    own: r.own ?? [],
+    shared: r.shared ?? [],
+    checkedAt: r.checkedAt ?? 0,
+    checking: r.checking === true,
+  };
+}
+
+/** Включить или выключить запись автозагрузки ребёнку; ответ - строка с решением службы и сообщение. */
+export function setStartup(childId: number, id: number, on: boolean): Promise<SetStartupReply> {
+  return call("SetStartup", { childId, id, on });
 }
