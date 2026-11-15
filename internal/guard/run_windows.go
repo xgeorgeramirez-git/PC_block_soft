@@ -316,6 +316,9 @@ func (a *app) applyLock(v View) {
 		if a.lock != nil && a.lock.Visible() {
 			a.lock.RemoveKeyboardGuard()
 			a.lock.Hide()
+			if a.ui != nil {
+				a.ui.hideSticker()
+			}
 		}
 		a.hookTried = false
 		return

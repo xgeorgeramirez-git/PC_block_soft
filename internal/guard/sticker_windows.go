@@ -24,6 +24,10 @@ const (
 	// только пока кадр меняется (StickerAnimating).
 	animTimerID = 8
 	animEveryMs = 1000 / StickerFPS // 83 мс при 12 кадрах/с
+
+	// wmAppStickerReady — кадры стикера разобраны в своей горутине: перестроить экран; wParam 1 — разбор
+	// не удался (тогда остаётся надпись, повтора нет).
+	wmAppStickerReady = wmApp + 11
 )
 
 // clientAreaAnimation — включены ли анимации Windows («Эффекты анимации» в параметрах);
@@ -47,17 +51,35 @@ type stickerPaint struct {
 	mem    uintptr // память DC; 0 — кадров нет
 	bmp    uintptr
 	oldBmp uintptr
+
+	pending, failed stickerKey // разбор идёт в горутине / не удался (не повторять)
 }
 
-// prepare готовит кадры стикера n стороной size на фоне экрана; false — показать нельзя (тогда
-// остаётся надпись). Тот же стикер того же размера не готовится заново.
-func (s *stickerPaint) prepare(hdc uintptr, n string, size int32) bool {
+// prepare готовит кадры стикера n стороной size на фоне экрана; false — показать пока нельзя (тогда
+// стоит надпись). Тот же стикер того же размера не готовится заново. Кадров нужного размера нет в
+// кэше — они разбираются в своей горутине (около 100 мс; поток окон с перехватом клавиш не ждёт),
+// а готовность приходит окну hwnd сообщением wmAppStickerReady.
+func (s *stickerPaint) prepare(hdc, hwnd uintptr, n string, size int32) bool {
 	if s.mem != 0 && s.n == n && s.size == size {
 		return true
 	}
-	s.free()
-	frames, err := StickerFramesBGRA(n, int(size))
-	if err != nil || len(frames) == 0 {
+	key := stickerKey{n, int(size)}
+	frames, ok := stickerFramesCached(n, int(size))
+	if !ok {
+		if s.pending != key && s.failed != key {
+			s.pending = key
+			go safely(func() {
+				bad := uintptr(0)
+				if _, err := StickerFramesBGRA(n, int(size)); err != nil {
+					bad = 1
+				}
+				procPostMessage.Call(hwnd, wmAppStickerReady, bad, 0)
+			})
+		}
+		return false
+	}
+	s.freeBitmap()
+	if len(frames) == 0 {
 		return false
 	}
 	w := size * int32(len(frames))
@@ -90,8 +112,16 @@ func (s *stickerPaint) paint(hdc uintptr, frame int) {
 		s.mem, uintptr(int32(frame)*s.size), 0, srcCopy)
 }
 
-// free освобождает память DC и полосу кадров.
-func (s *stickerPaint) free() {
+// ready: горутина разбора закончила (bad — с ошибкой); экран перестроит вызывающий.
+func (s *stickerPaint) ready(bad bool) {
+	if bad {
+		s.failed = s.pending
+	}
+	s.pending = stickerKey{}
+}
+
+// freeBitmap освобождает память DC и полосу кадров (отметки разбора остаются).
+func (s *stickerPaint) freeBitmap() {
 	if s.mem != 0 {
 		procSelectObject.Call(s.mem, s.oldBmp)
 		procDeleteDC.Call(s.mem)
@@ -99,5 +129,8 @@ func (s *stickerPaint) free() {
 	if s.bmp != 0 {
 		procDeleteObject.Call(s.bmp)
 	}
-	*s = stickerPaint{}
+	s.show, s.mem, s.bmp, s.oldBmp, s.n, s.size, s.frames = false, 0, 0, 0, "", 0, 0
 }
+
+// free освобождает полосу кадров; разбор, который ещё идёт, своё сообщение пришлёт.
+func (s *stickerPaint) free() { s.freeBitmap() }

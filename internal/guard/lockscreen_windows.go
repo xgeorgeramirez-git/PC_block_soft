@@ -250,7 +250,7 @@ func (u *lockUI) layout() {
 		// так не помещается в столбец — слева от поля или кнопок (1366×768 при 125 %).
 		size := PromoStickerSize(u.dpi, area.bottom-area.top, FlowHeight(items))
 		switch {
-		case size > 0 && u.sticker.prepare(hdc, v.Promo.Sticker, size):
+		case size > 0 && u.sticker.prepare(hdc, u.w.hwnd, v.Promo.Sticker, size):
 			es[sticker].item = FlowItem{W: size, H: size, Gap: s(StickerGapPx)}
 		case size == 0 && PromoSideWidth(u.dpi, areaRc, colW) >= s(96) && sticker+1 < len(es):
 			side = true
@@ -279,7 +279,7 @@ func (u *lockUI) layout() {
 	u.rest.showCat, u.rest.showTiles = false, false
 	u.sticker.show = false
 	if v.Promo == nil {
-		u.sticker.free() // ответа нет: полоса кадров (до 13 МБ при 150 %) не держится
+		u.sticker.free() // ответа нет: полоса кадров (до 13 МБ при 150 %) не держится; при снятии экрана — hideSticker
 	}
 	want := map[Button]rect{}
 	var order []Button
@@ -314,7 +314,7 @@ func (u *lockUI) layout() {
 		w := PromoSideWidth(u.dpi, areaRc, colW)
 		textH := measureHeight(hdc, u.fonts.button, v.Promo.Text, w)
 		size, st, tx := PromoSide(u.dpi, areaRc, colW, anchorTop, textH)
-		if size > 0 && u.sticker.prepare(hdc, v.Promo.Sticker, size) {
+		if size > 0 && u.sticker.prepare(hdc, u.w.hwnd, v.Promo.Sticker, size) {
 			u.sticker.show, u.sticker.rc = true, toRect(st)
 		} else {
 			tx = Rect{tx.Left, anchorTop, tx.Right, anchorTop + textH}
@@ -549,6 +549,14 @@ func (u *lockUI) handle(msg uint32, wParam, lParam uintptr) (uintptr, bool) {
 			u.onPress(Button(wParam))
 		}
 		return 0, true
+	case wmAppStickerReady:
+		// Кадры стикера готовы: перестроить экран (раскладка возьмёт их из кэша).
+		u.sticker.ready(wParam != 0)
+		if u.view.Promo != nil {
+			u.sig = ""
+			u.layout()
+		}
+		return 0, true
 	case wmDrawItem:
 		di := ptrTo[drawItemStruct](lParam)
 		b := Button(int(di.ctlID) - idButtonBase)
@@ -625,6 +633,14 @@ func (u *lockUI) mainButton() Button {
 		}
 	}
 	return ButtonNone
+}
+
+// hideSticker: экран снят — полоса кадров стикера (до 13 МБ GDI) и кэш разобранных кадров не
+// держатся. Следующий показ экрана перестроится заново (подпись вида сброшена).
+func (u *lockUI) hideSticker() {
+	u.sticker.free()
+	ClearStickerCache()
+	u.sig = ""
 }
 
 // close освобождает шрифты и кисть.

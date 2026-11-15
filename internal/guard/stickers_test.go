@@ -250,3 +250,70 @@ func TestStickerFrameAt(t *testing.T) {
 }
 
 func msDur(ms int) time.Duration { return time.Duration(ms) * time.Millisecond }
+
+// Ловит: поток окон разбирает PNG сам (кэш не виден без разбора); после снятия экрана кэш держит
+// кадры (до десятков МБ).
+func TestStickerFramesCachedAndClear(t *testing.T) {
+	ClearStickerCache()
+	if _, ok := stickerFramesCached("033", 200); ok {
+		t.Fatal("пустой кэш отдал кадры")
+	}
+	want, err := StickerFramesBGRA("033", 200)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, ok := stickerFramesCached("033", 200)
+	if !ok || &got[0][0] != &want[0][0] {
+		t.Fatal("кадры в кэше не найдены")
+	}
+	if _, ok := stickerFramesCached("033", 400); ok {
+		t.Fatal("400 px — те же 300, а в кэше только 200")
+	}
+	ClearStickerCache()
+	if _, ok := stickerFramesCached("033", 200); ok {
+		t.Fatal("после очистки кадры остались")
+	}
+}
+
+// Ловит: проверка кэша ждёт идущий разбор (поток окон стоит ~100 мс с перехватом клавиш); два
+// одновременных запроса разбирают один стикер дважды или получают разные срезы.
+func TestStickerFramesConcurrent(t *testing.T) {
+	ClearStickerCache()
+	stickerCacheMu.Lock()
+	done := make(chan struct{})
+	stickerDecoding[stickerKey{"044", 200}] = done
+	stickerCacheMu.Unlock()
+	// Пока «идёт разбор», проверка кэша отвечает сразу.
+	if _, ok := stickerFramesCached("044", 200); ok {
+		t.Fatal("кадры есть до конца разбора")
+	}
+	stickerCacheMu.Lock()
+	delete(stickerDecoding, stickerKey{"044", 200})
+	close(done)
+	stickerCacheMu.Unlock()
+
+	ClearStickerCache()
+	res := make(chan [][]byte, 2)
+	for i := 0; i < 2; i++ {
+		go func() {
+			f, err := StickerFramesBGRA("044", 200)
+			if err != nil {
+				t.Error(err)
+			}
+			res <- f
+		}()
+	}
+	a, b := <-res, <-res
+	if len(a) == 0 || &a[0][0] != &b[0][0] {
+		t.Fatal("два одновременных запроса получили разные кадры (разбор дважды)")
+	}
+	if _, err := StickerFramesBGRA("999", 200); err == nil {
+		t.Fatal("нет ошибки у неизвестного стикера")
+	}
+	stickerCacheMu.Lock()
+	n := len(stickerDecoding)
+	stickerCacheMu.Unlock()
+	if n != 0 {
+		t.Fatalf("после разборов висят отметки: %d", n)
+	}
+}

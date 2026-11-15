@@ -167,6 +167,9 @@ type stickerKey struct {
 var (
 	stickerCacheMu sync.Mutex
 	stickerCache   []stickerCacheEntry
+	// stickerDecoding — разборы, которые идут сейчас: второй запрос того же ждёт первый, а не разбирает
+	// заново. Сам разбор идёт без stickerCacheMu: проверка кэша потоком окон его не ждёт.
+	stickerDecoding = map[stickerKey]chan struct{}{}
 )
 
 type stickerCacheEntry struct {
@@ -184,25 +187,65 @@ func StickerFramesBGRA(n string, px int) ([][]byte, error) {
 	}
 	px = min(px, StickerFramePx)
 	key := stickerKey{n, px}
-	stickerCacheMu.Lock()
-	defer stickerCacheMu.Unlock()
-	for i, e := range stickerCache {
-		if e.key == key {
-			if i > 0 { // свежий — в начало
-				stickerCache = append([]stickerCacheEntry{e}, append(stickerCache[:i:i], stickerCache[i+1:]...)...)
+	for {
+		stickerCacheMu.Lock()
+		for i, e := range stickerCache {
+			if e.key == key {
+				if i > 0 { // свежий — в начало
+					stickerCache = append([]stickerCacheEntry{e}, append(stickerCache[:i:i], stickerCache[i+1:]...)...)
+				}
+				stickerCacheMu.Unlock()
+				return e.frames, nil
 			}
-			return e.frames, nil
+		}
+		wait, busy := stickerDecoding[key]
+		if !busy {
+			break // разбирает этот вызов; stickerCacheMu ещё взят
+		}
+		stickerCacheMu.Unlock()
+		<-wait // тот же разбор идёт в другой горутине: дождаться и взять из кэша
+		if _, ok := stickerFramesCached(n, px); !ok {
+			return decodeStickerFrames(n, px) // тот разбор не удался: ошибка своя
 		}
 	}
+	done := make(chan struct{})
+	stickerDecoding[key] = done
+	stickerCacheMu.Unlock()
+
 	frames, err := decodeStickerFrames(n, px)
-	if err != nil {
-		return nil, err
+
+	stickerCacheMu.Lock()
+	delete(stickerDecoding, key)
+	close(done)
+	if err == nil {
+		stickerCache = append([]stickerCacheEntry{{key, frames}}, stickerCache...)
+		if len(stickerCache) > stickerCacheSize {
+			stickerCache = stickerCache[:stickerCacheSize]
+		}
 	}
-	stickerCache = append([]stickerCacheEntry{{key, frames}}, stickerCache...)
-	if len(stickerCache) > stickerCacheSize {
-		stickerCache = stickerCache[:stickerCacheSize]
+	stickerCacheMu.Unlock()
+	return frames, err
+}
+
+// stickerFramesCached — кадры стикера n стороной px, если они уже в кэше (не разбирает PNG: потоку
+// окон нельзя ждать разбора около 100 мс, пока держится перехват клавиш).
+func stickerFramesCached(n string, px int) ([][]byte, bool) {
+	px = min(px, StickerFramePx)
+	stickerCacheMu.Lock()
+	defer stickerCacheMu.Unlock()
+	for _, e := range stickerCache {
+		if e.key == (stickerKey{n, px}) {
+			return e.frames, true
+		}
 	}
-	return frames, nil
+	return nil, false
+}
+
+// ClearStickerCache забывает разобранные кадры: экран блокировки снят, память не держится.
+func ClearStickerCache() {
+	stickerCacheMu.Lock()
+	stickerCache = nil
+	stickerCacheMu.Unlock()
 }
 
 // decodeStickerFrames разбирает спрайт стикера n и уменьшает каждый кадр до px.
