@@ -496,6 +496,10 @@ func examples() map[string]example {
 			LockShown: true, LockKind: LockRest, RestTimer: "00:14:59", RestMessage: "Пойди погуляй с собакой",
 			Buttons: []string{ButtonParentPassword, ButtonShutdown, ButtonLogoff, ButtonSwitchUser},
 		}),
+		"GuardState#promo": ok(nil, GuardStateReply{
+			LockShown: true, LockKind: LockTimeUp, PromoSticker: "017", PromoText: "Ура! +30 минут",
+			Buttons: []string{ButtonParentPassword, ButtonShutdown, ButtonLogoff, ButtonSwitchUser},
+		}),
 		"GuardState#blocked": ok(nil, GuardStateReply{
 			Plate: "Программа «SuperGame» ждёт разрешения родителя", PlateKind: BlockedUnknown,
 			Buttons: []string{"askNow", "plateClose"}, ForegroundPath: `c:\users\миша\downloads\supergame.exe`,

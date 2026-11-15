@@ -1864,7 +1864,9 @@
         "foregroundPath": "",
         "foregroundDomain": "",
         "closedTab": "",
-        "closedTabWay": ""
+        "closedTabWay": "",
+        "promoSticker": "",
+        "promoText": ""
       }
     }
   },
@@ -1894,7 +1896,9 @@
         "foregroundPath": "c:\\users\\миша\\downloads\\supergame.exe",
         "foregroundDomain": "",
         "closedTab": "",
-        "closedTabWay": ""
+        "closedTabWay": "",
+        "promoSticker": "",
+        "promoText": ""
       }
     }
   },
@@ -1921,7 +1925,9 @@
         "foregroundPath": "c:\\program files\\bravesoftware\\brave-browser\\application\\brave.exe",
         "foregroundDomain": "probe-site.test",
         "closedTab": "",
-        "closedTabWay": ""
+        "closedTabWay": "",
+        "promoSticker": "",
+        "promoText": ""
       }
     }
   },
@@ -1950,7 +1956,9 @@
         "foregroundPath": "c:\\program files\\bravesoftware\\brave-browser\\application\\brave.exe",
         "foregroundDomain": "youtube.com",
         "closedTab": "youtube.com",
-        "closedTabWay": "ctrlW"
+        "closedTabWay": "ctrlW",
+        "promoSticker": "",
+        "promoText": ""
       }
     }
   },
@@ -1977,7 +1985,43 @@
         "foregroundPath": "",
         "foregroundDomain": "",
         "closedTab": "",
-        "closedTabWay": ""
+        "closedTabWay": "",
+        "promoSticker": "",
+        "promoText": ""
+      }
+    }
+  },
+  "GuardState#promo": {
+    "reply": {
+      "ok": true,
+      "payload": {
+        "warnings": [],
+        "sounds": [],
+        "ui": {
+          "tickMs": 0,
+          "ticks": 0,
+          "panic": ""
+        },
+        "lockShown": true,
+        "lockKind": "timeUp",
+        "plate": "",
+        "plateKind": "",
+        "buttons": [
+          "parentPassword",
+          "shutdown",
+          "logoff",
+          "switchUser"
+        ],
+        "fields": [],
+        "restTimer": "",
+        "restMessage": "",
+        "exits": [],
+        "foregroundPath": "",
+        "foregroundDomain": "",
+        "closedTab": "",
+        "closedTabWay": "",
+        "promoSticker": "017",
+        "promoText": "Ура! +30 минут"
       }
     }
   },
@@ -2009,7 +2053,9 @@
         "foregroundPath": "",
         "foregroundDomain": "",
         "closedTab": "",
-        "closedTabWay": ""
+        "closedTabWay": "",
+        "promoSticker": "",
+        "promoText": ""
       }
     }
   },

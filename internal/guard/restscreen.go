@@ -70,10 +70,14 @@ func RestTimerPixels(l systray.CardLayout, r, g, b byte) []byte {
 // только плитки (TimerChanged), поэтому в подпись они не входят.
 func LayoutKey(v View, notice string) string {
 	shown := v
-	shown.Warning, shown.Rest = nil, nil
+	shown.Warning, shown.Rest, shown.Promo = nil, nil, nil
 	key := fmt.Sprintf("%+v|%s", shown, notice)
 	if v.Rest != nil {
 		key += "|rest:" + v.Rest.Message
+	}
+	if p := v.Promo; p != nil {
+		// Кадр стикера в подпись не входит: его перерисовывает только прямоугольник стикера.
+		key += fmt.Sprintf("|promo:%s|%s|%v|%d|%d", p.Sticker, p.Text, p.OK, p.Started.UnixMilli(), p.Frames)
 	}
 	return key
 }
@@ -81,6 +85,16 @@ func LayoutKey(v View, notice string) string {
 // TimerChanged: у экрана перерыва сменились цифры таймера.
 func TimerChanged(old, now View) bool {
 	return old.Rest != nil && now.Rest != nil && old.Rest.Tiles != now.Rest.Tiles
+}
+
+// StickerChanged: у стикера ответа на промокод сменился кадр.
+func StickerChanged(old, now View) bool {
+	return old.Promo != nil && now.Promo != nil && old.Promo.Frame != now.Promo.Frame
+}
+
+// StickerAnimating: стикер ещё не дошёл до последнего кадра — окну нужен таймер анимации.
+func StickerAnimating(v View) bool {
+	return v.Promo != nil && v.Promo.Frame < v.Promo.Frames-1
 }
 
 // timerText — таймер перерыва словами для отчёта стража: «00:14:59».

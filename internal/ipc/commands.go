@@ -941,6 +941,10 @@ type GuardStateReply struct {
 	// закрыта (CloseTab*). Для приёмки S16…S18 (RM4-12), заполняет страж.
 	ClosedTab    string `json:"closedTab"`
 	ClosedTabWay string `json:"closedTabWay"`
+	// PromoSticker — номер стикера ответа на промокод на экране блокировки («017»), PromoText — его
+	// надпись; пусто — ответа нет (R26, D-83, приёмка S52).
+	PromoSticker string `json:"promoSticker"`
+	PromoText    string `json:"promoText"`
 }
 
 // Виды плашек стража для GuardStateReply.PlateKind, кроме плашек о закрытых программах (их вид —

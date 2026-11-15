@@ -728,8 +728,9 @@ func (c *Controller) Run(act Action) {
 				c.setNotice(addedText(rep.AddedMin) + ". " + pron + " можно будет потратить, когда закончатся запретные часы")
 			}
 		case errors.As(err, &re) && re.Text != "":
-			// Отказ службы («Код не подходит») — у поля, панель остаётся.
-			c.model.OnPromoResult(c.now(), PromoResult{Error: re.Text})
+			// Отказ службы: по полю кода («Код не подходит») — стикер и надпись неудачи над полем
+			// (RM5b-10), другой — текст у поля; панель остаётся.
+			c.model.OnPromoResult(c.now(), PromoResult{Error: re.Text, BadCode: re.Field == ipc.FieldCode})
 		default:
 			c.setNotice(failureText(err, textNoticeRetry))
 		}
@@ -846,6 +847,12 @@ func (c *Controller) SetField(id, text string) {
 	c.fields[id] = text
 }
 
+// FieldEdited: ребёнок изменил текст в поле экрана блокировки (EN_CHANGE). Ответ на прошлый
+// неверный промокод исчезает (R26).
+func (c *Controller) FieldEdited() {
+	c.model.OnFieldEdit(c.now())
+}
+
 // StateFromView собирает ответ GuardState: что страж показывает сейчас. Все срезы не nil.
 func StateFromView(v View, lockKind string, shown []ipc.ShownWarning, sounds []ipc.ShownSound, fields map[string]string) ipc.GuardStateReply {
 	st := ipc.GuardStateReply{
@@ -872,6 +879,9 @@ func StateFromView(v View, lockKind string, shown []ipc.ShownWarning, sounds []i
 	if v.Warning != nil {
 		add(v.Warning.Buttons)
 		st.Plate, st.PlateKind = v.Warning.Text, v.Warning.Kind
+	}
+	if v.Promo != nil {
+		st.PromoSticker, st.PromoText = v.Promo.Sticker, v.Promo.Text
 	}
 	switch v.Panel {
 	case PanelPassword:
