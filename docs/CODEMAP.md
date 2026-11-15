@@ -11,7 +11,7 @@
 | `internal/auth` | 2 (1) | auth — пароль родителя: проверка длины и паузы после неверных вводов (R19); только стандартная библиотека. |
 | `internal/auth/pwhash` | 1 (1) | pwhash — хеш пароля родителя Argon2id (NFR-9): память 64 МБ, 3 прохода, строка формата PHC. |
 | `internal/core` | 13 (19) | core — ядро правил и учёта времени: активные секунды, лимиты, предупреждения, блокировка; только стандартная библиотека, всё внешнее через порты. |
-| `internal/guard` | 26 (19) | guard — страж сеанса: нативный экран блокировки Windows, который |
+| `internal/guard` | 28 (20) | guard — страж сеанса: нативный экран блокировки Windows, который |
 | `internal/ipc` | 17 (9) | ipc — канал связи службы программы с её окнами, стражем сеанса и значком на том |
 | `internal/launch` | 1 (1) | launch разбирает ключи запуска программы: в каком режиме работает PCBlock.exe. |
 | `internal/programs` | 3 (6) | programs — классификация программ по пути exe (веха M3: R12, R13, RM3-1, RM3-12): |
@@ -59,6 +59,7 @@
 - `src/components/PausePicker.tsx`
 - `src/components/PeriodTabs.tsx`
 - `src/components/PromoRedeem.tsx`
+- `src/components/PromoSticker.tsx`
 - `src/components/RestSettings.tsx`
 - `src/components/SaveBar.tsx`
 - `src/components/ScheduleEditor.tsx`
@@ -85,6 +86,8 @@
 - `src/lib/schedule.ts`
 - `src/lib/sites.ts`
 - `src/lib/status.ts`
+- `src/lib/stickerData.ts`
+- `src/lib/stickers.ts`
 - `src/main.tsx`
 - `src/screens/Bonus.tsx`
 - `src/screens/ChildLimits.tsx`
