@@ -55,7 +55,8 @@ type app struct {
 	board     *systray.WarningCard
 	boardFail time.Time // когда не удалось создать окно табло; повтор не чаще boardRetry
 	hookTried bool
-	animOn    bool // идёт таймер кадров стикера (animTimerID)
+	anim      *stickerAnim // шаг кадров стикера промокода; nil — стикер не движется
+	roundFor  time.Time    // начало показа удачи, для которого конец круга уже сверен с моделью
 }
 
 // lazyCaller открывает канал службы при первом запросе и после обрыва: страж обязан
@@ -292,7 +293,7 @@ func (a *app) onEdit(text string) {
 		id = FieldPromoID
 	}
 	a.ctl.SetField(id, text)
-	a.ctl.FieldEdited() // новый ввод: ответ на прошлый неверный промокод исчезает (R26)
+	a.ctl.FieldEdited() // ввод — нажатие: срок без нажатий панели промокода идёт заново (R26, D-85)
 	// Перерисовать следующим сообщением, а не внутри уведомления поля (оно ещё в своём обработчике).
 	procPostMessage.Call(a.host, wmAppRefresh, 0, 0)
 }
@@ -347,19 +348,38 @@ func (a *app) applyLock(v View) {
 	}
 }
 
-// applyAnim держит таймер кадров стикера промокода, пока кадр меняется, и снимает его после
-// последнего кадра: лишних пробуждений потока окон нет.
+// applyAnim держит шаг кадров стикера промокода, пока стикер на экране и движется, и останавливает
+// его, когда ответа нет (панель закрыта, экран снят): лишних пробуждений потока окон нет.
 func (a *app) applyAnim(v View) {
 	want := v.LockShown && StickerAnimating(v)
-	if want == a.animOn {
+	if want == (a.anim != nil) {
 		return
 	}
 	if want {
-		procSetTimer.Call(a.host, animTimerID, animEveryMs, 0)
+		a.anim = startStickerAnim(a.host)
 	} else {
-		procKillTimer.Call(a.host, animTimerID)
+		a.anim.close()
+		a.anim = nil
 	}
-	a.animOn = want
+}
+
+// animFrame — шаг кадров стикера: вывести кадр, если он сменился. Круг удачи кончился — сверить
+// экран с моделью сразу (экран исчезает по концу круга, а не по тику 250 мс).
+func (a *app) animFrame() {
+	if a.anim == nil {
+		return // шаг остановлен, сообщение опоздало
+	}
+	a.anim.handled()
+	if a.ui == nil || a.lock == nil || !a.lock.Visible() {
+		return
+	}
+	now := time.Now()
+	if p := a.ui.view.Promo; StickerRoundEnded(p, now) && !p.Started.Equal(a.roundFor) {
+		a.roundFor = p.Started
+		a.tick()
+		return
+	}
+	a.ui.animate(now)
 }
 
 // applyPlate показывает плашку предупреждения или прячет её: табло за 30/15/5 мин — общей
@@ -407,6 +427,10 @@ func (a *app) applyPlate(v View) {
 
 // shutdown убирает окна и перехват клавиш.
 func (a *app) shutdown() {
+	if a.anim != nil {
+		a.anim.close()
+		a.anim = nil
+	}
 	if a.lock != nil {
 		a.lock.RemoveKeyboardGuard()
 		procDestroyWindow.Call(a.lock.hwnd)
@@ -449,6 +473,11 @@ func hostProc(hwnd, msg, wParam, lParam uintptr) uintptr {
 	case wmTimer, wmAppRefresh:
 		if a != nil && a.ctl != nil {
 			safely(a.tick)
+		}
+		return 0
+	case wmAppStickerFrame:
+		if a != nil && a.ctl != nil {
+			safely(a.animFrame)
 		}
 		return 0
 	case wmQueryEndSession:

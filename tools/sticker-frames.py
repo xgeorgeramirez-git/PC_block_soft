@@ -4,7 +4,8 @@
 Берёт стикер assets/stickers/<n>.tgs (gzip Lottie JSON, 60 кадров/с), проигрывает его
 тем же проигрывателем, что и окно ребёнка (frontend/src/vendor/lottie_light.min.js,
 renderer "svg"), в установленном Chrome через Playwright и снимает каждый
-(60 / fps)-й кадр с прозрачным фоном. Кадры кладутся в горизонтальный спрайт
+(60 / fps)-й кадр с прозрачным фоном (по умолчанию 30 кадров/с, D-84: каждый
+второй). Кадры кладутся в горизонтальный спрайт
 internal/guard/assets/stickers/<n>.png (палитра 256 цветов с прозрачностью),
 число кадров - в internal/guard/assets/stickers/frames.json.
 
@@ -12,7 +13,7 @@ internal/guard/assets/stickers/<n>.png (палитра 256 цветов с пр�
 в CI генератор не идёт. Пример:
 
     python3 -I tools/sticker-frames.py            # 17 стикеров промокода (R26)
-    python3 -I tools/sticker-frames.py 017 023 --size 240 --fps 12
+    python3 -I tools/sticker-frames.py 017 023 --size 240 --fps 30
 """
 
 import argparse
@@ -35,7 +36,7 @@ def parse_args(argv):
     p = argparse.ArgumentParser(description="Кадры стикеров для стража (спрайт PNG).")
     p.add_argument("numbers", nargs="*", default=PROMO, help="номера стикеров (по умолчанию 17 из R26)")
     p.add_argument("--size", type=int, default=300, help="сторона кадра, px (300)")
-    p.add_argument("--fps", type=int, default=12, help="кадров в секунду (12: при 15 бюджет 4 МБ не влезает)")
+    p.add_argument("--fps", type=int, default=30, help="кадров в секунду (30: плавный показ по кругу, D-84; бюджет 10 МБ)")
     p.add_argument("--src", type=pathlib.Path, default=ROOT / "assets" / "stickers")
     p.add_argument("--out", type=pathlib.Path, default=ROOT / "internal" / "guard" / "assets" / "stickers")
     p.add_argument("--player", type=pathlib.Path, default=ROOT / "frontend" / "src" / "vendor" / "lottie_light.min.js")

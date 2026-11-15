@@ -30,6 +30,24 @@ func TestStickerFramesIndexListsPromoStickers(t *testing.T) {
 	}
 }
 
+// Ловит: кадры стикеров реже 30 в секунду (D-84: на экране блокировки движение плавное) или
+// спрайты остались от прежних 12 кадров/с.
+func TestStickerFPS30(t *testing.T) {
+	if StickerFPS != 30 {
+		t.Fatalf("StickerFPS = %d, want 30", StickerFPS)
+	}
+	counts, err := stickerFrameCounts()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 017 — 162 кадра исходных 60/с, каждый второй; 044 — 180 (ровно 3 с); 050 — самый короткий.
+	for n, want := range map[string]int{"017": 81, "044": 90, "050": 59, "023": 79} {
+		if counts[n] != want {
+			t.Fatalf("стикер %s: кадров %d, want %d", n, counts[n], want)
+		}
+	}
+}
+
 func TestStickerSpritesMatchIndex(t *testing.T) {
 	counts, err := stickerFrameCounts()
 	if err != nil {
@@ -70,8 +88,9 @@ func TestStickerSpritesMatchIndex(t *testing.T) {
 		}
 		checkStickerAlpha(t, n, img, frames)
 	}
-	if total > 4<<20 {
-		t.Fatalf("стикеры вместе %d байт, бюджет 4 МБ (%d)", total, 4<<20)
+	// Бюджет 10 МБ (D-84: 30 кадров/с; установщик 28,5 МБ при пределе NFR-4 40 МБ).
+	if total > 10<<20 {
+		t.Fatalf("стикеры вместе %d байт, бюджет 10 МБ (%d)", total, 10<<20)
 	}
 	t.Logf("стикеры вместе %d байт", total)
 }

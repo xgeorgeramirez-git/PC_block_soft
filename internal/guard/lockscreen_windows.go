@@ -5,6 +5,7 @@ package guard
 import (
 	"fmt"
 	"strings"
+	"time"
 	"unsafe"
 
 	"pcblock/internal/systray"
@@ -108,12 +109,7 @@ func (u *lockUI) apply(v View, notice string) {
 			u.view.Rest = v.Rest
 			invalidateRect(u.w.hwnd, u.rest.tilesRc)
 		}
-		if StickerChanged(u.view, v) {
-			u.view.Promo = v.Promo
-			if u.sticker.show {
-				invalidateRect(u.w.hwnd, u.sticker.rc) // только стикер: кнопки и поле не трогаются
-			}
-		}
+		// Кадр стикера между видами выводит animate (шаг кадров), вид его не перерисовывает.
 		return
 	}
 	u.sig = key
@@ -279,7 +275,8 @@ func (u *lockUI) layout() {
 	u.rest.showCat, u.rest.showTiles = false, false
 	u.sticker.show = false
 	if v.Promo == nil {
-		u.sticker.free() // ответа нет: полоса кадров (до 13 МБ при 150 %) не держится; при снятии экрана — hideSticker
+		u.sticker.free() // ответа нет: полоса кадров (до 35 МБ при 150 %) не держится; при снятии экрана — hideSticker
+		ClearStickerCache()
 	}
 	want := map[Button]rect{}
 	var order []Button
@@ -513,7 +510,7 @@ func (u *lockUI) restFont(px int, bold bool) uintptr {
 func (u *lockUI) paint(hdc uintptr, rc *rect) {
 	u.paintRest(hdc)
 	if u.view.Promo != nil {
-		u.sticker.paint(hdc, u.view.Promo.Frame)
+		u.sticker.paint(hdc, StickerFrame(u.view.Promo, time.Now()))
 	}
 	for _, t := range u.texts {
 		drawWrapped(hdc, t.font, t.color, t.text, t.rc, dtCenter)
@@ -525,6 +522,25 @@ func (u *lockUI) paint(hdc uintptr, rc *rect) {
 		}
 		roundBox(hdc, u.frame, colorSurface, line, lw, Scaled(6, u.dpi))
 	}
+}
+
+// animate выводит кадр стикера на момент now прямо в окно, если номер кадра сменился: один BitBlt
+// прямоугольника стикера, остальной экран не перерисовывается.
+func (u *lockUI) animate(now time.Time) {
+	p := u.view.Promo
+	if p == nil || !u.sticker.show || u.sticker.mem == 0 || u.w.hwnd == 0 {
+		return
+	}
+	f := StickerFrame(p, now)
+	if f == u.sticker.cur {
+		return
+	}
+	hdc, _, _ := procGetDC.Call(u.w.hwnd)
+	if hdc == 0 {
+		return
+	}
+	u.sticker.paint(hdc, f)
+	procReleaseDC.Call(u.w.hwnd, hdc)
 }
 
 // handle разбирает сообщения окна, которые само окно не разбирает.
@@ -550,11 +566,15 @@ func (u *lockUI) handle(msg uint32, wParam, lParam uintptr) (uintptr, bool) {
 		}
 		return 0, true
 	case wmAppStickerReady:
-		// Кадры стикера готовы: перестроить экран (раскладка возьмёт их из кэша).
+		// Полоса кадров стикера собрана: перестроить экран (раскладка заберёт её).
 		u.sticker.ready(wParam != 0)
 		if u.view.Promo != nil {
 			u.sig = ""
 			u.layout()
+		} else {
+			// Ответа уже нет (панель закрыта, пока шла сборка): собранное не держится.
+			u.sticker.free()
+			ClearStickerCache()
 		}
 		return 0, true
 	case wmDrawItem:
@@ -635,7 +655,7 @@ func (u *lockUI) mainButton() Button {
 	return ButtonNone
 }
 
-// hideSticker: экран снят — полоса кадров стикера (до 13 МБ GDI) и кэш разобранных кадров не
+// hideSticker: экран снят — полоса кадров стикера (до 35 МБ GDI) и кэш разобранных кадров не
 // держатся. Следующий показ экрана перестроится заново (подпись вида сброшена).
 func (u *lockUI) hideSticker() {
 	u.sticker.free()

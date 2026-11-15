@@ -1,6 +1,10 @@
 package guard
 
 import (
+	"bytes"
+	"image"
+	"image/draw"
+	"image/png"
 	"os"
 	"regexp"
 	"strings"
@@ -225,23 +229,28 @@ func TestStickerPxByDPI(t *testing.T) {
 	}
 }
 
-// Ловит: кадр по времени считается не от начала показа, выходит за последний или крутится по
-// кругу; при выключенных анимациях Windows стикер всё равно движется.
+// Ловит: кадр по времени считается не от начала показа, не 30 в секунду, останавливается на
+// последнем вместо круга (D-84); при выключенных анимациях Windows стикер всё равно движется.
 func TestStickerFrameAt(t *testing.T) {
 	for _, c := range []struct {
 		ms, frames int
 		still      bool
 		want       int
 	}{
-		{0, 33, false, 0},
-		{82, 33, false, 0},
-		{84, 33, false, 1},
-		{1000, 33, false, 12},
-		{2700, 33, false, 32},
-		{9000, 33, false, 32},
-		{-50, 33, false, 0},
-		{0, 33, true, 32},
+		{0, 81, false, 0},
+		{33, 81, false, 0},
+		{34, 81, false, 1},
+		{1000, 81, false, 30},
+		{2699, 81, false, 80},
+		{2700, 81, false, 0}, // второй круг
+		{2800, 81, false, 3},
+		{9000, 81, false, 27}, // 270 по модулю 81
+		{3600000, 90, false, 0},
+		{-50, 81, false, 0},
+		{0, 81, true, 80},
+		{9000, 81, true, 80},
 		{0, 0, false, 0},
+		{500, 1, false, 0},
 	} {
 		if got := stickerFrameAt(at(0), at(0).Add(msDur(c.ms)), c.frames, c.still); got != c.want {
 			t.Fatalf("stickerFrameAt(%d мс, %d кадров, still=%v) = %d, want %d", c.ms, c.frames, c.still, got, c.want)
@@ -315,5 +324,159 @@ func TestStickerFramesConcurrent(t *testing.T) {
 	stickerCacheMu.Unlock()
 	if n != 0 {
 		t.Fatalf("после разборов висят отметки: %d", n)
+	}
+}
+
+// Ловит: в кэше лежат кадры двух стикеров сразу (при 150 % один стикер из 90 кадров — 32 МБ,
+// два — 65 МБ в памяти стража): держится только последний набор.
+func TestStickerCacheHoldsOneSet(t *testing.T) {
+	ClearStickerCache()
+	defer ClearStickerCache()
+	if stickerCacheSize != 1 {
+		t.Fatalf("stickerCacheSize = %d, want 1", stickerCacheSize)
+	}
+	if _, err := StickerFramesBGRA("050", 200); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := StickerFramesBGRA("093", 200); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := stickerFramesCached("050", 200); ok {
+		t.Fatal("прошлый стикер остался в кэше")
+	}
+	if _, ok := stickerFramesCached("093", 200); !ok {
+		t.Fatal("последнего стикера в кэше нет")
+	}
+	if _, err := StickerFramesBGRA("093", 250); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := stickerFramesCached("093", 200); ok {
+		t.Fatal("тот же стикер другого размера остался в кэше вторым набором")
+	}
+	stickerCacheMu.Lock()
+	n := len(stickerCache)
+	stickerCacheMu.Unlock()
+	if n != 1 {
+		t.Fatalf("наборов в кэше %d, want 1", n)
+	}
+}
+
+// Ловит: быстрый разбор палитрового спрайта даёт другие пиксели, чем общий путь через NRGBA
+// (предумножение, порядок BGRA, усреднение по площади).
+func TestStickerDecodePalettedMatchesGeneric(t *testing.T) {
+	data, err := stickerSprite("050")
+	if err != nil {
+		t.Fatal(err)
+	}
+	img, err := png.Decode(bytes.NewReader(data))
+	if err != nil {
+		t.Fatal(err)
+	}
+	pal, ok := img.(*image.Paletted)
+	if !ok {
+		t.Fatalf("спрайт не палитровый: %T", img)
+	}
+	src := image.NewNRGBA(img.Bounds())
+	draw.Draw(src, src.Bounds(), img, img.Bounds().Min, draw.Src)
+	for _, px := range []int{200, 250, 300} {
+		for _, f := range []int{0, 30, 58} {
+			want := scaleBGRA(src, f*StickerFramePx, StickerFramePx, px)
+			got := scalePalettedBGRA(pal, f*StickerFramePx, StickerFramePx, px)
+			if !bytes.Equal(got, want) {
+				t.Fatalf("кадр %d, %d px: быстрый разбор отличается от общего", f, px)
+			}
+		}
+	}
+}
+
+// Замер (Ruling 0.6.1): разбор самого длинного стикера (90 кадров) при 100 % и 150 %. Разбор идёт
+// вне потока окон; порог — с большим запасом, чтобы ловить только поломку (секунды вместо долей).
+func TestStickerDecodeTime(t *testing.T) {
+	for _, px := range []int{200, 300} {
+		ClearStickerCache()
+		start := time.Now()
+		frames, err := StickerFramesBGRA("096", px)
+		took := time.Since(start)
+		if err != nil || len(frames) != 90 {
+			t.Fatalf("096 при %d px: %d кадров, %v", px, len(frames), err)
+		}
+		bytesTotal := 0
+		for _, f := range frames {
+			bytesTotal += len(f)
+		}
+		if want := 90 * px * px * 4; bytesTotal != want {
+			t.Fatalf("096 при %d px: %d байт кадров, want %d", px, bytesTotal, want)
+		}
+		t.Logf("096, 90 кадров, %d px: разбор %v, кадры %.1f МБ", px, took.Round(time.Millisecond), float64(bytesTotal)/(1<<20))
+		if took > 10*time.Second {
+			t.Fatalf("разбор 90 кадров при %d px занял %v", px, took)
+		}
+	}
+	ClearStickerCache()
+}
+
+// Ловит: полоса кадров в памяти — одна строка шириной до 27000 px (90 кадров по 300): кадры лежат
+// сеткой по 8 в ряд, клетка кадра считается по номеру.
+func TestStickerStripGrid(t *testing.T) {
+	if StickerStripCols != 8 {
+		t.Fatalf("StickerStripCols = %d, want 8", StickerStripCols)
+	}
+	for _, c := range []struct{ frames, w, h int }{{90, 8, 12}, {81, 8, 11}, {8, 8, 1}, {9, 8, 2}, {5, 5, 1}, {1, 1, 1}, {0, 0, 0}} {
+		if w, h := StickerStripSize(c.frames); w != c.w || h != c.h {
+			t.Fatalf("StickerStripSize(%d) = %d×%d, want %d×%d", c.frames, w, h, c.w, c.h)
+		}
+	}
+	for f, want := range map[int][2]int{0: {0, 0}, 7: {7, 0}, 8: {0, 1}, 89: {1, 11}} {
+		if col, row := StickerStripCell(f); col != want[0] || row != want[1] {
+			t.Fatalf("StickerStripCell(%d) = %d,%d, want %v", f, col, row, want)
+		}
+	}
+}
+
+// Ловит: полоса кадров собрана не на фоне экрана (прозрачное даёт чёрное), кадр лежит не в своей
+// клетке или строки кадра сдвинуты; размер полосы не по сетке.
+func TestStickerStripOver(t *testing.T) {
+	const px = 3
+	frames := make([][]byte, 10)
+	for f := range frames {
+		fr := make([]byte, px*px*4)
+		for i := 0; i < px*px; i++ {
+			// Пиксель 0 каждого кадра прозрачный, остальные непрозрачные: синий = номер кадра, зелёный = номер пикселя.
+			if i > 0 {
+				fr[i*4], fr[i*4+1], fr[i*4+2], fr[i*4+3] = byte(f+1), byte(i), 7, 255
+			}
+		}
+		frames[f] = fr
+	}
+	strip, w, h := StickerStripOver(frames, px, 0x12, 0x34, 0x56)
+	if w != 8*px || h != 2*px || len(strip) != w*h*4 {
+		t.Fatalf("полоса %d×%d, %d байт, want 24×6", w, h, len(strip))
+	}
+	at := func(x, y int) [4]byte { o := (y*w + x) * 4; return [4]byte(strip[o : o+4]) }
+	// Кадр 9 — клетка (1, 1): пиксель 0 — фон экрана (BGR 56 34 12), пиксель 5 (x=2, y=1) — свой.
+	if got := at(1*px, 1*px); got != [4]byte{0x56, 0x34, 0x12, 255} {
+		t.Fatalf("прозрачный пиксель кадра 9: %v, ждали фон", got)
+	}
+	if got := at(1*px+2, 1*px+1); got != [4]byte{10, 5, 7, 255} {
+		t.Fatalf("пиксель 5 кадра 9: %v", got)
+	}
+	if got := at(7*px+1, 0); got != [4]byte{8, 1, 7, 255} {
+		t.Fatalf("пиксель 1 кадра 7: %v", got)
+	}
+	// Клетки без кадров (10…15) залиты фоном.
+	if got := at(5*px+1, 1*px+1); got != [4]byte{0x56, 0x34, 0x12, 255} {
+		t.Fatalf("пустая клетка: %v", got)
+	}
+	// Клетка совпадает с OverBackground кадра.
+	want := OverBackground(frames[3], 0x12, 0x34, 0x56)
+	for y := 0; y < px; y++ {
+		for x := 0; x < px; x++ {
+			if got := at(3*px+x, y); got != [4]byte(want[(y*px+x)*4:(y*px+x)*4+4]) {
+				t.Fatalf("кадр 3, пиксель %d,%d: %v", x, y, got)
+			}
+		}
+	}
+	if s, w, h := StickerStripOver(nil, px, 0, 0, 0); len(s) != 0 || w != 0 || h != 0 {
+		t.Fatal("полоса без кадров не пустая")
 	}
 }

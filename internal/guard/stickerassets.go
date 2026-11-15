@@ -19,9 +19,9 @@ var stickerFS embed.FS
 // StickerFramePx - сторона кадра спрайта (при 150 %; меньше - усреднением).
 const StickerFramePx = 300
 
-// StickerFPS - кадров в секунду в спрайтах (каждый 5-й кадр исходных 60):
-// при 15 кадрах/с 17 стикеров не помещались в бюджет 4 МБ (4,17 МБ, Ruling T7).
-const StickerFPS = 12
+// StickerFPS - кадров в секунду в спрайтах (каждый 2-й кадр исходных 60): движение плавное
+// (D-84: не меньше 30). 17 стикеров вместе - около 8 МБ при бюджете 10 МБ.
+const StickerFPS = 30
 
 var (
 	stickerCountsOnce sync.Once

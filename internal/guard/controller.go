@@ -142,13 +142,15 @@ func (c *Controller) SetStickerWarmer(warm func(sticker string)) {
 	c.mu.Unlock()
 }
 
-// warmSticker готовит кадры показанного стикера, если он есть.
+// warmSticker готовит кадры показанного стикера, если он есть, и начинает показ заново с первого
+// кадра: разбор до 90 кадров занимает долю секунды, круг стикера должен пройти целиком.
 func (c *Controller) warmSticker() {
 	c.mu.Lock()
 	warm := c.warm
 	c.mu.Unlock()
 	if p := c.model.View(c.now()).Promo; p != nil && warm != nil {
 		safely(func() { warm(p.Sticker) })
+		c.model.PromoReady(c.now())
 	}
 }
 
@@ -652,6 +654,9 @@ func (c *Controller) Press(b Button, password string) Action {
 	c.mu.Lock()
 	if c.busy && actsOnService(b) {
 		c.mu.Unlock()
+		if b == ButtonSubmitPromo {
+			c.model.OnFieldEdit(c.now()) // нажатие есть, хоть и без действия: срок без нажатий идёт заново
+		}
 		return Action{}
 	}
 	c.mu.Unlock()
@@ -871,8 +876,8 @@ func (c *Controller) SetField(id, text string) {
 // SetAnimations передаёт модели, включены ли анимации Windows (стикер промокода без движения, R26).
 func (c *Controller) SetAnimations(on bool) { c.model.SetAnimations(on) }
 
-// FieldEdited: ребёнок изменил текст в поле экрана блокировки (EN_CHANGE). Ответ на прошлый
-// неверный промокод исчезает (R26).
+// FieldEdited: ребёнок изменил текст в поле экрана блокировки (EN_CHANGE). На панели промокода
+// срок без нажатий идёт заново; ответ на прошлый неверный код остаётся (R26, D-85).
 func (c *Controller) FieldEdited() {
 	c.model.OnFieldEdit(c.now())
 }
