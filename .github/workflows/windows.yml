@@ -13,7 +13,7 @@ on:
   workflow_dispatch:
     inputs:
       scenario:
-        description: "Что прогнать после сборки: пусто = обычная сборка, smoke = ранний смоук службы (tools/accept/smoke.ps1), accept = приёмка S1...S22, S25...S27, S33...S49, S51, S52, LE1, LE2, FB1, FB5, PROBE (tools/accept/run-all.ps1), probe = проба Brave (TestBraveProbe, M4 T0)"
+        description: "Что прогнать после сборки: пусто = обычная сборка, smoke = ранний смоук службы (tools/accept/smoke.ps1), accept = приёмка S1...S22, S25...S27, S33...S52, LE1, LE2, FB1, FB5, PROBE (tools/accept/run-all.ps1), probe = проба Brave (TestBraveProbe, M4 T0)"
         required: false
         default: ""
         type: string

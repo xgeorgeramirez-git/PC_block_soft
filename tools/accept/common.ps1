@@ -48,6 +48,10 @@ $script:CloseToleranceMs = 1500
 $script:BraveProfile = Join-Path $script:Work "brave-profile"
 $script:TabToleranceMs = 3000
 $script:MySid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+# Записи автозагрузки приёмки S50 (M5b): своя — в Run учётки раннера, общая — в HKLM\…\Run. Reset-Machine
+# убирает их значения из Run и StartupApproved\Run (Remove-StartupTestValues).
+$script:StartupTestNotes = "PCBNotesTest"
+$script:StartupTestShared = "PCBSharedTest"
 $script:MySession = (Get-Process -Id $PID).SessionId
 $script:PsExe = (Get-Process -Id $PID).Path
 $script:Tag = ""
@@ -572,6 +576,19 @@ function Restart-PcbService {
   Write-Log ("Служба перезапущена за {0:N1} с без перезаписи TestMode: настроена {1}{2}" -f $sw.Elapsed.TotalSeconds, $hello.configured, $clock)
 }
 
+# Убирает записи автозагрузки приёмки S50 из Run и StartupApproved\Run учётки раннера и HKLM. Ничего не бросает.
+function Remove-StartupTestValues {
+  $tail = "Software\Microsoft\Windows\CurrentVersion"
+  $keys = @(
+    @{ Root = "Registry::HKEY_USERS\$($script:MySid)\$tail"; Name = $script:StartupTestNotes },
+    @{ Root = "Registry::HKEY_LOCAL_MACHINE\$tail"; Name = $script:StartupTestShared })
+  foreach ($k in $keys) {
+    foreach ($sub in @("Run", "Explorer\StartupApproved\Run")) {
+      try { Remove-ItemProperty -LiteralPath "$($k.Root)\$sub" -Name $k.Name -Force -ErrorAction SilentlyContinue } catch {}
+    }
+  }
+}
+
 # Приводит машину к чистому состоянию. Вызывается в начале и в конце сценария и ничего не бросает.
 function Reset-Machine {
   Close-PipeConn
@@ -599,6 +616,7 @@ function Reset-Machine {
   Stop-AllPcb
   try { Remove-ItemProperty -Path "Registry::HKEY_USERS\$($script:MySid)\Software\Microsoft\Windows\CurrentVersion\Policies\System" -Name DisableTaskMgr -ErrorAction SilentlyContinue } catch {}
   try { Remove-Item -Path "Registry::HKEY_USERS\$($script:MySid)\Software\Policies\BraveSoftware\Brave" -Recurse -Force -ErrorAction SilentlyContinue } catch {}
+  Remove-StartupTestValues
   try { Remove-Item -LiteralPath $script:Data -Recurse -Force -ErrorAction SilentlyContinue } catch {}
   try { Remove-Item -LiteralPath $script:DefaultData -Recurse -Force -ErrorAction SilentlyContinue } catch {}
   try { Remove-TestUser } catch {}
