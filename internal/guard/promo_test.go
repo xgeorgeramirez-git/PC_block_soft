@@ -509,3 +509,18 @@ func TestPromoSuccessWithoutLockScreen(t *testing.T) {
 		t.Fatalf("без экрана: shown=%v promo=%+v plate=%+v", v.LockShown, v.Promo, v.Warning)
 	}
 }
+
+// Ловит: опрос стража получил «без блокировки» раньше ответа на промокод — экран спрятан, а ответ
+// возвращает его со старым текстом и перехватом клавиш на время стикера (мигание, ревью T9).
+func TestPromoSuccessAfterLockLifted(t *testing.T) {
+	m := promoModel(t, timeUpDecision())
+	m.Press(t0, ButtonSubmitPromo, "ab12")
+	m.OnDecision(at(200*time.Millisecond), runningDecision(1800), false, nil)
+	if v := m.View(at(200 * time.Millisecond)); v.LockShown {
+		t.Fatal("экран не снят решением без блокировки")
+	}
+	m.OnPromoResult(at(300*time.Millisecond), PromoResult{OK: true, Minutes: 30})
+	if v := m.View(at(400 * time.Millisecond)); v.LockShown || v.SuppressKeys || v.Promo != nil || v.Warning != nil {
+		t.Fatalf("ответ вернул экран: shown=%v keys=%v promo=%+v plate=%+v", v.LockShown, v.SuppressKeys, v.Promo, v.Warning)
+	}
+}
