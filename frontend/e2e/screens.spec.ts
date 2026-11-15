@@ -1272,7 +1272,9 @@ async function stickerInPlace(page: Page, box: ReturnType<Page["locator"]>, smal
   const below = s.top >= send.bottom;
   if (small) {
     expect(below, `в узком окне стикер под кнопкой: ${JSON.stringify({ s, send })}`).toBe(true);
-    expect(lines, `надпись в ${lines} строк: ${JSON.stringify(text)}`).toBeLessThanOrEqual(2);
+    // 480 уже самого узкого окна ребёнка: надпись рядом со стикером (не уже 220 px) может занять 3 строки.
+    const maxLines = (page.viewportSize()?.width ?? 960) < 640 ? 3 : 2;
+    expect(lines, `надпись в ${lines} строк: ${JSON.stringify(text)}`).toBeLessThanOrEqual(maxLines);
   } else {
     if (!below) {
       expect(s.left, "стикер справа от поля").toBeGreaterThanOrEqual(field.right);
