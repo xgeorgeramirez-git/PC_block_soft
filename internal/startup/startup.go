@@ -69,7 +69,7 @@ func DisplayName(e Entry) string {
 }
 
 // Hidden — запись не показывается и не выключается (RM5b-7, Global Constraint 8): пустая
-// команда, задание под \Microsoft\, exe под windir (кроме windir\Temp, куда пишут установщики),
+// команда, задание под \Microsoft\, системное приложение магазина (SystemPackage), exe под windir (кроме windir\Temp, куда пишут установщики),
 // exe в папке установки PC Block. Пустой windir или pcblockDir — эта проверка не делается;
 // exe не разобран (e.Exe пусто) — запись показывается.
 func Hidden(e Entry, windir, pcblockDir string) bool {
@@ -77,6 +77,9 @@ func Hidden(e Entry, windir, pcblockDir string) bool {
 		return true
 	}
 	if e.Source == SrcTask && hasPrefixFold(e.Task, `\Microsoft\`) {
+		return true
+	}
+	if e.Source == SrcStore && SystemPackage(e.Package) {
 		return true
 	}
 	exe := normPath(e.Exe)
@@ -87,6 +90,26 @@ func Hidden(e Entry, windir, pcblockDir string) bool {
 		return true
 	}
 	return under(exe, pcblockDir)
+}
+
+// Системные семейства пакетов магазина (компоненты Windows): у их записей нет exe, поэтому
+// правило «exe под windir» к ним не применяется (Global Constraint 8).
+var (
+	systemPackagePrefixes = []string{"MicrosoftWindows.", "Microsoft.Windows.", "Windows.", "Microsoft.SecHealthUI_"}
+	// systemPublisherID — издатель компонентов Windows (CN=Microsoft Windows) в имени семейства.
+	systemPublisherID = "_cw5n1h2txyewy"
+)
+
+// SystemPackage — семейство пакета pfn («Имя_ИздательID») — компонент Windows: имя с префиксом
+// MicrosoftWindows., Microsoft.Windows., Windows., Microsoft.SecHealthUI_ (без регистра) или
+// издатель cw5n1h2txyewy. Приложения Microsoft из магазина (Teams, Терминал) — не системные.
+func SystemPackage(pfn string) bool {
+	for _, p := range systemPackagePrefixes {
+		if hasPrefixFold(pfn, p) {
+			return true
+		}
+	}
+	return strings.HasSuffix(strings.ToLower(pfn), systemPublisherID)
 }
 
 func hasPrefixFold(s, prefix string) bool {

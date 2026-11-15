@@ -368,6 +368,15 @@ func TestHidden(t *testing.T) {
 		{"путь Microsoft не у задания", Entry{Source: SrcRun, Task: `\Microsoft\x`, Command: "x", Exe: `C:\App\a.exe`}, false},
 		{"exe не разобран", Entry{Source: SrcRun, Command: "x"}, false},
 		{"приложение магазина", Entry{Source: SrcStore, Command: "x", Package: "SpotifyAB.SpotifyMusic_zpdnekdrzrea0"}, false},
+		{"Teams не системный", Entry{Source: SrcStore, Command: "x", Package: "MSTeams_8wekyb3d8bbwe"}, false},
+		{"Терминал не системный", Entry{Source: SrcStore, Command: "x", Package: "Microsoft.WindowsTerminal_8wekyb3d8bbwe"}, false},
+		{"MicrosoftWindows.*", Entry{Source: SrcStore, Command: "x", Package: "MicrosoftWindows.Client.CBS_aaaaaaaaaaaaa"}, true},
+		{"Microsoft.Windows.*", Entry{Source: SrcStore, Command: "x", Package: "microsoft.windows.ShellExperienceHost_aaaaaaaaaaaaa"}, true},
+		// Префиксы проверяются с чужим издателем: у настоящих компонентов издатель ещё и cw5n1h2txyewy.
+		{"Windows.*", Entry{Source: SrcStore, Command: "x", Package: "Windows.PrintDialog_aaaaaaaaaaaaa"}, true},
+		{"издатель компонентов Windows", Entry{Source: SrcStore, Command: "x", Package: "Microsoft.AAD.BrokerPlugin_CW5N1H2TXYEWY"}, true},
+		{"Безопасность Windows", Entry{Source: SrcStore, Command: "x", Package: "Microsoft.SecHealthUI_8wekyb3d8bbwe"}, true},
+		{"системное имя не у магазина", Entry{Source: SrcRun, Command: "x", Package: "MicrosoftWindows.Client.CBS_cw5n1h2txyewy", Exe: `C:\App.exe`}, false},
 	} {
 		if got := Hidden(tc.e, windir, pcb); got != tc.want {
 			t.Errorf("%s: Hidden = %v, want %v", tc.name, got, tc.want)
