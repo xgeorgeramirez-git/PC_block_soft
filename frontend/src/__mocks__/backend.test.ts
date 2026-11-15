@@ -667,7 +667,13 @@ describe("«Автозагрузка» (FR-39, 8.3.11)", () => {
     expect((await api.listStartup(1)).own.map((x) => x.id)).toEqual([1, 2, 3, 7]);
     expect((await api.listStartup(1)).shared.map((x) => x.decision)).toEqual(["on", "on"]);
     expect((await api.listStartup(2)).pending.map((x) => x.id)).toEqual([7]);
+    // «Оставить выключенной» (8.3.11 п.2): ждущая запись получает решение off и уходит в свой блок.
+    const kept = await api.setStartup(2, 7, false);
+    expect([kept.item.decision, kept.message]).toEqual(["off", "Не будет запускаться при входе Даши"]);
+    const dasha = await api.listStartup(2);
+    expect([dasha.pending, dasha.own.map((x) => [x.id, x.decision])]).toEqual([[], [[1, "on"], [2, "on"], [3, "off"], [7, "off"]]]);
     expect(mock.state.events.map((e) => [e.kind, e.text])).toEqual([
+      ["startup_decided", "Даша: автозагрузка «notes» выключена"],
       ["startup_decided", "Даша: автозагрузка «Adobe Updater» выключена"],
       ["startup_decided", "Миша: автозагрузка «notes» включена"],
     ]);

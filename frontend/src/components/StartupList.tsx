@@ -79,9 +79,12 @@ export default function StartupList({ childId, childName }: Props) {
     setFocusId(null);
   }, [focusId, shown]);
 
-  const toggle = async (item: StartupItemView, e: MouseEvent<HTMLButtonElement>) => {
+  /**
+   * Решение по строке: выключатель шлёт противоположное показанному, «Оставить выключенной» у
+   * ждущей записи - on = false (8.3.11 п.2). Фокус был в строке - после переезда он на её выключателе.
+   */
+  const decide = async (item: StartupItemView, on: boolean, e: MouseEvent<HTMLButtonElement>) => {
     if (pressing[item.id] !== undefined) return;
-    const on = item.decision !== "on";
     const hadFocus = document.activeElement === e.currentTarget;
     const id = childId;
     setPressing((p) => ({ ...p, [item.id]: on }));
@@ -143,7 +146,7 @@ export default function StartupList({ childId, childName }: Props) {
         {lead ? <p className="startup-lead">{lead}</p> : null}
         <ul className="startup-list">
           {items.map((item) => (
-            <StartupRow key={item.id} item={item} pressed={pressing[item.id]} onToggle={(ev) => void toggle(item, ev)} />
+            <StartupRow key={item.id} item={item} pressed={pressing[item.id]} onDecide={(on, ev) => void decide(item, on, ev)} />
           ))}
         </ul>
       </section>
@@ -175,17 +178,21 @@ interface RowProps {
   item: StartupItemView;
   /** Идёт запрос: положение, которое нажал родитель; undefined - запроса нет. */
   pressed?: boolean;
-  onToggle: (e: MouseEvent<HTMLButtonElement>) => void;
+  onDecide: (on: boolean, e: MouseEvent<HTMLButtonElement>) => void;
 }
 
-/** Строка: значок вида записи, название, издатель, «откуда», выключатель «Включено / Выключено». */
-function StartupRow({ item, pressed, onToggle }: RowProps) {
+/**
+ * Строка: значок вида записи, название, издатель, «откуда», выключатель «Включено / Выключено»; у
+ * ждущей записи справа от выключателя ещё «Оставить выключенной» (8.3.11 п.2).
+ */
+function StartupRow({ item, pressed, onDecide }: RowProps) {
   const name = startupShortName(item);
   const busy = pressed !== undefined;
   const on = busy ? pressed : item.decision === "on";
+  const pending = item.decision === "pending";
   const metaId = `startup-${item.id}-meta`;
   return (
-    <li className="startup-row">
+    <li className={pending ? "startup-row startup-row-pending" : "startup-row"}>
       <SourceIcon source={item.source} />
       <div className="startup-main">
         <span className="startup-name" title={item.name}>
@@ -211,7 +218,7 @@ function StartupRow({ item, pressed, onToggle }: RowProps) {
         aria-busy={busy ? true : undefined}
         data-startup-id={item.id}
         onClick={(e) => {
-          if (!busy) onToggle(e);
+          if (!busy) onDecide(item.decision !== "on", e);
         }}
       >
         <span className="startup-switch-track" aria-hidden="true">
@@ -221,6 +228,19 @@ function StartupRow({ item, pressed, onToggle }: RowProps) {
           {on ? "Включено" : "Выключено"}
         </span>
       </button>
+      {pending ? (
+        <button
+          type="button"
+          className="btn btn-small startup-keep"
+          aria-label={`Оставить выключенной: ${name}`}
+          aria-disabled={busy ? true : undefined}
+          onClick={(e) => {
+            if (!busy) onDecide(false, e);
+          }}
+        >
+          Оставить выключенной
+        </button>
+      ) : null}
     </li>
   );
 }

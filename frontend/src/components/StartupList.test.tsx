@@ -128,6 +128,34 @@ describe("StartupList: выключатель", () => {
     expect(screen.queryByText("Есть несохранённые изменения")).toBeNull();
   });
 
+  // Ловит (8.3.11 п.2, ревью T5): ждущую запись нельзя одним действием оставить выключенной; кнопка
+  // есть у решённых строк; во время запроса можно нажать дважды; фокус теряется после переезда.
+  it("«Оставить выключенной» - строка в «Учётке Миши» с выключенным выключателем", async () => {
+    const { user } = setup();
+    const keep = await screen.findByRole("button", { name: "Оставить выключенной: notes" });
+    expect(keep.textContent).toBe("Оставить выключенной");
+    expect(screen.getAllByRole("button", { name: /^Оставить выключенной/ })).toHaveLength(1);
+    expect(within(sw("notes").closest("li")!).getByRole("button", { name: "Оставить выключенной: notes" })).toBe(keep);
+
+    const wait = deferred();
+    mock.override("SetStartup", () => wait.promise, 1);
+    await user.click(keep);
+    expect(keep.getAttribute("aria-disabled")).toBe("true");
+    expect(sw("notes").getAttribute("aria-disabled")).toBe("true");
+    expect(sw("notes").getAttribute("aria-checked")).toBe("false");
+    await user.click(keep);
+    expect(calls("SetStartup")).toEqual([{ childId: 1, id: 7, on: false }]);
+    wait.resolve(mock.handler("SetStartup")({ childId: 1, id: 7, on: false }));
+
+    expect(await within(status()).findByText("Не будет запускаться при входе Миши")).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "Ждут решения" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Оставить выключенной/ })).toBeNull();
+    expect(within(block("Учётка Миши")).getByRole("switch", { name: "notes" }).getAttribute("aria-checked")).toBe("false");
+    expect(screen.getAllByRole("switch", { name: "notes" })).toHaveLength(1);
+    expect(document.activeElement).toBe(sw("notes"));
+    expect(mock.state.startup.get(1)?.find((x) => x.id === 7)?.decision).toBe("off");
+  });
+
   // Ловит: выключатель показывает нажатие, а не ответ службы; второй щелчок во время запроса шлёт
   // второе решение.
   it("во время запроса выключатель недоступен, затем показывает решение службы", async () => {

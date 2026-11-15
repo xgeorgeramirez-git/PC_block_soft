@@ -220,6 +220,15 @@ describe("выключатель «Автозагрузки»", () => {
     expect(blockOf(css, /(^|\n)\.startup-switch:focus-visible\s*\{/)).toMatch(/outline\s*:\s*2px\s+solid\s+var\(--text\)\s*;/);
   });
 
+  // Ловит (ревью T5): при наведении выключатель не меняется; рамка наведения сливается с карточкой.
+  it("наведение - рамка дорожки основным текстом, не меньше 3:1 к карточке и фону в обеих темах", () => {
+    expect(ruleVar('.startup-switch:hover:not([aria-disabled="true"]) .startup-switch-track', "border-color")).toBe("text");
+    for (const t of [light, dark]) {
+      expect(ratio(t.text, t.surface)).toBeGreaterThanOrEqual(3);
+      expect(ratio(t.text, t.bg)).toBeGreaterThanOrEqual(3);
+    }
+  });
+
   it.each(["surface", "bg"])("дорожка и заливка к фону %s не меньше 3:1 в обеих темах", (bg) => {
     for (const t of [light, dark]) {
       expect(ratio(t["field-border"], t[bg])).toBeGreaterThanOrEqual(3);

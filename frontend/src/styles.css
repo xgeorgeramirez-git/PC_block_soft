@@ -3264,6 +3264,7 @@ textarea.sites-add-input {
 }
 
 .startup-list {
+  container: startup-list / inline-size;
   margin: 0;
   padding: 0;
   list-style: none;
@@ -3280,6 +3281,24 @@ textarea.sites-add-input {
 
 .startup-row:first-child {
   border-top: 0;
+}
+
+/* Ждущая запись: «Оставить выключенной» справа от выключателя (8.3.11 п.2); в узком списке - второй
+   строкой под названием, порядок Tab тот же: выключатель, затем кнопка. */
+.startup-row-pending {
+  grid-template-columns: 20px minmax(0, 1fr) auto auto;
+}
+
+@container startup-list (max-width: 519.98px) {
+  .startup-row-pending {
+    grid-template-columns: 20px minmax(0, 1fr) auto;
+  }
+
+  .startup-row-pending .startup-keep {
+    grid-column: 2 / -1;
+    justify-self: start;
+    margin-top: var(--space-2);
+  }
 }
 
 .startup-icon {
@@ -3342,6 +3361,11 @@ textarea.sites-add-input {
   font: inherit;
   font-size: 14px;
   cursor: pointer;
+}
+
+/* Наведение: дорожка обводится основным текстом (4,5:1 и больше к карточке в обеих темах). */
+.startup-switch:hover:not([aria-disabled="true"]) .startup-switch-track {
+  border-color: var(--text);
 }
 
 .startup-switch:focus-visible {
