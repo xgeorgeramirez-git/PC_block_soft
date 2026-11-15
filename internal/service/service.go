@@ -109,6 +109,8 @@ type Config struct {
 	// Watcher — процессы сеансов для наблюдателя (R12, R13, R5, R8, NFR-6): закрывает незнакомое,
 	// запрещённое и то, что сейчас нельзя. nil: наблюдение выключено, ничего не закрывается.
 	Watcher ProcessWatcher
+	// Startup — автозагрузка учёток детей (M5b, FR-39). nil: раздел «Автозагрузка» пуст.
+	Startup StartupSource
 	// Adult открывает список сайтов «18+» (M4, R14, D-67). nil: встроенный в программу
 	// (sites.Embedded).
 	Adult func() (sites.AdultList, error)
@@ -151,6 +153,13 @@ type childState struct {
 	usage         map[progUsageKey]int // учёт по программам с прошлого сохранения (RM3-6); пишется в saveState
 	unreadSince   time.Time            // с какого момента подряд адрес Brave не читается (RM4-1, S-3); нулевой — читается
 	noAddrSince   time.Time            // с какого момента подряд у окна Brave нет адреса (не сбой UIA, B-55); нулевой — есть или сбой
+	// Автозагрузка (RM5b-3): exe записей по последней удачной проверке и набор наблюдателя —
+	// нормализованный exe записи с решением off или pending → строка (startupWatchSet). Набор
+	// заменяется целиком, не меняется на месте: проход наблюдателя читает его вне s.mu.
+	startupExe map[startupKey]string
+	startupOff map[string]startupHit
+	// startupFullAt — когда набор собран последней удачной полной проверкой (startupReady).
+	startupFullAt time.Time
 }
 
 // Service — служба PCBlock без привязки к Windows: логика на портах (doc.go).
@@ -178,6 +187,9 @@ type Service struct {
 	started     bool
 	loaded      bool // список детей прочитан из базы
 	verbose     bool // «Подробные логи для диагностики» включены (FR-25, D-42)
+	// firstLogged — ключи (путь|отпечаток) первых решений наблюдателя, уже записанных подробным
+	// журналом (B-67). Под mu.
+	firstLogged map[string]bool
 	errAt       map[string]time.Time
 	logCount    map[string]int // последнее записанное число по ключу logCountRate
 
@@ -222,6 +234,15 @@ type Service struct {
 	braveReady   bool
 	braveAt      time.Time
 	braveLogAt   map[int64]time.Time
+
+	// Автозагрузка (M5b, startup_m5b.go): идущая проверка ребёнка (не больше одной, RM5b-5),
+	// блокировка «чтение и запись Windows» ребёнка (проверка и SetStartup по очереди), момент
+	// последней удачной проверки, последний проход раз в 10 минут, горутины проверок (ждут тесты).
+	startupRun  map[int64]*startupFlight
+	startupLk   map[int64]*sync.Mutex
+	startupDone map[int64]time.Time
+	startupAt   time.Time
+	startupWG   sync.WaitGroup
 }
 
 // New собирает службу. Ничего не запускает: Start читает базу и поднимает сеансные части.
@@ -270,6 +291,7 @@ func New(cfg Config) (*Service, error) {
 		guardCmd: map[uint32][]ipc.GuardCommand{}, guardUI: map[uint32]*guardView{},
 		errAt: map[string]time.Time{}, logCount: map[string]int{}, names: map[int64]string{},
 		classifier: programs.NewClassifier(cfg.Roots, programs.DefaultCatalog),
+		startupRun: map[int64]*startupFlight{}, startupLk: map[int64]*sync.Mutex{}, startupDone: map[int64]time.Time{},
 	}
 	if s.journal == nil {
 		s.journal = StoreJournal{Store: cfg.Store, Clock: cfg.Clock, Loc: cfg.Loc, Logf: cfg.Logf}
@@ -336,7 +358,13 @@ func (s *Service) Start(real time.Time) error {
 	}
 	s.braveAt = real
 	s.started = true
-	s.syncSessions(real)
+	s.syncSessions(real) // вошедшие дети: полная проверка автозагрузки (ребёнок появился в сеансе)
+	s.startupAt = real
+	for _, id := range s.childOrder() {
+		if !s.childInSession(id) {
+			s.checkStartup(s.children[id], false) // невошедшие: только общие, профиль не трогается
+		}
+	}
 	return nil
 }
 

@@ -392,7 +392,7 @@ test("s07 что нового", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("navigation", { name: "Разделы" }).getByRole("button", { name: "Что нового" }).click();
   await expect(page.getByRole("heading", { name: "Что нового", level: 2 })).toBeVisible();
-  await expect(page.getByRole("heading", { level: 3 }).first()).toHaveText("Версия 0.5.1. Уточнён текст об очистке статистики");
+  await expect(page.getByRole("heading", { level: 3 }).first()).toHaveText("Версия 0.6.0. Автозагрузка и стикеры за промокод");
   await expect(page.locator("main.content").getByRole("button")).toHaveCount(0);
   await noHorizontalScroll(page);
   await wholePage(page);
@@ -1198,6 +1198,11 @@ for (const [w, h] of [
 
 test("s06 бонусы ребёнка и промокод", async ({ page }) => {
   await tallWindow(page, 1000);
+  // Ответ на код - стикер и надпись (R26): выбор без случая, стикер стоит на последнем кадре.
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.addInitScript(() => {
+    Math.random = () => 0;
+  });
   // Полдень: автобонус (10 ч назад) - сегодня, он виден в «Копилке» периода «Сегодня» (по умолчанию).
   const nowDate = new Date(2026, 9, 19, 12, 0, 0);
   await page.clock.setFixedTime(nowDate);
@@ -1219,10 +1224,121 @@ test("s06 бонусы ребёнка и промокод", async ({ page }) => 
   await expect(page.getByText("+15 мин за неизрасходованное время прошлого дня")).toHaveCount(1);
   await box.getByRole("textbox", { name: "Промокод" }).fill("a1234");
   await box.getByRole("button", { name: "Ввести промокод" }).click();
-  await expect(box.getByText("Добавлено 30 минут")).toBeVisible();
+  await expect(box.getByRole("status")).toHaveText("Ура! +30 минут");
+  await expect(box.locator(".promo-sticker svg")).toHaveCount(1);
   await noHorizontalScroll(page);
   await page.screenshot({ path: `${SCREENS}/s06-my-bonuses.png`, fullPage: true });
 });
+
+// s52 — ответ на промокод в окне ребёнка (R26, D-83, 8.2.6 п.11, S52): стикер 160 x 160 и крупная
+// надпись справа от поля, если надписи остаётся не меньше 220 px, иначе под полем и кнопкой.
+// Окно 480 px уже самого узкого окна ребёнка (640): проверяется только ответ, без прокрутки вбок. CD34 на 1 минуту - «Ура! +1 минута»; повтор того же
+// кода - стикер и надпись неудачи, код в поле остаётся; второй неверный - другие стикер и надпись.
+// Анимации выключены (как в Windows без анимаций) - стикер стоит на последнем кадре, снимок стабилен.
+type StickerRect = { left: number; right: number; top: number; bottom: number; width: number; height: number };
+const stickerRectOf = (l: ReturnType<Page["locator"]>) =>
+  l.evaluate((el) => {
+    const r = el.getBoundingClientRect();
+    return { left: r.left, right: r.right, top: r.top, bottom: r.bottom, width: r.width, height: r.height };
+  });
+const rectsApart = (a: StickerRect, b: StickerRect) => a.right <= b.left || b.right <= a.left || a.bottom <= b.top || b.bottom <= a.top;
+
+/**
+ * Стикер нарисован, 160 x 160, целиком в видимой области окна и не лежит на поле и кнопке.
+ * Узкое окно (small): ответ под кнопкой, надпись не выше двух строк. Широкое: ответ рядом с полем
+ * только при надписи не уже 220 px (иначе под кнопкой), надпись не выше трёх строк.
+ */
+async function stickerInPlace(page: Page, box: ReturnType<Page["locator"]>, small: boolean) {
+  const sticker = box.locator(".promo-sticker");
+  await expect(sticker.locator("svg")).toHaveCount(1);
+  await sticker.scrollIntoViewIfNeeded();
+  const s = await stickerRectOf(sticker);
+  expect([Math.round(s.width), Math.round(s.height)], "размер стикера").toEqual([160, 160]);
+  const view = await stickerRectOf(page.locator("main.content"));
+  expect(
+    s.left >= view.left - 0.5 && s.right <= view.right + 0.5 && s.top >= view.top - 0.5 && s.bottom <= view.bottom + 0.5,
+    `стикер виден не целиком: ${JSON.stringify({ s, view })}`,
+  ).toBe(true);
+  const field = await stickerRectOf(box.getByRole("textbox", { name: "Промокод" }));
+  const send = await stickerRectOf(box.getByRole("button", { name: "Ввести промокод" }));
+  // Кольцо фокуса (2 px и отступ) вокруг поля и кнопки тоже не накрыто стикером.
+  const ring = (b: StickerRect): StickerRect => ({ ...b, left: b.left - 4, right: b.right + 4, top: b.top - 4, bottom: b.bottom + 4 });
+  expect(rectsApart(s, ring(field)), `стикер на поле: ${JSON.stringify({ s, field })}`).toBe(true);
+  expect(rectsApart(s, ring(send)), `стикер на кнопке: ${JSON.stringify({ s, send })}`).toBe(true);
+  const text = await stickerRectOf(box.locator(".promo-answer-text"));
+  expect(rectsApart(s, text), `стикер на надписи: ${JSON.stringify({ s, text })}`).toBe(true);
+  const lineHeight = await box.locator(".promo-answer-text").evaluate((el) => parseFloat(getComputedStyle(el).lineHeight));
+  const lines = Math.round(text.height / lineHeight);
+  const below = s.top >= send.bottom;
+  if (small) {
+    expect(below, `в узком окне стикер под кнопкой: ${JSON.stringify({ s, send })}`).toBe(true);
+    // Надпись рядом со стикером не уже 260 px, иначе под стикером на всю ширину; в 480 (уже самого узкого окна) до 3 строк.
+    const maxLines = (page.viewportSize()?.width ?? 960) < 640 ? 3 : 2;
+    expect(lines, `надпись в ${lines} строк: ${JSON.stringify(text)}`).toBeLessThanOrEqual(maxLines);
+  } else {
+    if (!below) {
+      expect(s.left, "стикер справа от поля").toBeGreaterThanOrEqual(field.right);
+      expect(text.width, `рядом с полем надписи мало места: ${JSON.stringify(text)}`).toBeGreaterThanOrEqual(219.5);
+    }
+    expect(lines, `надпись в ${lines} строк: ${JSON.stringify(text)}`).toBeLessThanOrEqual(3);
+  }
+}
+
+for (const [w, h, scheme] of [
+  [800, 640, "light"],
+  [800, 640, "dark"],
+  [640, 520, "light"],
+  [480, 520, "light"],
+] as const) {
+  const small = w <= 640;
+  const tail = `${scheme === "dark" ? "-dark" : ""}${w === 640 ? "-small" : ""}${w === 480 ? "-480" : ""}`;
+  test(`s52 промокод в окне ребёнка: стикер, окно ${w} x ${h}, ${scheme === "dark" ? "тёмная" : "светлая"} тема`, async ({ page }) => {
+    await page.setViewportSize({ width: w, height: h });
+    await page.emulateMedia({ colorScheme: scheme, reducedMotion: "reduce" });
+    await page.addInitScript(() => {
+      Math.random = () => 0;
+    });
+    await mockProgram(page, {
+      mode: "mystats",
+      children: [child({ bonusBalance: 45 })],
+      myChildId: 1,
+      promos: [{ codeDisplay: "CD34", minutes: 1, createdAtMs: Date.now() - 3600_000 }],
+    });
+    await page.goto("/");
+    const box = page.getByRole("region", { name: "Бонусы" });
+    const field = box.getByRole("textbox", { name: "Промокод" });
+    const send = box.getByRole("button", { name: "Ввести промокод" });
+
+    await field.fill("cd34");
+    await send.click();
+    await expect(box.getByRole("status")).toHaveText("Ура! +1 минута");
+    await expect(box.locator(".promo-sticker")).toHaveAttribute("data-sticker", "017");
+    await expect(field).toHaveValue("");
+    await stickerInPlace(page, box, small);
+    await expect(page.getByRole("textbox")).toHaveCount(1);
+    if (w >= 640) await noHorizontalScroll(page);
+    await page.screenshot({ path: `${SCREENS}/s52-promo-ok${tail}.png` });
+
+    await field.fill("cd34");
+    // Живая зона ответа стоит всегда (диктор читает смену текста), ввод только очищает её.
+    await expect(box.getByRole("status")).toHaveText("");
+    await expect(box.locator(".promo-sticker")).toHaveCount(0);
+    await send.click();
+    await expect(box.getByRole("status")).toHaveText("Такого кода нет. Проверь буквы и цифры");
+    await expect(field).toBeFocused();
+    await expect(box.locator(".promo-sticker")).toHaveAttribute("data-sticker", "023");
+    await expect(field).toHaveValue("cd34");
+    await stickerInPlace(page, box, small);
+    if (w >= 640) await noHorizontalScroll(page);
+    await page.screenshot({ path: `${SCREENS}/s52-promo-bad${tail}.png` });
+
+    await field.fill("cd35");
+    await send.click();
+    await expect(box.getByRole("status")).toHaveText("Хм, код не подходит. Посмотри внимательнее");
+    await expect(box.locator(".promo-sticker")).toHaveAttribute("data-sticker", "028");
+    await stickerInPlace(page, box, small);
+  });
+}
 
 // --- M3: экран «Программы» (FR-20, 8.3.4) -----------------------------------------------
 
@@ -3168,4 +3284,147 @@ test("s49 промокоды: окно 800×640 и клавиатура", async 
   await scroller.evaluate((el) => el.scrollTo(0, el.scrollHeight));
   await noHorizontalScroll(page);
   expect(await page.evaluate(() => document.documentElement.scrollTop)).toBe(0);
+});
+
+// s50 — вкладка «Автозагрузка» (FR-39, 8.3.11): «Ждут решения» сверху, «Учётка Миши», «Для всех
+// пользователей»; выключатель действует сразу: включённая запись notes переезжает в «Учётку»,
+// сообщение под списком. Светлая и тёмная тема, пустой список, окно 960 при масштабе 150 %
+// (640 px CSS) с длинными названиями: без прокрутки вбок, название обрезано многоточием.
+async function openStartupTab(page: Page, options: MockOptions = {}) {
+  await mockProgram(page, { mode: "parent", sessionActive: true, children: [child({})], ...options });
+  await page.goto("/");
+  await page.getByRole("button", { name: "Дети" }).click();
+  await page.getByRole("tablist", { name: "Правила ребёнка" }).getByRole("tab", { name: "Автозагрузка", exact: true }).click();
+}
+
+/** Строки и выключатели не выходят за край своего блока (кольцо фокуса и подпись не срезаны). */
+async function startupRowsInside(page: Page) {
+  const bad = await page.evaluate(() => {
+    const out: string[] = [];
+    for (const row of document.querySelectorAll(".startup-row")) {
+      const box = row.closest(".startup-block")!.getBoundingClientRect();
+      for (const el of row.querySelectorAll(".startup-switch, .startup-keep, .startup-name, .startup-meta")) {
+        const r = el.getBoundingClientRect();
+        if (r.left < box.left - 0.5 || r.right > box.right + 0.5) out.push(`${el.className} «${(row.textContent ?? "").slice(0, 30)}»`);
+      }
+    }
+    return out;
+  });
+  expect(bad, "в «Автозагрузке» строка вылезает из блока").toEqual([]);
+}
+
+for (const v of [
+  { name: "s50-startup", scheme: "light" as const },
+  { name: "s50-startup-dark", scheme: "dark" as const },
+]) {
+  test(`s50 автозагрузка: ${v.name}`, async ({ page }) => {
+    await page.setViewportSize({ width: 1200, height: 820 });
+    await page.emulateMedia({ colorScheme: v.scheme });
+    await openStartupTab(page);
+    const heads = page.locator(".startup h3");
+    await expect(heads).toHaveText(["Ждут решения", "Учётка Миши", "Для всех пользователей"]);
+    await expect(page.getByRole("switch", { name: "OneDrive Reporting Task" })).toHaveAttribute("aria-checked", "true");
+    await expect(page.getByRole("switch", { name: "notes" })).toHaveAttribute("aria-checked", "false");
+    await expect(page.getByText(/^Проверено в \d\d:\d\d$/)).toBeVisible();
+    await startupRowsInside(page);
+    await noHorizontalScroll(page);
+    await wholePage(page);
+    await page.screenshot({ path: `${SCREENS}/${v.name}.png`, fullPage: true });
+
+    // Включить notes: строка уходит из «Ждут решения» в «Учётку Миши», сообщение видно, «Сохранить» нет.
+    await page.getByRole("switch", { name: "notes" }).click();
+    await expect(page.locator(".startup-message")).toHaveText("Будет запускаться при входе Миши");
+    await expect(page.locator(".startup-message")).toBeInViewport();
+    await expect(heads).toHaveText(["Учётка Миши", "Для всех пользователей"]);
+    const own = page.getByRole("region", { name: "Учётка Миши" });
+    await expect(own.getByRole("switch", { name: "notes" })).toHaveAttribute("aria-checked", "true");
+    await expect(page.getByRole("switch", { name: "notes" })).toHaveCount(1);
+    await expect(page.getByRole("switch", { name: "notes" })).toBeFocused();
+    await expect(page.getByText("Есть несохранённые изменения")).toHaveCount(0);
+    await noHorizontalScroll(page);
+    if (v.scheme === "light") {
+      // Клавиатура: пробел на выключателе в фокусе, кольцо фокуса видно.
+      await page.keyboard.press("Space");
+      await expect(page.locator(".startup-message")).toHaveText("Не будет запускаться при входе Миши");
+      await expect(page.getByRole("switch", { name: "notes" })).toHaveAttribute("aria-checked", "false");
+      await page.keyboard.press("Shift+Tab");
+      await page.keyboard.press("Tab");
+      expect(await page.getByRole("switch", { name: "notes" }).evaluate((el) => getComputedStyle(el).outlineStyle)).toBe("solid");
+      await wholePage(page);
+      await page.screenshot({ path: `${SCREENS}/s50-startup-after.png`, fullPage: true });
+    }
+  });
+}
+
+// «Оставить выключенной» у ждущей записи (8.3.11 п.2): одно действие - запись в «Учётке Миши» с
+// выключенным выключателем, фокус на её выключателе, сообщение службы под списком.
+test("s50 автозагрузка: оставить выключенной", async ({ page }) => {
+  await page.setViewportSize({ width: 1200, height: 820 });
+  await openStartupTab(page);
+  const keep = page.getByRole("button", { name: "Оставить выключенной: notes" });
+  await expect(keep).toBeVisible();
+  // Кнопка справа от выключателя, в той же строке.
+  const sw = await page.getByRole("switch", { name: "notes" }).boundingBox();
+  const kb = await keep.boundingBox();
+  expect(kb!.x, "кнопка справа от выключателя").toBeGreaterThanOrEqual(sw!.x + sw!.width);
+  expect(Math.abs(kb!.y + kb!.height / 2 - (sw!.y + sw!.height / 2)), "кнопка в строке выключателя").toBeLessThan(8);
+  await keep.click();
+  await expect(page.locator(".startup-message")).toHaveText("Не будет запускаться при входе Миши");
+  await expect(page.locator(".startup h3")).toHaveText(["Учётка Миши", "Для всех пользователей"]);
+  const own = page.getByRole("region", { name: "Учётка Миши" });
+  await expect(own.getByRole("switch", { name: "notes" })).toHaveAttribute("aria-checked", "false");
+  await expect(page.getByRole("switch", { name: "notes" })).toBeFocused();
+  await expect(page.getByRole("button", { name: /^Оставить выключенной/ })).toHaveCount(0);
+  await expect(page.getByText("Есть несохранённые изменения")).toHaveCount(0);
+  await startupRowsInside(page);
+  await noHorizontalScroll(page);
+  await wholePage(page);
+  await page.screenshot({ path: `${SCREENS}/s50-startup-kept-off.png`, fullPage: true });
+});
+
+test("s50 автозагрузка: пусто", async ({ page }) => {
+  await page.setViewportSize({ width: 1200, height: 820 });
+  await openStartupTab(page, { startup: [] });
+  await expect(page.getByText("При входе Миши ничего не запускается", { exact: true })).toBeVisible();
+  await expect(page.getByRole("switch")).toHaveCount(0);
+  await expect(page.locator(".startup h3")).toHaveCount(0);
+  await noHorizontalScroll(page);
+  await page.screenshot({ path: `${SCREENS}/s50-startup-empty.png`, fullPage: true });
+});
+
+test.describe("s50 автозагрузка: окно 960 при масштабе 150 %", () => {
+  test.use({ deviceScaleFactor: 1.5 });
+  test("s50 автозагрузка: длинные названия в 640 px", async ({ page }) => {
+    await page.setViewportSize({ width: 640, height: 420 });
+    await openStartupTab(page, {
+      startup: [
+        { id: 1, scope: "own", source: "task", name: "\\Vendor\\Очень длинное название задания обновления программы при входе-S-1-5-21-111-222-333-1001", publisher: "Очень Длинное Название Издателя Программного Обеспечения Inc.", from: "Планировщик заданий, при входе", decision: "on" },
+        { id: 2, scope: "own", source: "store_app", name: "SpotifyMusic", publisher: "", from: "Приложение из магазина", decision: "off" },
+        { id: 3, scope: "shared", source: "run", name: "AVeryLongRegistryValueNameWithoutAnySpacesThatCannotWrapAnywhere", publisher: "Adobe Inc.", from: "Реестр, при входе", decision: "on" },
+        { id: 7, scope: "own", source: "runonce", name: "notes", publisher: "", from: "Реестр, один раз при входе", decision: "pending" },
+      ],
+    });
+    await expect(page.locator(".startup h3")).toHaveText(["Ждут решения", "Учётка Миши", "Для всех пользователей"]);
+    const longName = page.locator(".startup-name", { hasText: "Очень длинное название" });
+    await expect(longName).toHaveAttribute("title", "\\Vendor\\Очень длинное название задания обновления программы при входе-S-1-5-21-111-222-333-1001");
+    expect(await longName.evaluate((el) => el.scrollWidth > el.clientWidth), "длинное название обрезано многоточием").toBe(true);
+    await startupRowsInside(page);
+    await noHorizontalScroll(page);
+    // Узкий список (около 560 px, меньше порога 600): «Оставить выключенной» второй строкой под
+    // названием и «откуда», не сжимает название и не наезжает на выключатель.
+    const keepBox = await page.getByRole("button", { name: "Оставить выключенной: notes" }).boundingBox();
+    const notesRow = page.locator(".startup-row", { has: page.getByRole("switch", { name: "notes" }) });
+    const mainBox = await notesRow.locator(".startup-main").boundingBox();
+    const switchBox = await page.getByRole("switch", { name: "notes" }).boundingBox();
+    const listWidth = await notesRow.evaluate((el) => el.parentElement!.getBoundingClientRect().width);
+    expect(listWidth, "список уже порога 600 px").toBeLessThan(600);
+    expect(keepBox!.y, `кнопка под названием и «откуда»: ${JSON.stringify({ keepBox, mainBox })}`).toBeGreaterThanOrEqual(mainBox!.y + mainBox!.height - 0.5);
+    expect(keepBox!.y, "кнопка под выключателем").toBeGreaterThanOrEqual(switchBox!.y + switchBox!.height - 0.5);
+    await page.screenshot({ path: `${SCREENS}/s50-startup-narrow-pending.png` });
+    await page.getByRole("switch", { name: "notes" }).click();
+    await expect(page.locator(".startup-message")).toHaveText("Будет запускаться при входе Миши");
+    await startupRowsInside(page);
+    await noHorizontalScroll(page);
+    await page.screenshot({ path: `${SCREENS}/s50-startup-narrow.png` });
+  });
 });

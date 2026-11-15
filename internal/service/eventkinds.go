@@ -61,6 +61,13 @@ const (
 	evBraveRestored       = "brave_restored"         // сверка нашла ветку правил Brave изменённой и вернула её (T5-7)
 )
 
+// Автозагрузка (M5b, FR-39): подробности name (название строки), у решения — on.
+const (
+	evStartupNew     = "startup_new"     // новая запись автозагрузки выключена и ждёт решения (RM5b-4)
+	evStartupDecided = "startup_decided" // родитель включил или выключил запись автозагрузки
+	evStartupClosed  = "startup_closed"  // выключенная запись запустилась сама и закрыта, раз в день (RM5b-3, T4b)
+)
+
 // Работа программы.
 const (
 	// evInternalError — сбой внутри программы: паника при обработке одного ребёнка или одного дела
@@ -88,6 +95,7 @@ var allEventKinds = []string{
 	evProgramAutoClosed, evProgramClosedGames, evProgramClosedStudyOnly,
 	evSiteClosedVideo, evSiteClosedStudyOnly, evSiteUnread, evSiteAdded, evSiteMoved, evSiteRemoved,
 	evSiteAdultFilter, evBraveRestored,
+	evStartupNew, evStartupDecided, evStartupClosed,
 	// Работа программы.
 	core.EvSafeMode, evInternalError, evDBRecovered,
 }

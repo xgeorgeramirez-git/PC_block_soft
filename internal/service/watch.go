@@ -38,6 +38,10 @@ const (
 	// незнакомых) не успело — в «Ждут решения» «Без подписи издателя»; решение родителя всё равно
 	// перечитывает свойства (fileMetaUnlocked).
 	metaBudget = 300 * time.Millisecond
+	// tempPubRetry — через сколько перечитывается пустой издатель файла в папке временных файлов
+	// приложения (B-67, FB-22): только что перезаписанный установщик держит антивирус, и ресурс
+	// версии не читается. До повтора процесс не трогается («не знаю» — не трогать, PL-9).
+	tempPubRetry = 2 * time.Second
 )
 
 // procKey — процесс: PID повторяется, пара (PID, момент создания) — нет (RM3-11).
@@ -57,8 +61,11 @@ type watchEntry struct {
 	fpRead  bool
 	pub     string // издатель файла (RM3-13): читается, только если решение в профиле его ждёт
 	pubRead bool
-	closed  bool // Kill уже удался: записи сделаны, повторный Kill без записей
-	seen    uint64
+	// pubRetryAt — пустой издатель файла в папке временных файлов приложения перечитывается не
+	// раньше этого момента (B-67, tempPubRetry); нулевой — повтора не было.
+	pubRetryAt time.Time
+	closed     bool // Kill уже удался: записи сделаны, повторный Kill без записей
+	seen       uint64
 	// manual — запуск ручной (R13, D-65): решено по фактам facts в момент, когда процесс увиден
 	// впервые (родитель, ввод ребёнка, передний план, вход в учётку); why — почему (подробный
 	// журнал), parent — путь родителя («» — нет в сеансе). Ввод может уточнить следующий снимок
@@ -74,6 +81,9 @@ type watchEntry struct {
 	// запуск может быть «сам»; запрещённая после запуска закрывается с плашкой, как раньше.
 	classified       bool
 	forbiddenAtStart bool
+	// startupSpared — проход с готовым набором автозагрузки оставил процесс живым (RM5b-3):
+	// правило автозагрузки его больше не закрывает; дочерний процесс того же exe наследует.
+	startupSpared bool
 }
 
 // launchPending — запрещённая, закрытая как «запустилась сама», ждёт уточнения до until: снимка
@@ -103,6 +113,10 @@ type watchTarget struct {
 	sampleAt time.Time // момент снимка стража, по которому взяты inputAt и fg
 	fg       string
 	byPID    map[uint32]ProcInfo
+	// startupOff — exe выключенных и ждущих решения записей автозагрузки ребёнка (RM5b-3); только
+	// чтение. startupReady — набор собран проверкой после этого входа (startupReady).
+	startupOff   map[string]startupHit
+	startupReady bool
 	// hold — пауза ребёнка (R11): процессы только читаются ради категории секунды учёта (B-30),
 	// ничего не закрывается и не пишется (watchHeld).
 	hold bool
@@ -117,6 +131,7 @@ type watchAct struct {
 	cat       core.Category // для закрытия по правилу (игры, только учёба)
 	plateKind string        // ipc.Blocked*
 	auto      bool          // запрещённая запустилась сама (R13, D-65): без плашки и нарушения
+	startup   startupHit    // plateKind = plateStartup: какая запись автозагрузки запустилась сама
 	killed    bool
 	again     bool // процесс уже закрывали: без записей
 	publisher string
@@ -137,8 +152,16 @@ type watchState struct {
 	metaMu   sync.Mutex
 	metaBusy map[string]bool
 	// metaDone — готовые чтения свойств до решения, которые проход не дождался (fetchMeta): их
-	// берёт следующий проход. Под metaMu.
-	metaDone map[string]fileMeta
+	// берёт следующий проход, и только для процессов, ради которых чтение начато (B-60). Под metaMu.
+	metaDone map[string]doneMeta
+}
+
+// doneMeta — готовое чтение свойств файла и процессы, для которых оно начато (B-60): файл с тем же
+// путём мог быть перезаписан, пока чтение висело (установщик во временной папке), и новый процесс
+// читает его заново, а не берёт отпечаток и издателя прежнего файла.
+type doneMeta struct {
+	m      fileMeta
+	owners map[*watchEntry]bool
 }
 
 // RunWatch крутит наблюдатель на собственном тикере по настоящим часам, пока не отменён ctx.
@@ -194,7 +217,7 @@ func (s *Service) Watch(real time.Time) {
 			continue
 		}
 		if t.hold {
-			need = append(need, s.watchHeld(t, list, gen)...)
+			need = append(need, s.watchHeld(t, list, gen, real)...)
 			continue
 		}
 		t.byPID = make(map[uint32]ProcInfo, len(list))
@@ -211,21 +234,26 @@ func (s *Service) Watch(real time.Time) {
 			}
 			if e != nil {
 				items = append(items, item{t, p, e})
-				if s.needsMeta(e) {
+				if s.wantsMeta(e, real) {
 					need = append(need, e)
 				}
 			}
 		}
 	}
-	for _, path := range s.fetchMeta(need) {
+	for _, path := range s.fetchMeta(need, real) {
 		notes = append(notes, fmt.Sprintf("watch-meta|%s\x00наблюдатель: свойства %s читаются дольше %v, решение отложено", path, path, metaBudget))
 	}
+	var firsts []watchNote // первые решения вне доверенных папок (B-67): пишутся под s.mu
 	for _, it := range items {
 		if s.needsMeta(it.e) {
 			continue // отпечаток или издатель ещё читаются: «не знаю» — не трогать (PL-9)
 		}
+		first := !it.e.classified
 		if a := s.watchDecide(it.t, it.p, it.e); a != nil {
 			acts = append(acts, *a)
+		}
+		if first && it.e.classified && !it.e.quiet && !s.classifier.Roots().IsTrusted(it.e.norm) {
+			firsts = append(firsts, s.firstDecisionNote(it.p, it.e))
 		}
 	}
 	fps, pubs := map[string]string{}, map[string]string{}
@@ -266,6 +294,63 @@ func (s *Service) Watch(real time.Time) {
 	s.fpSeen = fps   // категория секунды переднего плана сверяет тот же отпечаток (RM3-12)
 	s.pubSeen = pubs // и того же издателя (RM3-13)
 	s.applyWatch(acts, notes, unreadable, others, real)
+	s.logFirstDecisions(firsts)
+}
+
+// watchNote — строка подробного журнала работы с ключом «не чаще раза на ключ».
+type watchNote struct{ key, line string }
+
+// maxFirstLogged — сколько ключей первых решений помнится; больше — память сбрасывается.
+const maxFirstLogged = 1000
+
+// firstDecisionNote — строка о первом решении по процессу p вне доверенных папок (B-67, FB-22):
+// путь, вердикт, издатель, совпал ли отпечаток с сохранённым решением. Ключ — путь и отпечаток:
+// тот же файл новым процессом строки не даёт, перезаписанный — даёт. Вне s.mu.
+func (s *Service) firstDecisionNote(p ProcInfo, e *watchEntry) watchNote {
+	c := s.classifier
+	res := c.Classify(e.path, e.fp, e.pub)
+	pub := "не читался"
+	if e.pubRead {
+		pub = fmt.Sprintf("%q", e.pub)
+	}
+	fp := "отпечаток не читался"
+	if e.fpRead {
+		switch saved, known := c.SavedFingerprint(e.norm); {
+		case !known:
+			fp = fmt.Sprintf("отпечаток %q, в списке программ пути нет", e.fp)
+		case saved == "":
+			fp = fmt.Sprintf("отпечаток %q, сохранён без отпечатка", e.fp)
+		default:
+			match := "не совпал"
+			if saved == e.fp {
+				match = "совпал"
+			}
+			fp = fmt.Sprintf("отпечаток %q, сохранённый %q: %s", e.fp, saved, match)
+		}
+	}
+	return watchNote{
+		key:  e.norm + "|" + e.fp,
+		line: fmt.Sprintf("наблюдатель: первое решение по %s (PID %d): %s, категория %q; издатель %s; %s", e.norm, p.PID, res.Verdict, res.Category, pub, fp),
+	}
+}
+
+// logFirstDecisions пишет строки о первых решениях при подробных логах, одну на ключ (PL-53).
+// Ключ запоминается только при подробных логах: включённые позже логи покажут следующий запуск.
+// Под s.mu.
+func (s *Service) logFirstDecisions(firsts []watchNote) {
+	if !s.verbose {
+		return
+	}
+	for _, n := range firsts {
+		if s.firstLogged[n.key] {
+			continue
+		}
+		if s.firstLogged == nil || len(s.firstLogged) >= maxFirstLogged {
+			s.firstLogged = map[string]bool{}
+		}
+		s.firstLogged[n.key] = true
+		s.vlogf("%s", n.line)
+	}
 }
 
 // killAll закрывает процессы прохода пулом из killWorkers горутин (B-37) и ждёт все. Каждая
@@ -380,26 +465,31 @@ func (w *watchState) doneMeta(path string) {
 	delete(w.metaBusy, path)
 }
 
-// finishMeta снимает отметку чтения path и кладёт результат до решения в metaDone.
-func (w *watchState) finishMeta(path string, m fileMeta) {
+// finishMeta снимает отметку чтения path и кладёт результат до решения в metaDone вместе с
+// процессами owners, для которых оно начато.
+func (w *watchState) finishMeta(path string, m fileMeta, owners []*watchEntry) {
 	w.metaMu.Lock()
 	defer w.metaMu.Unlock()
 	delete(w.metaBusy, path)
 	if w.metaDone == nil || len(w.metaDone) >= maxMetaDone {
-		w.metaDone = map[string]fileMeta{}
+		w.metaDone = map[string]doneMeta{}
 	}
-	w.metaDone[path] = m
+	d := doneMeta{m: m, owners: make(map[*watchEntry]bool, len(owners))}
+	for _, e := range owners {
+		d.owners[e] = true
+	}
+	w.metaDone[path] = d
 }
 
-// takeDone забирает готовое чтение свойств path до решения.
-func (w *watchState) takeDone(path string) (fileMeta, bool) {
+// takeDone забирает готовое чтение свойств path до решения и процессы, для которых оно начато.
+func (w *watchState) takeDone(path string) (doneMeta, bool) {
 	w.metaMu.Lock()
 	defer w.metaMu.Unlock()
-	m, ok := w.metaDone[path]
+	d, ok := w.metaDone[path]
 	if ok {
 		delete(w.metaDone, path)
 	}
-	return m, ok
+	return d, ok
 }
 
 // keepSession помечает виденными процессы сеанса, список которого не прочитался: память о них
@@ -418,7 +508,7 @@ func (s *Service) keepSession(session uint32, gen uint64) {
 // категория секунды переднего плана сверяет отпечаток и издателя (fpSeen, pubSeen). Здесь они
 // только читаются (need → fetchMeta) для процессов ребёнка с прочитанным путём; ничего не
 // закрывается, «Ждут решения», журнал и плашки не трогаются. Вне s.mu, под watch.mu.
-func (s *Service) watchHeld(t *watchTarget, list []ProcInfo, gen uint64) (need []*watchEntry) {
+func (s *Service) watchHeld(t *watchTarget, list []ProcInfo, gen uint64, real time.Time) (need []*watchEntry) {
 	if s.watch.held == nil {
 		s.watch.held = map[procKey]*watchEntry{}
 	}
@@ -437,7 +527,7 @@ func (s *Service) watchHeld(t *watchTarget, list []ProcInfo, gen uint64) (need [
 			s.watch.held[key] = e
 		}
 		e.seen = gen
-		if s.needsMeta(e) {
+		if s.wantsMeta(e, real) {
 			need = append(need, e)
 		}
 	}
@@ -454,38 +544,67 @@ func (s *Service) needsMeta(e *watchEntry) bool {
 		(!e.pubRead && c.NeedsPublisher(e.norm))
 }
 
+// wantsMeta — свойства файла процесса e нужно прочитать в проходе в момент real: решению они нужны
+// (needsMeta), и срок повторного чтения пустого издателя в Temp наступил (B-67). Часы ушли назад
+// дальше срока — читается сразу: процесс не остаётся нетронутым на часы.
+func (s *Service) wantsMeta(e *watchEntry, real time.Time) bool {
+	return s.needsMeta(e) && (!real.Before(e.pubRetryAt) || e.pubRetryAt.Sub(real) > tempPubRetry)
+}
+
 // maxMetaDone — сколько готовых, но ещё не взятых чтений свойств хранится (процесс мог завершиться,
 // пока читался его файл): больше — память сбрасывается, чтения пойдут заново.
 const maxMetaDone = 1000
 
 // fetchMeta читает свойства файлов процессов need до решения (B-32): одно чтение на путь (отпечаток
 // и издатель вместе) в своей горутине, проход ждёт их не дольше metaBudget. Готовое заполняет
-// записи; опоздавшее дочитывается в фоне и берётся следующим проходом (watchState.metaDone), путь,
+// записи; опоздавшее дочитывается в фоне и берётся следующим проходом (watchState.metaDone) только
+// для процессов, ради которых начато (B-60: новый процесс того же пути читает файл заново), путь,
 // чтение которого ещё висит, не читается снова. late — пути, чьи свойства в этот проход не
 // успели: их процессы проход не трогает.
-func (s *Service) fetchMeta(need []*watchEntry) (late []string) {
+func (s *Service) fetchMeta(need []*watchEntry, real time.Time) (late []string) {
 	byPath := map[string][]*watchEntry{}
 	for _, e := range need {
 		byPath[e.norm] = append(byPath[e.norm], e)
 	}
-	apply := func(path string, m fileMeta) {
+	// apply заполняет записи пути готовым чтением d: только процессы, для которых оно начато (B-60);
+	// остальным процессам того же пути файл читается заново.
+	apply := func(path string, d doneMeta) {
+		var rest []*watchEntry
 		for _, e := range byPath[path] {
-			e.fp, e.pub = m.fingerprint, programs.ClipName(m.publisher)
-			e.fpRead, e.pubRead = true, true
+			if !d.owners[e] {
+				rest = append(rest, e)
+				continue
+			}
+			e.fp, e.fpRead = d.m.fingerprint, true
+			pub := programs.ClipName(d.m.publisher)
+			if pub == "" && e.pubRetryAt.IsZero() && s.classifier.Roots().InTempApp(e.norm) && s.classifier.NeedsPublisher(e.norm) {
+				// Только что перезаписанный установщик в Temp держит антивирус (B-67, FB-22): издатель
+				// перечитывается через tempPubRetry, до этого процесс не трогается.
+				e.pubRetryAt = real.Add(tempPubRetry)
+				continue
+			}
+			e.pub, e.pubRead = pub, true
 		}
-		delete(byPath, path)
+		if len(rest) == 0 {
+			delete(byPath, path)
+		} else {
+			byPath[path] = rest
+		}
 	}
 	out := make(chan string, len(byPath)) // горутина не ждёт опоздавшего читателя
 	started := 0
 	for path := range byPath {
-		if m, ok := s.watch.takeDone(path); ok {
-			apply(path, m)
-			continue
+		if d, ok := s.watch.takeDone(path); ok {
+			apply(path, d)
+			if _, left := byPath[path]; !left {
+				continue
+			}
 		}
 		if !s.watch.takeMeta(path) {
 			continue // читается с прошлого прохода
 		}
 		started++
+		owners := append([]*watchEntry(nil), byPath[path]...)
 		go func() {
 			var m fileMeta
 			defer func() {
@@ -493,7 +612,7 @@ func (s *Service) fetchMeta(need []*watchEntry) (late []string) {
 					s.cfg.Logf("наблюдатель: сбой чтения свойств %s: %v", path, p)
 					s.watch.doneMeta(path) // свойства не известны: процесс не трогается, чтение — снова
 				} else {
-					s.watch.finishMeta(path, m)
+					s.watch.finishMeta(path, m, owners)
 				}
 				out <- path
 			}()
@@ -507,8 +626,8 @@ func (s *Service) fetchMeta(need []*watchEntry) (late []string) {
 		for ; started > 0; started-- {
 			select {
 			case path := <-out:
-				if m, ok := s.watch.takeDone(path); ok {
-					apply(path, m)
+				if d, ok := s.watch.takeDone(path); ok {
+					apply(path, d)
 				}
 			case <-budget.C:
 				break wait
@@ -577,7 +696,8 @@ func (s *Service) watchSnapshot(real time.Time) ([]watchTarget, bool) {
 				own[sp.pid] = true
 			}
 		}
-		t := watchTarget{session: id, childID: ss.childID, sid: cs.child.SID, d: d, own: own, at: real, logonAt: ss.since, hold: d.Status == core.StatusPaused}
+		t := watchTarget{session: id, childID: ss.childID, sid: cs.child.SID, d: d, own: own, at: real, logonAt: ss.since, hold: d.Status == core.StatusPaused,
+			startupOff: cs.startupOff, startupReady: startupReady(cs, ss.since)}
 		if sm := cs.sample; cs.haveSample && cs.sampleSess == id && real.Sub(cs.sampleAt) <= sampleMaxAge && sm.SessionActive && sm.LastInputAgoMs >= 0 {
 			t.inputAt, t.sampleAt = s.inputMoment(cs.sampleAt, sm.LastInputAgoMs), cs.sampleAt
 			t.fg = programs.Normalize(sm.ForegroundPath)
@@ -639,6 +759,14 @@ func (s *Service) watchDecide(t *watchTarget, p ProcInfo, e *watchEntry) *watchA
 	if res.Verdict == programs.VerdictSystem || res.Verdict == programs.VerdictHidden {
 		return nil // скрытую родителем не закрывает ни одно правило (D-57, RF9-2)
 	}
+	if hit, ok := t.startupOff[e.norm]; ok && startupLaunch(t, p, e) {
+		// Выключенная родителем или ждущая решения запись автозагрузки запустилась сама при входе
+		// (RM5b-3): закрыть до вердикта программы, без плашки и нарушения.
+		return &watchAct{t: t, p: p, e: e, res: res, again: e.closed, plateKind: plateStartup, auto: true, startup: hit}
+	}
+	if t.startupReady {
+		e.startupSpared = true // правило автозагрузки оставило процесс живым: позже не закрывает
+	}
 	a := &watchAct{t: t, p: p, e: e, res: res, again: e.closed}
 	switch res.Verdict {
 	case programs.VerdictUnknown:
@@ -684,6 +812,7 @@ func (s *Service) newWatchEntry(t *watchTarget, p ProcInfo, norm string, gen uin
 			s.watch.procs[pk] = pe
 		}
 		e.manual, e.why, e.quiet = pe.manual, "дочерний процесс того же exe: "+pe.why, true
+		e.startupSpared = pe.startupSpared
 		return e
 	}
 	e.manual, e.why = launchKind(e.facts)
@@ -802,6 +931,10 @@ func closedName(a *watchAct) (string, map[string]any) {
 
 // recordClosed — записи о закрытой программе: журнал, «Ждут решения» и плашка.
 func (s *Service) recordClosed(cs *childState, a *watchAct, real time.Time) {
+	if a.plateKind == plateStartup {
+		s.recordStartupClosed(cs, a, real)
+		return
+	}
 	name, details := closedName(a)
 	var kind, text string
 	plate := ipc.BlockedPlate{Kind: a.plateKind, ShowS: blockedPlateShowS, Path: a.e.key}

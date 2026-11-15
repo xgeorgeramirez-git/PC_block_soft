@@ -206,6 +206,16 @@ func (c *Classifier) NeedsPublisher(path string) bool {
 	return len(c.profile[key]) > 0 || c.roots.braveProfileRel(p) != "" // Brave в профиле — по издателю (RM4-8)
 }
 
+// SavedFingerprint — отпечаток, сохранённый в списке программ для пути (пусто — сверять не нужно);
+// known = false — пути в списке нет. Для журнала работы о первом решении (B-67).
+func (c *Classifier) SavedFingerprint(path string) (fp string, known bool) {
+	p := c.roots.StableKey(path)
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	e, known := c.exact[p]
+	return e.Fingerprint, known
+}
+
 // NeedsFingerprint сообщает, что для пути в списке сохранён отпечаток файла: наблюдателю нужно
 // прочитать отпечаток и передать его в Classify (RM3-12).
 func (c *Classifier) NeedsFingerprint(path string) bool {

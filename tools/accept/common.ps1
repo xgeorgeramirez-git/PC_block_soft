@@ -48,6 +48,10 @@ $script:CloseToleranceMs = 1500
 $script:BraveProfile = Join-Path $script:Work "brave-profile"
 $script:TabToleranceMs = 3000
 $script:MySid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+# Записи автозагрузки приёмки S50 (M5b): своя — в Run учётки раннера, общая — в HKLM\…\Run. Reset-Machine
+# убирает их значения из Run и StartupApproved\Run (Remove-StartupTestValues).
+$script:StartupTestNotes = "PCBNotesTest"
+$script:StartupTestShared = "PCBSharedTest"
 $script:MySession = (Get-Process -Id $PID).SessionId
 $script:PsExe = (Get-Process -Id $PID).Path
 $script:Tag = ""
@@ -572,6 +576,19 @@ function Restart-PcbService {
   Write-Log ("Служба перезапущена за {0:N1} с без перезаписи TestMode: настроена {1}{2}" -f $sw.Elapsed.TotalSeconds, $hello.configured, $clock)
 }
 
+# Убирает записи автозагрузки приёмки S50 из Run и StartupApproved\Run учётки раннера и HKLM. Ничего не бросает.
+function Remove-StartupTestValues {
+  $tail = "Software\Microsoft\Windows\CurrentVersion"
+  $keys = @(
+    @{ Root = "Registry::HKEY_USERS\$($script:MySid)\$tail"; Name = $script:StartupTestNotes },
+    @{ Root = "Registry::HKEY_LOCAL_MACHINE\$tail"; Name = $script:StartupTestShared })
+  foreach ($k in $keys) {
+    foreach ($sub in @("Run", "Explorer\StartupApproved\Run")) {
+      try { Remove-ItemProperty -LiteralPath "$($k.Root)\$sub" -Name $k.Name -Force -ErrorAction SilentlyContinue } catch {}
+    }
+  }
+}
+
 # Приводит машину к чистому состоянию. Вызывается в начале и в конце сценария и ничего не бросает.
 function Reset-Machine {
   Close-PipeConn
@@ -599,6 +616,7 @@ function Reset-Machine {
   Stop-AllPcb
   try { Remove-ItemProperty -Path "Registry::HKEY_USERS\$($script:MySid)\Software\Microsoft\Windows\CurrentVersion\Policies\System" -Name DisableTaskMgr -ErrorAction SilentlyContinue } catch {}
   try { Remove-Item -Path "Registry::HKEY_USERS\$($script:MySid)\Software\Policies\BraveSoftware\Brave" -Recurse -Force -ErrorAction SilentlyContinue } catch {}
+  Remove-StartupTestValues
   try { Remove-Item -LiteralPath $script:Data -Recurse -Force -ErrorAction SilentlyContinue } catch {}
   try { Remove-Item -LiteralPath $script:DefaultData -Recurse -Force -ErrorAction SilentlyContinue } catch {}
   try { Remove-TestUser } catch {}
@@ -886,7 +904,7 @@ function Format-GuardState($s) {
   $b = (@(List $s.buttons)) -join ","
   $f = (@(List $s.fields) | ForEach-Object { "$($_.id)='$($_.text)'" }) -join ","
   $x = (@(List $s.exits)) -join ","
-  return "экран=$($s.lockShown)/$($s.lockKind); плашка=$($s.plateKind)'$($s.plate)'; кнопки=[$b]; поля=[$f]; предупреждения=[$w]; выходы=[$x]; передний план='$($s.foregroundPath)'; домен вкладки='$($s.foregroundDomain)'; closedTab='$($s.closedTab)'; closedTabWay='$($s.closedTabWay)'"
+  return "экран=$($s.lockShown)/$($s.lockKind); стикер=$($s.promoSticker)'$($s.promoText)'; плашка=$($s.plateKind)'$($s.plate)'; кнопки=[$b]; поля=[$f]; предупреждения=[$w]; выходы=[$x]; передний план='$($s.foregroundPath)'; домен вкладки='$($s.foregroundDomain)'; closedTab='$($s.closedTab)'; closedTabWay='$($s.closedTabWay)'"
 }
 
 function Get-WarnThresholds($State) { return @(List $State.warnings | ForEach-Object { [int]$_.threshold }) }
@@ -956,6 +974,34 @@ function Get-ChildId {
 # Запись журнала родителя по тексту (регулярное выражение, без учёта регистра); пусто, если нет.
 function Find-Events([string]$Pattern) {
   return @(Get-Events | Where-Object { $_.text -match $Pattern })
+}
+
+# Ответ на промокод на экране блокировки (R26, D-83): стикер и надпись из GuardState (promoSticker,
+# promoText). Наборы — как в internal/guard/stickers.go и frontend/src/lib/stickers.ts.
+$script:PromoOkStickers = @("017", "033", "044", "049", "050", "077", "093", "096", "112")
+$script:PromoBadStickers = @("023", "028", "048", "069", "082", "084", "095", "110")
+$script:PromoBadTexts = @(
+  "Такого кода нет. Проверь буквы и цифры",
+  "Хм, код не подходит. Посмотри внимательнее",
+  "Не получилось. Проверь, нет ли опечатки",
+  "Этот код не работает. Попробуй ещё раз",
+  "Ой, мимо! Сверь код с запиской",
+  "Код не сработал. Может, его уже использовали?")
+$script:PromoOkPrefixes = @("Ура! +", "Есть! Тебе +", "Код сработал! +", "Отлично, лови +", "Вот это да! +", "Супер! Твои +")
+
+# Ждёт стикер неудачи с надписью неудачи на экране блокировки (экран показан); возвращает состояние.
+function Wait-PromoBad([double]$Seconds = 8) {
+  return (Wait-GuardState { param($s) $s.lockShown -and ($script:PromoBadStickers -contains [string]$s.promoSticker) -and ($script:PromoBadTexts -contains [string]$s.promoText) } $Seconds "стикер и надпись неудачи промокода")
+}
+
+# Ждёт стикер удачи с надписью удачи «…+N минут» (Minutes — «30 минут», «1 минута») на экране блокировки.
+function Wait-PromoOk([string]$Minutes, [double]$Seconds = 8) {
+  return (Wait-GuardState {
+      param($s)
+      $t = [string]$s.promoText
+      $s.lockShown -and ($script:PromoOkStickers -contains [string]$s.promoSticker) -and
+        @($script:PromoOkPrefixes | Where-Object { $t.StartsWith($_ + $Minutes) }).Count -eq 1
+    } $Seconds "стикер и надпись удачи промокода с «+$Minutes»")
 }
 
 # Windows 11: выносит значок программы из скрытых значков на панель (HKCU\Control Panel\NotifyIconSettings).

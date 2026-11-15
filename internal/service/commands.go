@@ -295,6 +295,10 @@ func init() {
 		ipc.CmdRemoveSites:      {parentToken(true), (*Service).hRemoveSites},
 		ipc.CmdSetAdultFilter:   {parentToken(true), (*Service).hSetAdultFilter},
 		ipc.CmdTestSeedPrograms: {testMode(admins()), (*Service).hTestSeedPrograms},
+
+		// M5b: автозагрузка (FR-39) — только родитель.
+		ipc.CmdListStartup: {parentToken(false), (*Service).hListStartup},
+		ipc.CmdSetStartup:  {parentToken(true), (*Service).hSetStartup},
 	}
 }
 

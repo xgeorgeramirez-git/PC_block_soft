@@ -240,6 +240,52 @@ export interface ClearPromoHistoryReply {
   message: string;
 }
 
+/** Решение по записи автозагрузки (FR-39): ждёт решения, запускается, не запускается. */
+export type StartupDecision = "pending" | "on" | "off";
+
+/** Вид записи автозагрузки для значка строки (RM5b-6). */
+export type StartupSource = "run" | "run32" | "runonce" | "startup_folder" | "task" | "store_app";
+
+/** Строка вкладки «Автозагрузка» (8.3.11): своя запись ребёнка или общая для всех. */
+export interface StartupItemView {
+  id: number;
+  scope: "own" | "shared";
+  source: StartupSource;
+  name: string;
+  /** Издатель exe; "" - неизвестен. */
+  publisher: string;
+  /** «Откуда» словами: «Реестр, при входе». */
+  from: string;
+  decision: StartupDecision;
+}
+
+/** Запрос списка автозагрузки; refresh - запустить проверку Windows (ответ её не ждёт). */
+export interface ListStartupRequest {
+  childId: number;
+  refresh?: boolean;
+}
+
+/** Блоки вкладки; checkedAt - последняя удачная проверка (мс, 0 - не было), checking - идёт сейчас. */
+export interface ListStartupReply {
+  pending: StartupItemView[];
+  own: StartupItemView[];
+  shared: StartupItemView[];
+  checkedAt: number;
+  checking: boolean;
+}
+
+export interface SetStartupRequest {
+  childId: number;
+  id: number;
+  on: boolean;
+}
+
+/** Строка с решением службы и «Будет запускаться при входе Миши». */
+export interface SetStartupReply {
+  item: StartupItemView;
+  message: string;
+}
+
 export interface RedeemPromoReply {
   card: TodayCard;
   addedMin: number;

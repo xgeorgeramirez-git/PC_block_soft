@@ -104,6 +104,18 @@ export function formatDayAt(ms: number, tzOffsetMin: number): string {
   return `${d.getUTCDate()} ${MONTH_GENITIVE[d.getUTCMonth()]} в ${pad2(d.getUTCHours())}:${pad2(d.getUTCMinutes())}`;
 }
 
+/** Время суток момента в поясе: «18:40» («Проверено в 18:40», 8.3.11). */
+export function formatTimeOfDay(ms: number, tzOffsetMin: number): string {
+  const d = shifted(ms, tzOffsetMin);
+  return `${pad2(d.getUTCHours())}:${pad2(d.getUTCMinutes())}`;
+}
+
+/** Два момента приходятся на один местный день в поясе. */
+export function sameLocalDay(a: number, b: number, tzOffsetMin: number): boolean {
+  const day = (ms: number) => Math.floor((ms + tzOffsetMin * 60_000) / 86_400_000);
+  return day(a) === day(b);
+}
+
 function pad2(n: number): string {
   return n < 10 ? `0${n}` : `${n}`;
 }

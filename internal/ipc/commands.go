@@ -112,6 +112,7 @@ var AllCommands = []string{
 
 	CmdClearStats, CmdClearJournal, // M5 (FR-38)
 	CmdGeneratePromos, CmdClearPromoHistory, // M5 (FR-35, commands_m5.go)
+	CmdListStartup, CmdSetStartup, // M5b (FR-39, commands_m5b.go)
 }
 
 // Имена полей, к которым служба привязывает ошибку (Reply.Field, L-121).
@@ -832,7 +833,7 @@ type TestSessionRequest struct {
 	SID string `json:"sid,omitempty"`
 }
 
-// События TestSession.
+// События TestSession (и TestSessionLogon из commands_m5b.go).
 const (
 	TestSessionDisconnect = "disconnect" // смена пользователя: сеанс отключён
 	TestSessionLogoff     = "logoff"     // выход из учётки
@@ -940,6 +941,10 @@ type GuardStateReply struct {
 	// закрыта (CloseTab*). Для приёмки S16…S18 (RM4-12), заполняет страж.
 	ClosedTab    string `json:"closedTab"`
 	ClosedTabWay string `json:"closedTabWay"`
+	// PromoSticker — номер стикера ответа на промокод на экране блокировки («017»), PromoText — его
+	// надпись; пусто — ответа нет (R26, D-83, приёмка S52).
+	PromoSticker string `json:"promoSticker"`
+	PromoText    string `json:"promoText"`
 }
 
 // Виды плашек стража для GuardStateReply.PlateKind, кроме плашек о закрытых программах (их вид —

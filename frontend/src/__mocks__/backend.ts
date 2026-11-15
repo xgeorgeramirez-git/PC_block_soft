@@ -37,6 +37,7 @@ import type {
   ListSitesReply,
   SiteDTO,
   SiteKind,
+  StartupItemView,
   StatsPeriod,
 } from "../types";
 
@@ -214,7 +215,28 @@ export interface MockOptions {
   pending?: PendingProgramDTO[];
   /** Списки «Сайтов» на старте (FR-21); по умолчанию - как в примере контракта ListSites. */
   sites?: SiteDTO[];
+  /**
+   * «Автозагрузка» каждого ребёнка (FR-39): одни и те же строки у всех детей, решения у каждого
+   * свои; [] - при входе ничего не запускается. По умолчанию - MOCK_STARTUP (1 ждёт, 3 своих, 2 общих).
+   */
+  startup?: StartupItemView[];
+  /** Момент последней проверки автозагрузки (UTC мс); по умолчанию - момент создания мока. */
+  startupCheckedAt?: number;
 }
+
+/**
+ * «Автозагрузка» по умолчанию (8.3.11): новая запись notes ждёт решения; свои - задание OneDrive
+ * (имя с SID, как у Планировщика), Discord в реестре, ярлык Telegram в папке; общие - Adobe Updater
+ * в реестре компьютера и ярлык Steam в общей папке.
+ */
+export const MOCK_STARTUP: readonly StartupItemView[] = [
+  { id: 1, scope: "own", source: "task", name: "\\OneDrive Reporting Task-S-1-5-21-111-222-333-1001", publisher: "Microsoft Corporation", from: "Планировщик заданий, при входе", decision: "on" },
+  { id: 2, scope: "own", source: "run", name: "Discord", publisher: "Discord Inc.", from: "Реестр, при входе", decision: "on" },
+  { id: 3, scope: "own", source: "startup_folder", name: "Telegram.lnk", publisher: "Telegram FZ-LLC", from: "Папка «Автозагрузка»", decision: "off" },
+  { id: 4, scope: "shared", source: "run", name: "Adobe Updater", publisher: "Adobe Inc.", from: "Реестр, при входе", decision: "on" },
+  { id: 5, scope: "shared", source: "startup_folder", name: "Steam.lnk", publisher: "Valve Corp.", from: "Папка «Автозагрузка»", decision: "on" },
+  { id: 7, scope: "own", source: "run", name: "notes", publisher: "", from: "Реестр, при входе", decision: "pending" },
+];
 
 /** Запись журнала на старте мока: id необязателен. */
 export type MockEventInput = Omit<JournalEntry, "id"> & { id?: number };
@@ -234,6 +256,7 @@ export const MOCK_JOURNAL_GROUPS: Record<Exclude<JournalGroup, "">, readonly str
     "program_auto_closed", "program_closed_games", "program_closed_study_only",
     "site_closed_video", "site_closed_study_only", "site_unread", "site_added", "site_moved", "site_removed",
     "site_adult_filter", "brave_restored",
+    "startup_new", "startup_decided", "startup_closed",
   ],
   settings: [
     "setup_done", "password_failed", "password_changed", "password_reset", "uninstall_forgot",
@@ -296,6 +319,9 @@ export interface MockState {
   programUndo: Map<string, { programs: ProgramDTO[]; pending: PendingProgramDTO[]; undoUntilMs: number }>;
   /** Домены трёх списков «Сайтов»: у домена одна запись (RM4-5). */
   sites: SiteDTO[];
+  /** «Автозагрузка» по номеру ребёнка (FR-39), строки по номеру записи, как у службы. */
+  startup: Map<number, StartupItemView[]>;
+  startupCheckedAt: number;
 }
 
 export type Override = Reply | "reject" | "garbage" | ((request: any) => Reply | Promise<Reply>);
@@ -845,6 +871,8 @@ const PARENT_COMMANDS = new Set([
   "ClearJournal",
   "GeneratePromos",
   "ClearPromoHistory",
+  "ListStartup",
+  "SetStartup",
 ]);
 
 /** Нормализация промокода как в ядре (R26): без пробелов по краям и без учёта регистра. */
@@ -920,6 +948,8 @@ function makeState(opts: MockOptions): MockState {
     pending: (opts.pending ?? exampleProgramsReply().pending).map((p) => ({ ...p, byChild: [...p.byChild] })),
     programUndo: new Map(),
     sites: (opts.sites ?? exampleSites()).map((x) => ({ ...x })),
+    startup: new Map(children.map((c) => [c.childId, (opts.startup ?? MOCK_STARTUP).map((x) => ({ ...x }))])),
+    startupCheckedAt: opts.startupCheckedAt ?? Date.now(),
   };
 }
 
@@ -1860,6 +1890,36 @@ export function createBackend(opts: MockOptions = {}): MockBackend {
       const text = `${child.name}: ${child.adultFilter ? "сайты 18+ блокируются" : "сайты 18+ не блокируются"}`;
       addEvent(now, child, "site_adult_filter", text);
       return okReply({ message: text, sites: sitesReply() });
+    },
+
+    // «Автозагрузка» (FR-39, 8.3.11), как hListStartup: «Ждут решения» - все pending, остальные по
+    // области; строки по номеру. Проверка Windows в моке мгновенная: checking всегда false.
+    ListStartup: (req) => {
+      const child = childById(req?.childId);
+      if (!child) return fail("Такого ребёнка нет в списке");
+      const items = [...(state.startup.get(child.childId) ?? [])].sort((a, b) => a.id - b.id).map((x) => ({ ...x }));
+      return okReply({
+        pending: items.filter((x) => x.decision === "pending"),
+        own: items.filter((x) => x.decision !== "pending" && x.scope === "own"),
+        shared: items.filter((x) => x.decision !== "pending" && x.scope === "shared"),
+        checkedAt: state.startupCheckedAt,
+        checking: false,
+      });
+    },
+
+    // Как hSetStartup: решение on/off, строка журнала «Миша: автозагрузка «X» включена», сообщение.
+    SetStartup: (req, now) => {
+      const child = childById(req?.childId);
+      if (!child) return fail("Такого ребёнка нет в списке");
+      const item = state.startup.get(child.childId)?.find((x) => x.id === req.id);
+      if (!item) return fail("Не удалось сохранить. Попробуйте ещё раз");
+      const on = req.on === true;
+      item.decision = on ? "on" : "off";
+      addEvent(now, child, "startup_decided", `${child.name}: автозагрузка «${item.name}» ${on ? "включена" : "выключена"}`);
+      return okReply({
+        item: { ...item },
+        message: `${on ? "Будет" : "Не будет"} запускаться при входе ${genitiveName(child.name)}`,
+      });
     },
 
     GetBonusRate: () => okReply({ minutes: state.bonusRate }),

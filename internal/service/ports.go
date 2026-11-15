@@ -6,6 +6,7 @@ import (
 
 	"pcblock/internal/auth"
 	"pcblock/internal/core"
+	"pcblock/internal/startup"
 )
 
 // Порты службы (ТЗ 3.3, план M1 T9): всё, что связано с базой, Windows и паролем, служба
@@ -144,6 +145,20 @@ type PromoRecord struct {
 	UsedByChild int64 // 0 — не использован
 }
 
+// StartupRecord — запись автозагрузки ребёнка (storage.StartupItem) для службы (FR-39, RM5b-4).
+// Ключ записи у ребёнка — Scope + Source + Name; у общей записи строка на каждого ребёнка.
+type StartupRecord struct {
+	ID, ChildID int64
+	Scope       string // "own" | "shared"
+	Source      string // "run" | "runonce" | "startup_folder" | "task" | "store_app"
+	Name        string
+	Command     string
+	Publisher   string
+	Decision    string // "pending" | "on" | "off"; в SyncStartupItems пусто — решение по умолчанию
+	FirstSeen   int64  // UTC мс первой проверки, нашедшей запись
+	DecidedAt   int64  // 0 — родитель ещё не решал
+}
+
 // Auth — пароль родителя и состояние неверных вводов (storage.Auth).
 type Auth struct {
 	Hash        string
@@ -236,6 +251,17 @@ type Store interface {
 	// списков переносятся; ошибка — ничего не изменилось.
 	ReplaceSiteRules(kind string, domains []string) error
 	SetAdultFilter(childID int64, on bool) error // «Блокировать сайты 18+» (R14); нет ребёнка — ошибка
+
+	// Автозагрузка (M5b: FR-39, RM5b-4). Граница первой проверки — GetSetting/SetSetting
+	// (startup.baseline.<childID>).
+	ListStartupItems(childID int64) ([]StartupRecord, error) // по порядку появления; нет — []
+	// SyncStartupItems — одной транзакцией: новые по ключу вставляются с решением записи (пусто —
+	// newDecision), у известных обновляются command и publisher, отсутствующие в found удаляются;
+	// недопустимое значение или повтор ключа — ошибка, ничего не изменилось. Возвращает вставленные; нет — [].
+	SyncStartupItems(childID int64, found []StartupRecord, newDecision string, now int64) (added []StartupRecord, err error)
+	// SetStartupDecision — решение родителя "on" | "off" (decided_at = now); строка чужого ребёнка или
+	// её нет — ошибка.
+	SetStartupDecision(childID, id int64, decision string, now int64) (StartupRecord, error)
 	AppendEvent(e StoredEvent) error
 	ListEvents(q EventQuery) ([]StoredEvent, error)
 	DeleteChildEvents(childID int64) (int, error) // события ребёнка; без ребёнка не трогает (RM5-9)
@@ -421,6 +447,28 @@ type Policy interface {
 	// RemoveBraveRules снимает ветку правил Brave целиком; её нет — nil.
 	RemoveBraveRules(sid string) error
 }
+
+// StartupSource — автозагрузка учётки ребёнка в Windows (FR-39, RM5b-1, RM5b-2; реализация в
+// winhost). List — записи ребёнка с SID sid: свои (раздел и профиль ребёнка; профиль не
+// загружен — подгружается, профиля нет — своих записей нет) и общие (для всех пользователей);
+// скрываемое (RM5b-7) не входит. Ошибка — проверка не удалась, а не «записей нет» (PL-46).
+// ListShared — только общие записи: ничей профиль не подгружается (проверка детей, которые сейчас
+// не вошли: вход ребёнка в момент подгрузки его профиля мог бы сломаться, как T5-4).
+// SetEnabled штатно включает или выключает свою запись e (RM5b-2): общую — ErrSharedNotWritable,
+// RunOnce — ErrNotSwitchable.
+type StartupSource interface {
+	List(sid string) ([]startup.Entry, error)
+	ListShared() ([]startup.Entry, error)
+	SetEnabled(sid string, e startup.Entry, on bool) error
+}
+
+// ErrSharedNotWritable — общую запись автозагрузки служба в Windows не меняет (уточнение 1
+// плана M5b): решение родителя по ней — только в базе и правило наблюдателя.
+var ErrSharedNotWritable = errors.New("service: общая запись автозагрузки не меняется")
+
+// ErrNotSwitchable — запись автозагрузки штатного выключателя не имеет (RunOnce, RM5b-2): для неё
+// действует только правило наблюдателя.
+var ErrNotSwitchable = errors.New("service: запись автозагрузки не выключается штатно")
 
 // Journal — запись событий журнала (R22). childID 0: событие не про ребёнка. Ошибки записи
 // журнала службу не останавливают (R18), адаптер пишет их в журнал работы.

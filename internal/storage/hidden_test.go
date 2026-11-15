@@ -15,6 +15,7 @@ func TestMigration005OnFilled030Base(t *testing.T) {
 	if err != nil {
 		t.Fatalf("loadMigrations: %v", err)
 	}
+	all = migrationsBefore(all, 11) // свой срез истории (PL-57): 011 и дальше проверяют свои тесты
 	var v030 []migration
 	for _, m := range all {
 		if m.version < 5 {

@@ -300,6 +300,27 @@ func examples() map[string]example {
 		}),
 		"GeneratePromos#count": fail(GeneratePromosRequest{Count: 51, Length: 6, Charset: CharsetDigits, Minutes: 15}, "Можно от 1 до 50 кодов", FieldCount, nil),
 		CmdClearPromoHistory:   ok(Empty{}, ClearPromoHistoryReply{Message: "История промокодов очищена"}),
+		CmdListStartup: ok(ListStartupRequest{ChildID: 1, Refresh: true}, ListStartupReply{
+			Pending: []StartupItemView{
+				{ID: 7, Scope: "own", Source: "run", Name: "Discord", Publisher: "Discord Inc.", From: "Реестр, при входе", Decision: StartupPending},
+			},
+			Own: []StartupItemView{
+				{ID: 3, Scope: "own", Source: "startup_folder", Name: "Steam.lnk", Publisher: "Valve Corp.", From: "Папка «Автозагрузка»", Decision: StartupOn},
+				{ID: 4, Scope: "own", Source: "store_app", Name: "SpotifyMusic", Publisher: "", From: "Приложение из магазина", Decision: StartupOff},
+			},
+			Shared: []StartupItemView{
+				{ID: 5, Scope: "shared", Source: "task", Name: `\OneDrive Standalone Update Task`, Publisher: "Microsoft Corporation", From: "Планировщик заданий, при входе", Decision: StartupOn},
+			},
+			CheckedAt: t0, Checking: true,
+		}),
+		"ListStartup#empty": ok(ListStartupRequest{ChildID: 2}, ListStartupReply{
+			Pending: []StartupItemView{}, Own: []StartupItemView{}, Shared: []StartupItemView{},
+		}),
+		CmdSetStartup: ok(SetStartupRequest{ChildID: 1, ID: 7, On: false}, SetStartupReply{
+			Item:    StartupItemView{ID: 7, Scope: "own", Source: "run", Name: "Discord", Publisher: "Discord Inc.", From: "Реестр, при входе", Decision: StartupOff},
+			Message: "Не будет запускаться при входе Миши",
+		}),
+		"SetStartup#failed": fail(SetStartupRequest{ChildID: 1, ID: 7, On: true}, "Не удалось сохранить. Попробуйте ещё раз", "", nil),
 		CmdRedeemPromo: ok(RedeemPromoRequest{ChildID: 1, Code: "a1234"}, RedeemPromoReply{
 			Card: card(okStatus(), 30, false), AddedMin: 30, Message: "Добавлено 30 минут",
 		}),
@@ -451,9 +472,10 @@ func examples() map[string]example {
 		CmdGuardClosing:    ok(nil, Empty{}),
 		CmdTrayClosing:     ok(nil, Empty{}),
 
-		CmdTestGuard:   ok(TestGuardRequest{SessionID: 2, Action: TestGuardAction{Action: TestClick, Target: ButtonParentPassword}}, Empty{}),
-		CmdTestClock:   ok(TestClockRequest{Paused: true}, TestClockReply{Paused: true, NowMs: t0, Speed: 60}),
-		CmdTestSession: ok(TestSessionRequest{Event: TestSessionLogoff, SessionID: 7, SID: "S-1-5-21-1-2-3-1001"}, Empty{}),
+		CmdTestGuard:        ok(TestGuardRequest{SessionID: 2, Action: TestGuardAction{Action: TestClick, Target: ButtonParentPassword}}, Empty{}),
+		CmdTestClock:        ok(TestClockRequest{Paused: true}, TestClockReply{Paused: true, NowMs: t0, Speed: 60}),
+		CmdTestSession:      ok(TestSessionRequest{Event: TestSessionLogoff, SessionID: 7, SID: "S-1-5-21-1-2-3-1001"}, Empty{}),
+		"TestSession#logon": ok(TestSessionRequest{Event: TestSessionLogon, SessionID: 2}, Empty{}),
 		CmdTestSeedDay: ok(TestSeedDayRequest{ChildID: 1, Day: "2026-10-19", TotalS: 3000, GamesS: 1800, VideoS: 1200, ExtraMin: 30,
 			Usage: []TestSeedUsage{
 				{Path: `c:\games\game.exe`, Category: ProgramCatGames, Seconds: 1800, Kind: SeedKindProgram},
@@ -472,6 +494,10 @@ func examples() map[string]example {
 		"GuardState#empty": ok(nil, GuardStateReply{}),
 		"GuardState#rest": ok(nil, GuardStateReply{
 			LockShown: true, LockKind: LockRest, RestTimer: "00:14:59", RestMessage: "Пойди погуляй с собакой",
+			Buttons: []string{ButtonParentPassword, ButtonShutdown, ButtonLogoff, ButtonSwitchUser},
+		}),
+		"GuardState#promo": ok(nil, GuardStateReply{
+			LockShown: true, LockKind: LockTimeUp, PromoSticker: "017", PromoText: "Ура! +30 минут",
 			Buttons: []string{ButtonParentPassword, ButtonShutdown, ButtonLogoff, ButtonSwitchUser},
 		}),
 		"GuardState#blocked": ok(nil, GuardStateReply{
@@ -619,8 +645,8 @@ func TestContractHasEveryCommand(t *testing.T) {
 			t.Errorf("пример для %s есть, а в AllCommands её нет", c)
 		}
 	}
-	if len(AllCommands) != 77 {
-		t.Errorf("команд %d, ждали 77 (6 команд M5: ClearStats, ClearJournal, GeneratePromos, ClearPromoHistory, AddSites, RemoveSites; 5 команд M4: ListSites, AddSite, RemoveSite, SetAdultFilter, тестовая TestSeedPrograms; тестовая TestSeedDay и EndBreak из раунда 0.3.2; 46 из M1/M2/0.2.1 без команд Помощника, 9 из фидбек-раунда 0.2.2: OpenLogs, SetNoForbidden, ClearBonus, ReduceBonus, CreatePromo, ListPromos, RedeemPromo, GetBonusRate, SetBonusRate, GuardClosing из раунда 0.2.3, тестовая TestSession из 0.2.5 и 5 программ M3: ListPrograms, DecideProgram, SetProgramsCategory, UndoProgram, ScanPrograms; SetProgramsHidden и RenameProgram из раунда 0.3.1)", len(AllCommands))
+	if len(AllCommands) != 79 {
+		t.Errorf("команд %d, ждали 79 (2 команды M5b: ListStartup, SetStartup; 6 команд M5: ClearStats, ClearJournal, GeneratePromos, ClearPromoHistory, AddSites, RemoveSites; 5 команд M4: ListSites, AddSite, RemoveSite, SetAdultFilter, тестовая TestSeedPrograms; тестовая TestSeedDay и EndBreak из раунда 0.3.2; 46 из M1/M2/0.2.1 без команд Помощника, 9 из фидбек-раунда 0.2.2: OpenLogs, SetNoForbidden, ClearBonus, ReduceBonus, CreatePromo, ListPromos, RedeemPromo, GetBonusRate, SetBonusRate, GuardClosing из раунда 0.2.3, тестовая TestSession из 0.2.5 и 5 программ M3: ListPrograms, DecideProgram, SetProgramsCategory, UndoProgram, ScanPrograms; SetProgramsHidden и RenameProgram из раунда 0.3.1)", len(AllCommands))
 	}
 }
 

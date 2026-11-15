@@ -11,6 +11,7 @@ import (
 
 	"pcblock/internal/auth"
 	"pcblock/internal/core"
+	"pcblock/internal/startup"
 )
 
 // --- хранилище ------------------------------------------------------------------------
@@ -71,6 +72,11 @@ type fakeStore struct {
 	sites     map[string]string // списки сайтов (M4): домен → blocked|study|video_social
 	adultOff  map[int64]bool    // ребёнок с выключенным списком 18+ (M4); нет записи — включён
 	failSites bool              // ListSiteRules возвращает ошибку (M4)
+
+	startup        []StartupRecord // автозагрузка всех детей по порядку появления (M5b)
+	nextStartup    int64           // номер последней строки автозагрузки
+	failStartup    bool            // методы автозагрузки возвращают ошибку, ничего не меняя (M5b, PL-46)
+	failStartupSet bool            // только SetStartupDecision возвращает ошибку (запись решения после Windows)
 }
 
 // fakeStarterVideo — стартовый набор «Видео и соцсети», как в миграции 009 (R14).
@@ -2111,4 +2117,260 @@ func TestFakeStoreMatchesStorageM5(t *testing.T) {
 	if n, _ := f.ClearUsedPromos(); n != 1 || codes() != "N2 N1" {
 		t.Errorf("ClearUsedPromos = %d, список %q", n, codes())
 	}
+}
+
+// --- автозагрузка (M5b, FR-39) — как storage.SyncStartupItems / SetStartupDecision --------------
+
+func fakeStartupDecision(d string) bool { return d == "pending" || d == "on" || d == "off" }
+
+func (f *fakeStore) ListStartupItems(childID int64) ([]StartupRecord, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.failStartup {
+		return nil, errFake
+	}
+	out := []StartupRecord{}
+	for _, r := range f.startup {
+		if r.ChildID == childID {
+			out = append(out, r)
+		}
+	}
+	return out, nil
+}
+
+func (f *fakeStore) SyncStartupItems(childID int64, found []StartupRecord, newDecision string, now int64) ([]StartupRecord, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.failStartup || !fakeStartupDecision(newDecision) {
+		return nil, errFake
+	}
+	type key struct{ scope, source, name string }
+	seen := map[key]bool{}
+	for _, r := range found {
+		k := key{r.Scope, r.Source, r.Name}
+		if (r.Scope != "own" && r.Scope != "shared") || r.Source == "" || r.Name == "" ||
+			(r.Decision != "" && !fakeStartupDecision(r.Decision)) || seen[k] {
+			return nil, errFake
+		}
+		seen[k] = true
+	}
+	if _, ok := f.children[childID]; !ok {
+		return nil, errFake // внешний ключ child_id
+	}
+	known := map[key]int{}
+	kept := make([]StartupRecord, 0, len(f.startup)+len(found))
+	for _, r := range f.startup {
+		if r.ChildID == childID {
+			k := key{r.Scope, r.Source, r.Name}
+			if !seen[k] {
+				continue // пропала из Windows
+			}
+			known[k] = len(kept)
+		}
+		kept = append(kept, r)
+	}
+	added := []StartupRecord{}
+	for _, r := range found {
+		k := key{r.Scope, r.Source, r.Name}
+		if i, ok := known[k]; ok {
+			kept[i].Command, kept[i].Publisher = r.Command, r.Publisher
+			continue
+		}
+		d := r.Decision
+		if d == "" {
+			d = newDecision
+		}
+		f.nextStartup++
+		rec := StartupRecord{ID: f.nextStartup, ChildID: childID, Scope: r.Scope, Source: r.Source, Name: r.Name,
+			Command: r.Command, Publisher: r.Publisher, Decision: d, FirstSeen: now}
+		kept = append(kept, rec)
+		added = append(added, rec)
+	}
+	f.startup = kept
+	return added, nil
+}
+
+func (f *fakeStore) SetStartupDecision(childID, id int64, decision string, now int64) (StartupRecord, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.failStartup || f.failStartupSet || (decision != "on" && decision != "off") {
+		return StartupRecord{}, errFake
+	}
+	for i := range f.startup {
+		if f.startup[i].ID == id && f.startup[i].ChildID == childID {
+			f.startup[i].Decision, f.startup[i].DecidedAt = decision, now
+			return f.startup[i], nil
+		}
+	}
+	return StartupRecord{}, errFake
+}
+
+// --- автозагрузка в Windows (M5b, порт StartupSource) -------------------------------------------
+
+// fakeStartupSource — автозагрузка компьютера в памяти: свои записи по SID и общие. Включённость
+// меняет SetEnabled (общая — ErrSharedNotWritable, RunOnce — ErrNotSwitchable, как winhost).
+// listErr / setErr — сбой чтения или записи; block — List и ListShared ждут закрытия канала
+// (проверка «две проверки одного ребёнка не идут одновременно»).
+type fakeStartupSource struct {
+	mu      sync.Mutex
+	own     map[string][]startup.Entry
+	shared  []startup.Entry
+	listErr error
+	setErr  error
+	block   chan struct{}
+	onList  func() // вызывается в List вне блокировок (гонка «проверка поменяла строку», уточнение 4)
+
+	calls    []string // "list <sid>", "shared", "set <sid> <name> <on>"
+	inFlight int      // сколько List/ListShared идут сейчас
+	maxIn    int
+}
+
+func newStartupSource() *fakeStartupSource {
+	return &fakeStartupSource{own: map[string][]startup.Entry{}}
+}
+
+func withStartup(src *fakeStartupSource) hopt {
+	return func(h *harness) { h.cfg.Startup = src }
+}
+
+func (f *fakeStartupSource) enter(call string) (chan struct{}, error) {
+	f.mu.Lock()
+	f.calls = append(f.calls, call)
+	f.inFlight++
+	if f.inFlight > f.maxIn {
+		f.maxIn = f.inFlight
+	}
+	b, err := f.block, f.listErr
+	f.mu.Unlock()
+	return b, err
+}
+
+func (f *fakeStartupSource) leave() {
+	f.mu.Lock()
+	f.inFlight--
+	f.mu.Unlock()
+}
+
+func (f *fakeStartupSource) List(sid string) ([]startup.Entry, error) {
+	b, err := f.enter("list " + sid)
+	defer f.leave()
+	if b != nil {
+		<-b
+	}
+	f.mu.Lock()
+	hook := f.onList
+	f.mu.Unlock()
+	if hook != nil {
+		hook()
+	}
+	if err != nil {
+		return nil, err
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := append([]startup.Entry{}, f.own[sid]...)
+	return append(out, f.shared...), nil
+}
+
+func (f *fakeStartupSource) ListShared() ([]startup.Entry, error) {
+	b, err := f.enter("shared")
+	defer f.leave()
+	if b != nil {
+		<-b
+	}
+	if err != nil {
+		return nil, err
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]startup.Entry{}, f.shared...), nil
+}
+
+func (f *fakeStartupSource) SetEnabled(sid string, e startup.Entry, on bool) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls = append(f.calls, fmt.Sprintf("set %s %s %v", sid, e.Name, on))
+	if e.Scope != startup.ScopeOwn {
+		return ErrSharedNotWritable
+	}
+	if e.Source == startup.SrcRunOnce {
+		return ErrNotSwitchable
+	}
+	if f.setErr != nil {
+		return f.setErr
+	}
+	for i, x := range f.own[sid] {
+		if x.Source == e.Source && x.Name == e.Name {
+			f.own[sid][i].Enabled = on
+			return nil
+		}
+	}
+	return errFake
+}
+
+// addOwn и addShared кладут запись (включённую, если не сказано иное).
+func (f *fakeStartupSource) addOwn(sid string, e startup.Entry) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	e.Scope = startup.ScopeOwn
+	f.own[sid] = append(f.own[sid], e)
+}
+
+func (f *fakeStartupSource) addShared(e startup.Entry) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	e.Scope = startup.ScopeShared
+	f.shared = append(f.shared, e)
+}
+
+func (f *fakeStartupSource) removeOwn(sid, name string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	keep := []startup.Entry{}
+	for _, e := range f.own[sid] {
+		if e.Name != name {
+			keep = append(keep, e)
+		}
+	}
+	f.own[sid] = keep
+}
+
+// setOwnEnabled — ребёнок сам включил или выключил запись (Параметры → Автозагрузка).
+func (f *fakeStartupSource) setOwnEnabled(sid, name string, on bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for i, e := range f.own[sid] {
+		if e.Name == name {
+			f.own[sid][i].Enabled = on
+		}
+	}
+}
+
+func (f *fakeStartupSource) ownEnabled(sid, name string) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, e := range f.own[sid] {
+		if e.Name == name {
+			return e.Enabled
+		}
+	}
+	return false
+}
+
+func (f *fakeStartupSource) callsFrom(n int) []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string{}, f.calls[n:]...)
+}
+
+func (f *fakeStartupSource) callN() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.calls)
+}
+
+func (f *fakeStartupSource) setFail(list, set error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.listErr, f.setErr = list, set
 }

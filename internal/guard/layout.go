@@ -63,6 +63,57 @@ func Flow(area Rect, top int32, items []FlowItem) []Rect {
 	return out
 }
 
+// Ответ на промокод на экране блокировки (R26, 8.2.3 п.3): стикер, под ним надпись.
+const (
+	StickerGapPx     = 24 // от блока выше до стикера
+	StickerTextGapPx = 8  // от стикера до надписи
+	stickerMinPx     = 96 // стикер меньше этого (при 100 %) не показывается: остаётся надпись
+	stickerSideGapPx = 24 // от места сбоку до столбца поля и кнопок
+	stickerMarginPx  = 24 // поле столбца сверху и снизу (как FlowTop экрана блокировки)
+)
+
+// PromoStickerSize — сторона стикера в пикселях: StickerPx(dpi), если столбец экрана без стикера
+// (columnH, с надписью и кнопками) вместе с ним помещается в высоту areaH с полями; иначе меньше;
+// меньше 96 px при 100 % — в столбец не ставится (0): тогда стикер и надпись встают сбоку (PromoSide).
+func PromoStickerSize(dpi int, areaH, columnH int32) int32 {
+	free := areaH - 2*Scaled(stickerMarginPx, dpi) - columnH - Scaled(StickerGapPx, dpi)
+	size := min(StickerPx(dpi), free)
+	if size < Scaled(stickerMinPx, dpi) {
+		return 0
+	}
+	return size
+}
+
+// PromoSideWidth — ширина места слева от столбца шириной colW (поле и кнопки стоят по центру области),
+// с полем у края экрана и отступом до столбца; 0 — места нет.
+func PromoSideWidth(dpi int, area Rect, colW int32) int32 {
+	colLeft := area.Left + (area.Right-area.Left-colW)/2
+	return max(0, colLeft-Scaled(stickerSideGapPx, dpi)-area.Left-Scaled(stickerMarginPx, dpi))
+}
+
+// PromoSide ставит ответ на промокод слева от столбца, когда в столбце места нет (низкий экран:
+// 1366×768 при 125 %, 1280×720 при 150 %): стикер верхом на уровне anchorTop (поле или первая кнопка),
+// под ним надпись высотой textH во всю ширину места. Стикер — сколько помещается по ширине и до низа
+// экрана, не больше StickerPx; меньше 96 px при 100 % — без стикера (size 0, sticker пустой), надпись
+// стоит на его месте.
+func PromoSide(dpi int, area Rect, colW, anchorTop, textH int32) (size int32, sticker, text Rect) {
+	w := PromoSideWidth(dpi, area, colW)
+	left := area.Left + Scaled(stickerMarginPx, dpi)
+	gap := Scaled(StickerTextGapPx, dpi)
+	avail := area.Bottom - Scaled(stickerMarginPx, dpi) - anchorTop - gap - textH
+	size = min(StickerPx(dpi), w, avail)
+	if size < Scaled(stickerMinPx, dpi) {
+		size = 0
+	}
+	top := anchorTop
+	if size > 0 {
+		sl := left + (w-size)/2
+		sticker = Rect{Left: sl, Top: top, Right: sl + size, Bottom: top + size}
+		top += size + gap
+	}
+	return size, sticker, Rect{Left: left, Top: top, Right: left + w, Bottom: top + textH}
+}
+
 // PlateLayout — раскладка текстовой плашки справа внизу (плашка 1 мин, «Добавлено N минут»,
 // плашки о закрытых программах): размер окна, область текста, крестик в правом верхнем углу и
 // кнопки под текстом. Координаты клиентские, в пикселях экрана.

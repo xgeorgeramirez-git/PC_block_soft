@@ -95,6 +95,7 @@ func openHost() (*host, error) {
 		FileMeta:   meta,
 		Roots:      roots,
 		Watcher:    newProcessWatcher(),
+		Startup:    newStartupSource(folders, meta),
 	})
 	if err != nil {
 		_ = res.Store.Close()

@@ -116,3 +116,46 @@ func TestTempNotAppRoot(t *testing.T) {
 		t.Errorf("ProfileRoot(%q) = %q, want пусто", p, got)
 	}
 }
+
+// Ловит (B-67): наблюдатель не узнаёт файл в папке временных файлов приложения (пустой издатель там
+// перечитывается: файл держит антивирус) или принимает за неё сам Temp, LocalLow и Roaming.
+func TestInTempApp(t *testing.T) {
+	cases := []struct {
+		path string
+		want bool
+	}{
+		{`c:\users\danila\appdata\local\temp\roblox\robloxplayerinstaller.exe`, true},
+		{`c:\users\danila\appdata\local\temp\roblox\sub\x.exe`, true},
+		{`c:\users\danila\appdata\local\temp\robloxplayerinstaller.exe`, false},
+		{`c:\users\danila\appdata\locallow\temp\game\g.exe`, false},
+		{`c:\users\danila\appdata\roaming\temp\roblox\x.exe`, false},
+		{`c:\users\danila\appdata\local\roblox\versions\v1\x.exe`, false},
+		{`d:\temp\roblox\x.exe`, false},
+	}
+	for _, k := range cases {
+		if got := testRoots.InTempApp(k.path); got != k.want {
+			t.Errorf("InTempApp(%q) = %v, want %v", k.path, got, k.want)
+		}
+	}
+}
+
+// Ловит (B-67): строка журнала о первом решении не может сказать, совпал ли отпечаток файла с
+// сохранённым решением родителя (нет записи, запись без отпечатка, запись с отпечатком).
+func TestSavedFingerprint(t *testing.T) {
+	c := NewClassifier(testRoots, DefaultCatalog)
+	c.Reload(append([]Entry{{Path: `c:\users\danila\downloads\nofp.exe`, Name: "N", Category: "games"}}, tempEntries...))
+	cases := []struct {
+		path  string
+		fp    string
+		known bool
+	}{
+		{`c:\users\danila\appdata\local\temp\roblox\robloxplayerinstaller.exe`, "5000:1", true},
+		{`c:\users\danila\downloads\nofp.exe`, "", true},
+		{`c:\users\danila\downloads\other.exe`, "", false},
+	}
+	for _, k := range cases {
+		if fp, known := c.SavedFingerprint(k.path); fp != k.fp || known != k.known {
+			t.Errorf("SavedFingerprint(%q) = %q, %v; want %q, %v", k.path, fp, known, k.fp, k.known)
+		}
+	}
+}

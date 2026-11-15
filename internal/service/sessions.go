@@ -247,6 +247,7 @@ func (s *Service) syncSessions(real time.Time) {
 				s.checkAdmin(cs, real)
 				s.applyPolicy(cs.child.SID, true)
 				s.applyBrave(cs)
+				s.checkStartup(cs, true)
 			}
 		}
 	}

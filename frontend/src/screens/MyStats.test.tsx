@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import MyStats from "./MyStats";
 import {
@@ -15,6 +15,26 @@ import {
   type MockBackend,
 } from "../__mocks__/backend";
 import type { ProgramTime } from "../types";
+import { promoPicker } from "../lib/stickers";
+
+// Стикер ответа на промокод (R26): проигрыватель и файлы .tgs в jsdom не грузятся, подменены.
+vi.mock("../lib/lottie", () => ({
+  loadLottie: () =>
+    Promise.resolve({
+      loadAnimation: () => ({
+        totalFrames: 90,
+        play() {},
+        stop() {},
+        goToAndStop() {},
+        addEventListener() {},
+        destroy() {},
+      }),
+    }),
+}));
+
+vi.mock("../lib/stickerData", () => ({
+  loadStickerData: (n: string) => Promise.resolve({ sticker: n }),
+}));
 
 // FR-12, R21, сценарий 8.2.6: окно «Моя статистика» только для чтения, в M1 - «Сегодня» и «Мои правила».
 
@@ -726,29 +746,44 @@ describe("MyStats: «Бонусы» (R25, R26, D-49, D-50)", () => {
     expect(piggy.textContent ?? "").not.toMatch(YOU_FORM);
   });
 
-  // Ловит: верный код не добавляет время или сообщение не по ТЗ (FR-35: «Добавлено N минут»).
-  it("верный промокод: «Добавлено 30 минут»", async () => {
+  // Ловит: верный код не добавляет время или ответ не по ТЗ (R26: стикер и «Ура! +30 минут»,
+  // а не текст службы «Добавлено 30 минут»).
+  it("верный промокод: стикер и надпись удачи с минутами кода", async () => {
+    vi.spyOn(Math, "random").mockReturnValue(0);
+    promoPicker.reset();
     const user = withBonus();
     const field = await screen.findByRole("textbox", { name: "Промокод" });
     await user.type(field, " a1234 ");
     await user.click(screen.getByRole("button", { name: "Ввести промокод" }));
-    expect(await screen.findByText("Добавлено 30 минут")).toBeTruthy();
+    const box = screen.getByRole("region", { name: "Бонусы" });
+    await waitFor(() => expect(within(box).getByRole("status").textContent).toBe("Ура! +30 минут"));
+    expect(box.querySelector(".promo-sticker")?.getAttribute("data-sticker")).toBe("017");
+    expect(screen.queryByText("Добавлено 30 минут")).toBeNull();
     expect(mock.state.children[0].extraMin).toBe(30);
     expect(mock.calls.find((c) => c.command === "RedeemPromo")?.payload).toEqual({ childId: 0, code: " a1234 " });
     expect((field as HTMLInputElement).value).toBe("");
+    vi.restoreAllMocks();
   });
 
-  // Ловит: повторный ввод того же кода снова добавляет время (одноразовость, R26).
-  it("неверный или использованный код: «Код не подходит», время не меняется", async () => {
+  // Ловит: повторный ввод того же кода снова добавляет время (одноразовость, R26) или неудача
+  // показана текстом службы «Код не подходит».
+  it("неверный или использованный код: стикер и надпись неудачи, время не меняется", async () => {
+    vi.spyOn(Math, "random").mockReturnValue(0);
+    promoPicker.reset();
     const user = withBonus();
     const field = await screen.findByRole("textbox", { name: "Промокод" });
     await user.type(field, "a1234");
     await user.click(screen.getByRole("button", { name: "Ввести промокод" }));
-    await screen.findByText("Добавлено 30 минут");
+    await screen.findByText("Ура! +30 минут");
     await user.type(field, "a1234");
     await user.click(screen.getByRole("button", { name: "Ввести промокод" }));
-    expect(await screen.findByText("Код не подходит")).toBeTruthy();
+    const box = screen.getByRole("region", { name: "Бонусы" });
+    await waitFor(() => expect(within(box).getByRole("status").textContent).toBe("Такого кода нет. Проверь буквы и цифры"));
+    expect(box.querySelector(".promo-sticker")?.getAttribute("data-sticker")).toBe("023");
+    expect(screen.queryByText("Код не подходит")).toBeNull();
+    expect((field as HTMLInputElement).value).toBe("a1234");
     expect(mock.state.children[0].extraMin).toBe(30);
+    vi.restoreAllMocks();
   });
 
   it("пустой код: подсказка у поля, в программу не уходит", async () => {

@@ -646,3 +646,41 @@ describe("«Придумать коды»: состав знаков, как у 
     for (const d of "0123456789") expect(all).toContain(d);
   });
 });
+
+describe("«Автозагрузка» (FR-39, 8.3.11)", () => {
+  // Ловит: мок кладёт ждущую запись в «Учётку» или общую в свои; решение одного ребёнка меняет
+  // список другого; сообщение и журнал не как у службы.
+  it("блоки по решению и области; решение у каждого ребёнка своё", async () => {
+    const mock = installBackend({ sessionActive: true, children: [mockChild(), mockChild({ childId: 2, sid: "S-2", name: "Даша" })] });
+    const list = await api.listStartup(1, true);
+    expect(list.pending.map((x) => x.name)).toEqual(["notes"]);
+    expect(list.own.map((x) => x.id)).toEqual([1, 2, 3]);
+    expect(list.shared.map((x) => x.name)).toEqual(["Adobe Updater", "Steam.lnk"]);
+    expect(list.checking).toBe(false);
+
+    const r = await api.setStartup(1, 7, true);
+    expect(r).toEqual({
+      item: { id: 7, scope: "own", source: "run", name: "notes", publisher: "", from: "Реестр, при входе", decision: "on" },
+      message: "Будет запускаться при входе Миши",
+    });
+    expect((await api.setStartup(2, 4, false)).message).toBe("Не будет запускаться при входе Даши");
+    expect((await api.listStartup(1)).own.map((x) => x.id)).toEqual([1, 2, 3, 7]);
+    expect((await api.listStartup(1)).shared.map((x) => x.decision)).toEqual(["on", "on"]);
+    expect((await api.listStartup(2)).pending.map((x) => x.id)).toEqual([7]);
+    // «Оставить выключенной» (8.3.11 п.2): ждущая запись получает решение off и уходит в свой блок.
+    const kept = await api.setStartup(2, 7, false);
+    expect([kept.item.decision, kept.message]).toEqual(["off", "Не будет запускаться при входе Даши"]);
+    const dasha = await api.listStartup(2);
+    expect([dasha.pending, dasha.own.map((x) => [x.id, x.decision])]).toEqual([[], [[1, "on"], [2, "on"], [3, "off"], [7, "off"]]]);
+    expect(mock.state.events.map((e) => [e.kind, e.text])).toEqual([
+      ["startup_decided", "Даша: автозагрузка «notes» выключена"],
+      ["startup_decided", "Даша: автозагрузка «Adobe Updater» выключена"],
+      ["startup_decided", "Миша: автозагрузка «notes» включена"],
+    ]);
+  });
+
+  it("startup: [] - пустые блоки", async () => {
+    installBackend({ sessionActive: true, startup: [], startupCheckedAt: 5 });
+    expect(await api.listStartup(1)).toEqual({ pending: [], own: [], shared: [], checkedAt: 5, checking: false });
+  });
+});

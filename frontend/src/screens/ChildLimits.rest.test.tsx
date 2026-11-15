@@ -52,7 +52,7 @@ describe("ChildLimits: вкладка «Отдых»", () => {
     const user = setup();
     await screen.findByRole("table");
     const tabs = within(screen.getByRole("tablist", { name: "Правила ребёнка" })).getAllByRole("tab");
-    expect(tabs.map((t) => t.textContent)).toEqual(["Лимиты", "Запретные часы", "Когда время вышло", "Перерыв на отдых"]);
+    expect(tabs.map((t) => t.textContent)).toEqual(["Лимиты", "Запретные часы", "Когда время вышло", "Перерыв на отдых", "Автозагрузка"]);
     await user.click(screen.getByRole("tab", { name: "Перерыв на отдых" }));
     expect(toggle().checked).toBe(false);
     expect([num("Через сколько").value, num("Предупредить за").value, num("Отдых").value, self().value]).toEqual(["60", "5", "15", "15"]);

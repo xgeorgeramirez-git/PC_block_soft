@@ -191,3 +191,39 @@ func TestWatchFingerprintBudget(t *testing.T) {
 		t.Errorf("после готового отпечатка чтений %d, want 2 (результат не читается заново)", n)
 	}
 }
+
+// Ловит (B-60): готовое чтение свойств, которое проход не дождался, отдаётся следующему процессу с
+// тем же путём. Установщик во временной папке перезаписан, пока чтение для прежнего процесса
+// висело: новый процесс получил бы отпечаток прежнего файла и прошёл бы по решению родителя.
+// Готовое чтение берёт только процесс, для которого оно начато; новый процесс читает файл заново.
+func TestWatchLateMetaOnlyForItsProcess(t *testing.T) {
+	w, meta := newWatcher(), newMeta()
+	meta.set(pathSuperGame, "", "", "1024:1700000000")
+	h := watchHarness(t, w, withMeta(meta))
+	t.Cleanup(meta.release)
+	if err := h.store.UpsertProgram(Program{Path: pathSuperGame, Name: "SuperGame", Category: "games", Source: "parent", Fingerprint: "1024:1700000000"}); err != nil {
+		t.Fatal(err)
+	}
+	h.svc.mu.Lock()
+	h.svc.reloadPrograms()
+	h.svc.mu.Unlock()
+	old := w.start(childSession, pathSuperGame)
+	meta.hold()
+	within(t, time.Second, "проход при зависшем чтении отпечатка", h.watch)
+	meta.release()
+	if !waitFor(2*time.Second, func() bool { return len(meta.askedPaths()) == 1 }) {
+		t.Fatalf("чтение свойств не закончилось: %v", meta.askedPaths())
+	}
+	// Прежний процесс завершился, файл перезаписан другим, тот же путь запущен снова.
+	w.exit(old)
+	meta.set(pathSuperGame, "", "", "2048:1700000500")
+	fresh := w.start(childSession, pathSuperGame)
+	h.real.Advance(time.Second)
+	h.watch()
+	if w.alive(fresh) {
+		t.Error("новый процесс перезаписанного файла получил отпечаток прежнего и не закрыт")
+	}
+	if n := countOf(meta.askedPaths(), pathSuperGame); n < 2 {
+		t.Errorf("свойства %s прочитаны %d раз, want новое чтение для нового процесса", pathSuperGame, n)
+	}
+}

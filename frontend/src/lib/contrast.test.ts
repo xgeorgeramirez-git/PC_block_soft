@@ -207,3 +207,33 @@ describe("флажки и переключатели своим оформлен
     expect(focus).toMatch(/outline\s*:\s*2px\s+solid\s+var\(--text\)\s*;/);
   });
 });
+
+// Выключатель «Автозагрузки» (FR-39, PL-61): дорожка выключенного - рамка поля, включённого -
+// заливка основной кнопки, бегунок включённого - цвет текста на ней; всё не меньше 3:1 к
+// карточке в обеих темах (WCAG 1.4.11), фокус виден.
+describe("выключатель «Автозагрузки»", () => {
+  it("цвета дорожки и бегунка - токены палитры", () => {
+    expect(blockOf(css, /(^|\n)\.startup-switch-track\s*\{/)).toMatch(/border\s*:\s*2px\s+solid\s+var\(--field-border\)\s*;/);
+    expect(ruleVar(".startup-switch-thumb", "background")).toBe("field-border");
+    expect(ruleVar('.startup-switch[aria-checked="true"] .startup-switch-track', "background")).toBe("primary");
+    expect(ruleVar('.startup-switch[aria-checked="true"] .startup-switch-thumb', "background")).toBe("primary-text");
+    expect(blockOf(css, /(^|\n)\.startup-switch:focus-visible\s*\{/)).toMatch(/outline\s*:\s*2px\s+solid\s+var\(--text\)\s*;/);
+  });
+
+  // Ловит (ревью T5): при наведении выключатель не меняется; рамка наведения сливается с карточкой.
+  it("наведение - рамка дорожки основным текстом, не меньше 3:1 к карточке и фону в обеих темах", () => {
+    expect(ruleVar('.startup-switch:hover:not([aria-disabled="true"]) .startup-switch-track', "border-color")).toBe("text");
+    for (const t of [light, dark]) {
+      expect(ratio(t.text, t.surface)).toBeGreaterThanOrEqual(3);
+      expect(ratio(t.text, t.bg)).toBeGreaterThanOrEqual(3);
+    }
+  });
+
+  it.each(["surface", "bg"])("дорожка и заливка к фону %s не меньше 3:1 в обеих темах", (bg) => {
+    for (const t of [light, dark]) {
+      expect(ratio(t["field-border"], t[bg])).toBeGreaterThanOrEqual(3);
+      expect(ratio(t.primary, t[bg])).toBeGreaterThanOrEqual(3);
+      expect(ratio(t["primary-text"], t.primary)).toBeGreaterThanOrEqual(3);
+    }
+  });
+});

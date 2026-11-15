@@ -50,6 +50,7 @@ type Controller struct {
 	sounds    []ipc.ShownSound // сыгранные звуки (журнал для GuardState, только тестовый режим)
 	soundID   int              // ID плашки, для которой звук уже сыгран
 	play      func() bool      // проиграть звук предупреждения; true — Windows принял звук
+	warm      func(string)     // заранее разобрать кадры стикера промокода (не в потоке окон)
 	soundQ    chan int         // номера записей журнала звуков для исполнителя звука; nil — исполнитель не запущен
 	speed     int              // ускорение часов ядра, сообщённое окном; модели передаётся только в тестовом режиме
 	ui        ipc.GuardUI      // диагностика потока окон
@@ -131,6 +132,24 @@ func (c *Controller) SetSoundPlayer(play func() bool) {
 	c.mu.Lock()
 	c.play = play
 	c.mu.Unlock()
+}
+
+// SetStickerWarmer задаёт, как заранее готовить кадры стикера промокода: Run зовёт его в своей
+// горутине сразу после ответа службы, и поток окон берёт готовые кадры из кэша.
+func (c *Controller) SetStickerWarmer(warm func(sticker string)) {
+	c.mu.Lock()
+	c.warm = warm
+	c.mu.Unlock()
+}
+
+// warmSticker готовит кадры показанного стикера, если он есть.
+func (c *Controller) warmSticker() {
+	c.mu.Lock()
+	warm := c.warm
+	c.mu.Unlock()
+	if p := c.model.View(c.now()).Promo; p != nil && warm != nil {
+		safely(func() { warm(p.Sticker) })
+	}
 }
 
 // SetTabActor задаёт исполнителя закрытия вкладки и окна Brave (RM4-2): страж на Windows —
@@ -715,6 +734,7 @@ func (c *Controller) Run(act Action) {
 		switch {
 		case err == nil:
 			c.model.OnPromoResult(c.now(), PromoResult{OK: true, Minutes: rep.AddedMin})
+			c.warmSticker()
 			c.mu.Lock()
 			forbidden := c.lastLock == ipc.LockForbidden
 			c.mu.Unlock()
@@ -728,8 +748,10 @@ func (c *Controller) Run(act Action) {
 				c.setNotice(addedText(rep.AddedMin) + ". " + pron + " можно будет потратить, когда закончатся запретные часы")
 			}
 		case errors.As(err, &re) && re.Text != "":
-			// Отказ службы («Код не подходит») — у поля, панель остаётся.
-			c.model.OnPromoResult(c.now(), PromoResult{Error: re.Text})
+			// Отказ службы: по полю кода («Код не подходит») — стикер и надпись неудачи над полем
+			// (RM5b-10), другой — текст у поля; панель остаётся.
+			c.model.OnPromoResult(c.now(), PromoResult{Error: re.Text, BadCode: re.Field == ipc.FieldCode})
+			c.warmSticker()
 		default:
 			c.setNotice(failureText(err, textNoticeRetry))
 		}
@@ -846,6 +868,15 @@ func (c *Controller) SetField(id, text string) {
 	c.fields[id] = text
 }
 
+// SetAnimations передаёт модели, включены ли анимации Windows (стикер промокода без движения, R26).
+func (c *Controller) SetAnimations(on bool) { c.model.SetAnimations(on) }
+
+// FieldEdited: ребёнок изменил текст в поле экрана блокировки (EN_CHANGE). Ответ на прошлый
+// неверный промокод исчезает (R26).
+func (c *Controller) FieldEdited() {
+	c.model.OnFieldEdit(c.now())
+}
+
 // StateFromView собирает ответ GuardState: что страж показывает сейчас. Все срезы не nil.
 func StateFromView(v View, lockKind string, shown []ipc.ShownWarning, sounds []ipc.ShownSound, fields map[string]string) ipc.GuardStateReply {
 	st := ipc.GuardStateReply{
@@ -872,6 +903,9 @@ func StateFromView(v View, lockKind string, shown []ipc.ShownWarning, sounds []i
 	if v.Warning != nil {
 		add(v.Warning.Buttons)
 		st.Plate, st.PlateKind = v.Warning.Text, v.Warning.Kind
+	}
+	if v.Promo != nil {
+		st.PromoSticker, st.PromoText = v.Promo.Sticker, v.Promo.Text
 	}
 	switch v.Panel {
 	case PanelPassword:
