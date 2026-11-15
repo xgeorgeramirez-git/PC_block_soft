@@ -3301,7 +3301,7 @@ async function startupRowsInside(page: Page) {
     const out: string[] = [];
     for (const row of document.querySelectorAll(".startup-row")) {
       const box = row.closest(".startup-block")!.getBoundingClientRect();
-      for (const el of row.querySelectorAll(".startup-switch, .startup-name, .startup-meta")) {
+      for (const el of row.querySelectorAll(".startup-switch, .startup-keep, .startup-name, .startup-meta")) {
         const r = el.getBoundingClientRect();
         if (r.left < box.left - 0.5 || r.right > box.right + 0.5) out.push(`${el.className} «${(row.textContent ?? "").slice(0, 30)}»`);
       }
@@ -3354,6 +3354,32 @@ for (const v of [
   });
 }
 
+// «Оставить выключенной» у ждущей записи (8.3.11 п.2): одно действие - запись в «Учётке Миши» с
+// выключенным выключателем, фокус на её выключателе, сообщение службы под списком.
+test("s50 автозагрузка: оставить выключенной", async ({ page }) => {
+  await page.setViewportSize({ width: 1200, height: 820 });
+  await openStartupTab(page);
+  const keep = page.getByRole("button", { name: "Оставить выключенной: notes" });
+  await expect(keep).toBeVisible();
+  // Кнопка справа от выключателя, в той же строке.
+  const sw = await page.getByRole("switch", { name: "notes" }).boundingBox();
+  const kb = await keep.boundingBox();
+  expect(kb!.x, "кнопка справа от выключателя").toBeGreaterThanOrEqual(sw!.x + sw!.width);
+  expect(Math.abs(kb!.y + kb!.height / 2 - (sw!.y + sw!.height / 2)), "кнопка в строке выключателя").toBeLessThan(8);
+  await keep.click();
+  await expect(page.locator(".startup-message")).toHaveText("Не будет запускаться при входе Миши");
+  await expect(page.locator(".startup h3")).toHaveText(["Учётка Миши", "Для всех пользователей"]);
+  const own = page.getByRole("region", { name: "Учётка Миши" });
+  await expect(own.getByRole("switch", { name: "notes" })).toHaveAttribute("aria-checked", "false");
+  await expect(page.getByRole("switch", { name: "notes" })).toBeFocused();
+  await expect(page.getByRole("button", { name: /^Оставить выключенной/ })).toHaveCount(0);
+  await expect(page.getByText("Есть несохранённые изменения")).toHaveCount(0);
+  await startupRowsInside(page);
+  await noHorizontalScroll(page);
+  await wholePage(page);
+  await page.screenshot({ path: `${SCREENS}/s50-startup-kept-off.png`, fullPage: true });
+});
+
 test("s50 автозагрузка: пусто", async ({ page }) => {
   await page.setViewportSize({ width: 1200, height: 820 });
   await openStartupTab(page, { startup: [] });
@@ -3382,6 +3408,11 @@ test.describe("s50 автозагрузка: окно 960 при масштаб�
     expect(await longName.evaluate((el) => el.scrollWidth > el.clientWidth), "длинное название обрезано многоточием").toBe(true);
     await startupRowsInside(page);
     await noHorizontalScroll(page);
+    // Узкий список: «Оставить выключенной» второй строкой под названием, не сжимает его.
+    const keepBox = await page.getByRole("button", { name: "Оставить выключенной: notes" }).boundingBox();
+    const nameBox = await page.locator(".startup-name", { hasText: "notes" }).boundingBox();
+    expect(keepBox!.y, "кнопка под названием").toBeGreaterThanOrEqual(nameBox!.y + nameBox!.height);
+    await page.screenshot({ path: `${SCREENS}/s50-startup-narrow-pending.png` });
     await page.getByRole("switch", { name: "notes" }).click();
     await expect(page.locator(".startup-message")).toHaveText("Будет запускаться при входе Миши");
     await startupRowsInside(page);
