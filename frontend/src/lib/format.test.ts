@@ -7,9 +7,11 @@ import {
   formatEventTime,
   formatHour,
   formatLimit,
+  formatTimeOfDay,
   genitiveName,
   localOffsetMin,
   formatUsed,
+  sameLocalDay,
   weekdayName,
   weekdayOfMs,
   weekdayShort,
@@ -136,6 +138,18 @@ describe("даты и время", () => {
   it("полночь после сдвига пояса переносит дату", () => {
     const at = Date.UTC(2026, 9, 19, 21, 5);
     expect(formatEventTime(at, 180)).toBe("20 окт, 00:05");
+  });
+  // Ловит: «Проверено в 15:40» в UTC вместо местного «18:40» (8.3.11), час без ведущего нуля.
+  it("время суток в поясе: «18:40», «06:05»", () => {
+    expect(formatTimeOfDay(Date.UTC(2026, 10, 11, 15, 40), 180)).toBe("18:40");
+    expect(formatTimeOfDay(Date.UTC(2026, 10, 11, 6, 5), 0)).toBe("06:05");
+    expect(formatTimeOfDay(Date.UTC(2026, 10, 11, 21, 0), 180)).toBe("00:00");
+  });
+  it("один местный день: граница полуночи в поясе, а не в UTC", () => {
+    const base = Date.UTC(2026, 10, 11, 12, 0);
+    expect(sameLocalDay(Date.UTC(2026, 10, 10, 21, 0), base, 180)).toBe(true);
+    expect(sameLocalDay(Date.UTC(2026, 10, 10, 20, 59), base, 180)).toBe(false);
+    expect(sameLocalDay(Date.UTC(2026, 10, 10, 21, 0), base, 0)).toBe(false);
   });
 });
 
