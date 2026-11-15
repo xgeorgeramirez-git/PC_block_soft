@@ -1,4 +1,4 @@
-﻿# Приёмка M1+M2+0.2.3...0.2.5+M3+0.3.1...0.3.3+M4+M5+M5b на настоящей Windows: сценарии S1…S22, S25…S27, S33…S52, LE1, LE2 (выходы с экрана блокировки), FB1, FB5 (S16…S20 и S46 — M4: сайты, браузеры, правила Brave, магазин; S21, S22, S47…S49, S51 — M5: статистика, очистка, промокоды, автобонус; S50 — M5b: автозагрузка; S52 — M5b: стикеры промокода; S33 последним) по очереди, каждый в своём процессе
+﻿# Приёмка M1+M2+0.2.3...0.2.5+M3+0.3.1...0.3.3+M4+M5+M5b на настоящей Windows: сценарии S1…S22, S25…S27, S33…S52, LE1, LE2 (выходы с экрана блокировки), FB1, FB5 (S16…S20 и S46 — M4: сайты, браузеры, правила Brave, магазин; S21, S22, S47…S49, S51 — M5: статистика, очистка, промокоды, автобонус; S50 — M5b: автозагрузка; S52 — M5b: стикеры промокода; TMP1 — M5b: установщик, перезаписанный во временной папке; S33 последним) по очереди, каждый в своём процессе
 # на свежей установке и свежей папке данных (счётчик сбоев службы, Ruling 27). Падение одного не мешает
 # остальным: прогоняются все, код выхода 1 при любом падении. Снимки в папке accept-screens (PCB_ACCEPT_SHOTS).
 param(
@@ -60,6 +60,7 @@ $all = @(
   @{ Id = "S51"; File = "s51-bonus-catchup.ps1" },    # M5: автобонус за пропущенную полночь при запуске службы (D-82)
   @{ Id = "S50"; File = "s50-startup.ps1" },         # M5b: автозагрузка двух детей, TestSession logon, Run и StartupApproved
   @{ Id = "S52"; File = "s52-promo-stickers.ps1" },   # M5b: стикеры и надписи в ответ на промокод на экране блокировки (D-83)
+  @{ Id = "TMP1"; File = "tmp1-temp-installer.ps1" }, # M5b (B-67): WatchDir в %TEMP% профиля, установщик перезаписан тем же издателем
   @{ Id = "PROBE"; File = "probe-brave.ps1" },  # проба M4 T0: домен вкладки Brave от SYSTEM (нужен шаг «Brave для пробы и приёмки»)
   @{ Id = "S33"; File = "s33-switch-user.ps1" }  # последним: после отключения сеанса у раннера нет экрана
 )
@@ -88,10 +89,10 @@ if ($failed.Count -gt 0) {
 if ($Only.Count -gt 0) {
   $m5 = @($passed | Where-Object { @("S21", "S22", "S47", "S48", "S49", "S51") -contains $_ })
   if ($m5.Count -gt 0) { Write-Host "::notice title=Приёмка M5::$($m5 -join ', '): PASS" }
-  $m5b = @($passed | Where-Object { @("S50", "S52") -contains $_ })
+  $m5b = @($passed | Where-Object { @("S50", "S52", "TMP1") -contains $_ })
   if ($m5b.Count -gt 0) { Write-Host "::notice title=Приёмка M5b::$($m5b -join ', '): PASS" }
   Write-Host "::notice title=Приёмка M1::$($passed -join ', '): PASS (выборочный прогон)"
 } else {
-  Write-Host "::notice title=Приёмка::S1…S22, S25…S27, S33…S52, LE1, LE2, FB1, FB5: PASS"
+  Write-Host "::notice title=Приёмка::S1…S22, S25…S27, S33…S52, LE1, LE2, FB1, FB5, TMP1: PASS"
 }
 exit 0
