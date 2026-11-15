@@ -373,6 +373,8 @@ func TestPromoTargets(t *testing.T) {
 // после снятия показывает плашку «Добавлено» (FR-35, R26, D-83).
 func TestControllerRedeemPromo(t *testing.T) {
 	r := newCtRig()
+	warmed := []string{}
+	r.ctl.SetStickerWarmer(func(n string) { warmed = append(warmed, n) })
 	r.svc.status = ctTimeUpStatus()
 	r.poll()
 	r.ctl.Press(ButtonPromo, "")
@@ -396,6 +398,9 @@ func TestControllerRedeemPromo(t *testing.T) {
 		t.Fatalf("после отказа Panel=%v err=%q promo=%+v", v.Panel, v.PasswordError, v.Promo)
 	}
 	first := *v.Promo
+	if len(warmed) != 1 || warmed[0] != first.Sticker {
+		t.Fatalf("кадры стикера не подготовлены заранее: %v", warmed)
+	}
 	// Ребёнок печатает: ответ исчезает.
 	r.ctl.FieldEdited()
 	if v := r.ctl.View(); v.Promo != nil {

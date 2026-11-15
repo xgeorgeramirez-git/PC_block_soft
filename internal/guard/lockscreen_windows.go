@@ -53,7 +53,8 @@ type lockUI struct {
 	buttons  map[Button]uintptr
 	views    map[Button]ButtonView
 
-	rest restPaint // экран перерыва: картинка и плитки таймера
+	rest    restPaint    // экран перерыва: картинка и плитки таймера
+	sticker stickerPaint // ответ на промокод: кадры стикера (R26)
 
 	onPress func(Button)
 	onEdit  func(string)
@@ -107,6 +108,12 @@ func (u *lockUI) apply(v View, notice string) {
 			u.view.Rest = v.Rest
 			invalidateRect(u.w.hwnd, u.rest.tilesRc)
 		}
+		if StickerChanged(u.view, v) {
+			u.view.Promo = v.Promo
+			if u.sticker.show {
+				invalidateRect(u.w.hwnd, u.sticker.rc) // только стикер: кнопки и поле не трогаются
+			}
+		}
 		return
 	}
 	u.sig = key
@@ -120,8 +127,9 @@ const (
 	entText entryKind = iota
 	entEdit
 	entButton
-	entCat   // картинка экрана перерыва
-	entTiles // плитки таймера экрана перерыва
+	entCat     // картинка экрана перерыва
+	entTiles   // плитки таймера экрана перерыва
+	entSticker // стикер ответа на промокод (R26)
 )
 
 // entry — блок столбца экрана до раскладки.
@@ -180,12 +188,31 @@ func (u *lockUI) layout() {
 	addText(v.Lock.Used, u.fonts.body, colorSecondary, s(6))
 	addText(v.Lock.Hint, u.fonts.body, colorSecondary, s(16))
 	addText(v.PanelText, u.fonts.body, colorText, s(32))
+	// Ответ на промокод (R26, 8.2.3 п.3): стикер и под ним надпись. Удача — вместо панели поля, выше
+	// пояснения о запретных часах; неудача — над подписью поля, код в поле остаётся.
+	sticker := -1
+	addPromo := func() {
+		if v.Promo == nil {
+			return
+		}
+		sticker = len(es)
+		es = append(es, entry{kind: entSticker})
+		addText(v.Promo.Text, u.fonts.button, colorText, s(StickerTextGapPx))
+	}
+	if v.Promo != nil && v.Promo.OK {
+		addPromo()
+	}
 	addText(u.notice, u.fonts.small, colorErrorText, s(16))
 
 	if v.Panel == PanelPassword || v.Panel == PanelPromo {
+		labelGap := s(32)
+		if v.Promo != nil && !v.Promo.OK {
+			addPromo()
+			labelGap = s(24)
+		}
 		// Подпись над полем: без неё непонятно, что вводить (B-12, H6): «Пароль родителя»
 		// (видны только точки) или «Промокод» (текст виден, FR-35).
-		addText(v.FieldLabel, u.fonts.small, colorSecondary, s(32))
+		addText(v.FieldLabel, u.fonts.small, colorSecondary, labelGap)
 		es = append(es, entry{kind: entEdit, item: FlowItem{W: s(380), H: s(52), Gap: s(8)}})
 		addText(v.PasswordError, u.fonts.small, colorErrorText, s(10))
 	}
@@ -215,6 +242,19 @@ func (u *lockUI) layout() {
 	for i, e := range es {
 		items[i] = e.item
 	}
+	if sticker >= 0 {
+		// Стикер 200 px при 100 %; на низком экране меньше или без него (PromoStickerSize):
+		// кнопки и поле важнее.
+		if size := PromoStickerSize(u.dpi, area.bottom-area.top, FlowHeight(items)); size > 0 && u.sticker.prepare(hdc, v.Promo.Sticker, size) {
+			es[sticker].item = FlowItem{W: size, H: size, Gap: s(StickerGapPx)}
+		} else if sticker+1 < len(es) {
+			es[sticker+1].item.Gap = s(StickerGapPx) // без стикера надпись стоит на его месте
+		}
+		items[sticker] = es[sticker].item
+		if sticker+1 < len(es) {
+			items[sticker+1] = es[sticker+1].item
+		}
+	}
 	if v.Rest != nil {
 		// Картинка над заголовком; на низком экране меньше или без неё (RestCatSize).
 		if cat := RestCatSize(u.dpi, area.bottom-area.top, FlowHeight(items)); cat > 0 && len(es) > 0 {
@@ -229,6 +269,7 @@ func (u *lockUI) layout() {
 
 	u.texts, u.hasFrame = u.texts[:0], false
 	u.rest.showCat, u.rest.showTiles = false, false
+	u.sticker.show = false
 	want := map[Button]rect{}
 	var order []Button
 	for i, e := range es {
@@ -243,6 +284,8 @@ func (u *lockUI) layout() {
 		case entTiles:
 			u.prepareTiles()
 			u.rest.showTiles, u.rest.tilesRc = true, rc
+		case entSticker:
+			u.sticker.show, u.sticker.rc = e.item.H > 0, rc
 		case entButton:
 			want[e.btn.Button] = rc
 			order = append(order, e.btn.Button)
@@ -440,6 +483,9 @@ func (u *lockUI) restFont(px int, bold bool) uintptr {
 // paint рисует тексты и рамку поля пароля; фон уже залит окном.
 func (u *lockUI) paint(hdc uintptr, rc *rect) {
 	u.paintRest(hdc)
+	if u.view.Promo != nil {
+		u.sticker.paint(hdc, u.view.Promo.Frame)
+	}
 	for _, t := range u.texts {
 		drawWrapped(hdc, t.font, t.color, t.text, t.rc, dtCenter)
 	}
@@ -555,6 +601,7 @@ func (u *lockUI) mainButton() Button {
 // close освобождает шрифты и кисть.
 func (u *lockUI) close() {
 	u.fonts.free()
+	u.sticker.free()
 	for k, f := range u.rest.fonts {
 		procDeleteObject.Call(f)
 		delete(u.rest.fonts, k)

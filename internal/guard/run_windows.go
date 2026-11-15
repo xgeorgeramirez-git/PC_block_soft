@@ -55,6 +55,7 @@ type app struct {
 	board     *systray.WarningCard
 	boardFail time.Time // когда не удалось создать окно табло; повтор не чаще boardRetry
 	hookTried bool
+	animOn    bool // идёт таймер кадров стикера (animTimerID)
 }
 
 // lazyCaller открывает канал службы при первом запросе и после обрыва: страж обязан
@@ -168,6 +169,9 @@ func Run(opts launch.Options) error {
 	a.ctl.SetSoundPlayer(sound.PlayWarning)
 	a.ctl.SetTabActor(winTabs{})
 	a.ctl.SetClockSpeed(a.speed)
+	a.ctl.SetAnimations(clientAreaAnimation())
+	dpi := systemDPI()
+	a.ctl.SetStickerWarmer(func(n string) { _, _ = StickerFramesBGRA(n, int(StickerPx(dpi))) })
 
 	stop := make(chan struct{})
 	var wg sync.WaitGroup
@@ -270,6 +274,9 @@ func (a *app) press(b Button) {
 	if (b == ButtonSubmitPassword || b == ButtonSubmitPromo) && a.ui != nil {
 		pw = a.ui.passwordText() // пароль или промокод: поле одно, режим задаёт панель
 	}
+	if b == ButtonSubmitPromo {
+		a.ctl.SetAnimations(clientAreaAnimation()) // родитель мог выключить анимации после запуска стража
+	}
 	act := a.ctl.Press(b, pw)
 	if act.Kind != ActNone {
 		go safely(func() { a.ctl.Run(act) })
@@ -285,6 +292,9 @@ func (a *app) onEdit(text string) {
 		id = FieldPromoID
 	}
 	a.ctl.SetField(id, text)
+	a.ctl.FieldEdited() // новый ввод: ответ на прошлый неверный промокод исчезает (R26)
+	// Перерисовать следующим сообщением, а не внутри уведомления поля (оно ещё в своём обработчике).
+	procPostMessage.Call(a.host, wmAppRefresh, 0, 0)
 }
 
 // tick приводит окна к виду из Model.
@@ -292,6 +302,7 @@ func (a *app) tick() {
 	a.ctl.NoteUITick(time.Now())
 	v := a.ctl.View()
 	a.applyLock(v)
+	a.applyAnim(v)
 	a.applyPlate(v)
 	for _, t := range a.ctl.QueuedTests() {
 		a.runTestAction(t)
@@ -331,6 +342,21 @@ func (a *app) applyLock(v View) {
 	case !v.SuppressKeys && installed:
 		a.lock.RemoveKeyboardGuard()
 	}
+}
+
+// applyAnim держит таймер кадров стикера промокода, пока кадр меняется, и снимает его после
+// последнего кадра: лишних пробуждений потока окон нет.
+func (a *app) applyAnim(v View) {
+	want := v.LockShown && StickerAnimating(v)
+	if want == a.animOn {
+		return
+	}
+	if want {
+		procSetTimer.Call(a.host, animTimerID, animEveryMs, 0)
+	} else {
+		procKillTimer.Call(a.host, animTimerID)
+	}
+	a.animOn = want
 }
 
 // applyPlate показывает плашку предупреждения или прячет её: табло за 30/15/5 мин — общей
