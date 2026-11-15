@@ -3179,7 +3179,7 @@ textarea.sites-add-input {
 }
 
 .promo-answer {
-  flex: 1 1 392px;
+  flex: 1 1 432px;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -3201,7 +3201,7 @@ textarea.sites-add-input {
 }
 
 .promo-answer-text {
-  flex: 1 1 220px;
+  flex: 1 1 260px;
   min-width: 0;
   margin: 0;
   color: var(--text);

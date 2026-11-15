@@ -2,6 +2,7 @@ package service
 
 import (
 	"testing"
+	"time"
 
 	"pcblock/internal/core"
 	"pcblock/internal/ipc"
@@ -119,6 +120,7 @@ func TestWatchTempInstallerOverwrittenKeepsDecision(t *testing.T) {
 	procs := startAll(w, pathRobloxTempInstaller, pathRobloxTempForged)
 	for i := 0; i < 3; i++ {
 		h.watch()
+		h.real.Advance(tempPubRetry) // пустой издатель в Temp перечитывается (B-67)
 	}
 	if !w.alive(procs[pathRobloxTempInstaller]) {
 		t.Error("перезаписанный установщик Roblox того же издателя закрыт")
@@ -134,5 +136,93 @@ func TestWatchTempInstallerOverwrittenKeepsDecision(t *testing.T) {
 		if p.Path == pathRobloxTempInstaller {
 			t.Errorf("установщик снова ждёт решения: %+v", p)
 		}
+	}
+}
+
+// Ловит (B-67, FB-22): установщик во временной папке только что перезаписан, и антивирус держит
+// файл — издатель читается пустым, и решение родителя «то же имя и тот же издатель» (FB-19) не
+// срабатывает: установщик закрыт и снова ждёт решения. Пустой издатель в Temp перечитывается через
+// tempPubRetry; до этого процесс не трогается и в «Ждут решения» не попадает. Издатель снова пуст —
+// решение как раньше (незнакомая закрыта).
+func TestWatchTempEmptyPublisherRetried(t *testing.T) {
+	setup := func(t *testing.T) (*harness, *fakeWatcher, *fakeMeta) {
+		w, meta := newWatcher(), newMeta()
+		meta.set(pathRobloxTempInstaller, "", "", "5100:2") // файл держит антивирус: издателя нет
+		h := watchHarness(t, w, withMeta(meta))
+		if err := h.store.UpsertProgram(Program{Path: pathRobloxTempInstaller, Name: "RobloxPlayerInstaller", Publisher: robloxCorp,
+			Category: "games", Source: "parent", Fingerprint: "5000:1", DecidedAt: 1}); err != nil {
+			t.Fatal(err)
+		}
+		h.svc.mu.Lock()
+		h.svc.reloadPrograms()
+		h.svc.mu.Unlock()
+		return h, w, meta
+	}
+	pending := func(t *testing.T, h *harness) int {
+		pend, err := h.store.ListPending()
+		if err != nil {
+			t.Fatal(err)
+		}
+		return len(pend)
+	}
+	t.Run("второе чтение с издателем: решение действует", func(t *testing.T) {
+		h, w, meta := setup(t)
+		p := w.start(childSession, pathRobloxTempInstaller)
+		h.watch()
+		h.real.Advance(1900 * time.Millisecond)
+		h.watch()
+		if !w.alive(p) || pending(t, h) != 0 {
+			t.Fatalf("до повторного чтения: жив %v, «Ждут решения» %d; want true, 0", w.alive(p), pending(t, h))
+		}
+		if n := countOf(meta.askedPaths(), pathRobloxTempInstaller); n != 1 {
+			t.Errorf("до срока повтора прочитано %d раз, want 1", n)
+		}
+		meta.set(pathRobloxTempInstaller, robloxCorp, "Roblox", "5100:2")
+		h.real.Advance(200 * time.Millisecond)
+		h.watch()
+		h.watch()
+		if !w.alive(p) || pending(t, h) != 0 {
+			t.Errorf("после повторного чтения: жив %v, «Ждут решения» %d; want true, 0", w.alive(p), pending(t, h))
+		}
+		if n := countOf(meta.askedPaths(), pathRobloxTempInstaller); n != 2 {
+			t.Errorf("прочитано %d раз, want 2", n)
+		}
+	})
+	t.Run("издатель снова пуст: закрыт", func(t *testing.T) {
+		h, w, meta := setup(t)
+		p := w.start(childSession, pathRobloxTempInstaller)
+		h.watch()
+		if !w.alive(p) {
+			t.Fatal("закрыт до повторного чтения издателя")
+		}
+		h.real.Advance(2100 * time.Millisecond)
+		h.watch()
+		if w.alive(p) || pending(t, h) != 1 {
+			t.Errorf("после второго пустого: жив %v, «Ждут решения» %d; want false, 1", w.alive(p), pending(t, h))
+		}
+		if n := countOf(meta.askedPaths(), pathRobloxTempInstaller); n < 2 {
+			t.Errorf("прочитано %d раз, want повторное чтение", n)
+		}
+	})
+}
+
+// Ловит (B-67): часы ушли назад после первого пустого издателя — установщик в Temp не трогается,
+// пока часы не догонят прежний срок (час). Ушли назад дальше срока — издатель читается сразу.
+func TestWatchTempPublisherRetryClockBack(t *testing.T) {
+	w, meta := newWatcher(), newMeta()
+	meta.set(pathRobloxTempInstaller, "", "", "5100:2")
+	h := watchHarness(t, w, withMeta(meta))
+	if err := h.store.UpsertProgram(Program{Path: pathRobloxTempInstaller, Name: "RobloxPlayerInstaller", Publisher: robloxCorp,
+		Category: "games", Source: "parent", Fingerprint: "5000:1", DecidedAt: 1}); err != nil {
+		t.Fatal(err)
+	}
+	h.svc.mu.Lock()
+	h.svc.reloadPrograms()
+	h.svc.mu.Unlock()
+	w.start(childSession, pathRobloxTempInstaller)
+	h.watch()
+	h.svc.Watch(h.real.Now().Add(-time.Hour))
+	if n := countOf(meta.askedPaths(), pathRobloxTempInstaller); n < 2 {
+		t.Errorf("после перевода часов на час назад прочитано %d раз, want повторное чтение", n)
 	}
 }

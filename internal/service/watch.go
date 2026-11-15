@@ -38,6 +38,10 @@ const (
 	// незнакомых) не успело — в «Ждут решения» «Без подписи издателя»; решение родителя всё равно
 	// перечитывает свойства (fileMetaUnlocked).
 	metaBudget = 300 * time.Millisecond
+	// tempPubRetry — через сколько перечитывается пустой издатель файла в папке временных файлов
+	// приложения (B-67, FB-22): только что перезаписанный установщик держит антивирус, и ресурс
+	// версии не читается. До повтора процесс не трогается («не знаю» — не трогать, PL-9).
+	tempPubRetry = 2 * time.Second
 )
 
 // procKey — процесс: PID повторяется, пара (PID, момент создания) — нет (RM3-11).
@@ -57,6 +61,9 @@ type watchEntry struct {
 	fpRead  bool
 	pub     string // издатель файла (RM3-13): читается, только если решение в профиле его ждёт
 	pubRead bool
+	// pubRetryAt — пустой издатель файла в папке временных файлов приложения перечитывается не
+	// раньше этого момента (B-67, tempPubRetry); нулевой — повтора не было.
+	pubRetryAt time.Time
 	closed  bool // Kill уже удался: записи сделаны, повторный Kill без записей
 	seen    uint64
 	// manual — запуск ручной (R13, D-65): решено по фактам facts в момент, когда процесс увиден
@@ -206,7 +213,7 @@ func (s *Service) Watch(real time.Time) {
 			continue
 		}
 		if t.hold {
-			need = append(need, s.watchHeld(t, list, gen)...)
+			need = append(need, s.watchHeld(t, list, gen, real)...)
 			continue
 		}
 		t.byPID = make(map[uint32]ProcInfo, len(list))
@@ -223,13 +230,13 @@ func (s *Service) Watch(real time.Time) {
 			}
 			if e != nil {
 				items = append(items, item{t, p, e})
-				if s.needsMeta(e) {
+				if s.wantsMeta(e, real) {
 					need = append(need, e)
 				}
 			}
 		}
 	}
-	for _, path := range s.fetchMeta(need) {
+	for _, path := range s.fetchMeta(need, real) {
 		notes = append(notes, fmt.Sprintf("watch-meta|%s\x00наблюдатель: свойства %s читаются дольше %v, решение отложено", path, path, metaBudget))
 	}
 	for _, it := range items {
@@ -435,7 +442,7 @@ func (s *Service) keepSession(session uint32, gen uint64) {
 // категория секунды переднего плана сверяет отпечаток и издателя (fpSeen, pubSeen). Здесь они
 // только читаются (need → fetchMeta) для процессов ребёнка с прочитанным путём; ничего не
 // закрывается, «Ждут решения», журнал и плашки не трогаются. Вне s.mu, под watch.mu.
-func (s *Service) watchHeld(t *watchTarget, list []ProcInfo, gen uint64) (need []*watchEntry) {
+func (s *Service) watchHeld(t *watchTarget, list []ProcInfo, gen uint64, real time.Time) (need []*watchEntry) {
 	if s.watch.held == nil {
 		s.watch.held = map[procKey]*watchEntry{}
 	}
@@ -454,7 +461,7 @@ func (s *Service) watchHeld(t *watchTarget, list []ProcInfo, gen uint64) (need [
 			s.watch.held[key] = e
 		}
 		e.seen = gen
-		if s.needsMeta(e) {
+		if s.wantsMeta(e, real) {
 			need = append(need, e)
 		}
 	}
@@ -471,6 +478,13 @@ func (s *Service) needsMeta(e *watchEntry) bool {
 		(!e.pubRead && c.NeedsPublisher(e.norm))
 }
 
+// wantsMeta — свойства файла процесса e нужно прочитать в проходе в момент real: решению они нужны
+// (needsMeta), и срок повторного чтения пустого издателя в Temp наступил (B-67). Часы ушли назад
+// дальше срока — читается сразу: процесс не остаётся нетронутым на часы.
+func (s *Service) wantsMeta(e *watchEntry, real time.Time) bool {
+	return s.needsMeta(e) && (!real.Before(e.pubRetryAt) || e.pubRetryAt.Sub(real) > tempPubRetry)
+}
+
 // maxMetaDone — сколько готовых, но ещё не взятых чтений свойств хранится (процесс мог завершиться,
 // пока читался его файл): больше — память сбрасывается, чтения пойдут заново.
 const maxMetaDone = 1000
@@ -481,7 +495,7 @@ const maxMetaDone = 1000
 // для процессов, ради которых начато (B-60: новый процесс того же пути читает файл заново), путь,
 // чтение которого ещё висит, не читается снова. late — пути, чьи свойства в этот проход не
 // успели: их процессы проход не трогает.
-func (s *Service) fetchMeta(need []*watchEntry) (late []string) {
+func (s *Service) fetchMeta(need []*watchEntry, real time.Time) (late []string) {
 	byPath := map[string][]*watchEntry{}
 	for _, e := range need {
 		byPath[e.norm] = append(byPath[e.norm], e)
@@ -495,8 +509,15 @@ func (s *Service) fetchMeta(need []*watchEntry) (late []string) {
 				rest = append(rest, e)
 				continue
 			}
-			e.fp, e.pub = d.m.fingerprint, programs.ClipName(d.m.publisher)
-			e.fpRead, e.pubRead = true, true
+			e.fp, e.fpRead = d.m.fingerprint, true
+			pub := programs.ClipName(d.m.publisher)
+			if pub == "" && e.pubRetryAt.IsZero() && s.classifier.Roots().InTempApp(e.norm) && s.classifier.NeedsPublisher(e.norm) {
+				// Только что перезаписанный установщик в Temp держит антивирус (B-67, FB-22): издатель
+				// перечитывается через tempPubRetry, до этого процесс не трогается.
+				e.pubRetryAt = real.Add(tempPubRetry)
+				continue
+			}
+			e.pub, e.pubRead = pub, true
 		}
 		if len(rest) == 0 {
 			delete(byPath, path)

@@ -116,3 +116,25 @@ func TestTempNotAppRoot(t *testing.T) {
 		t.Errorf("ProfileRoot(%q) = %q, want пусто", p, got)
 	}
 }
+
+// Ловит (B-67): наблюдатель не узнаёт файл в папке временных файлов приложения (пустой издатель там
+// перечитывается: файл держит антивирус) или принимает за неё сам Temp, LocalLow и Roaming.
+func TestInTempApp(t *testing.T) {
+	cases := []struct {
+		path string
+		want bool
+	}{
+		{`c:\users\danila\appdata\local\temp\roblox\robloxplayerinstaller.exe`, true},
+		{`c:\users\danila\appdata\local\temp\roblox\sub\x.exe`, true},
+		{`c:\users\danila\appdata\local\temp\robloxplayerinstaller.exe`, false},
+		{`c:\users\danila\appdata\locallow\temp\game\g.exe`, false},
+		{`c:\users\danila\appdata\roaming\temp\roblox\x.exe`, false},
+		{`c:\users\danila\appdata\local\roblox\versions\v1\x.exe`, false},
+		{`d:\temp\roblox\x.exe`, false},
+	}
+	for _, k := range cases {
+		if got := testRoots.InTempApp(k.path); got != k.want {
+			t.Errorf("InTempApp(%q) = %v, want %v", k.path, got, k.want)
+		}
+	}
+}

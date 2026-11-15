@@ -490,3 +490,7 @@ func CustomName(s string) (string, bool) {
 	}
 	return s, true
 }
+
+// InTempApp — путь p (нормализован) в папке временных файлов приложения профиля (tempRel): первая
+// папка под AppData\Local\Temp или глубже. Наблюдатель перечитывает там пустого издателя (B-67).
+func (r Roots) InTempApp(p string) bool { return r.tempRel(p) != "" }
