@@ -141,8 +141,16 @@ type watchState struct {
 	metaMu   sync.Mutex
 	metaBusy map[string]bool
 	// metaDone — готовые чтения свойств до решения, которые проход не дождался (fetchMeta): их
-	// берёт следующий проход. Под metaMu.
-	metaDone map[string]fileMeta
+	// берёт следующий проход, и только для процессов, ради которых чтение начато (B-60). Под metaMu.
+	metaDone map[string]doneMeta
+}
+
+// doneMeta — готовое чтение свойств файла и процессы, для которых оно начато (B-60): файл с тем же
+// путём мог быть перезаписан, пока чтение висело (установщик во временной папке), и новый процесс
+// читает его заново, а не берёт отпечаток и издателя прежнего файла.
+type doneMeta struct {
+	m      fileMeta
+	owners map[*watchEntry]bool
 }
 
 // RunWatch крутит наблюдатель на собственном тикере по настоящим часам, пока не отменён ctx.
@@ -384,26 +392,31 @@ func (w *watchState) doneMeta(path string) {
 	delete(w.metaBusy, path)
 }
 
-// finishMeta снимает отметку чтения path и кладёт результат до решения в metaDone.
-func (w *watchState) finishMeta(path string, m fileMeta) {
+// finishMeta снимает отметку чтения path и кладёт результат до решения в metaDone вместе с
+// процессами owners, для которых оно начато.
+func (w *watchState) finishMeta(path string, m fileMeta, owners []*watchEntry) {
 	w.metaMu.Lock()
 	defer w.metaMu.Unlock()
 	delete(w.metaBusy, path)
 	if w.metaDone == nil || len(w.metaDone) >= maxMetaDone {
-		w.metaDone = map[string]fileMeta{}
+		w.metaDone = map[string]doneMeta{}
 	}
-	w.metaDone[path] = m
+	d := doneMeta{m: m, owners: make(map[*watchEntry]bool, len(owners))}
+	for _, e := range owners {
+		d.owners[e] = true
+	}
+	w.metaDone[path] = d
 }
 
-// takeDone забирает готовое чтение свойств path до решения.
-func (w *watchState) takeDone(path string) (fileMeta, bool) {
+// takeDone забирает готовое чтение свойств path до решения и процессы, для которых оно начато.
+func (w *watchState) takeDone(path string) (doneMeta, bool) {
 	w.metaMu.Lock()
 	defer w.metaMu.Unlock()
-	m, ok := w.metaDone[path]
+	d, ok := w.metaDone[path]
 	if ok {
 		delete(w.metaDone, path)
 	}
-	return m, ok
+	return d, ok
 }
 
 // keepSession помечает виденными процессы сеанса, список которого не прочитался: память о них
@@ -464,7 +477,8 @@ const maxMetaDone = 1000
 
 // fetchMeta читает свойства файлов процессов need до решения (B-32): одно чтение на путь (отпечаток
 // и издатель вместе) в своей горутине, проход ждёт их не дольше metaBudget. Готовое заполняет
-// записи; опоздавшее дочитывается в фоне и берётся следующим проходом (watchState.metaDone), путь,
+// записи; опоздавшее дочитывается в фоне и берётся следующим проходом (watchState.metaDone) только
+// для процессов, ради которых начато (B-60: новый процесс того же пути читает файл заново), путь,
 // чтение которого ещё висит, не читается снова. late — пути, чьи свойства в этот проход не
 // успели: их процессы проход не трогает.
 func (s *Service) fetchMeta(need []*watchEntry) (late []string) {
@@ -472,24 +486,38 @@ func (s *Service) fetchMeta(need []*watchEntry) (late []string) {
 	for _, e := range need {
 		byPath[e.norm] = append(byPath[e.norm], e)
 	}
-	apply := func(path string, m fileMeta) {
+	// apply заполняет записи пути готовым чтением d: только процессы, для которых оно начато (B-60);
+	// остальным процессам того же пути файл читается заново.
+	apply := func(path string, d doneMeta) {
+		var rest []*watchEntry
 		for _, e := range byPath[path] {
-			e.fp, e.pub = m.fingerprint, programs.ClipName(m.publisher)
+			if !d.owners[e] {
+				rest = append(rest, e)
+				continue
+			}
+			e.fp, e.pub = d.m.fingerprint, programs.ClipName(d.m.publisher)
 			e.fpRead, e.pubRead = true, true
 		}
-		delete(byPath, path)
+		if len(rest) == 0 {
+			delete(byPath, path)
+		} else {
+			byPath[path] = rest
+		}
 	}
 	out := make(chan string, len(byPath)) // горутина не ждёт опоздавшего читателя
 	started := 0
 	for path := range byPath {
-		if m, ok := s.watch.takeDone(path); ok {
-			apply(path, m)
-			continue
+		if d, ok := s.watch.takeDone(path); ok {
+			apply(path, d)
+			if _, left := byPath[path]; !left {
+				continue
+			}
 		}
 		if !s.watch.takeMeta(path) {
 			continue // читается с прошлого прохода
 		}
 		started++
+		owners := append([]*watchEntry(nil), byPath[path]...)
 		go func() {
 			var m fileMeta
 			defer func() {
@@ -497,7 +525,7 @@ func (s *Service) fetchMeta(need []*watchEntry) (late []string) {
 					s.cfg.Logf("наблюдатель: сбой чтения свойств %s: %v", path, p)
 					s.watch.doneMeta(path) // свойства не известны: процесс не трогается, чтение — снова
 				} else {
-					s.watch.finishMeta(path, m)
+					s.watch.finishMeta(path, m, owners)
 				}
 				out <- path
 			}()
@@ -511,8 +539,8 @@ func (s *Service) fetchMeta(need []*watchEntry) (late []string) {
 		for ; started > 0; started-- {
 			select {
 			case path := <-out:
-				if m, ok := s.watch.takeDone(path); ok {
-					apply(path, m)
+				if d, ok := s.watch.takeDone(path); ok {
+					apply(path, d)
 				}
 			case <-budget.C:
 				break wait
