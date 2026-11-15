@@ -274,10 +274,9 @@ func runEntries(root registry.Key, path, approved string, withState bool, scope,
 		if err != nil {
 			return nil, fmt.Errorf("значение %s\\%s: %w", path, name, err)
 		}
-		out = append(out, startup.Entry{
-			Scope: scope, Source: source, Name: name, Command: cmd,
-			Exe: startup.ExeOf(cmd, env), Enabled: approvedEnabled(state, name),
-		})
+		if e, ok := runEntry(scope, source, name, cmd, env, state); ok {
+			out = append(out, e)
+		}
 	}
 	return out, nil
 }
@@ -308,17 +307,6 @@ func approvedValues(root registry.Key, path string) (map[string][]byte, error) {
 		out[strings.ToLower(name)] = b
 	}
 	return out, nil
-}
-
-// approvedEnabled — запись включена: значения нет или оно не разобрано — включено (так считает
-// Windows), иначе по первому байту.
-func approvedEnabled(state map[string][]byte, name string) bool {
-	b, ok := state[strings.ToLower(name)]
-	if !ok {
-		return true
-	}
-	on, known := startup.DecodeApproved(b)
-	return on || !known
 }
 
 // --- папки «Автозагрузка» -------------------------------------------------------------------
@@ -386,11 +374,10 @@ func quoteCmd(exe, args string) string {
 
 // taskEntries — задания «при входе» ребёнка sid и общие (startup.TaskScope; sid пуст — только
 // общие) из файлов %WINDIR%\System32\Tasks. Папка \Microsoft пропускается целиком: её задания скрываются
-// (RM5b-7). Файл не читается — ошибка; не разбирается — пропускается (это не задание).
+// (RM5b-7). Файл не читается или не разбирается — ошибка всего списка (collectTasks, PL-46).
 func (s *startupSource) taskEntries(sid string) ([]startup.Entry, error) {
-	out := []startup.Entry{}
 	if s.windir == "" {
-		return out, nil
+		return []startup.Entry{}, nil
 	}
 	root := filepath.Join(s.windir, "System32", "Tasks")
 	account, ownEnv := "", userEnv("", false)
@@ -402,49 +389,7 @@ func (s *startupSource) taskEntries(sid string) ([]startup.Entry, error) {
 		}
 		ownEnv = userEnv(dir, hasProfile)
 	}
-	err := filepath.WalkDir(root, func(path string, de fs.DirEntry, err error) error {
-		if err != nil {
-			if path == root && errors.Is(err, fs.ErrNotExist) {
-				return fs.SkipAll
-			}
-			return err
-		}
-		rel, rerr := filepath.Rel(root, path)
-		if rerr != nil {
-			return rerr
-		}
-		if de.IsDir() {
-			if strings.EqualFold(rel, "Microsoft") {
-				return fs.SkipDir
-			}
-			return nil
-		}
-		if !de.Type().IsRegular() {
-			return nil
-		}
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return err
-		}
-		t, perr := startup.ParseTaskXML(data)
-		if perr != nil {
-			return nil
-		}
-		scope, ok := startup.TaskScope(t, sid, account)
-		if !ok {
-			return nil
-		}
-		env := os.Getenv
-		if scope == startup.ScopeOwn {
-			env = ownEnv
-		}
-		tp := `\` + rel // путь задания — по месту файла: его понимает schtasks /TN
-		out = append(out, startup.Entry{
-			Scope: scope, Source: startup.SrcTask, Name: tp, Task: tp, Command: t.Command,
-			Exe: startup.ExeOf(t.Command, env), Enabled: t.Enabled,
-		})
-		return nil
-	})
+	out, err := collectTasks(os.DirFS(root), sid, account, ownEnv, os.Getenv)
 	if err != nil {
 		return nil, fmt.Errorf("задания Планировщика: %w", err)
 	}
