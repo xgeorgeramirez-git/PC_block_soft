@@ -68,7 +68,7 @@ func (s *Service) checkTZ(real time.Time) {
 		}
 		detail = fmt.Sprintf("Часовой пояс «%s»: переход на летнее время %s", z.name(), state)
 	}
-	if ss := s.activeChildSession(); ss != nil {
+	if ss := s.activeChildSession(real); ss != nil {
 		s.cfg.Logf("часовой пояс изменён в сеансе ребёнка %d: %s", ss.id, detail)
 		s.bypassIn(ss, detail, "tz_changed", real)
 		return

@@ -87,7 +87,8 @@ func (s *Service) checkClock() {
 // перезапускалась, Start не было), — запись как при включении. Иначе журнал работы.
 func (s *Service) onClockJump(expected, real time.Time) {
 	detail := clockChangedDetail(expected.In(s.cfg.Loc), real.In(s.cfg.Loc))
-	if ss := s.activeChildSession(); ss != nil {
+	// Сессия родителя — по часам до перевода: перевод вперёд сам «состарил» бы её.
+	if ss := s.activeChildSession(expected); ss != nil {
 		s.cfg.Logf("часы компьютера переведены в сеансе ребёнка %d: %s", ss.id, detail)
 		s.bypassIn(ss, detail, "clock_changed", real)
 		return
@@ -118,12 +119,12 @@ func (s *Service) saveClock(real time.Time) {
 	}
 }
 
-// activeChildSession — сеанс ребёнка на экране: не отключён и не заблокирован; nil — на экране
-// не ребёнок. Сеансов на экране один (консоль); при нескольких — с меньшим номером.
-func (s *Service) activeChildSession() *sessState {
+// activeChildSession — сеанс ребёнка на экране: не отключён, не заблокирован и без сессии родителя
+// PC Block в нём на момент at; nil — на экране не ребёнок. Сеансов на экране один (консоль); при нескольких — с меньшим номером.
+func (s *Service) activeChildSession(at time.Time) *sessState {
 	var best *sessState
 	for _, ss := range s.sessions {
-		if ss.childID == 0 || ss.offScreen() || s.parentOpenIn(ss.id, s.real) {
+		if ss.childID == 0 || ss.offScreen() || s.parentOpenIn(ss.id, at) {
 			continue // за экраном ребёнка родитель вошёл в PC Block: перевод его (M6 ревью)
 		}
 		if best == nil || ss.id < best.id {
