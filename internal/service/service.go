@@ -402,6 +402,15 @@ func (s *Service) startRecovered() {
 // Shutdown сохраняет состояние, завершает значки, стражей и окна во всех сеансах (Ruling 15)
 // и не даёт тикам дальше менять данные. Базу закрывает тот, кто её открыл.
 func (s *Service) Shutdown(real time.Time) {
+	s.shutdown(real)
+	// Идущая проверка автозагрузки могла загрузить ветку реестра ребёнка (withHive): ждём её, иначе
+	// временная ветка остаётся загруженной до перезагрузки (B-71). Не дольше startupStopWait.
+	if !s.waitStartupFor(startupStopWait) {
+		s.cfg.Logf("проверка автозагрузки не закончилась за %s при остановке службы", startupStopWait)
+	}
+}
+
+func (s *Service) shutdown(real time.Time) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.real = real

@@ -409,3 +409,23 @@ func TestCodesText(t *testing.T) {
 		}
 	}
 }
+
+// Ловит (B-62): сбой чтения списка промокодов или баланса копилки отвечает «Не удалось сохранить»,
+// хотя родитель ничего не сохранял.
+func TestReadFailuresSayRetry(t *testing.T) {
+	h := newHarness(t, withChild(childSID, "Миша", 120), configured())
+	h.start()
+	tok := h.login(adminPeer())
+	id := h.childID(childSID)
+	h.store.failListPromos = true
+	if rep := h.fail(adminPeer(), tok, ipc.CmdListPromos, ipc.Empty{}); rep.Error != textRetry {
+		t.Errorf("ListPromos при сбое чтения: %q, want %q", rep.Error, textRetry)
+	}
+	h.store.failBalance = true
+	if rep := h.fail(adminPeer(), tok, ipc.CmdClearBonus, ipc.ClearBonusRequest{ChildID: id}); rep.Error != textRetry {
+		t.Errorf("ClearBonus при сбое чтения баланса: %q, want %q", rep.Error, textRetry)
+	}
+	if rep := h.fail(adminPeer(), tok, ipc.CmdReduceBonus, ipc.ReduceBonusRequest{ChildID: id, Minutes: 5}); rep.Error != textRetry {
+		t.Errorf("ReduceBonus при сбое чтения баланса: %q, want %q", rep.Error, textRetry)
+	}
+}
