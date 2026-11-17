@@ -101,7 +101,7 @@ type Config struct {
 	TimeZone func() (TimeZoneInfo, error)
 	// SafeMode — Windows запущена в безопасном режиме (M6, R17е). nil: нет.
 	SafeMode func() bool
-	Logf    func(format string, args ...any)
+	Logf     func(format string, args ...any)
 	// OpenFolder открывает папку в проводнике в сеансе sessionID, то есть там, где сидит родитель
 	// (служба работает в служебном сеансе и свой проводник никому бы не показала): FR-25, D-48,
 	// «Открыть папку с логами». nil: ничего не делает (тесты; в тестовом режиме не вызывается).
@@ -154,14 +154,14 @@ type childState struct {
 	haveSample    bool
 	warns         []pendingWarning
 	undo          *undoRec
-	bonusUndo     *undoRec             // отмена последнего начисления копилки на 10 с (FR-22)
+	bonusUndo     *undoRec // отмена последнего начисления копилки на 10 с (FR-22)
 	// bypassSeen — записанные попытки обхода по подробности и когда их видели последний раз (дедуп
 	// журнала, D-41): страж повторяет сообщение каждую секунду, а попытки разных видов могут идти
 	// вперемешку (M6).
-	bypassSeen map[string]time.Time
-	usage         map[progUsageKey]int // учёт по программам с прошлого сохранения (RM3-6); пишется в saveState
-	unreadSince   time.Time            // с какого момента подряд адрес Brave не читается (RM4-1, S-3); нулевой — читается
-	noAddrSince   time.Time            // с какого момента подряд у окна Brave нет адреса (не сбой UIA, B-55); нулевой — есть или сбой
+	bypassSeen  map[string]time.Time
+	usage       map[progUsageKey]int // учёт по программам с прошлого сохранения (RM3-6); пишется в saveState
+	unreadSince time.Time            // с какого момента подряд адрес Brave не читается (RM4-1, S-3); нулевой — читается
+	noAddrSince time.Time            // с какого момента подряд у окна Brave нет адреса (не сбой UIA, B-55); нулевой — есть или сбой
 	// Автозагрузка (RM5b-3): exe записей по последней удачной проверке и набор наблюдателя —
 	// нормализованный exe записи с решением off или pending → строка (startupWatchSet). Набор
 	// заменяется целиком, не меняется на месте: проход наблюдателя читает его вне s.mu.
@@ -360,7 +360,7 @@ func (s *Service) Start(real time.Time) error {
 		s.startRecovered()
 	}
 	s.checkBootClock(real) // часы назад, пока компьютер был выключен (R17а, D-87)
-	s.autobonusFrom() // свежая база и первый запуск после обновления: граница автобонуса (D-82)
+	s.autobonusFrom()      // свежая база и первый запуск после обновления: граница автобонуса (D-82)
 	s.loadChildren(real)
 	s.ensurePrograms(real)
 	s.loadAdult()

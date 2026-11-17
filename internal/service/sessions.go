@@ -79,10 +79,12 @@ type sessState struct {
 	// since — когда служба увидела сеанс с этим пользователем: вход в учётку для правила
 	// автозагрузки (R13, D-65). После перезапуска службы это момент перезапуска, и первые 60 с
 	// запуски из Проводника считаются автоматическими (Ruling RF18-3).
-	since   time.Time
-	guard   *supProc
-	tray    *supProc
-	windows map[string]*supProc
+	since time.Time
+	// safeLogged — вход ребёнка в безопасном режиме уже записан (R17е): раз на сеанс.
+	safeLogged bool
+	guard      *supProc
+	tray       *supProc
+	windows    map[string]*supProc
 }
 
 // OnSession принимает событие сеанса от диспетчера служб: служба сверяет сеансы и запускает
@@ -248,6 +250,11 @@ func (s *Service) syncSessions(real time.Time) {
 				s.applyPolicy(cs.child.SID, true)
 				s.applyBrave(cs)
 				s.checkStartup(cs, true)
+			}
+			if !ss.safeLogged && s.cfg.SafeMode() {
+				// Вход ребёнка в безопасном режиме Windows (R17е, FR-30): только запись, один раз на сеанс.
+				ss.safeLogged = true
+				s.bypassIn(ss, detailSafeMode, "safe_mode", real)
 			}
 		}
 	}

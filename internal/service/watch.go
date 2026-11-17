@@ -132,6 +132,7 @@ type watchAct struct {
 	plateKind string        // ipc.Blocked*
 	auto      bool          // запрещённая запустилась сама (R13, D-65): без плашки и нарушения
 	startup   startupHit    // plateKind = plateStartup: какая запись автозагрузки запустилась сама
+	tool      string        // plateKind = plateSysTool: название системного инструмента (R17г)
 	killed    bool
 	again     bool // процесс уже закрывали: без записей
 	publisher string
@@ -752,6 +753,14 @@ func (s *Service) watchDecide(t *watchTarget, p ProcInfo, e *watchEntry) *watchA
 	if dir := s.cfg.Test.WatchDir; s.cfg.Test.Enabled && !strings.HasPrefix(e.norm, strings.TrimSuffix(dir, `\`)+`\`) {
 		return nil // тестовый режим: закрывается только папка тестовых программ (RM3-8)
 	}
+	if name, ok := c.Roots().SystemTool(e.norm, s.toolTestDir()); ok {
+		// Системный инструмент (R17г, D-86) — до вердикта «система»: открыл ребёнок — закрыть с
+		// плашкой и записью обхода; запустила другая программа — не трогать и не классифицировать.
+		if !sysToolManual(e, c.Roots()) {
+			return nil
+		}
+		return &watchAct{t: t, p: p, e: e, res: programs.Result{Verdict: programs.VerdictForbidden, Name: name}, again: e.closed, plateKind: plateSysTool, tool: name}
+	}
 	res := c.Classify(e.path, e.fp, e.pub)
 	if !e.classified {
 		e.classified, e.forbiddenAtStart = true, res.Verdict == programs.VerdictForbidden
@@ -933,6 +942,10 @@ func closedName(a *watchAct) (string, map[string]any) {
 func (s *Service) recordClosed(cs *childState, a *watchAct, real time.Time) {
 	if a.plateKind == plateStartup {
 		s.recordStartupClosed(cs, a, real)
+		return
+	}
+	if a.plateKind == plateSysTool {
+		s.recordToolClosed(cs, a, real)
 		return
 	}
 	name, details := closedName(a)
