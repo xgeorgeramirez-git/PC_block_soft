@@ -229,6 +229,8 @@ func (s *Service) Housekeep(real time.Time) {
 	s.guard("parents", nil, func() { s.expireParents(real) })
 	s.guard("binds", nil, func() { s.expireBinds(real) })
 	s.guard("sessions", nil, func() { s.syncSessions(real) })
+	s.guard("clock", nil, func() { s.checkClock(real) })
+	s.guard("tz", nil, func() { s.checkTZ(real) })
 }
 
 // housekeepChild — обслуживание одного ребёнка: проверка R1, повторное чтение правил,

@@ -94,6 +94,13 @@ type Config struct {
 	// RealNow даёт настоящее время (не часы ядра): возраст снимка стража, паузы, сроки сессий.
 	// nil: time.Now.
 	RealNow func() time.Time
+	// Mono — внутренний счётчик службы, которому перевод часов не указ (M6, R17а): сверка часов
+	// со счётчиком находит их перевод. nil: монотонная часть time.Now процесса.
+	Mono func() time.Duration
+	// TimeZone читает часовой пояс компьютера (M6, R17б). nil: пояс не проверяется.
+	TimeZone func() (TimeZoneInfo, error)
+	// SafeMode — Windows запущена в безопасном режиме (M6, R17е). nil: нет.
+	SafeMode func() bool
 	Logf    func(format string, args ...any)
 	// OpenFolder открывает папку в проводнике в сеансе sessionID, то есть там, где сидит родитель
 	// (служба работает в служебном сеансе и свой проводник никому бы не показала): FR-25, D-48,
@@ -148,8 +155,10 @@ type childState struct {
 	warns         []pendingWarning
 	undo          *undoRec
 	bonusUndo     *undoRec             // отмена последнего начисления копилки на 10 с (FR-22)
-	lastBypass    string               // последняя записанная попытка обхода (дедуп журнала, D-41)
-	lastBypassAt  time.Time            // когда записана; страж повторяет сообщение каждую секунду
+	// bypassSeen — записанные попытки обхода по подробности и когда их видели последний раз (дедуп
+	// журнала, D-41): страж повторяет сообщение каждую секунду, а попытки разных видов могут идти
+	// вперемешку (M6).
+	bypassSeen map[string]time.Time
 	usage         map[progUsageKey]int // учёт по программам с прошлого сохранения (RM3-6); пишется в saveState
 	unreadSince   time.Time            // с какого момента подряд адрес Brave не читается (RM4-1, S-3); нулевой — читается
 	noAddrSince   time.Time            // с какого момента подряд у окна Brave нет адреса (не сбой UIA, B-55); нулевой — есть или сбой
@@ -213,6 +222,9 @@ type Service struct {
 	launchWait []launchPending   // запрещённые, закрытые как «сама», ждут уточнения (settleLaunches)
 	fpSeen     map[string]string // отпечатки файлов, которые прочитал наблюдатель: путь → отпечаток (для категории секунды)
 	pubSeen    map[string]string // издатели файлов в профиле, которые прочитал наблюдатель (RM3-13)
+
+	clock clockState // перевод часов (M6, clockguard.go)
+	tz    tzState    // часовой пояс (M6, tzguard.go)
 
 	bypassWait []pendingBypass // гибель стража, значка или окна, о которой ещё не решено, обход ли это (FB-1)
 	logoffs    []logoffMark    // недавние выходы из учёток: гибель рядом с ними в отключённом сеансе ребёнка не обход (FB-5)
@@ -278,6 +290,12 @@ func New(cfg Config) (*Service, error) {
 	if cfg.RealNow == nil {
 		cfg.RealNow = time.Now
 	}
+	if cfg.Mono == nil {
+		cfg.Mono = monoClock()
+	}
+	if cfg.SafeMode == nil {
+		cfg.SafeMode = func() bool { return false }
+	}
 	if cfg.OpenFolder == nil {
 		cfg.OpenFolder = func(uint32, string) error { return nil }
 	}
@@ -341,6 +359,7 @@ func (s *Service) Start(real time.Time) error {
 	if s.cfg.Recovered {
 		s.startRecovered()
 	}
+	s.checkBootClock(real) // часы назад, пока компьютер был выключен (R17а, D-87)
 	s.autobonusFrom() // свежая база и первый запуск после обновления: граница автобонуса (D-82)
 	s.loadChildren(real)
 	s.ensurePrograms(real)
@@ -393,6 +412,7 @@ func (s *Service) Shutdown(real time.Time) {
 	// Остановка службы это выключение или перезагрузка компьютера: то, что успело погибнуть
 	// перед ней, не обход (FB-1).
 	s.cancelAllBypass("остановка службы")
+	s.saveClock(real) // граница для сверки часов при следующем включении (R17а)
 	for _, id := range s.childOrder() {
 		s.saveDay(s.children[id])
 	}

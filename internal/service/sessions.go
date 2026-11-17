@@ -543,11 +543,19 @@ func (s *Service) bypassIn(ss *sessState, detail, subtype string, real time.Time
 // блокируется, время не отключается. Страж повторяет сообщение каждую секунду, поэтому
 // одинаковая подробность в пределах bypassLogWindow записывается один раз.
 func (s *Service) markBypass(cs *childState, detail, subtype string, real time.Time) bool {
-	if cs.lastBypass == detail && !real.IsZero() && real.Sub(cs.lastBypassAt) < bypassLogWindow {
-		cs.lastBypassAt = real
+	if at, ok := cs.bypassSeen[detail]; ok && !real.IsZero() && real.Sub(at) < bypassLogWindow {
+		cs.bypassSeen[detail] = real
 		return false
 	}
-	cs.lastBypass, cs.lastBypassAt = detail, real
+	if cs.bypassSeen == nil {
+		cs.bypassSeen = map[string]time.Time{}
+	}
+	for d, at := range cs.bypassSeen {
+		if real.Sub(at) >= bypassLogWindow {
+			delete(cs.bypassSeen, d)
+		}
+	}
+	cs.bypassSeen[detail] = real
 	d := cs.eng.MarkBypass(detail)
 	s.afterDecision(cs, d, map[string]any{"subtype": subtype})
 	return true
