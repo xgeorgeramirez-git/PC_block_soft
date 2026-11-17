@@ -110,3 +110,21 @@ func TestTZNotBypass(t *testing.T) {
 		}
 	})
 }
+
+// Ловит: включение или выключение перехода на летнее время при том же поясе не записывается или
+// записывается непонятным «был «X», стал «X»».
+func TestTZDaylightFlag(t *testing.T) {
+	r := newTZRig(t)
+	r.start()
+	r.childLogsIn()
+	r.hk(2)
+	z := tzMoscow
+	z.NoDST = true
+	r.zone = z
+	r.hk(1)
+	ev := r.tzEvents()
+	want := "Часовой пояс «(UTC+03:00) Москва, Санкт-Петербург»: переход на летнее время выключен"
+	if len(ev) != 1 || ev[0].Details["detail"] != want {
+		t.Fatalf("записи %v, ждали одну «%s»", ev, want)
+	}
+}

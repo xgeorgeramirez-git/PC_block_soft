@@ -33,11 +33,16 @@ func (s *Service) toolTestDir() string {
 // любой консоли (без родителя в сеансе): ветка брокера Магазина для него не действует, его
 // оболочки (cmd, PowerShell) закрываются своим правилом.
 func sysToolManual(e *watchEntry, r programs.Roots) bool {
-	if !e.manual {
-		return false
-	}
 	f := e.facts
 	if f.Parent == "" {
+		return false
+	}
+	if programs.IsTerminal(f.Parent) {
+		// Оболочка в Терминале (Win+X, «Пуск»): Терминал без родителя в сеансе и в первую секунду ещё
+		// не на переднем плане по снимку стража — решает свежий ввод ребёнка.
+		return !f.InputAt.IsZero() && f.At.Sub(f.InputAt) <= manualInputWindow
+	}
+	if !e.manual {
 		return false
 	}
 	if f.Shell != "" && f.Parent == f.Shell {

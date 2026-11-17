@@ -223,8 +223,9 @@ type Service struct {
 	fpSeen     map[string]string // отпечатки файлов, которые прочитал наблюдатель: путь → отпечаток (для категории секунды)
 	pubSeen    map[string]string // издатели файлов в профиле, которые прочитал наблюдатель (RM3-13)
 
-	clock clockState // перевод часов (M6, clockguard.go)
-	tz    tzState    // часовой пояс (M6, tzguard.go)
+	clock    clockState // перевод часов (M6, clockguard.go)
+	safeMode bool       // Windows запущена в безопасном режиме (R17е): читается раз в Start
+	tz       tzState    // часовой пояс (M6, tzguard.go)
 
 	bypassWait []pendingBypass // гибель стража, значка или окна, о которой ещё не решено, обход ли это (FB-1)
 	logoffs    []logoffMark    // недавние выходы из учёток: гибель рядом с ними в отключённом сеансе ребёнка не обход (FB-5)
@@ -359,6 +360,7 @@ func (s *Service) Start(real time.Time) error {
 	if s.cfg.Recovered {
 		s.startRecovered()
 	}
+	s.safeMode = s.cfg.SafeMode()
 	s.checkBootClock(real) // часы назад, пока компьютер был выключен (R17а, D-87)
 	s.autobonusFrom()      // свежая база и первый запуск после обновления: граница автобонуса (D-82)
 	s.loadChildren(real)

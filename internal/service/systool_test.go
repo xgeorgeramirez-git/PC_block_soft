@@ -143,3 +143,48 @@ func TestSysToolTestMode(t *testing.T) {
 		t.Fatalf("записей обхода: %d, ждали 1", len(ev))
 	}
 }
+
+// Ловит: cmd из Проводника без свежего ввода ребёнка (ярлык автозагрузки, задание) закрывается.
+func TestSysToolOldInputUntouched(t *testing.T) {
+	w := newWatcher()
+	h := watchHarness(t, w)
+	explorer := h.manualReady(w)
+	h.poll(inputSample(30000, pathExplorer)) // ребёнок 30 с ничего не нажимал
+	cmd := w.startFrom(childSession, pathCmd, explorer)
+	h.watch()
+	if !w.alive(cmd) {
+		t.Fatal("cmd из Проводника без ввода ребёнка закрыта")
+	}
+	if n := len(toolEvents(h)); n != 0 {
+		t.Fatalf("записей обхода: %d, ждали 0", n)
+	}
+}
+
+// Ловит: PowerShell в Терминале, открытом из Win+X (Терминал без родителя в сеансе и ещё не на
+// переднем плане), не закрывается при вводе ребёнка; или закрывается без ввода.
+func TestSysToolShellInTerminal(t *testing.T) {
+	w := newWatcher()
+	h := watchHarness(t, w)
+	h.manualReady(w) // ввод 0 с назад, на переднем плане Проводник
+	term := w.start(childSession, pathTerminal)
+	ps := w.startFrom(childSession, pathPS, term)
+	h.watch()
+	if !w.alive(term) {
+		t.Fatal("сам Терминал закрыт: его закрывают оболочки, не он")
+	}
+	if w.alive(ps) {
+		t.Fatal("PowerShell в Терминале при вводе ребёнка не закрыт")
+	}
+	if n := len(toolEvents(h)); n != 1 {
+		t.Fatalf("записей обхода: %d, ждали 1", n)
+	}
+
+	h.real.Advance(2 * manualInputWindow)
+	h.poll(inputSample(30000, pathGeoGebra))
+	term2 := w.start(childSession, pathTerminal)
+	ps2 := w.startFrom(childSession, pathPS, term2)
+	h.watch()
+	if !w.alive(ps2) {
+		t.Fatal("PowerShell в Терминале без ввода ребёнка закрыт (консоль программы)")
+	}
+}

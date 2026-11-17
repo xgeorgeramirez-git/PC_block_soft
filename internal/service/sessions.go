@@ -251,7 +251,7 @@ func (s *Service) syncSessions(real time.Time) {
 				s.applyBrave(cs)
 				s.checkStartup(cs, true)
 			}
-			if !ss.safeLogged && s.cfg.SafeMode() {
+			if !ss.safeLogged && s.safeMode {
 				// Вход ребёнка в безопасном режиме Windows (R17е, FR-30): только запись, один раз на сеанс.
 				ss.safeLogged = true
 				s.bypassIn(ss, detailSafeMode, "safe_mode", real)

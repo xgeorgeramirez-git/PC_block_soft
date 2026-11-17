@@ -269,3 +269,19 @@ func TestBypassDedupPerDetail(t *testing.T) {
 		t.Fatalf("после 60 с тишины записей: %d, ждали 3", n)
 	}
 }
+
+// Ловит: перевод часов приписан ребёнку, хотя за его экраном родитель вошёл в PC Block (окно
+// настроек с паролем в сеансе ребёнка).
+func TestClockJumpParentInChildSession(t *testing.T) {
+	r := newClockRig(t)
+	r.start()
+	r.childLogsIn()
+	r.tick(2)
+	r.svc.mu.Lock()
+	r.svc.parents["tok-p"] = &parentSession{token: "tok-p", sessionID: childSession, sid: parentSID, last: r.real.Now()}
+	r.svc.mu.Unlock()
+	r.jump(10 * time.Minute)
+	if n := len(r.clockEvents()); n != 0 {
+		t.Fatalf("записей о часах при родителе в сеансе ребёнка: %d, ждали 0", n)
+	}
+}

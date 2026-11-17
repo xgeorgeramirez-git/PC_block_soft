@@ -60,9 +60,12 @@ func (s *Service) checkBootClock(real time.Time) {
 }
 
 // checkClock — сверка часов со счётчиком (Housekeep, под s.mu).
-func (s *Service) checkClock(real time.Time) {
+func (s *Service) checkClock() {
+	// Стена и счётчик — одним мгновением (PL-15): real снят до обслуживания, и сон между ним и
+	// счётчиком дал бы ложный скачок. Стена через Round(0): у time.Now есть монотонная часть, и Sub
+	// считал бы по ней (PL-71).
+	wall := s.cfg.RealNow().Round(0)
 	mono := s.cfg.Mono()
-	wall := real.Round(0) // стена: у time.Now есть монотонная часть, и Sub считал бы по ней
 	c := &s.clock
 	if c.known {
 		ran := mono - c.mono
@@ -73,9 +76,9 @@ func (s *Service) checkClock(real time.Time) {
 		}
 	}
 	c.wall, c.mono, c.known = wall, mono, true
-	if c.saved.IsZero() || real.Sub(c.saved) >= clockSaveEvery || real.Before(c.saved) {
-		s.saveClock(real)
-		c.saved = real
+	if c.saved.IsZero() || wall.Sub(c.saved) >= clockSaveEvery || wall.Before(c.saved) {
+		s.saveClock(wall)
+		c.saved = wall
 	}
 }
 
@@ -120,14 +123,24 @@ func (s *Service) saveClock(real time.Time) {
 func (s *Service) activeChildSession() *sessState {
 	var best *sessState
 	for _, ss := range s.sessions {
-		if ss.childID == 0 || ss.offScreen() {
-			continue
+		if ss.childID == 0 || ss.offScreen() || s.parentIn(ss.id) {
+			continue // за экраном ребёнка родитель вошёл в PC Block: перевод его (M6 ревью)
 		}
 		if best == nil || ss.id < best.id {
 			best = ss
 		}
 	}
 	return best
+}
+
+// parentIn — в сеансе id открыта сессия родителя PC Block (окно настроек после пароля).
+func (s *Service) parentIn(id uint32) bool {
+	for _, p := range s.parents {
+		if p.sessionID == id {
+			return true
+		}
+	}
+	return false
 }
 
 // clockChangedDetail — «Часы компьютера переведены: было 19.10 15:00, стало 19.10 15:10».

@@ -32,7 +32,13 @@ function Get-ClockEvents([string]$Pattern) { return @(Find-Events $Pattern) }
 
 Invoke-Scenario "S53" "Перевод часов: записи в журнале без блокировки, поправка 30 с без записи, часы назад при включении" {
   Initialize-Scenario 1
+  $w32 = Get-Service -Name w32time -ErrorAction SilentlyContinue
+  $script:W32Was = if ($w32) { [string]$w32.Status } else { "" }
   try {
+    if ($script:W32Was -eq "Running") {
+      Stop-Service -Name w32time -Force # синхронизация не поправит сдвиг посреди сценария
+      Write-Log "Служба времени Windows остановлена на время сценария"
+    }
     Step "Настройка: ребёнок «Тест», 2 ч на каждый день; значок и страж запущены" {
       Invoke-Setup 120
       Wait-SessionParts
@@ -83,7 +89,9 @@ Invoke-Scenario "S53" "Перевод часов: записи в журнале
     if ($script:Shift -ne 0) {
       try { Set-Date -Adjust ([TimeSpan]::FromSeconds(-$script:Shift)) | Out-Null; Write-Log "Часы возвращены на $(-$script:Shift) с" } catch { Write-Log "Часы не возвращены: $_" }
     }
-    try { & w32tm.exe /resync /nowait 2>&1 | Out-Null } catch {}
+    if ($script:W32Was -eq "Running") {
+      try { Start-Service -Name w32time; & w32tm.exe /resync /nowait 2>&1 | Out-Null; Write-Log "Служба времени Windows запущена" } catch { Write-Log "Служба времени не запущена: $_" }
+    }
   }
   Write-Log "S53: перевод часов записан в журнал без блокировки, поправка без записи, часы назад при включении записаны"
 }
