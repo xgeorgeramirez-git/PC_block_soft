@@ -17,26 +17,22 @@ Invoke-Scenario "S23" "Смена часового пояса у ребёнка:
       Start-Sleep -Seconds 3
       $g = Get-GuardState
       Assert-That (-not $g.lockShown) "Экран блокировки показан до испытания: $(Format-GuardState $g)"
-      Open-Parent
-      Assert-That ((Find-Events 'Часовой пояс изменён').Count -eq 0) "Запись о смене пояса есть до испытания"
+      # Сессия родителя в сеансе ребёнка — перевод родителя, не обход: проверка через Use-Parent (вход и выход).
+      Use-Parent { Assert-That ((Find-Events 'Часовой пояс изменён').Count -eq 0) "Запись о смене пояса есть до испытания" }
     }
 
-    Step "Смена часового пояса: запись в журнале не позже 2 с (допуск 3 с)" {
+    Step "Смена часового пояса: через 2 с запись уже в журнале" {
       $to = if ($script:TzWas -eq "Ekaterinburg Standard Time") { "Russian Standard Time" } else { "Ekaterinburg Standard Time" }
       $sw = [Diagnostics.Stopwatch]::StartNew()
       Set-TimeZone -Id $to
       Write-Log "Пояс: $($script:TzWas) → $to"
-      $found = @()
-      while ($found.Count -eq 0) {
-        $found = @(Find-Events 'попытка обойти защиту\. Часовой пояс изменён')
-        if ($found.Count -eq 0) {
-          if ($sw.Elapsed.TotalSeconds -gt 10) { throw "За 10 с записи о смене пояса нет; журнал: $((Get-Events | ForEach-Object { $_.text }) -join ' | ')" }
-          Start-Sleep -Milliseconds 100
-        }
-      }
+      # Журнал читается ровно через 2 с: запись должна уже быть (ТЗ: не позже 2 с). Раньше читать нельзя:
+      # сессия родителя в этом сеансе сделала бы смену «родительской».
+      Start-Sleep -Milliseconds 2000
+      $found = @(Use-Parent { @(Find-Events 'попытка обойти защиту\. Часовой пояс изменён') })
       $secs = $sw.Elapsed.TotalSeconds
-      Write-Log ("Запись через {0:N2} с: {1}" -f $secs, $found[0].text)
-      Assert-That ($secs -le 3) ("Запись о смене пояса через {0:N2} с, ждали не больше 2 (допуск 3)" -f $secs)
+      Assert-That ($found.Count -eq 1) ("Записей о смене пояса через {0:N2} с: {1}, ждали 1; журнал: {2}" -f $secs, $found.Count, (Use-Parent { (Get-Events | ForEach-Object { $_.text }) -join ' | ' }))
+      Write-Log ("Запись есть через {0:N2} с: {1}" -f $secs, $found[0].text)
       Assert-That (([string]$found[0].text).Contains("стал «")) "В записи нет нового пояса: $($found[0].text)"
     }
 

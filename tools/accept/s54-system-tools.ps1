@@ -31,9 +31,10 @@ Invoke-Scenario "S54" "Командная строка: открыл ребён�
       $script:CmdPath = New-TestApp "cmd"
     }
 
-    Step "Настройка: лимит 2 ч" {
+    Step "Настройка: лимит 2 ч; подробный журнал службы" {
       Start-Child 120 $false
       Wait-ProgramsReady
+      Use-Parent { Assert-Reply (Send-Parent "SetDiag" @{ verbose = $true }) "Подробные логи службы" }
     }
 
     Step "(б) Ребёнок 30 с ничего не нажимает, на переднем плане Проводник: cmd.exe не трогается" {
@@ -43,8 +44,7 @@ Invoke-Scenario "S54" "Командная строка: открыл ребён�
       Write-Log "cmd.exe (PID $($p.Id)), родитель: PowerShell сценария (PID $PID, $($script:PsExe)); простой $([PcbNative]::IdleMs()) мс"
       Start-Sleep -Seconds 4
       Assert-AppAlive $p "cmd.exe без ввода ребёнка"
-      Open-Parent
-      Assert-That ((Find-Events $script:Pattern).Count -eq 0) "Запуск без ребёнка записан обходом"
+      Assert-That ((Use-Parent { @(Find-Events $script:Pattern) }).Count -eq 0) "Запуск без ребёнка записан обходом"
       Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
     }
 
@@ -62,9 +62,8 @@ Invoke-Scenario "S54" "Командная строка: открыл ребён�
     }
 
     Step "(а) Журнал: одна запись «попытка обойти защиту» с названием инструмента" {
-      Open-Parent
-      Wait-Until { (Find-Events $script:Pattern).Count -ge 1 } 6 "запись обхода о командной строке"
-      $found = @(Find-Events $script:Pattern)
+      Wait-Until { (Use-Parent { @(Find-Events $script:Pattern) }).Count -ge 1 } 6 "запись обхода о командной строке"
+      $found = @(Use-Parent { @(Find-Events $script:Pattern) })
       Write-Log "Запись: $($found[0].text)"
       Assert-That ($found.Count -eq 1) "Записей обхода о командной строке: $($found.Count), ждали 1"
     }

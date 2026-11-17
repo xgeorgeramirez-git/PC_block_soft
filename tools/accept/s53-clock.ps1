@@ -28,7 +28,8 @@ function Invoke-ServiceStopped([scriptblock]$Body) {
   Wait-SessionParts
 }
 
-function Get-ClockEvents([string]$Pattern) { return @(Find-Events $Pattern) }
+# Сессия родителя в сеансе ребёнка делает перевод часов «родительским»: журнал — через Use-Parent (вход и выход).
+function Get-ClockEvents([string]$Pattern) { return @(Use-Parent { @(Find-Events $Pattern) }) }
 
 Invoke-Scenario "S53" "Перевод часов: записи в журнале без блокировки, поправка 30 с без записи, часы назад при включении" {
   Initialize-Scenario 1
@@ -51,7 +52,6 @@ Invoke-Scenario "S53" "Перевод часов: записи в журнале
       Start-Sleep -Seconds 3
       Move-Clock -600
       Start-Sleep -Seconds 3
-      Open-Parent
       $found = Get-ClockEvents 'попытка обойти защиту\. Часы компьютера переведены'
       Write-Log "Записи: $(($found | ForEach-Object { $_.text }) -join ' | ')"
       Assert-That ($found.Count -eq 2) "Записей о переводе часов: $($found.Count), ждали 2"
@@ -64,14 +64,12 @@ Invoke-Scenario "S53" "Перевод часов: записи в журнале
       Start-Sleep -Seconds 3
       Move-Clock -30
       Start-Sleep -Seconds 3
-      Open-Parent
       $found = Get-ClockEvents 'Часы компьютера переведены'
       Assert-That ($found.Count -eq 2) "После поправки 30 с записей о переводе часов: $($found.Count), ждали 2"
     }
 
     Step "Служба остановлена, часы на 1 ч назад, служба запущена: запись «Часы компьютера ушли назад»" {
       Invoke-ServiceStopped { Move-Clock -3600 }
-      Open-Parent
       $found = @()
       Wait-Until { $script:found = Get-ClockEvents 'Часы компьютера ушли назад'; $script:found.Count -ge 1 } 15 "запись «Часы компьютера ушли назад»"
       Write-Log "Запись: $($script:found[0].text)"
@@ -81,7 +79,6 @@ Invoke-Scenario "S53" "Перевод часов: записи в журнале
     Step "Время возвращено при остановленной службе: новых записей нет" {
       Invoke-ServiceStopped { Move-Clock (-$script:Shift) }
       Start-Sleep -Seconds 3
-      Open-Parent
       $all = Get-ClockEvents 'Часы компьютера'
       Assert-That ($all.Count -eq 3) "После возврата времени записей о часах: $($all.Count), ждали 3: $(($all | ForEach-Object { $_.text }) -join ' | ')"
     }

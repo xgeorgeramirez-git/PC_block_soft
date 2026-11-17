@@ -123,7 +123,7 @@ func (s *Service) saveClock(real time.Time) {
 func (s *Service) activeChildSession() *sessState {
 	var best *sessState
 	for _, ss := range s.sessions {
-		if ss.childID == 0 || ss.offScreen() || s.parentIn(ss.id) {
+		if ss.childID == 0 || ss.offScreen() || s.parentOpenIn(ss.id, s.real) {
 			continue // за экраном ребёнка родитель вошёл в PC Block: перевод его (M6 ревью)
 		}
 		if best == nil || ss.id < best.id {
@@ -131,16 +131,6 @@ func (s *Service) activeChildSession() *sessState {
 		}
 	}
 	return best
-}
-
-// parentIn — в сеансе id открыта сессия родителя PC Block (окно настроек после пароля).
-func (s *Service) parentIn(id uint32) bool {
-	for _, p := range s.parents {
-		if p.sessionID == id {
-			return true
-		}
-	}
-	return false
 }
 
 // clockChangedDetail — «Часы компьютера переведены: было 19.10 15:00, стало 19.10 15:10».
