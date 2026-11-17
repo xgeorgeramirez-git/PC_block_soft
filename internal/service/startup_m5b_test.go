@@ -743,3 +743,39 @@ func TestStartupListErrorLoggedHourly(t *testing.T) {
 		t.Errorf("сбой поменял решение: %s", d)
 	}
 }
+
+// Ловит (B-71): остановка службы не ждёт идущую проверку автозагрузки — временная ветка реестра
+// ребёнка (withHive) остаётся загруженной до перезагрузки.
+func TestShutdownWaitsStartupCheck(t *testing.T) {
+	src := newStartupSource()
+	src.block = make(chan struct{})
+	h := newHarness(t, withChild(childSID, "Миша", 120), configured(), withStartup(src))
+	h.start()
+	h.childLogsIn()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		src.mu.Lock()
+		in := src.inFlight
+		src.mu.Unlock()
+		if in > 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("проверка автозагрузки не началась")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	done := make(chan struct{})
+	go func() { h.svc.Shutdown(h.real.Now()); close(done) }()
+	select {
+	case <-done:
+		t.Fatal("Shutdown вернулась, пока проверка автозагрузки идёт")
+	case <-time.After(200 * time.Millisecond):
+	}
+	close(src.block)
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Shutdown не вернулась после конца проверки")
+	}
+}

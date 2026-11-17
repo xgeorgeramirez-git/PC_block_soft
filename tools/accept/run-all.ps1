@@ -61,6 +61,9 @@ $all = @(
   @{ Id = "S50"; File = "s50-startup.ps1" },         # M5b: автозагрузка двух детей, TestSession logon, Run и StartupApproved
   @{ Id = "S52"; File = "s52-promo-stickers.ps1" },   # M5b: стикеры и надписи в ответ на промокод на экране блокировки (D-83)
   @{ Id = "TMP1"; File = "tmp1-temp-installer.ps1" }, # M5b (B-67): WatchDir в %TEMP% профиля, установщик перезаписан тем же издателем
+  @{ Id = "S23"; File = "s23-timezone.ps1" },        # M6: Set-TimeZone, пояс возвращается в finally
+  @{ Id = "S54"; File = "s54-system-tools.ps1" },    # M6: копия cmd.exe в папке наблюдения, подмена переднего плана
+  @{ Id = "S53"; File = "s53-clock.ps1" },           # M6: Set-Date, остановка службы; время возвращается при остановленной службе
   @{ Id = "PROBE"; File = "probe-brave.ps1" },  # проба M4 T0: домен вкладки Brave от SYSTEM (нужен шаг «Brave для пробы и приёмки»)
   @{ Id = "S33"; File = "s33-switch-user.ps1" }  # последним: после отключения сеанса у раннера нет экрана
 )

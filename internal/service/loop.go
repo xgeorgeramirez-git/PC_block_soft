@@ -218,6 +218,10 @@ func (s *Service) Housekeep(real time.Time) {
 			s.loadChildren(real)
 		}
 	})
+	// Часы и пояс — до сроков сессий родителя: перевод часов вперёд закончил бы сессию родителя
+	// за экраном ребёнка раньше, чем служба поймёт, кто перевёл (M6).
+	s.guard("clock", nil, func() { s.checkClock() })
+	s.guard("tz", nil, func() { s.checkTZ(real) })
 	for _, id := range s.childOrder() {
 		cs := s.children[id]
 		s.guard("housekeep", cs, func() { s.housekeepChild(cs, real) })

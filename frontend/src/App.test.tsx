@@ -311,7 +311,7 @@ describe("меню окна родителя", () => {
     await user.click(item);
     expect(item.getAttribute("aria-current")).toBe("page");
     const versions = (await screen.findAllByRole("heading", { level: 3 })).map((h) => h.textContent);
-    expect(versions[0]).toBe("Версия 0.6.1. Стикеры за промокод: плавно и по кругу");
+    expect(versions[0]).toBe("Версия 0.7.0. Защита от обхода");
     expect(screen.queryByRole("heading", { name: "Помощь" })).toBeNull();
   });
 

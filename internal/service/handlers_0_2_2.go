@@ -50,7 +50,7 @@ func (s *Service) hClearBonus(c *callCtx) ipc.Reply {
 	}
 	bal, err := s.cfg.Store.GetBonusBalance(cs.child.ID)
 	if err != nil {
-		return ipc.Fail(textSaveFailed)
+		return ipc.Fail(textRetry) // чтение, а не запись: «не удалось сохранить» сбивает с толку (B-62)
 	}
 	if bal <= 0 {
 		return ipc.OK(ipc.BonusChangeReply{BalanceAfter: 0, Message: "Копилка уже пуста"})
@@ -79,7 +79,7 @@ func (s *Service) hReduceBonus(c *callCtx) ipc.Reply {
 	}
 	bal, err := s.cfg.Store.GetBonusBalance(cs.child.ID)
 	if err != nil {
-		return ipc.Fail(textSaveFailed)
+		return ipc.Fail(textRetry) // чтение, а не запись: «не удалось сохранить» сбивает с толку (B-62)
 	}
 	take := req.Minutes
 	if take > bal {
@@ -141,7 +141,7 @@ func (s *Service) hCreatePromo(c *callCtx) ipc.Reply {
 func (s *Service) hListPromos(c *callCtx) ipc.Reply {
 	list, err := s.cfg.Store.ListPromos()
 	if err != nil {
-		return ipc.Fail(textSaveFailed)
+		return ipc.Fail(textRetry) // чтение (B-62)
 	}
 	active := []ipc.PromoView{}
 	used := []ipc.PromoView{}

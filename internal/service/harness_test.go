@@ -70,7 +70,7 @@ func newHarness(t *testing.T, opts ...hopt) *harness {
 	h.store.now = func() int64 { return h.clock.Now().UnixMilli() }
 	h.cfg = Config{
 		Store: h.store, Hasher: h.hasher, Launcher: h.launcher, Admins: h.admins, Accounts: h.accounts,
-		Policy: h.policy, Clock: h.clock, RealNow: h.real.Now, Loc: tzMSK, Version: "0.1.0-test", DataDir: h.dataDir,
+		Policy: h.policy, Clock: h.clock, RealNow: h.real.Now, Mono: func() time.Duration { return h.real.Now().Sub(realT0) }, Loc: tzMSK, Version: "0.1.0-test", DataDir: h.dataDir,
 		Rand: func() string { h.tokenN++; return fmt.Sprintf("tok-%d", h.tokenN) },
 		Logf: func(f string, a ...any) {
 			h.logMu.Lock()

@@ -193,6 +193,23 @@ func (s *Service) checkStartup(cs *childState, full bool) {
 // waitStartup ждёт горутины проверок (тесты). Вызывать без s.mu.
 func (s *Service) waitStartup() { s.startupWG.Wait() }
 
+// startupStopWait — сколько остановка службы ждёт идущую проверку автозагрузки (B-71).
+const startupStopWait = 10 * time.Second
+
+// waitStartupFor ждёт горутины проверок не дольше d; false — не дождались. Вызывать без s.mu.
+func (s *Service) waitStartupFor(d time.Duration) bool {
+	done := make(chan struct{})
+	go func() { s.startupWG.Wait(); close(done) }()
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-done:
+		return true
+	case <-t.C:
+		return false
+	}
+}
+
 // runStartup — горутина проверки ребёнка: проходы, пока просят повтор; служба остановлена или
 // ребёнка убрали — конец.
 func (s *Service) runStartup(id int64, sid string, fl *startupFlight, mu *sync.Mutex) {
