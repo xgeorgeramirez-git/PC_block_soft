@@ -448,3 +448,39 @@ func TestAddSitesOneTransaction(t *testing.T) {
 		t.Fatal("при сбое пачки часть сайтов записана")
 	}
 }
+
+// Ловит (B-65): «Отменить» удаление сайтов из разных списков требует нескольких запросов, кладёт сайт
+// не в его список или не пишет журнал.
+func TestRestoreSites(t *testing.T) {
+	h := siteHarness(t)
+	tok := h.login(adminPeer())
+	var rm ipc.RemoveSitesReply
+	h.ok(adminPeer(), tok, ipc.CmdRemoveSites, ipc.RemoveSitesRequest{Domains: []string{"example.com", "school.example"}}, &rm)
+	if len(rm.Removed) != 2 {
+		t.Fatalf("удалено %v, ждали 2", rm.Removed)
+	}
+	kinds := map[string]string{}
+	for _, r := range rm.Removed {
+		kinds[r.Domain] = r.Kind
+	}
+	calls := h.store.addSitesCalls
+	var rep ipc.RestoreSitesReply
+	h.ok(adminPeer(), tok, ipc.CmdRestoreSites, ipc.RestoreSitesRequest{Sites: rm.Removed}, &rep)
+	if rep.Message != "Сайты возвращены: 2" {
+		t.Fatalf("сообщение %q", rep.Message)
+	}
+	for d, k := range kinds {
+		if h.store.sites[d] != k {
+			t.Errorf("%s в списке %q, ждали %q", d, h.store.sites[d], k)
+		}
+	}
+	if got := h.store.addSitesCalls - calls; got != 2 {
+		t.Errorf("транзакций хранилища %d, ждали по одной на список", got)
+	}
+	if r := h.fail(adminPeer(), tok, ipc.CmdRestoreSites, ipc.RestoreSitesRequest{}); r.Error != ipc.TextBadRequest {
+		t.Errorf("пустой список: %q", r.Error)
+	}
+	if r := h.fail(adminPeer(), tok, ipc.CmdRestoreSites, ipc.RestoreSitesRequest{Sites: []ipc.SiteDTO{{Domain: "x.ru", Kind: "video"}}}); r.Error != ipc.TextBadRequest {
+		t.Errorf("чужой список: %q", r.Error)
+	}
+}

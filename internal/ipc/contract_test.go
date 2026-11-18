@@ -548,6 +548,8 @@ func examples() map[string]example {
 			AddSitesReply{Message: "Добавлено сайтов: 1. Перенесено сюда из других списков: 1. Уже были в списке: 1", Added: []string{"example.com", "vk.com"},
 				Rejected: []string{"просто текст"}, FieldError: "Это не похоже на адрес сайта", Sites: sitesReply()}),
 		"AddSites#invalid": fail(AddSitesRequest{Text: "просто текст\nещё текст", Kind: SiteKindBlocked}, "Эти строки не похожи на адрес сайта", FieldDomain, nil),
+		CmdRestoreSites: ok(RestoreSitesRequest{Sites: []SiteDTO{{Domain: "example.com", Kind: SiteKindBlocked}, {Domain: "school.example", Kind: SiteKindStudy}}},
+			RestoreSitesReply{Message: "Сайты возвращены: 2", Sites: sitesReply()}),
 		CmdRemoveSites: ok(RemoveSitesRequest{Domains: []string{"example.com", "school.example"}}, RemoveSitesReply{
 			Message: "Удалено сайтов: 2", Removed: []SiteDTO{{Domain: "example.com", Kind: SiteKindBlocked}, {Domain: "school.example", Kind: SiteKindStudy}},
 			UndoUntilMs: t0 + 10_000, Sites: sitesReply(),
@@ -645,8 +647,8 @@ func TestContractHasEveryCommand(t *testing.T) {
 			t.Errorf("пример для %s есть, а в AllCommands её нет", c)
 		}
 	}
-	if len(AllCommands) != 79 {
-		t.Errorf("команд %d, ждали 79 (2 команды M5b: ListStartup, SetStartup; 6 команд M5: ClearStats, ClearJournal, GeneratePromos, ClearPromoHistory, AddSites, RemoveSites; 5 команд M4: ListSites, AddSite, RemoveSite, SetAdultFilter, тестовая TestSeedPrograms; тестовая TestSeedDay и EndBreak из раунда 0.3.2; 46 из M1/M2/0.2.1 без команд Помощника, 9 из фидбек-раунда 0.2.2: OpenLogs, SetNoForbidden, ClearBonus, ReduceBonus, CreatePromo, ListPromos, RedeemPromo, GetBonusRate, SetBonusRate, GuardClosing из раунда 0.2.3, тестовая TestSession из 0.2.5 и 5 программ M3: ListPrograms, DecideProgram, SetProgramsCategory, UndoProgram, ScanPrograms; SetProgramsHidden и RenameProgram из раунда 0.3.1)", len(AllCommands))
+	if len(AllCommands) != 80 {
+		t.Errorf("команд %d, ждали 80 (RestoreSites из 0.7.1; 2 команды M5b: ListStartup, SetStartup; 6 команд M5: ClearStats, ClearJournal, GeneratePromos, ClearPromoHistory, AddSites, RemoveSites; 5 команд M4: ListSites, AddSite, RemoveSite, SetAdultFilter, тестовая TestSeedPrograms; тестовая TestSeedDay и EndBreak из раунда 0.3.2; 46 из M1/M2/0.2.1 без команд Помощника, 9 из фидбек-раунда 0.2.2: OpenLogs, SetNoForbidden, ClearBonus, ReduceBonus, CreatePromo, ListPromos, RedeemPromo, GetBonusRate, SetBonusRate, GuardClosing из раунда 0.2.3, тестовая TestSession из 0.2.5 и 5 программ M3: ListPrograms, DecideProgram, SetProgramsCategory, UndoProgram, ScanPrograms; SetProgramsHidden и RenameProgram из раунда 0.3.1)", len(AllCommands))
 	}
 }
 

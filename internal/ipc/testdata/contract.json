@@ -3721,6 +3721,56 @@
       "payload": {}
     }
   },
+  "RestoreSites": {
+    "request": {
+      "sites": [
+        {
+          "domain": "example.com",
+          "kind": "blocked"
+        },
+        {
+          "domain": "school.example",
+          "kind": "study"
+        }
+      ]
+    },
+    "reply": {
+      "ok": true,
+      "payload": {
+        "message": "Сайты возвращены: 2",
+        "sites": {
+          "sites": [
+            {
+              "domain": "example.com",
+              "kind": "blocked"
+            },
+            {
+              "domain": "school.example",
+              "kind": "study"
+            },
+            {
+              "domain": "youtube.com",
+              "kind": "video_social"
+            }
+          ],
+          "children": [
+            {
+              "childId": 1,
+              "name": "Миша",
+              "on": true
+            },
+            {
+              "childId": 2,
+              "name": "Даша",
+              "on": false
+            }
+          ],
+          "blockedMax": 1000,
+          "adultSource": "Список сайтов для взрослых: UT1, Университет Тулуза Капитоль, лицензия CC BY-SA 4.0"
+        }
+      }
+    }
+  },
   "SaveLimits": {
     "request": {
       "childId": 1,

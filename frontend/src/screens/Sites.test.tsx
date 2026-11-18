@@ -510,8 +510,11 @@ describe("Сайты: несколько сайтов за раз", () => {
     expect(bulk()).toBeNull();
     expect(within(listStatus()).getByText("10 с")).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "Отменить" }));
-    expect(await screen.findByText("Добавлено сайтов: 2")).toBeTruthy();
-    expect(mock.calls.filter((c) => c.command === "AddSites").map((c) => c.payload)).toEqual([{ text: "a.test\nc.test", kind: "blocked" }]);
+    expect(await screen.findByText("Сайты возвращены: 2")).toBeTruthy();
+    expect(mock.calls.filter((c) => c.command === "RestoreSites").map((c) => c.payload)).toEqual([
+      { sites: [{ domain: "a.test", kind: "blocked" }, { domain: "c.test", kind: "blocked" }] },
+    ]);
+    expect(mock.count("AddSites")).toBe(0);
     expect(domains("Запрещённые: сайты")).toEqual(["a.test", "b.test", "c.test"]);
   });
 
