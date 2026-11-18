@@ -69,6 +69,7 @@ import type {
   AddSiteReply,
   AddSitesReply,
   RestoreSitesReply,
+  SiteDTO,
   ListSitesReply,
   RemoveSiteReply,
   RemoveSitesReply,
