@@ -138,7 +138,7 @@ export async function mode(): Promise<WindowMode> {
 
 /**
  * Экран, на котором открыто окно родителя (ключ --screen, RM3-4): «programs» после «Попросить
- * сейчас» на плашке; "" — главный экран. Старый мост без метода и неизвестное значение дают "".
+ * сейчас» на плашке; «stats», «promos» — снимки окна в приёмке (B-63); "" — главный экран. Старый мост без метода и неизвестное значение дают "".
  */
 export async function startScreen(): Promise<WindowScreen | ""> {
   const app = window.go?.ui?.App;
@@ -151,7 +151,7 @@ export async function startScreen(): Promise<WindowScreen | ""> {
   } catch {
     return "";
   }
-  return raw === "programs" ? raw : "";
+  return raw === "programs" || raw === "stats" || raw === "promos" ? raw : "";
 }
 
 /** Версия программы для показа в окне. */

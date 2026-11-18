@@ -684,7 +684,7 @@ export type ProgramCategory = "games" | "study" | "other" | "blocked" | "system"
 export type ProgramSource = "catalog" | "snapshot" | "parent";
 
 /** Экран окна родителя для OpenWindow (RM3-4). */
-export type WindowScreen = "programs";
+export type WindowScreen = "programs" | "stats" | "promos";
 
 export interface ChildName {
   childId: number;

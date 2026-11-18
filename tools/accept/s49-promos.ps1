@@ -97,8 +97,8 @@ Invoke-Scenario "S49" "Промокоды: только A–Z и цифры, «�
     Invoke-GuardClick "submitPromo"
     # D-83: ответ — стикер и надпись удачи на одно проигрывание, плашки «Добавлено» после него нет.
     [void](Wait-PromoOk "15 минут")
+    Save-Screen "s49-promo-ok" # в момент показа стикера (B-69): после снятия экрана на снимке консоль раннера
     $g = Wait-LockHidden 10
-    Save-Screen "s49-promo-ok"
     $st = Get-Status
     Write-Log "После кода: статус $($st.status), лимит $($st.limitS) с (был $($script:LimitBefore)), остаток $($st.remainingS) с"
     Assert-That ($st.lock -eq "none") "Блокировка после верного кода: '$($st.lock)'"
@@ -131,7 +131,7 @@ Invoke-Scenario "S49" "Промокоды: только A–Z и цифры, «�
   }
 
   Step "Снимок окна родителя" {
-    [void](Save-ProgramWindow "s49-promos" @("--parent") 40 5)
+    [void](Save-ParentWindow "s49-promos" "promos") # после входа родителя (B-63)
   }
 
   Write-Log "S49: новые коды только A–Z и цифры заглавными, придуманные коды разные и действуют, история очищается"
