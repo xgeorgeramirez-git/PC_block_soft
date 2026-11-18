@@ -3258,18 +3258,18 @@ test("s49 промокоды: очистить историю", async ({ page })
   const clear = page.getByRole("button", { name: "Очистить историю" });
   await clear.focus();
   await page.keyboard.press("Enter");
-  const dialog = page.getByRole("dialog", { name: "Удалить все использованные коды?" });
+  const dialog = page.getByRole("dialog", { name: "Очистить историю промокодов?" });
   await expect(dialog).toBeVisible();
-  await expect(dialog.getByText("Действующие останутся.", { exact: true })).toBeVisible();
+  await expect(dialog.getByText("Использованные коды удалятся, действующие останутся.", { exact: true })).toBeVisible();
   await expect(dialog.getByRole("button", { name: "Отмена" })).toBeFocused();
   expect(await dialog.getByRole("button", { name: "Отмена" }).evaluate((el) => el.matches(":focus-visible")), "рамка фокуса на «Отмена» не видна").toBe(true);
-  // «Удалить» не красная (ТЗ 8.0 п.3): красный - только статус.
-  const del = await dialog.getByRole("button", { name: "Удалить" }).evaluate((el) => {
+  // «Очистить» не красная (ТЗ 8.0 п.3): красный - только статус.
+  const del = await dialog.getByRole("button", { name: "Очистить" }).evaluate((el) => {
     const css = getComputedStyle(el);
     return { bg: css.backgroundColor, color: css.color, border: css.borderTopColor, radius: css.borderRadius };
   });
   expect(del.radius).toBe("6px");
-  for (const c of [del.bg, del.color, del.border]) expect(c, "«Удалить» красная").not.toBe("rgb(179, 38, 30)");
+  for (const c of [del.bg, del.color, del.border]) expect(c, "«Очистить» красная").not.toBe("rgb(179, 38, 30)");
   await noHorizontalScroll(page);
   await page.screenshot({ path: `${SCREENS}/s49-promos-clear-dialog.png` });
   // Esc закрывает окно, ничего не удаляя; фокус возвращается на кнопку.
@@ -3278,7 +3278,7 @@ test("s49 промокоды: очистить историю", async ({ page })
   await expect(clear).toBeFocused();
   await expect(page.getByRole("list", { name: "Использованные промокоды" }).getByRole("listitem")).toHaveCount(4);
   await page.keyboard.press("Enter");
-  await dialog.getByRole("button", { name: "Удалить" }).click();
+  await dialog.getByRole("button", { name: "Очистить" }).click();
   await expect(dialog).toHaveCount(0);
   await expect(page.locator(".promo-status")).toHaveText("История промокодов очищена");
   await expect(page.getByText("Использованных кодов нет", { exact: true })).toBeVisible();
