@@ -304,7 +304,7 @@ export const MOCK_JOURNAL_GROUPS: Record<Exclude<JournalGroup, "">, readonly str
   settings: [
     "setup_done", "password_failed", "password_changed", "password_reset", "uninstall_forgot",
     "settings_changed", "children_changed", "child_admin", "child_admin_off", "stats_cleared", "journal_cleared",
-    "block_cleared", "settings",
+    "block_cleared", "remote", "settings",
   ],
   system: ["safe_mode", "internal_error", "db_recovered"],
 };

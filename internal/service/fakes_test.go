@@ -38,6 +38,7 @@ type fakeStore struct {
 	failCreatePromos bool                      // CreatePromos возвращает ошибку, ничего не создав (RM5-12)
 	failListPromos   bool                      // ListPromos возвращает ошибку
 	failGetSetting   bool                      // GetSetting возвращает ошибку
+	setSettingErr    func(key string) error    // не nil: SetSetting сначала спрашивает её (M7)
 
 	failLimits   bool // GetDayLimits возвращает ошибку
 	failSave     bool // SaveDayState возвращает ошибку
@@ -1191,6 +1192,11 @@ func (f *fakeStore) GetSetting(key string) (string, bool, error) {
 func (f *fakeStore) SetSetting(key, value string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.setSettingErr != nil {
+		if err := f.setSettingErr(key); err != nil {
+			return err
+		}
+	}
 	f.settings[key] = value
 	return nil
 }

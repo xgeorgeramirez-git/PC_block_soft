@@ -559,6 +559,7 @@ func (s *Service) hSaveLimits(c *callCtx) ipc.Reply {
 	if breakChanged {
 		s.journal.Write(cs.child.ID, evSettingsChanged, map[string]any{"text": "изменены настройки отдыха"})
 	}
+	s.remoteChanged() // телефон увидит новый остаток (FR-40)
 	return ipc.OK(ipc.SaveLimitsReply{Rules: rulesView(cs), Card: s.cardOf(cs), Message: textSaved})
 }
 
@@ -577,21 +578,83 @@ func (s *Service) hAddExtra(c *callCtx) ipc.Reply {
 	if c.viaBind {
 		s.spendBind(c.peer.SessionID)
 	}
-	d, err := cs.eng.AddExtra(req.Minutes)
-	if err != nil {
+	src := extraFromWindow
+	if c.viaBind {
+		src = extraFromGuard
+	}
+	reply, ok := s.changeExtra(cs, req.Minutes, src, c.real)
+	if !ok {
 		return ipc.FailField(textMinutesRange, ipc.FieldMinutes)
 	}
-	s.afterDecision(cs, d, nil)
-	s.saveDay(cs)
-	rec := &undoRec{id: s.cfg.Rand(), minutes: req.Minutes, extraDelta: req.Minutes, undoMsg: "Добавленное время отменено", day: d.Day, until: c.real.Add(undoLife)}
-	cs.undo = rec
-	msg := "Добавлено " + minutesText(req.Minutes)
-	if !c.viaBind {
-		s.noticeGuards(cs, msg)
+	return ipc.OK(reply)
+}
+
+// extraSource — откуда пришло изменение доп. времени (R10, одна истина с телефоном, M7).
+type extraSource int
+
+const (
+	extraFromWindow extraSource = iota // окно родителя: плашка ребёнку и «Отменить»
+	extraFromGuard                     // экран блокировки после пароля: ребёнок у экрана, плашка не нужна
+	extraFromPhone                     // телефон (FR-40): плашка ребёнку (D-93), без «Отменить», source: "phone"
+)
+
+// changeExtra — общий путь кнопок «+» и «−» окна родителя, экрана блокировки и команды с
+// телефона: delta > 0 — добавить, delta < 0 — убавить (1 ≤ |delta| ≤ core.MaxExtraMin проверяет
+// вызывающий). Ядро, журнал (событие ядра EvExtraTime; с телефона — подробность source: "phone"),
+// сохранение дня, «Отменить» (только окно и экран блокировки; телефон cs.undo не трогает) и плашка
+// ребёнку. ok = false — ядро отказало (предел).
+func (s *Service) changeExtra(cs *childState, delta int, src extraSource, real time.Time) (ipc.AddExtraReply, bool) {
+	var extra map[string]any
+	if src == extraFromPhone {
+		extra = map[string]any{"source": extraSourcePhone}
 	}
-	return ipc.OK(ipc.AddExtraReply{
-		Card: s.cardOf(cs), Message: msg, ExtraID: rec.id, UndoUntilMs: rec.until.UnixMilli(),
-	})
+	var (
+		d       core.Decision
+		changed int // минуты фактического изменения (без знака)
+		msg     string
+		undoMsg string
+	)
+	if delta > 0 {
+		var err error
+		if d, err = cs.eng.AddExtra(delta); err != nil {
+			return ipc.AddExtraReply{}, false
+		}
+		changed, msg, undoMsg = delta, "Добавлено "+minutesText(delta), "Добавленное время отменено"
+	} else {
+		var (
+			removed int
+			err     error
+		)
+		if d, removed, err = cs.eng.ReduceExtra(-delta); err != nil {
+			return ipc.AddExtraReply{}, false
+		}
+		changed, msg, undoMsg = removed, "Убирать нечего", "Убранное время возвращено"
+		if removed != 0 {
+			msg = "Убрано " + minutesText(removed)
+		}
+	}
+	s.afterDecision(cs, d, extra)
+	s.saveDay(cs)
+	reply := ipc.AddExtraReply{Message: msg}
+	if changed != 0 {
+		if src != extraFromPhone {
+			sign := 1
+			if delta < 0 {
+				sign = -1
+			}
+			rec := &undoRec{id: s.cfg.Rand(), minutes: changed, extraDelta: sign * changed, undoMsg: undoMsg, day: d.Day, until: real.Add(undoLife)}
+			cs.undo = rec
+			reply.ExtraID, reply.UndoUntilMs = rec.id, rec.until.UnixMilli()
+		}
+		if src != extraFromGuard {
+			s.noticeGuards(cs, msg)
+		}
+		if src != extraFromPhone {
+			s.remoteChanged()
+		}
+	}
+	reply.Card = s.cardOf(cs)
+	return reply, true
 }
 
 // noticeGuards просит стражей сеансов ребёнка показать короткое сообщение.
@@ -629,6 +692,7 @@ func (s *Service) hUndoExtra(c *callCtx) ipc.Reply {
 	s.journal.Write(cs.child.ID, evExtraUndone, map[string]any{
 		"minutes": rec.minutes, "text": "Изменение доп. времени отменено",
 	})
+	s.remoteChanged()
 	return ipc.OK(ipc.CardReply{Card: s.cardOf(cs), Message: rec.undoMsg})
 }
 
@@ -645,19 +709,9 @@ func (s *Service) hReduceExtra(c *callCtx) ipc.Reply {
 	if req.Minutes < 1 || req.Minutes > core.MaxExtraMin {
 		return ipc.FailField(textReduceRange, ipc.FieldMinutes)
 	}
-	d, removed, err := cs.eng.ReduceExtra(req.Minutes)
-	if err != nil {
+	reply, ok := s.changeExtra(cs, -req.Minutes, extraFromWindow, c.real)
+	if !ok {
 		return ipc.FailField(textReduceRange, ipc.FieldMinutes)
-	}
-	s.afterDecision(cs, d, nil)
-	s.saveDay(cs)
-	reply := ipc.AddExtraReply{Card: s.cardOf(cs), Message: "Убирать нечего"}
-	if removed != 0 {
-		rec := &undoRec{id: s.cfg.Rand(), minutes: removed, extraDelta: -removed, undoMsg: "Убранное время возвращено", day: d.Day, until: c.real.Add(undoLife)}
-		cs.undo = rec
-		reply.Message = "Убрано " + minutesText(removed)
-		reply.ExtraID, reply.UndoUntilMs = rec.id, rec.until.UnixMilli()
-		s.noticeGuards(cs, reply.Message)
 	}
 	return ipc.OK(reply)
 }
@@ -686,6 +740,7 @@ func (s *Service) hClearExtra(c *callCtx) ipc.Reply {
 		reply.Message = "Доп. время убрано"
 		reply.ExtraID, reply.UndoUntilMs = rec.id, rec.until.UnixMilli()
 		s.noticeGuards(cs, reply.Message)
+		s.remoteChanged()
 	}
 	return ipc.OK(reply)
 }

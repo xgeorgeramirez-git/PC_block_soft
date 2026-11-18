@@ -28,7 +28,7 @@ var journalGroups = map[string][]string{
 	ipc.JournalGroupSettings: {
 		evSetupDone, evPasswordFailed, evPasswordChanged, evPasswordReset, evUninstallForgot,
 		evSettingsChanged, evChildrenChanged, evChildAdmin, evChildAdminOff, evStatsCleared, evJournalCleared,
-		core.EvBlockCleared,
+		core.EvBlockCleared, evRemote,
 	},
 	ipc.JournalGroupSystem: {core.EvSafeMode, evInternalError, evDBRecovered},
 }

@@ -127,6 +127,9 @@ func wantAllowed(cmd, kind, tok string, test, configured bool) bool {
 	case ipc.CmdListSites, ipc.CmdAddSite, ipc.CmdRemoveSite, ipc.CmdSetAdultFilter, ipc.CmdAddSites, ipc.CmdRemoveSites, ipc.CmdRestoreSites:
 		// «Сайты» (FR-21): только родитель своим токеном; ребёнок не читает и не меняет списки.
 		return user && own
+	case ipc.CmdGetRemote, ipc.CmdSetRemote, ipc.CmdRemotePairStart, ipc.CmdRemotePairCancel, ipc.CmdRemotePairConfirm, ipc.CmdRemoteUnpair:
+		// «Телефон» (FR-40): только родитель своим токеном.
+		return user && own
 	case ipc.CmdScanPrograms:
 		// Шаг мастера «Программы» (FR-2): как ListAccounts до настройки, после настройки — никому.
 		return kind == "elev" && !configured

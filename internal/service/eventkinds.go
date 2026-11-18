@@ -68,6 +68,11 @@ const (
 	evStartupClosed  = "startup_closed"  // выключенная запись запустилась сама и закрыта, раз в день (RM5b-3, T4b)
 )
 
+// Связь с телефоном (M7, FR-40): подробности action (remoteAct*) и phone (имя телефона).
+const (
+	evRemote = "remote" // связь включена или выключена, телефон подключён или отвязан
+)
+
 // Работа программы.
 const (
 	// evInternalError — сбой внутри программы: паника при обработке одного ребёнка или одного дела
@@ -82,7 +87,7 @@ var allEventKinds = []string{
 	// Пароль и настройки.
 	evSetupDone, evPasswordFailed, evPasswordChanged, evPasswordReset, evUninstallForgot,
 	evSettingsChanged, evChildrenChanged, evChildAdmin, evChildAdminOff, evStatsCleared, evJournalCleared,
-	core.EvBlockCleared,
+	core.EvBlockCleared, evRemote,
 	// Время и копилка.
 	core.EvExtraTime, evExtraUndone, core.EvPause, core.EvPauseEnd, core.EvNoForbidden, core.EvDayClosed,
 	core.EvBonusSpent, core.EvBonusGranted, evBonusGrant, evBonusUndo, evBonusClear, evBonusReduce,
