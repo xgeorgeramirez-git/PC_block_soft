@@ -2718,7 +2718,7 @@ async function choosePeriod(page: Page, name: string, used: string) {
   await expect(page.getByRole("region", { name: "Итоги" }).locator(".stat-row").filter({ hasText: used })).toBeVisible();
 }
 
-const barHits = (page: Page) => page.getByRole("region", { name: "По дням" }).getByRole("group", { name: "Столбики: стрелки влево и вправо" }).getByRole("img");
+const barHits = (page: Page) => page.getByRole("region", { name: /^По (дням|месяцам)$/ }).getByRole("group", { name: "Столбики: стрелки влево и вправо" }).getByRole("img");
 
 /** Прокрутка вбок только у графика: сколько он шире своей области (0 - помещается). */
 const chartOverflow = (page: Page) =>
