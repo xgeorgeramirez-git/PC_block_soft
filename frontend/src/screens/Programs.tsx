@@ -344,20 +344,23 @@ export default function Programs({ initialFilter = "all" }: Props) {
    * Живая область есть всегда (PL-44): диктор читает сообщение, как только оно появилось.
    */
   const message = (
-    <div className="programs-message" role="status">
-      {feedback ? (
-        <UndoLine
-          key={feedback.seq}
-          live={false}
-          className="programs-feedback"
-          text={feedback.text}
-          error={feedback.error}
-          undoMs={feedback.undo?.ms}
-          disabled={busy !== null}
-          onUndo={feedback.undo ? () => undo(feedback.undo!.undoId) : undefined}
-        />
-      ) : null}
-    </div>
+    <>
+      <div className="programs-message" role="status">
+        {feedback && !feedback.error ? (
+          <UndoLine
+            key={feedback.seq}
+            live={false}
+            className="programs-feedback"
+            text={feedback.text}
+            undoMs={feedback.undo?.ms}
+            disabled={busy !== null}
+            onUndo={feedback.undo ? () => undo(feedback.undo!.undoId) : undefined}
+          />
+        ) : null}
+      </div>
+      {/* Ошибка (role="alert") - вне области «статус»: вложенные живые области диктор читает непредсказуемо (B-65). */}
+      {feedback?.error ? <UndoLine key={feedback.seq} className="programs-feedback" text={feedback.text} error /> : null}
+    </>
   );
 
   const now = Date.now();

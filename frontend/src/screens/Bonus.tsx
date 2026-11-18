@@ -208,8 +208,9 @@ export default function Bonus({ onOpenPromos }: { onOpenPromos?: () => void } = 
                     {it.balance <= 0 ? <span className="field-hint">Копилка пуста: убавлять нечего</span> : null}
                   </div>
                   {/* Живая область есть всегда (PL-44, B-38); «Отменить» - общий UndoLine (B-33). */}
+                  {/* Ошибка (role="alert") - вне области «статус»: вложенные живые области диктор читает непредсказуемо (B-65). */}
                   <div role="status">
-                    {feedback[it.card.childId] ? (
+                    {feedback[it.card.childId] && !feedback[it.card.childId].error ? (
                       <BonusFeedback
                         feedback={feedback[it.card.childId]}
                         disabled={busy === it.card.childId}
@@ -217,6 +218,9 @@ export default function Bonus({ onOpenPromos }: { onOpenPromos?: () => void } = 
                       />
                     ) : null}
                   </div>
+                  {feedback[it.card.childId]?.error ? (
+                    <BonusFeedback feedback={feedback[it.card.childId]} disabled={busy === it.card.childId} onUndo={() => undefined} />
+                  ) : null}
                   <BonusHistory entries={it.entries} />
                 </article>
               ))}
