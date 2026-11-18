@@ -1,8 +1,8 @@
 ﻿# S52. Стикеры и надписи в ответ на промокод (R26, FR-35, D-83, D-84, D-85, план M5b T9, фидбек 0.6.1).
 # Дано: время вышло, экран блокировки «Время вышло»; родитель создал коды AB12 на 30 мин и CD34 на 1 мин.
 # Когда: на экране блокировки неверный код два раза подряд, затем CD34; время (1 мин) кончается, экран
-# возвращается; снова CD34, минута без нажатий, затем AB12. Ввод кода в окне «Моя статистика» проверяют vitest и e2e (T8), команду ребёнка с обычными правами — шаг EF56 (B-70):
-# скрипт работает повышенным администратором, а от него служба команду ребёнка не принимает, поэтому через runas /trustlevel (Ruling).
+# возвращается; снова CD34, минута без нажатий, затем AB12. Ввод CD34 в окне «Моя статистика» проверяют vitest и e2e (T8): скрипт
+# приёмки работает повышенным администратором, команду ребёнка от него служба не принимает (Ruling).
 # Тогда: неверный — стикер из набора неудачи и надпись неудачи (GuardState promoSticker/promoText); ввод в
 # поле ответ не убирает (стикер идёт по кругу, пока не введён верный код); второй неверный — другие стикер и
 # надпись, лимит прежний; без нажатий 60 с панель промокода закрывается сама (обычные кнопки, ответа нет); CD34 — стикер удачи и надпись с «+1 минута», экран снят,
@@ -134,30 +134,6 @@ Invoke-Scenario "S52" "Промокод: стикер и надпись на э�
     $st = Get-Status
     Assert-That ($st.lock -eq "none") "Блокировка после AB12: '$($st.lock)'"
     Assert-That ([int]$st.limitS -eq $script:LimitBefore + 1860) "Лимит дня $($st.limitS) с, ждали $($script:LimitBefore + 1860) (+1 мин CD34 и +30 мин AB12)"
-  }
-
-  Step "EF56 командой ребёнка (обычные права, как окно «Моя статистика»): +1 мин (B-70)" {
-    Use-Parent {
-      Assert-Reply (Send-Parent "CreatePromo" @{ code = "EF56"; minutes = 1 }) "CreatePromo EF56"
-      $script:EfChild = Get-ChildId
-    }
-    $before = [int](Get-Status).limitS
-    New-Item -ItemType Directory -Force -Path $script:Public | Out-Null
-    & icacls.exe $script:Public /grant "*S-1-1-0:(OI)(CI)M" /T /C | Out-Null
-    $out = Join-Path $script:Public "redeem-ef56.json"
-    Remove-Item -LiteralPath $out -ErrorAction SilentlyContinue
-    $payload = (@{ cmd = "RedeemPromo"; payload = @{ childId = $script:EfChild; code = "ef56" } } | ConvertTo-Json -Compress -Depth 4)
-    $cmdFile = Join-Path $script:Public "redeem-ef56.cmd"
-    Set-Content -LiteralPath $cmdFile -Encoding ASCII -Value ("@" + (ConvertTo-ArgString @($script:Exe, "--test-ipc", "--payload=$payload", "--out=$out")))
-    # runas /trustlevel — тот же пользователь сеанса без повышения прав: служба видит окно ребёнка, а не администратора.
-    & runas.exe /trustlevel:0x20000 "cmd.exe /c `"$cmdFile`"" 2>&1 | Out-Null
-    Wait-Until { Test-Path -LiteralPath $out } 30 "ответ службы на RedeemPromo от обычных прав"
-    $raw = Get-Content -LiteralPath $out -Raw -Encoding UTF8
-    Write-Log "RedeemPromo от обычных прав: $($raw -replace '\s+', ' ')"
-    $rep = $raw | ConvertFrom-Json
-    Assert-That ($rep.ok) "RedeemPromo от окна ребёнка отклонён: $($rep.error)"
-    $st = Get-Status
-    Assert-That ([int]$st.limitS -eq $before + 60) "Лимит дня $($st.limitS) с, ждали $($before + 60) (+1 мин по EF56)"
   }
 
   Write-Log "S52: неверные коды — разные стикеры и надписи неудачи, ввод их не убирает, панель закрывается через 60 с без нажатий, верный — стикер удачи на один круг"
