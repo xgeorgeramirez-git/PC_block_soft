@@ -139,9 +139,10 @@ var params = map[string]paramInfo{
 	"screen": {modes: []Mode{ModeParent}},
 }
 
-// Screens — экраны окна родителя для --screen (те же имена, что ipc.Screen*). Другое значение
+// Screens — экраны окна родителя для --screen (programs — как ipc.ScreenPrograms; stats и promos —
+// для снимков окна в приёмке, B-63). Другое значение
 // ключа — ошибка разбора: окно не открывает экран, которого не знает.
-var Screens = []string{"programs"}
+var Screens = []string{"programs", "stats", "promos"} // stats, promos — снимки окна в приёмке S21, S49 (B-63)
 
 // validScreen: значение --screen из списка Screens.
 func validScreen(v string) bool {

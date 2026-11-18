@@ -104,6 +104,21 @@ describe("StartupList: блоки и строки", () => {
 });
 
 describe("StartupList: выключатель", () => {
+  // Ловит (B-73): итог нажатия виден только внизу списка, далеко от выключателя; у записей Microsoft
+  // нет пояснения перед выключением.
+  it("итог - под строкой выключателя; у записей Microsoft пояснение", async () => {
+    const { user } = setup();
+    await user.click(await screen.findByRole("switch", { name: "notes" }));
+    await within(status()).findByText("Будет запускаться при входе Миши");
+    const row = screen.getByRole("switch", { name: "notes" }).closest("li")!;
+    expect(row.querySelector(".startup-row-note")?.textContent).toBe("Будет запускаться при входе Миши");
+    expect(document.querySelectorAll(".startup-row-note")).toHaveLength(1);
+    const ms = screen.getByRole("switch", { name: "OneDrive Reporting Task" }).closest("li")!;
+    expect(ms.textContent).toContain("Программа Windows или Microsoft");
+    const discord = screen.getByRole("switch", { name: "Discord" }).closest("li")!;
+    expect(discord.textContent).not.toContain("Программа Windows или Microsoft");
+  });
+
   // Ловит (Review Focus 4): включённая из «Ждут решения» запись остаётся там или видна дважды;
   // нужен «Сохранить»; сообщение не в живой области под списком.
   it("включил запись из «Ждут решения» - строка в «Учётке Миши», сообщение под списком", async () => {

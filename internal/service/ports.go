@@ -245,6 +245,9 @@ type Store interface {
 	// AddSiteRule — новая запись: (false, "", nil); уже в этом списке: (false, kind, nil); перенос из
 	// другого списка: (true, прежний, nil).
 	AddSiteRule(domain, kind string) (moved bool, prevKind string, err error)
+	// AddSiteRules — пачка доменов в список kind одной транзакцией вместе со строками журнала
+	// (event; домен уже в этом списке — без строки), B-61. Ошибка — не записано ничего.
+	AddSiteRules(domains []string, kind string, event func(domain string, moved bool) StoredEvent) (moved []bool, err error)
 	RemoveSiteRule(domain string) (prevKind string, ok bool, err error) // нет домена — ok = false
 	CountSiteRules(kind string) (int, error)
 	// ReplaceSiteRules — список kind целиком (мастер, S-4) одной транзакцией; домены из других
@@ -486,16 +489,23 @@ type StoreJournal struct {
 
 // Write дописывает событие в журнал.
 func (j StoreJournal) Write(childID int64, kind string, details map[string]any) {
-	now := j.Clock.Now()
-	if j.Loc != nil {
-		now = now.In(j.Loc)
-	}
-	_, off := now.Zone()
+	atMs, off := journalStamp(j.Clock, j.Loc)
 	//eventkind:dynamic параметр Journal.Write: вид проверяют места вызова (TestEventKindsSourceScan)
 	err := j.Store.AppendEvent(StoredEvent{
-		ChildID: childID, AtMs: now.UnixMilli(), TzOffsetMin: off / 60, Kind: kind, Details: details,
+		ChildID: childID, AtMs: atMs, TzOffsetMin: off, Kind: kind, Details: details,
 	})
 	if err != nil && j.Logf != nil {
 		j.Logf("журнал: не записано событие %s: %v", kind, err)
 	}
+}
+
+// journalStamp — момент строки журнала на сейчас по часам clock в поясе loc (nil — как есть):
+// UTC мс и смещение пояса в минутах.
+func journalStamp(clock core.Clock, loc *time.Location) (atMs int64, tzOffsetMin int) {
+	now := clock.Now()
+	if loc != nil {
+		now = now.In(loc)
+	}
+	_, off := now.Zone()
+	return now.UnixMilli(), off / 60
 }

@@ -3,6 +3,7 @@ package service
 import (
 	"fmt"
 	"sort"
+	"strings"
 	"testing"
 	"time"
 
@@ -418,5 +419,86 @@ func TestRemoveSites(t *testing.T) {
 	h.ok(adminPeer(), tok, ipc.CmdRemoveSites, ipc.RemoveSitesRequest{Domains: []string{"youtube.com"}}, &rm)
 	if rm.Message != "Удалён youtube.com" {
 		t.Errorf("один сайт: %q", rm.Message)
+	}
+}
+
+// Ловит (B-61): пачка адресов пишется по одному (тысяча записей на диск под замком службы) или при
+// сбое хранилища часть остаётся записанной, а родитель видит «добавлено».
+func TestAddSitesOneTransaction(t *testing.T) {
+	h := siteHarness(t)
+	tok := h.login(adminPeer())
+	lines := make([]string, 0, 300)
+	for i := 0; i < 300; i++ {
+		lines = append(lines, fmt.Sprintf("site%d.ru", i))
+	}
+	var rep ipc.AddSitesReply
+	h.ok(adminPeer(), tok, ipc.CmdAddSites, ipc.AddSitesRequest{Text: strings.Join(lines, "\n"), Kind: "blocked"}, &rep)
+	if len(rep.Added) != 300 || h.store.addSitesCalls != 1 {
+		t.Fatalf("добавлено %d, вызовов хранилища %d; ждали 300 и 1", len(rep.Added), h.store.addSitesCalls)
+	}
+	if n := len(h.store.eventsOf(evSiteAdded)); n != 300 {
+		t.Fatalf("строк журнала «сайт добавлен»: %d, ждали 300", n)
+	}
+	h.store.failAddSites = true
+	before := len(h.store.sites)
+	if r := h.fail(adminPeer(), tok, ipc.CmdAddSites, ipc.AddSitesRequest{Text: "x1.ru\nx2.ru", Kind: "blocked"}); r.Error != textSaveFailed {
+		t.Fatalf("сбой пачки: %q, ждали %q", r.Error, textSaveFailed)
+	}
+	if len(h.store.sites) != before {
+		t.Fatal("при сбое пачки часть сайтов записана")
+	}
+}
+
+// Ловит (B-65): «Отменить» удаление сайтов из разных списков требует нескольких запросов, кладёт сайт
+// не в его список или не пишет журнал.
+func TestRestoreSites(t *testing.T) {
+	h := siteHarness(t)
+	tok := h.login(adminPeer())
+	var rm ipc.RemoveSitesReply
+	h.ok(adminPeer(), tok, ipc.CmdRemoveSites, ipc.RemoveSitesRequest{Domains: []string{"example.com", "school.example"}}, &rm)
+	if len(rm.Removed) != 2 {
+		t.Fatalf("удалено %v, ждали 2", rm.Removed)
+	}
+	kinds := map[string]string{}
+	for _, r := range rm.Removed {
+		kinds[r.Domain] = r.Kind
+	}
+	calls := h.store.addSitesCalls
+	var rep ipc.RestoreSitesReply
+	h.ok(adminPeer(), tok, ipc.CmdRestoreSites, ipc.RestoreSitesRequest{Sites: rm.Removed}, &rep)
+	if rep.Message != "Сайты возвращены: 2" {
+		t.Fatalf("сообщение %q", rep.Message)
+	}
+	for d, k := range kinds {
+		if h.store.sites[d] != k {
+			t.Errorf("%s в списке %q, ждали %q", d, h.store.sites[d], k)
+		}
+	}
+	if got := h.store.addSitesCalls - calls; got != 2 {
+		t.Errorf("транзакций хранилища %d, ждали по одной на список", got)
+	}
+	// Сбой хранилища: ошибка, а не «Сайты возвращены»; ничего не записано.
+	h.ok(adminPeer(), tok, ipc.CmdRemoveSites, ipc.RemoveSitesRequest{Domains: []string{"example.com"}}, &rm)
+	h.store.failAddSites = true
+	if r := h.fail(adminPeer(), tok, ipc.CmdRestoreSites, ipc.RestoreSitesRequest{Sites: rm.Removed}); r.Error != textSaveFailed {
+		t.Errorf("сбой хранилища: %q, ждали %q", r.Error, textSaveFailed)
+	}
+	if _, ok := h.store.sites["example.com"]; ok {
+		t.Error("при сбое сайт записан")
+	}
+	h.store.failAddSites = false
+	// Предел 1000 запрещённых: не поместившиеся названы в итоге.
+	for i := 0; len(h.store.sites) < ipc.MaxBlockedSites+10; i++ {
+		h.store.sites[fmt.Sprintf("f%d.ru", i)] = ipc.SiteKindBlocked
+	}
+	h.ok(adminPeer(), tok, ipc.CmdRestoreSites, ipc.RestoreSitesRequest{Sites: rm.Removed}, &rep)
+	if !strings.Contains(rep.Message, "Не поместились (1)") {
+		t.Errorf("при полном списке: %q, ждали «Не поместились (1)»", rep.Message)
+	}
+	if r := h.fail(adminPeer(), tok, ipc.CmdRestoreSites, ipc.RestoreSitesRequest{}); r.Error != ipc.TextBadRequest {
+		t.Errorf("пустой список: %q", r.Error)
+	}
+	if r := h.fail(adminPeer(), tok, ipc.CmdRestoreSites, ipc.RestoreSitesRequest{Sites: []ipc.SiteDTO{{Domain: "x.ru", Kind: "video"}}}); r.Error != ipc.TextBadRequest {
+		t.Errorf("чужой список: %q", r.Error)
 	}
 }

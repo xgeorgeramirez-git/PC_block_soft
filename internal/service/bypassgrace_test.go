@@ -44,7 +44,7 @@ func deaths() []death {
 			alive:   func(h *harness) int { return len(h.launcher.aliveOf(ProcGuard, childSession)) },
 		},
 		{
-			name: "значок", subtype: "tray_closed", detail: "Значок программы был закрыт",
+			name: "значок", subtype: "tray_closed", detail: "Значок PC Block у часов закрыли не через меню программы",
 			prepare: func(h *harness) {},
 			kill:    func(h *harness) { h.launcher.kill(h.launcher.aliveOf(ProcTray, childSession)[0]) },
 			alive:   func(h *harness) int { return len(h.launcher.aliveOf(ProcTray, childSession)) },

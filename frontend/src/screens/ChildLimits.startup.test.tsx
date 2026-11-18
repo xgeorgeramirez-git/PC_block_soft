@@ -53,7 +53,7 @@ describe("ChildLimits: вкладка «Автозагрузка»", () => {
     await screen.findByRole("table");
     await openStartup(user);
     await user.click(await screen.findByRole("switch", { name: "Discord" }));
-    expect(await screen.findByText("Не будет запускаться при входе Миши")).toBeTruthy();
+    expect((await screen.findAllByText("Не будет запускаться при входе Миши")).length).toBeGreaterThan(0);
     expect(screen.queryByText("Есть несохранённые изменения")).toBeNull();
     expect(screen.queryByRole("button", { name: "Сохранить" })).toBeNull();
     expect(mock.calls.filter((c) => c.command === "SaveLimits")).toEqual([]);
@@ -67,7 +67,7 @@ describe("ChildLimits: вкладка «Автозагрузка»", () => {
     await user.type(minutes("вторник"), "45");
     await openStartup(user);
     await user.click(await screen.findByRole("switch", { name: "Discord" }));
-    await screen.findByText("Не будет запускаться при входе Миши");
+    await screen.findAllByText("Не будет запускаться при входе Миши");
     expect(screen.getByText("Есть несохранённые изменения")).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "Отменить изменения" }));
     expect(screen.queryByText("Есть несохранённые изменения")).toBeNull();

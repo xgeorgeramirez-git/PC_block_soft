@@ -89,10 +89,11 @@ func newWinScanner(f machineFolders, store string, meta service.FileMeta) *progr
 	return newProgramScanner(pfs, store, programs.Normalize(f.installDir), meta, osScanFS{})
 }
 
-// winMeta — service.FileMeta этого компьютера: свойства exe, а в папке пакетов магазина store —
-// издатель из манифеста и ключ без версии (RM4-11).
-func winMeta(store string) service.FileMeta {
-	return metaReader{store: store, fs: osScanFS{}, file: fileMeta}.read
+// winMeta — service.FileMeta этого компьютера: свойства exe (в папке профилей profiles издатель —
+// подписант Authenticode, B-57), а в папке пакетов магазина store — издатель из манифеста и ключ
+// без версии (RM4-11).
+func winMeta(store, profiles string) service.FileMeta {
+	return metaReader{store: store, fs: osScanFS{}, file: profileSigned(fileMeta, profiles, signerName)}.read
 }
 
 // osScanFS — scanFS над os.ReadDir. Ссылки и junction (ModeSymlink, ModeIrregular) не отдаются:

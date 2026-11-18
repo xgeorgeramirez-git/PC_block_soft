@@ -684,7 +684,7 @@ export type ProgramCategory = "games" | "study" | "other" | "blocked" | "system"
 export type ProgramSource = "catalog" | "snapshot" | "parent";
 
 /** Экран окна родителя для OpenWindow (RM3-4). */
-export type WindowScreen = "programs";
+export type WindowScreen = "programs" | "stats" | "promos";
 
 export interface ChildName {
   childId: number;
@@ -843,6 +843,12 @@ export interface RemoveSitesReply {
   message: string;
   removed: SiteDTO[];
   undoUntilMs: number;
+  sites: ListSitesReply;
+}
+
+/** Ответ RestoreSites (B-65): «Отменить» удаление - сайты возвращены в свои списки одним запросом. */
+export interface RestoreSitesReply {
+  message: string;
   sites: ListSitesReply;
 }
 

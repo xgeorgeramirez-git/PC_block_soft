@@ -4,6 +4,7 @@
   --bg: #f3f4f6;
   --surface: #ffffff;
   --line: #d8dce0;
+  --share-bar: #d8dce0; /* полоса доли в «Итогах» */
   --text: #1b1f23;
   --text-muted: #59616a;
   --primary: #2b3138;
@@ -39,6 +40,7 @@
     --bg: #15181b;
     --surface: #1f2327;
     --line: #343a40;
+    --share-bar: #4a525a; /* заметнее линии разделителя, текст на полосе 4.7:1 (B-64) */
     --text: #eef1f4;
     --text-muted: #a3abb3;
     --primary: #eef1f4;
@@ -475,6 +477,10 @@ input[type="radio"]:disabled {
   opacity: 0.88;
 }
 
+.promo-copy-status {
+  margin: var(--space-1) 0 0;
+}
+
 .btn-small {
   padding: var(--space-1) var(--space-3);
   font-size: 14px;
@@ -555,6 +561,11 @@ input[type="radio"]:disabled {
   color: var(--status-danger);
   font-size: 14px;
   font-weight: 600;
+}
+
+/* Пустая постоянная область ошибки промокода не занимает места (B-72). */
+.promo-redeem-error:empty {
+  margin: 0;
 }
 
 .login-forgot {
@@ -963,7 +974,7 @@ input[type="radio"]:disabled {
   position: absolute;
   inset: 2px auto 2px 0;
   width: var(--share, 0%);
-  background: var(--line);
+  background: var(--share-bar);
   border-radius: 2px;
   opacity: 0.55;
   pointer-events: none;
@@ -2048,7 +2059,8 @@ html:has(.shell-child) body {
 }
 
 .programs-page > .page-head,
-.programs-message {
+.programs-message,
+.programs-error {
   flex: none;
 }
 
@@ -2670,10 +2682,12 @@ textarea.sites-add-input {
     border-bottom: 1px solid var(--line);
   }
 
+  /* Пункты переносятся на следующую строку, а не уходят за край окна (B-73: «Стат…» в окне 960 при 150 %). */
   .menu-list {
     display: flex;
-    flex: none;
+    flex: 1 1 100%;
     flex-wrap: wrap;
+    min-width: 0;
     gap: var(--space-1);
   }
 
@@ -2924,6 +2938,19 @@ textarea.sites-add-input {
   display: flex;
   flex-direction: column;
   gap: 0.3rem;
+}
+
+/* Дата и баланс - одной строкой, переносится только описание (B-64). */
+.bonus-history-when,
+.bonus-history-balance {
+  flex: none;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.bonus-history-what {
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 .bonus-history-item {
@@ -3457,6 +3484,26 @@ textarea.sites-add-input {
 
 .startup-message {
   min-height: 0;
+}
+
+/* Итог нажатия под строкой, у выключателя (B-73); диктору его читает .startup-message. */
+.startup-row-note {
+  grid-column: 2 / -1;
+  margin: var(--space-1) 0 0;
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+.startup-row-note.field-error {
+  color: var(--status-danger);
+}
+
+/* Пояснение у программ Windows и Microsoft перед выключением (B-73). */
+.startup-hint {
+  display: block;
+  margin-top: 2px;
+  color: var(--text-muted);
+  font-size: 13px;
 }
 
 .startup-feedback {

@@ -1,6 +1,5 @@
 import { useEffect, useId, useRef, useState, type CSSProperties, type KeyboardEvent } from "react";
 import { axisLabel, barHeights, barScale, barsSummary, showLabel, tipAlign } from "../lib/daybars";
-import { formatDuration } from "../lib/format";
 import type { MyTodayReply } from "../types";
 
 /** Ширина столбика и зазора в единицах рисунка: столбик 6 из 10. */
@@ -12,7 +11,8 @@ const BAR = 6;
  * учёба - отдельная часть сверху со штриховкой (отличается не только цветом). Только время: ни линии
  * лимита, ни отметок «сверх лимита». Подписи и подсказки - из ответа службы (RM5-3). Наведение или
  * фокус на столбик - подсказка; стрелки, Home и End ходят по столбикам, Esc прячет подсказку,
- * открытую и мышью (WCAG 1.4.13). Для экранного диктора - итог графика и скрытая таблица тех же чисел.
+ * открытую и мышью (WCAG 1.4.13). Для экранного диктора - итог графика и столбики с подписью каждого
+ * (B-65: скрытая таблица тех же чисел читала их второй раз).
  */
 export default function DayBars({ reply }: { reply: MyTodayReply }) {
   const bars = reply.bars;
@@ -199,25 +199,6 @@ export default function DayBars({ reply }: { reply: MyTodayReply }) {
           </span>
         ) : null}
       </figcaption>
-      <table className="visually-hidden">
-        <caption>{by === "day" ? "По дням" : "По месяцам"}</caption>
-        <thead>
-          <tr>
-            <th scope="col">{by === "day" ? "День" : "Месяц"}</th>
-            <th scope="col">В счёт лимита</th>
-            <th scope="col">Учёба</th>
-          </tr>
-        </thead>
-        <tbody>
-          {bars.map((b) => (
-            <tr key={b.key}>
-              <th scope="row">{b.label}</th>
-              <td>{formatDuration(b.totalS)}</td>
-              <td>{formatDuration(b.studyS)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
     </figure>
   );
 }

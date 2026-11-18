@@ -392,7 +392,7 @@ test("s07 что нового", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("navigation", { name: "Разделы" }).getByRole("button", { name: "Что нового" }).click();
   await expect(page.getByRole("heading", { name: "Что нового", level: 2 })).toBeVisible();
-  await expect(page.getByRole("heading", { level: 3 }).first()).toHaveText("Версия 0.7.0. Защита от обхода");
+  await expect(page.getByRole("heading", { level: 3 }).first()).toHaveText("Версия 0.7.1. Мелкие улучшения");
   await expect(page.locator("main.content").getByRole("button")).toHaveCount(0);
   await noHorizontalScroll(page);
   await wholePage(page);
@@ -1327,7 +1327,7 @@ for (const [w, h, scheme] of [
     await stickerInPlace(page, box, small);
     await expect(page.getByRole("textbox")).toHaveCount(1);
     if (w >= 640) await noHorizontalScroll(page);
-    await page.screenshot({ path: `${SCREENS}/s52-promo-ok${tail}.png` });
+    await page.screenshot({ path: `${SCREENS}/s52-promo-ok${tail}.png`, fullPage: true });
 
     // Стикер доиграл и исчез: надпись осталась, поле и кнопка там же (относительно блока промокода:
     // сама страница могла стать короче и прокрутиться).
@@ -1352,7 +1352,7 @@ for (const [w, h, scheme] of [
     const answerHeight = await box.locator(".promo-answer").evaluate((el) => el.getBoundingClientRect().height);
     expect(answerHeight, "после стикера осталось пустое место").toBeLessThan(100);
     if (w >= 640) await noHorizontalScroll(page);
-    await page.screenshot({ path: `${SCREENS}/s52-promo-ok-after${tail}.png` });
+    await page.screenshot({ path: `${SCREENS}/s52-promo-ok-after${tail}.png`, fullPage: true });
     await page.clock.resume();
 
     await field.fill("cd34");
@@ -1367,7 +1367,7 @@ for (const [w, h, scheme] of [
     await freeze();
     await stickerInPlace(page, box, small);
     if (w >= 640) await noHorizontalScroll(page);
-    await page.screenshot({ path: `${SCREENS}/s52-promo-bad${tail}.png` });
+    await page.screenshot({ path: `${SCREENS}/s52-promo-bad${tail}.png`, fullPage: true });
 
     await page.clock.resume();
     await field.fill("cd35");
@@ -2718,7 +2718,7 @@ async function choosePeriod(page: Page, name: string, used: string) {
   await expect(page.getByRole("region", { name: "Итоги" }).locator(".stat-row").filter({ hasText: used })).toBeVisible();
 }
 
-const barHits = (page: Page) => page.getByRole("region", { name: "По дням" }).getByRole("group", { name: "Столбики: стрелки влево и вправо" }).getByRole("img");
+const barHits = (page: Page) => page.getByRole("region", { name: /^По (дням|месяцам)$/ }).getByRole("group", { name: "Столбики: стрелки влево и вправо" }).getByRole("img");
 
 /** Прокрутка вбок только у графика: сколько он шире своей области (0 - помещается). */
 const chartOverflow = (page: Page) =>
@@ -3258,18 +3258,18 @@ test("s49 промокоды: очистить историю", async ({ page })
   const clear = page.getByRole("button", { name: "Очистить историю" });
   await clear.focus();
   await page.keyboard.press("Enter");
-  const dialog = page.getByRole("dialog", { name: "Удалить все использованные коды?" });
+  const dialog = page.getByRole("dialog", { name: "Очистить историю промокодов?" });
   await expect(dialog).toBeVisible();
-  await expect(dialog.getByText("Действующие останутся.", { exact: true })).toBeVisible();
+  await expect(dialog.getByText("Использованные коды удалятся, действующие останутся.", { exact: true })).toBeVisible();
   await expect(dialog.getByRole("button", { name: "Отмена" })).toBeFocused();
   expect(await dialog.getByRole("button", { name: "Отмена" }).evaluate((el) => el.matches(":focus-visible")), "рамка фокуса на «Отмена» не видна").toBe(true);
-  // «Удалить» не красная (ТЗ 8.0 п.3): красный - только статус.
-  const del = await dialog.getByRole("button", { name: "Удалить" }).evaluate((el) => {
+  // «Очистить» не красная (ТЗ 8.0 п.3): красный - только статус.
+  const del = await dialog.getByRole("button", { name: "Очистить" }).evaluate((el) => {
     const css = getComputedStyle(el);
     return { bg: css.backgroundColor, color: css.color, border: css.borderTopColor, radius: css.borderRadius };
   });
   expect(del.radius).toBe("6px");
-  for (const c of [del.bg, del.color, del.border]) expect(c, "«Удалить» красная").not.toBe("rgb(179, 38, 30)");
+  for (const c of [del.bg, del.color, del.border]) expect(c, "«Очистить» красная").not.toBe("rgb(179, 38, 30)");
   await noHorizontalScroll(page);
   await page.screenshot({ path: `${SCREENS}/s49-promos-clear-dialog.png` });
   // Esc закрывает окно, ничего не удаляя; фокус возвращается на кнопку.
@@ -3278,7 +3278,7 @@ test("s49 промокоды: очистить историю", async ({ page })
   await expect(clear).toBeFocused();
   await expect(page.getByRole("list", { name: "Использованные промокоды" }).getByRole("listitem")).toHaveCount(4);
   await page.keyboard.press("Enter");
-  await dialog.getByRole("button", { name: "Удалить" }).click();
+  await dialog.getByRole("button", { name: "Очистить" }).click();
   await expect(dialog).toHaveCount(0);
   await expect(page.locator(".promo-status")).toHaveText("История промокодов очищена");
   await expect(page.getByText("Использованных кодов нет", { exact: true })).toBeVisible();
@@ -3373,7 +3373,8 @@ for (const v of [
     // Включить notes: строка уходит из «Ждут решения» в «Учётку Миши», сообщение видно, «Сохранить» нет.
     await page.getByRole("switch", { name: "notes" }).click();
     await expect(page.locator(".startup-message")).toHaveText("Будет запускаться при входе Миши");
-    await expect(page.locator(".startup-message")).toBeInViewport();
+    // Итог глазами - под строкой выключателя (B-73); .startup-message - живая область для диктора.
+    await expect(page.locator(".startup-row", { has: page.getByRole("switch", { name: "notes" }) }).locator(".startup-row-note")).toBeInViewport();
     await expect(heads).toHaveText(["Учётка Миши", "Для всех пользователей"]);
     const own = page.getByRole("region", { name: "Учётка Миши" });
     await expect(own.getByRole("switch", { name: "notes" })).toHaveAttribute("aria-checked", "true");
@@ -3449,6 +3450,10 @@ test.describe("s50 автозагрузка: окно 960 при масштаб�
     expect(await longName.evaluate((el) => el.scrollWidth > el.clientWidth), "длинное название обрезано многоточием").toBe(true);
     await startupRowsInside(page);
     await noHorizontalScroll(page);
+    // Пункты меню разделов переносятся, а не уходят за правый край (B-73: «Стат…»).
+    for (const box of await page.locator(".menu-item").evaluateAll((els) => els.map((el) => el.getBoundingClientRect().right))) {
+      expect(box, "пункт меню за правым краем окна").toBeLessThanOrEqual(640.5);
+    }
     // Узкий список (около 560 px, меньше порога 600): «Оставить выключенной» второй строкой под
     // названием и «откуда», не сжимает название и не наезжает на выключатель.
     const keepBox = await page.getByRole("button", { name: "Оставить выключенной: notes" }).boundingBox();
@@ -3459,7 +3464,7 @@ test.describe("s50 автозагрузка: окно 960 при масштаб�
     expect(listWidth, "список уже порога 600 px").toBeLessThan(600);
     expect(keepBox!.y, `кнопка под названием и «откуда»: ${JSON.stringify({ keepBox, mainBox })}`).toBeGreaterThanOrEqual(mainBox!.y + mainBox!.height - 0.5);
     expect(keepBox!.y, "кнопка под выключателем").toBeGreaterThanOrEqual(switchBox!.y + switchBox!.height - 0.5);
-    await page.screenshot({ path: `${SCREENS}/s50-startup-narrow-pending.png` });
+    await page.screenshot({ path: `${SCREENS}/s50-startup-narrow-pending.png`, fullPage: true });
     await page.getByRole("switch", { name: "notes" }).click();
     await expect(page.locator(".startup-message")).toHaveText("Будет запускаться при входе Миши");
     await startupRowsInside(page);

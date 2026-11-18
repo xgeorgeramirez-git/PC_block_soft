@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, render, screen, within } from "@testing-library/react";
+import { act, cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import App from "./App";
 import { DEFAULT_PASSWORD, installBackend, uninstallBackend, type MockBackend, type MockOptions } from "./__mocks__/backend";
@@ -175,6 +175,16 @@ describe("окно с плашки «Попросить сейчас» (RM3-4)",
     expect(await screen.findByRole("heading", { name: "Сегодня" })).toBeTruthy();
   });
 
+  // Ловит (B-63): ключи --screen=stats и --screen=promos (снимки окна в приёмке) открывают «Сегодня».
+  it("экраны stats и promos: сразу «Статистика» и «Промокоды» после пароля", async () => {
+    for (const [start, title] of [["stats", "Статистика"], ["promos", "Промокоды"]] as const) {
+      const user = setup({ mode: "parent", startScreen: start });
+      await user.type(await screen.findByLabelText("Пароль родителя"), `${DEFAULT_PASSWORD}{Enter}`);
+      expect(await screen.findByRole("heading", { name: title, level: 2 })).toBeTruthy();
+      cleanup();
+    }
+  });
+
   it("без экрана запуска: «Сегодня»", async () => {
     setup({ mode: "parent", sessionActive: true });
     expect(await screen.findByRole("heading", { name: "Сегодня" })).toBeTruthy();
@@ -311,7 +321,7 @@ describe("меню окна родителя", () => {
     await user.click(item);
     expect(item.getAttribute("aria-current")).toBe("page");
     const versions = (await screen.findAllByRole("heading", { level: 3 })).map((h) => h.textContent);
-    expect(versions[0]).toBe("Версия 0.7.0. Защита от обхода");
+    expect(versions[0]).toBe("Версия 0.7.1. Мелкие улучшения");
     expect(screen.queryByRole("heading", { name: "Помощь" })).toBeNull();
   });
 

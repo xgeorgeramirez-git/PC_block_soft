@@ -349,7 +349,7 @@ describe("«Скопировать все» (8.3.10 п.3)", () => {
     await user.click(within(genBox()).getByRole("button", { name: "Скопировать все" }));
     expect(writeText).toHaveBeenCalledTimes(1);
     expect(writeText).toHaveBeenCalledWith(codes.join("\n"));
-    expect(await screen.findByText("Коды скопированы")).toBeTruthy();
+    expect(await within(genBox()).findByText("Коды скопированы")).toBeTruthy();
   });
 
   // Ловит: отказ буфера обмена молчит или показывает технический текст.
@@ -366,14 +366,14 @@ describe("«Скопировать все» (8.3.10 п.3)", () => {
 
 describe("«Очистить историю» (8.3.10 п.4, RM5-14)", () => {
   // Ловит: удаление без подтверждения, фокус не на безопасной «Отмена», действующие тоже удалены.
-  it("окно с фокусом на «Отмена»; «Отмена» - без вызова; «Удалить» - один вызов и пустая вкладка", async () => {
+  it("окно с фокусом на «Отмена»; «Отмена» - без вызова; «Очистить» - один вызов и пустая вкладка", async () => {
     const user = setup();
     await activeList();
     await user.click(tab(/^Использованные/));
     await user.click(screen.getByRole("button", { name: "Очистить историю" }));
-    const dialog = screen.getByRole("dialog", { name: "Удалить все использованные коды?" });
-    expect(within(dialog).getByText("Действующие останутся.")).toBeTruthy();
-    expect(within(dialog).getAllByRole("button").map((b) => b.textContent)).toEqual(["Удалить", "Отмена"]);
+    const dialog = screen.getByRole("dialog", { name: "Очистить историю промокодов?" });
+    expect(within(dialog).getByText("Использованные коды удалятся, действующие останутся.")).toBeTruthy();
+    expect(within(dialog).getAllByRole("button").map((b) => b.textContent)).toEqual(["Очистить", "Отмена"]);
     expect(document.activeElement).toBe(within(dialog).getByRole("button", { name: "Отмена" }));
     await user.click(within(dialog).getByRole("button", { name: "Отмена" }));
     expect(screen.queryByRole("dialog")).toBeNull();
@@ -381,7 +381,7 @@ describe("«Очистить историю» (8.3.10 п.4, RM5-14)", () => {
     expect(screen.getByRole("list", { name: "Использованные промокоды" })).toBeTruthy();
 
     await user.click(screen.getByRole("button", { name: "Очистить историю" }));
-    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Удалить" }));
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Очистить" }));
     expect(await screen.findByText("История промокодов очищена")).toBeTruthy();
     expect(mock.count("ClearPromoHistory")).toBe(1);
     expect(screen.queryByRole("dialog")).toBeNull();
@@ -398,7 +398,7 @@ describe("«Очистить историю» (8.3.10 п.4, RM5-14)", () => {
     await user.click(tab(/^Использованные/));
     mock.override("ClearPromoHistory", "reject", 1);
     await user.click(screen.getByRole("button", { name: "Очистить историю" }));
-    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Удалить" }));
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Очистить" }));
     expect(await screen.findByText("Программа не отвечает. Попробуйте ещё раз через минуту")).toBeTruthy();
     expect(screen.getByRole("list", { name: "Использованные промокоды" })).toBeTruthy();
     expect(tab(/^Использованные/).textContent).toBe("Использованные (1)");

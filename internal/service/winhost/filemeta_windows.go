@@ -17,7 +17,7 @@ const maxVersionInfo = 1 << 20
 // fileMeta — service.FileMeta: издатель (CompanyName) и описание (FileDescription) из ресурса
 // версии файла (RM3-3) и отпечаток «размер:время изменения unix» (RM3-12). Что не прочиталось —
 // пустая строка; пустой отпечаток ничем не подменяется (служба тогда снова спрашивает родителя,
-// T4a Д-1). Подпись Authenticode не проверяется (README «Отклонения от ТЗ»).
+// T4a Д-1). Подпись Authenticode для путей в профилях проверяет profileSigned (B-57).
 func fileMeta(path string) (publisher, description, fingerprint string) {
 	if fi, err := os.Stat(path); err == nil && fi.Mode().IsRegular() {
 		fingerprint = fingerprintOf(fi.Size(), fi.ModTime())

@@ -235,7 +235,7 @@ Invoke-Scenario "S21" "Эталонная неделя G15: «Итоги», ст
   }
 
   Step "Снимок окна родителя" {
-    [void](Save-ProgramWindow "s21-parent-stats" @("--parent") 40 5)
+    [void](Save-ParentWindow "s21-parent-stats" "stats") # после входа родителя (B-63)
   }
 
   Write-Log "S21: неделя G15 у родителя — «Итоги», столбики и таблицы совпадают с эталоном, ответ ≤ 1 с"

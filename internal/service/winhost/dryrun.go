@@ -107,6 +107,12 @@ func dryRun(list []service.ProcInfo, c *programs.Classifier, watchDir string, sa
 		if res.Verdict != programs.VerdictUnknown && res.Verdict != programs.VerdictForbidden {
 			continue
 		}
+		// Другой браузер из каталога (D-67) в Program Files запрещён намеренно: у ребёнка он закрывается
+		// по правилу, это не ошибка снимка. На раннере его запускает фоновое обновление Firefox
+		// (firefox.exe --backgroundtask), и сухой прогон падал от случая к случаю.
+		if _, browser := c.Catalog().ForbiddenBrowser(norm); browser && res.Verdict == programs.VerdictForbidden {
+			continue
+		}
 		if under(norm, trusted) {
 			misjudged[norm] = true
 		}

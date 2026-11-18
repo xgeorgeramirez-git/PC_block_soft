@@ -762,6 +762,31 @@ function Save-ProgramWindow([string]$Name, [string[]]$ArgList, [int]$WaitSeconds
   }
 }
 
+# Окно родителя на экране Screen после входа (B-63): запускает окно с --screen, вводит пароль родителя
+# с клавиатуры (поле пароля в фокусе при открытии), ждёт раздел и снимает окно. Вход не удался —
+# снимок всё равно делается (на нём экран пароля), сценарий не падает: это снимок, а не проверка.
+function Save-ParentWindow([string]$Name, [string]$Screen, [int]$WaitSeconds = 40) {
+  $p = Start-Process -FilePath $script:Exe -ArgumentList (ConvertTo-ArgString @("--parent", "--screen=$Screen")) -PassThru
+  try {
+    Wait-Until { $p.Refresh(); $p.HasExited -or ($p.MainWindowHandle -ne [IntPtr]::Zero -and $p.MainWindowTitle -ne "") } $WaitSeconds "окно родителя (PID $($p.Id))"
+    Assert-That (-not $p.HasExited) "Окно родителя завершилось само, код $($p.ExitCode)"
+    Start-Sleep -Seconds 4
+    $p.Refresh()
+    [void][PcbNative]::ForceForeground($p.MainWindowHandle)
+    Start-Sleep -Milliseconds 800
+    try {
+      [System.Windows.Forms.SendKeys]::SendWait($script:ParentPassword)
+      [System.Windows.Forms.SendKeys]::SendWait("{ENTER}")
+      Write-Log "Окно родителя: пароль введён с клавиатуры, жду раздел «$Screen»"
+    } catch {
+      Write-Log "Окно родителя: пароль не введён: $_"
+    }
+    return (Save-ProcWindow $p $Name 10 5)
+  } finally {
+    try { if (-not $p.HasExited) { Stop-Process -Id $p.Id -Force } } catch {}
+  }
+}
+
 # Ждёт окно уже запущенного процесса, выводит его вперёд и снимает рамку окна. Возвращает заголовок.
 function Save-ProcWindow([Diagnostics.Process]$p, [string]$Name, [int]$WaitSeconds = 40, [int]$SettleSeconds = 4) {
   Wait-Until { $p.Refresh(); $p.HasExited -or ($p.MainWindowHandle -ne [IntPtr]::Zero -and $p.MainWindowTitle -ne "") } $WaitSeconds "окно программы (PID $($p.Id))"

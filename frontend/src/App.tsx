@@ -46,7 +46,8 @@ async function bootstrap(): Promise<Boot> {
     return { kind: "ready", phase: "wizard", screen: "today" };
   }
   // «Попросить сейчас» на плашке (RM3-4): после пароля окно сразу на «Программах».
-  const screen: Screen = (await startScreen()) === "programs" ? "programs" : "today";
+  const start = await startScreen();
+  const screen: Screen = start === "" ? "today" : start;
   if (mode === "parent") {
     // Окно открыто из родительской сессии (страж после верного пароля): вход не нужен.
     const session = await sessionState().catch(() => ({ active: false }));

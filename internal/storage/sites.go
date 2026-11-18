@@ -102,6 +102,56 @@ func (s *Store) AddSiteRule(domain, kind string) (moved bool, prevKind string, e
 	return moved, prevKind, nil
 }
 
+// AddSiteRules кладёт домены в список kind одной транзакцией вместе со строками журнала (B-61):
+// вставка 1000 адресов — одна запись на диск, а не тысяча. Домен уже в этом списке пропускается
+// (moved[i] = false, строки журнала нет), в другом — переносится (moved[i] = true). event строит
+// строку журнала добавленного или перенесённого домена; nil — без журнала. Ошибка — не записано
+// ничего. Проверки домена и списка — как у AddSiteRule.
+func (s *Store) AddSiteRules(domains []string, kind string, event func(domain string, moved bool) Event) (moved []bool, err error) {
+	if err := checkSiteKind(kind); err != nil {
+		return nil, err
+	}
+	for _, d := range domains {
+		if err := checkSiteDomain(d); err != nil {
+			return nil, err
+		}
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return nil, fmt.Errorf("storage: добавить сайты: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	moved = make([]bool, len(domains))
+	for i, d := range domains {
+		var prev string
+		err := tx.QueryRow(`SELECT kind FROM site_rules WHERE domain = ?`, d).Scan(&prev)
+		switch {
+		case errors.Is(err, sql.ErrNoRows):
+			if _, err := tx.Exec(`INSERT INTO site_rules (domain, kind) VALUES (?, ?)`, d, kind); err != nil {
+				return nil, fmt.Errorf("storage: добавить сайт: %w", err)
+			}
+		case err != nil:
+			return nil, fmt.Errorf("storage: добавить сайт: %w", err)
+		case prev == kind:
+			continue
+		default:
+			if _, err := tx.Exec(`UPDATE site_rules SET kind = ? WHERE domain = ?`, kind, d); err != nil {
+				return nil, fmt.Errorf("storage: перенести сайт: %w", err)
+			}
+			moved[i] = true
+		}
+		if event != nil {
+			if err := appendEventTx(tx, event(d, moved[i])); err != nil {
+				return nil, err
+			}
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("storage: добавить сайты: %w", err)
+	}
+	return moved, nil
+}
+
 // RemoveSiteRule удаляет домен из его списка и возвращает список, где он был (для «Отменить»:
 // служба вызывает AddSiteRule с ним, S-5). Домена нет: ("", false, nil). Пустой домен — ErrInvalid.
 func (s *Store) RemoveSiteRule(domain string) (prevKind string, ok bool, err error) {

@@ -14,7 +14,8 @@ const (
 	CmdSetAdultFilter   = "SetAdultFilter"   // «Блокировать сайты 18+» ребёнку (родитель)
 	CmdTestSeedPrograms = "TestSeedPrograms" // тестовый режим: программы «до обновления» (RM4-11, S46)
 	CmdAddSites         = "AddSites"         // вставить несколько адресов в список (родитель, B-49)
-	CmdRemoveSites      = "RemoveSites"      // удалить отмеченные сайты; «Отменить» — AddSites (родитель, B-49)
+	CmdRemoveSites      = "RemoveSites"      // удалить отмеченные сайты; «Отменить» — RestoreSites (родитель, B-49)
+	CmdRestoreSites     = "RestoreSites"     // «Отменить» удаление: каждый сайт в свой список одним запросом (родитель, B-65)
 )
 
 // MaxSitesPerCall — сколько адресов за раз принимают AddSites и RemoveSites (как предел
@@ -158,12 +159,23 @@ type RemoveSitesRequest struct {
 }
 
 // RemoveSitesReply — ответ RemoveSites: какие домены из каких списков удалены; «Отменить» до
-// UndoUntilMs — AddSites этих доменов в их списки.
+// UndoUntilMs — RestoreSites этих доменов в их списки.
 type RemoveSitesReply struct {
 	Message     string         `json:"message"`
 	Removed     []SiteDTO      `json:"removed"`
 	UndoUntilMs int64          `json:"undoUntilMs"`
 	Sites       ListSitesReply `json:"sites"`
+}
+
+// RestoreSitesRequest — «Отменить» RemoveSites: вернуть домены, каждый в свой список (B-65).
+type RestoreSitesRequest struct {
+	Sites []SiteDTO `json:"sites"`
+}
+
+// RestoreSitesReply — ответ RestoreSites: итог словами («Сайты возвращены: 3») и списки.
+type RestoreSitesReply struct {
+	Message string         `json:"message"`
+	Sites   ListSitesReply `json:"sites"`
 }
 
 // SetAdultFilterRequest — включить или выключить «Блокировать сайты 18+» ребёнку.

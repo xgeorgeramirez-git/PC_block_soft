@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
-import { addSite, addSites, listSites, removeSite, removeSites, setAdultFilter } from "../api";
+import { addSite, addSites, listSites, removeSite, removeSites, restoreSites, setAdultFilter } from "../api";
 import Notice from "../components/Notice";
 import UndoLine from "../components/UndoLine";
 import { errorField, errorText } from "../lib/errors";
@@ -236,17 +236,11 @@ export default function Sites({ onOpenLimits }: Props = {}) {
           say("list", reply.message);
           return { to: "domain", domain: sites[0].domain };
         }
-        // Удалённые могли быть из разных списков: по запросу на список, итог - словами последнего.
-        const kinds = [...new Set(sites.map((s) => s.kind))];
-        let message = "";
-        for (const kind of kinds) {
-          const text = sites.filter((s) => s.kind === kind).map((s) => s.domain).join("\n");
-          const reply = await addSites(text, kind);
-          if (!alive.current) return null;
-          setData(reply.sites);
-          message = reply.message;
-        }
-        say("list", message === "" ? "Сайты возвращены" : message);
+        // Удалённые могли быть из разных списков: один запрос, каждый в свой список (B-65).
+        const reply = await restoreSites(sites);
+        if (!alive.current) return null;
+        setData(reply.sites);
+        say("list", reply.message);
         return { to: "domain", domain: sites[0].domain };
       },
       { to: "field" },

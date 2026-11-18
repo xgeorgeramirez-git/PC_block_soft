@@ -120,6 +120,7 @@ const CASES: [string, string, (req: any) => Promise<unknown>][] = [
   ["RemoveSite", "RemoveSite", (r) => api.removeSite(r.domain)],
   ["AddSites", "AddSites", (r) => api.addSites(r.text, r.kind)],
   ["RemoveSites", "RemoveSites", (r) => api.removeSites(r.domains)],
+  ["RestoreSites", "RestoreSites", (r) => api.restoreSites(r.sites)],
   ["SetAdultFilter", "SetAdultFilter", (r) => api.setAdultFilter(r.childId, r.on)],
 ];
 
@@ -256,6 +257,7 @@ describe("полнота", () => {
       "RemoveSite",
       "AddSites",
       "RemoveSites",
+      "RestoreSites",
       "SetAdultFilter",
       "ClearStats",
       "ClearJournal",

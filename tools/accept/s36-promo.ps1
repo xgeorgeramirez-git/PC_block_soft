@@ -57,11 +57,11 @@ Invoke-Scenario "S36" "Промокод: ребёнок вводит код на
   Step "Неверный код: стикер и надпись неудачи, экран остаётся, лимит прежний, коды целы" {
     Submit-GuardPromo "nope77"
     $g = Wait-PromoBad
+    Save-Screen "s36-promo-panel" # сразу при показе неудачи (B-69), как в S52
     $st = Get-Status
     Write-Log "После неверного кода: $(Format-GuardState $g); лимит $($st.limitS) с, блокировка '$($st.lock)'"
     Assert-That ($g.lockShown) "После неверного кода экран блокировки снят"
     Assert-That ($st.limitS -eq 300) "Лимит дня $($st.limitS) с, ждали 300 (неверный код ничего не добавляет)"
-    Save-Screen "s36-promo-panel"
   }
 
   Step "Верный код в другом регистре: стикер удачи с «+30 минут», затем блокировка снята, лимит +30 мин" {
@@ -69,6 +69,7 @@ Invoke-Scenario "S36" "Промокод: ребёнок вводит код на
     Enter-GuardPromo "a1234"
     Invoke-GuardClick "submitPromo"
     $g = Wait-PromoOk "30 минут"
+    Save-Screen "s36-promo-ok" # в момент показа стикера удачи (B-69), до снятия экрана
     Write-Log "Удача: стикер $($g.promoSticker), «$($g.promoText)»"
     [void](Wait-LockHidden 10)
     $st = Get-Status
@@ -76,7 +77,6 @@ Invoke-Scenario "S36" "Промокод: ребёнок вводит код на
     Assert-That ($st.lock -eq "none") "Блокировка после верного кода: '$($st.lock)'"
     Assert-That ($st.limitS -eq 2100) "Лимит дня $($st.limitS) с, ждали 2100 (5 мин + 30 мин по коду)"
     Assert-Between $st.remainingS 1795 1800 "Остаток после кода, с"
-    Save-Screen "s36-promo-ok"
   }
 
   Step "Родитель: A1234 в использованных с именем ребёнка, zz9 действует; запись в журнале" {

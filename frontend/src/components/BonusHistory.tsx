@@ -24,9 +24,9 @@ export default function BonusHistory({
     <ul className="bonus-history" aria-label={label}>
       {entries.map((e, i) => (
         <li key={`${e.atMs}-${i}`} className="bonus-history-item">
-          <span>{formatEventTime(e.atMs, e.tzOffsetMin)}</span>
-          <span>{historyText(e)}</span>
-          <span>{`Баланс: ${formatLimit(e.balanceAfter)}`}</span>
+          <span className="bonus-history-when">{formatEventTime(e.atMs, e.tzOffsetMin)}</span>
+          <span className="bonus-history-what">{historyText(e)}</span>
+          <span className="bonus-history-balance">{`Баланс: ${formatLimit(e.balanceAfter)}`}</span>
         </li>
       ))}
     </ul>

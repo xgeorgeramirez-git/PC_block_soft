@@ -94,7 +94,7 @@ describe("PromoRedeem: ответ стикером (R26)", () => {
     expect(shownSticker()).toBe("023");
     expect(screen.queryByText("Код не подходит")).toBeNull();
     expect(screen.queryByText("Ура! +1 минута")).toBeNull();
-    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.getByRole("alert").textContent).toBe(""); // область есть всегда, ошибки нет (B-72)
     expect(field.value).toBe("cd34");
     expect(mock.state.children[0].extraMin).toBe(1);
   });

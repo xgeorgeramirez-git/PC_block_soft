@@ -68,6 +68,8 @@ import type {
   WindowScreen,
   AddSiteReply,
   AddSitesReply,
+  RestoreSitesReply,
+  SiteDTO,
   ListSitesReply,
   RemoveSiteReply,
   RemoveSitesReply,
@@ -136,7 +138,7 @@ export async function mode(): Promise<WindowMode> {
 
 /**
  * Экран, на котором открыто окно родителя (ключ --screen, RM3-4): «programs» после «Попросить
- * сейчас» на плашке; "" — главный экран. Старый мост без метода и неизвестное значение дают "".
+ * сейчас» на плашке; «stats», «promos» — снимки окна в приёмке (B-63); "" — главный экран. Старый мост без метода и неизвестное значение дают "".
  */
 export async function startScreen(): Promise<WindowScreen | ""> {
   const app = window.go?.ui?.App;
@@ -149,7 +151,7 @@ export async function startScreen(): Promise<WindowScreen | ""> {
   } catch {
     return "";
   }
-  return raw === "programs" ? raw : "";
+  return raw === "programs" || raw === "stats" || raw === "promos" ? raw : "";
 }
 
 /** Версия программы для показа в окне. */
@@ -587,10 +589,16 @@ export async function addSites(text: string, kind: SiteKind): Promise<AddSitesRe
   return { ...r, added: r.added ?? [], rejected: r.rejected ?? [], fieldError: r.fieldError ?? "", sites: sitesOf(r.sites) };
 }
 
-/** Удалить отмеченные домены; «Отменить» - addSites доменов removed в их списки. */
+/** Удалить отмеченные домены; «Отменить» - restoreSites доменов removed. */
 export async function removeSites(domains: string[]): Promise<RemoveSitesReply> {
   const r = await call<object, RemoveSitesReply>("RemoveSites", { domains });
   return { ...r, removed: r.removed ?? [], sites: sitesOf(r.sites) };
+}
+
+/** «Отменить» удаление (B-65): каждый сайт в свой прежний список одним запросом. */
+export async function restoreSites(sites: SiteDTO[]): Promise<RestoreSitesReply> {
+  const r = await call<object, RestoreSitesReply>("RestoreSites", { sites });
+  return { ...r, sites: sitesOf(r.sites) };
 }
 
 /** «Блокировать сайты 18+» ребёнку. */

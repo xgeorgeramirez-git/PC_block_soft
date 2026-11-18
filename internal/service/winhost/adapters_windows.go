@@ -240,6 +240,22 @@ func (a storeAdapter) AddSiteRule(domain, kind string) (bool, string, error) {
 	return a.s.AddSiteRule(domain, kind)
 }
 
+func (a storeAdapter) AddSiteRules(domains []string, kind string, event func(string, bool) service.StoredEvent) ([]bool, error) {
+	var ev func(string, bool) storage.Event
+	if event != nil {
+		ev = func(d string, moved bool) storage.Event {
+			e := event(d, moved)
+			out := storage.Event{AtMs: e.AtMs, TzOffsetMin: e.TzOffsetMin, Kind: e.Kind, Details: e.Details}
+			if e.ChildID != 0 {
+				id := e.ChildID
+				out.ChildID = &id
+			}
+			return out
+		}
+	}
+	return a.s.AddSiteRules(domains, kind, ev)
+}
+
 func (a storeAdapter) RemoveSiteRule(domain string) (string, bool, error) {
 	return a.s.RemoveSiteRule(domain)
 }
