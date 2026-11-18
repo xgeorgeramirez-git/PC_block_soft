@@ -7,3 +7,4 @@ internal/systray 70
 internal/service 85
 internal/sites 90
 internal/startup 85
+internal/remote 85
