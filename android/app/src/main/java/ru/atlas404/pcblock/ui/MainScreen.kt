@@ -276,7 +276,7 @@ private fun ChildCard(
                         .weight(1f)
                         .heightIn(min = 52.dp)
                         .semantics { contentDescription = add },
-                ) { Text(stringResource(R.string.btn_add15), maxLines = 1) }
+                ) { Text(stringResource(R.string.btn_add15), textAlign = androidx.compose.ui.text.style.TextAlign.Center) }
                 OutlinedButton(
                     onClick = { onDelta(-15) },
                     enabled = !locked,
@@ -285,7 +285,7 @@ private fun ChildCard(
                         .weight(1f)
                         .heightIn(min = 52.dp)
                         .semantics { contentDescription = sub },
-                ) { Text(stringResource(R.string.btn_sub15), maxLines = 1) }
+                ) { Text(stringResource(R.string.btn_sub15), textAlign = androidx.compose.ui.text.style.TextAlign.Center) }
                 OutlinedButton(
                     onClick = onCustom,
                     enabled = !locked,
@@ -294,7 +294,7 @@ private fun ChildCard(
                         .weight(1.2f)
                         .heightIn(min = 52.dp)
                         .semantics { contentDescription = own },
-                ) { Text(stringResource(R.string.btn_custom), maxLines = 1) }
+                ) { Text(stringResource(R.string.btn_custom), textAlign = androidx.compose.ui.text.style.TextAlign.Center) }
             }
             // Постоянная область итога команды: TalkBack зачитывает её сам.
             Row(
