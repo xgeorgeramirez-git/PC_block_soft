@@ -68,6 +68,7 @@ import type {
   WindowScreen,
   AddSiteReply,
   AddSitesReply,
+  RestoreSitesReply,
   ListSitesReply,
   RemoveSiteReply,
   RemoveSitesReply,
@@ -587,10 +588,16 @@ export async function addSites(text: string, kind: SiteKind): Promise<AddSitesRe
   return { ...r, added: r.added ?? [], rejected: r.rejected ?? [], fieldError: r.fieldError ?? "", sites: sitesOf(r.sites) };
 }
 
-/** Удалить отмеченные домены; «Отменить» - addSites доменов removed в их списки. */
+/** Удалить отмеченные домены; «Отменить» - restoreSites доменов removed. */
 export async function removeSites(domains: string[]): Promise<RemoveSitesReply> {
   const r = await call<object, RemoveSitesReply>("RemoveSites", { domains });
   return { ...r, removed: r.removed ?? [], sites: sitesOf(r.sites) };
+}
+
+/** «Отменить» удаление (B-65): каждый сайт в свой прежний список одним запросом. */
+export async function restoreSites(sites: SiteDTO[]): Promise<RestoreSitesReply> {
+  const r = await call<object, RestoreSitesReply>("RestoreSites", { sites });
+  return { ...r, sites: sitesOf(r.sites) };
 }
 
 /** «Блокировать сайты 18+» ребёнку. */

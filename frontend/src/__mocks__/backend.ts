@@ -866,6 +866,7 @@ const PARENT_COMMANDS = new Set([
   "RemoveSite",
   "AddSites",
   "RemoveSites",
+  "RestoreSites",
   "SetAdultFilter",
   "ClearStats",
   "ClearJournal",
@@ -1881,6 +1882,32 @@ export function createBackend(opts: MockOptions = {}): MockBackend {
         undoUntilMs: now + UNDO_WINDOW_MS,
         sites: sitesReply(),
       });
+    },
+
+    // «Отменить» удаление (B-65), как hRestoreSites: каждый сайт в свой список, один запрос.
+    RestoreSites: (req, now) => {
+      const list: unknown[] = Array.isArray(req?.sites) ? req.sites : [];
+      if (list.length === 0 || list.length > 1000) return fail("Не удалось разобрать запрос. Попробуйте ещё раз");
+      let restored = 0;
+      for (const raw of list as SiteDTO[]) {
+        const domain = cleanDomain(String(raw?.domain ?? ""));
+        const kind = raw?.kind as SiteDTO["kind"];
+        if (!domain || !(kind in SITE_LIST_NAMES)) return fail("Не удалось разобрать запрос. Попробуйте ещё раз");
+        const known = state.sites.find((x) => x.domain === domain);
+        if (known?.kind === kind) {
+          restored += 1;
+          continue;
+        }
+        if (known) {
+          known.kind = kind;
+          addEvent(now, undefined, "site_moved", `Вы перенесли сайт ${domain} в ${SITE_LIST_NAMES[kind].acc}`);
+        } else {
+          state.sites.push({ domain, kind });
+          addEvent(now, undefined, "site_added", `Вы добавили сайт ${domain} в ${SITE_LIST_NAMES[kind].acc}`);
+        }
+        restored += 1;
+      }
+      return okReply({ message: `Сайты возвращены: ${restored}`, sites: sitesReply() });
     },
 
     SetAdultFilter: (req, now) => {

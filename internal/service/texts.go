@@ -88,6 +88,7 @@ const (
 	textSitesTooMany    = "Можно вставить не больше 1000 адресов за раз"
 	textSitesRemoved    = "Удалено сайтов: %d"
 	textSitesRemoveRest = "Остальные сайты не удалились. Попробуйте ещё раз"
+	textSitesRestored   = "Сайты возвращены: %d"
 	textAdultSource     = "Список сайтов для взрослых: UT1, Университет Тулуза Капитоль, лицензия CC BY-SA 4.0"
 	textAdultOff        = "сайты 18+ не блокируются"
 	textAdultOn         = "сайты 18+ блокируются"

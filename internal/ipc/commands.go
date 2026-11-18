@@ -109,6 +109,7 @@ var AllCommands = []string{
 
 	CmdListSites, CmdAddSite, CmdRemoveSite, CmdSetAdultFilter, CmdTestSeedPrograms, // M4 (commands_m4.go)
 	CmdAddSites, CmdRemoveSites, // M5: несколько сайтов за раз (B-49, commands_m4.go)
+	CmdRestoreSites, // 0.7.1: «Отменить» удаление сайтов одним запросом (B-65)
 
 	CmdClearStats, CmdClearJournal, // M5 (FR-38)
 	CmdGeneratePromos, CmdClearPromoHistory, // M5 (FR-35, commands_m5.go)

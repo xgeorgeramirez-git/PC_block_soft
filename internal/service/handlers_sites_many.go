@@ -181,3 +181,94 @@ func (s *Service) hRemoveSites(c *callCtx) ipc.Reply {
 	reply.Sites, _ = s.sitesView()
 	return ipc.OK(reply)
 }
+
+// hRestoreSites — «Отменить» RemoveSites (B-65): каждый домен в свой прежний список одним запросом
+// (раньше окно слало AddSites на каждый список и показывало итог последнего). Список — одной
+// транзакцией хранилища вместе с журналом. Предел 1000 запрещённых действует как у AddSites.
+func (s *Service) hRestoreSites(c *callCtx) ipc.Reply {
+	var req ipc.RestoreSitesRequest
+	if c.msg.Into(&req) != nil || len(req.Sites) == 0 || len(req.Sites) > ipc.MaxSitesPerCall {
+		return bad()
+	}
+	byKind := map[string][]string{}
+	kinds := []string{}
+	seen := map[string]bool{}
+	for _, site := range req.Sites {
+		if _, ok := sites.KindFromString(site.Kind); !ok {
+			return bad()
+		}
+		d, err := sites.NormalizeInput(site.Domain)
+		if err != nil || seen[d] {
+			continue
+		}
+		seen[d] = true
+		if _, ok := byKind[site.Kind]; !ok {
+			kinds = append(kinds, site.Kind)
+		}
+		byKind[site.Kind] = append(byKind[site.Kind], d)
+	}
+	if len(seen) == 0 {
+		return bad()
+	}
+	list, err := s.cfg.Store.ListSiteRules()
+	if err != nil {
+		s.logRate("sites-save", "сайты не возвращены: %v", err)
+		return ipc.Fail(textSaveFailed)
+	}
+	kindOf := map[string]string{}
+	blocked := 0
+	for _, r := range list {
+		kindOf[r.Domain] = r.Kind
+		if r.Kind == ipc.SiteKindBlocked {
+			blocked++
+		}
+	}
+	restored, full := 0, 0
+	for _, kind := range kinds {
+		todo := []string{}
+		for _, d := range byKind[kind] {
+			if kindOf[d] == kind {
+				restored++ // уже на месте
+				continue
+			}
+			if kind == ipc.SiteKindBlocked && blocked >= ipc.MaxBlockedSites {
+				full++
+				continue
+			}
+			if kind == ipc.SiteKindBlocked {
+				blocked++
+			}
+			todo = append(todo, d)
+		}
+		if len(todo) == 0 {
+			continue
+		}
+		_, err := s.cfg.Store.AddSiteRules(todo, kind, func(d string, mv bool) StoredEvent {
+			at, off := journalStamp(s.cfg.Clock, s.cfg.Loc)
+			details := map[string]any{"domain": d, "kind": kind}
+			if mv {
+				return StoredEvent{AtMs: at, TzOffsetMin: off, Kind: evSiteMoved, Details: details}
+			}
+			return StoredEvent{AtMs: at, TzOffsetMin: off, Kind: evSiteAdded, Details: details}
+		})
+		if err != nil {
+			s.logRate("sites-save", "сайты не возвращены: %v", err)
+			if restored == 0 {
+				return ipc.Fail(textSaveFailed)
+			}
+			break
+		}
+		restored += len(todo)
+	}
+	parts := []string{fmt.Sprintf(textSitesRestored, restored)}
+	if full > 0 {
+		parts = append(parts, fmt.Sprintf(textSitesFull, full))
+	}
+	if restored < len(seen)-full {
+		parts = append(parts, textSaveFailed)
+	}
+	s.sitesChanged(c.real)
+	reply := ipc.RestoreSitesReply{Message: strings.Join(parts, ". ")}
+	reply.Sites, _ = s.sitesView()
+	return ipc.OK(reply)
+}

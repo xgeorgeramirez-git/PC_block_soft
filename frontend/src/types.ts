@@ -846,6 +846,12 @@ export interface RemoveSitesReply {
   sites: ListSitesReply;
 }
 
+/** Ответ RestoreSites (B-65): «Отменить» удаление - сайты возвращены в свои списки одним запросом. */
+export interface RestoreSitesReply {
+  message: string;
+  sites: ListSitesReply;
+}
+
 export interface SetAdultFilterReply {
   message: string;
   sites: ListSitesReply;
