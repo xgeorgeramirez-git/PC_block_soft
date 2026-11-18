@@ -1,0 +1,13 @@
+# Gradle и Android Studio: служебное, генерируется при сборке
+.gradle/
+build/
+app/build/
+local.properties
+.idea/
+*.iml
+.kotlin/
+captures/
+# Ключи подписи живут только в секретах GitHub (D-94)
+*.p12
+*.jks
+*.keystore
