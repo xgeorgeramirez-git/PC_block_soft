@@ -17,7 +17,7 @@ $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "common.ps1")
 
 # Записи журнала родителя об обходе (тексты из internal/service/texts.go, как в FB5).
-$script:BypassPattern = 'обойти защиту|Защита программы была остановлена|закрыто не кнопкой окна|Значок программы был закрыт'
+$script:BypassPattern = 'обойти защиту|Защита программы была остановлена|закрыто не кнопкой окна|Значок PC Block у часов закрыли'
 
 function Send-TestSession([string]$Event, [int]$SessionId) {
   $r = Send-Pcb "TestSession" @{ event = $Event; sessionId = $SessionId }

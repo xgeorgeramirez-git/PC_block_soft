@@ -129,15 +129,12 @@ describe("DayBars: неделя G15", () => {
     expect(tip()?.className).toContain("daybars-tip-center");
   });
 
-  // Ловит: диктор не может прочитать числа графика (только картинка).
-  it("скрытая таблица тех же чисел: 7 строк, пн 16 - 1 ч 35 мин и 30 мин", async () => {
+  // Ловит: диктор не может прочитать числа графика (только картинка) или читает их дважды (B-65).
+  it("числа - у каждого столбика, без второй скрытой таблицы", async () => {
     render(<DayBars reply={await week()} />);
-    const table = screen.getByRole("table", { name: "По дням" });
-    expect(within(table).getAllByRole("columnheader").map((c) => c.textContent)).toEqual(["День", "В счёт лимита", "Учёба"]);
-    const rows = within(table).getAllByRole("row").slice(1);
-    expect(rows).toHaveLength(7);
-    expect(Array.from(rows[0].children).map((c) => c.textContent)).toEqual(["пн 16", "1 ч 35 мин", "30 мин"]);
-    expect(Array.from(rows[2].children).map((c) => c.textContent)).toEqual(["ср 18", "0 мин", "0 мин"]);
+    expect(hits()).toHaveLength(7);
+    expect(hits()[0].getAttribute("aria-label")).toContain("1 ч 35 мин");
+    expect(screen.queryByRole("table")).toBeNull();
   });
 
   it("подписи под столбиками - все 7, сегодня выделено", async () => {
@@ -174,13 +171,11 @@ describe("DayBars: без учёбы и длинные периоды", () => {
     expect(container.querySelectorAll("rect.daybar-study")).toHaveLength(0);
   });
 
-  it("36 месяцев: подпись у каждого третьего, таблица «По месяцам»", async () => {
+  it("36 месяцев: подпись у каждого третьего", async () => {
     const { container } = render(<DayBars reply={await replyOf(bars(36, (i) => `m${i}`), "month")} />);
     expect(hits()).toHaveLength(36);
     const labels = Array.from(container.querySelectorAll(".daybars-label")).map((l) => l.textContent);
     expect(labels.filter(Boolean)).toEqual(["m0", "m3", "m6", "m9", "m12", "m15", "m18", "m21", "m24", "m27", "m30", "m33"]);
-    expect(screen.getByRole("table", { name: "По месяцам" })).toBeTruthy();
-    expect(within(screen.getByRole("table", { name: "По месяцам" })).getAllByRole("columnheader")[0].textContent).toBe("Месяц");
   });
 
   it("31 день: подписи 1, 8, 15, 22 и 29 числа", async () => {

@@ -280,6 +280,15 @@ describe("MyStats: периоды", () => {
     expect(box.getAttribute("aria-busy")).toBe("false");
   });
 
+  // Ловит (B-64): у года и «Всего времени» график по месяцам, а заголовок раздела «По дням».
+  it("год - раздел «По месяцам»", async () => {
+    const user = setup();
+    await user.click(await screen.findByRole("tab", { name: "Год" }));
+    await screen.findByText("Использовано за год");
+    expect(await screen.findByRole("region", { name: "По месяцам" })).toBeTruthy();
+    expect(screen.queryByRole("region", { name: "По дням" })).toBeNull();
+  });
+
   // Ловит: «Обновить» и возврат в окно сбрасывают выбранный период на «Сегодня».
   it("«Обновить» перезапрашивает выбранный период", async () => {
     const user = setup();

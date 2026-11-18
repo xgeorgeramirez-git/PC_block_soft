@@ -24,7 +24,7 @@ $script:Break = @{ enabled = $true; afterMin = 15; counts = "games"; warnMin = 1
 $script:PlateText = "Через 1 минуту перерыв на 10 минут. Сохрани игру"
 $script:BreakEvent = 'перерыв на отдых: 10 мин после 15 мин игр'
 $script:EndedEvent = 'вы закончили перерыв'
-$script:BypassPattern = 'обойти защиту|Защита программы была остановлена|закрыто не кнопкой окна|Значок программы был закрыт'
+$script:BypassPattern = 'обойти защиту|Защита программы была остановлена|закрыто не кнопкой окна|Значок PC Block у часов закрыли'
 $script:Buttons = "parentPassword,shutdown,logoff,switchUser"
 
 # Секунды настоящего времени для минут часов ядра.
