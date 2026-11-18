@@ -3518,3 +3518,81 @@ textarea.sites-add-input {
 .startup-feedback.field-error {
   border-left-color: var(--status-danger);
 }
+
+/* --- Блок «Телефон» в «Настройках» (M7) ----------------------------------------------- */
+
+.phone-url .form-actions {
+  margin-top: 0;
+}
+
+.phone-state {
+  margin: var(--space-4) 0 0;
+}
+
+.phone-state-label {
+  color: var(--text-muted);
+}
+
+.phone-state-value {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Ошибка связи - состояние, а не ответ на действие: без живой области, цвет статуса и текст. */
+.phone-conn-error {
+  margin: var(--space-1) 0 0;
+  color: var(--status-danger);
+  font-size: 14px;
+}
+
+.phone-pair {
+  margin-top: var(--space-4);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--line);
+}
+
+.phone-paired-line {
+  margin-bottom: 0;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Код привязки и число сверки: крупно, цифры одной ширины, группы не разрываются. */
+.phone-code {
+  margin: var(--space-2) 0;
+  font-family: var(--font-display);
+  font-size: 40px;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: 0.06em;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.phone-code-ttl {
+  margin-bottom: 0;
+}
+
+.phone-countdown {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Причина, по которой «Подключить телефон» недоступна: как .spend-note, заметно, а не серой подсказкой. */
+.phone-why {
+  margin: var(--space-3) 0 0;
+  padding: var(--space-2) var(--space-3);
+  border-left: 4px solid var(--status-warn);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 16px;
+  font-weight: 600;
+}
+
+/* Постоянная область статуса (PL-44): пустая не занимает места. */
+.phone-message {
+  margin: var(--space-4) 0 0;
+}
+
+.phone-message:empty {
+  margin: 0;
+}
