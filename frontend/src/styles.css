@@ -2681,10 +2681,12 @@ textarea.sites-add-input {
     border-bottom: 1px solid var(--line);
   }
 
+  /* Пункты переносятся на следующую строку, а не уходят за край окна (B-73: «Стат…» в окне 960 при 150 %). */
   .menu-list {
     display: flex;
-    flex: none;
+    flex: 1 1 100%;
     flex-wrap: wrap;
+    min-width: 0;
     gap: var(--space-1);
   }
 
