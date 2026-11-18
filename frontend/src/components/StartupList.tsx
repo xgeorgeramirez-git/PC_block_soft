@@ -26,7 +26,8 @@ export default function StartupList({ childId, childName }: Props) {
   const [loadError, setLoadError] = useState<{ childId: number; text: string } | null>(null);
   /** Строки, по которым идёт запрос: положение, которое нажал родитель. */
   const [pressing, setPressing] = useState<Record<number, boolean>>({});
-  const [feedback, setFeedback] = useState<{ text: string; error: boolean } | null>(null);
+  /** Итог последнего нажатия; id - строка, у которой он показан (B-73: у выключателя, а не внизу). */
+  const [feedback, setFeedback] = useState<{ text: string; error: boolean; id: number } | null>(null);
   /** Строка переехала в другой блок с фокусом на выключателе: фокус переносится за ней. */
   const [focusId, setFocusId] = useState<number | null>(null);
   const alive = useRef(true);
@@ -94,13 +95,13 @@ export default function StartupList({ childId, childName }: Props) {
       if (!alive.current || current.current !== id) return;
       decided.current += 1;
       setShown((s) => (s && s.childId === id ? { childId: id, data: applyStartupItem(s.data, r.item) } : s));
-      setFeedback({ text: r.message, error: false });
+      setFeedback({ text: r.message, error: false, id: item.id });
       if (hadFocus) setFocusId(item.id);
       // Список после действия - как у службы (запись могла пропасть или появиться новая).
       void load(id, false, true);
     } catch (err) {
       if (!alive.current || current.current !== id) return;
-      setFeedback({ text: errorText(err), error: true });
+      setFeedback({ text: errorText(err), error: true, id: item.id });
     } finally {
       if (alive.current && current.current === id) {
         setPressing((p) => {
@@ -146,7 +147,13 @@ export default function StartupList({ childId, childName }: Props) {
         {lead ? <p className="startup-lead">{lead}</p> : null}
         <ul className="startup-list">
           {items.map((item) => (
-            <StartupRow key={item.id} item={item} pressed={pressing[item.id]} onDecide={(on, ev) => void decide(item, on, ev)} />
+            <StartupRow
+              key={item.id}
+              item={item}
+              pressed={pressing[item.id]}
+              note={feedback && feedback.id === item.id ? feedback : null}
+              onDecide={(on, ev) => void decide(item, on, ev)}
+            />
           ))}
         </ul>
       </section>
@@ -167,8 +174,9 @@ export default function StartupList({ childId, childName }: Props) {
           {block("shared", "Для всех пользователей", `Выключатель действует только при входе ${gen}`, data.shared)}
         </>
       )}
-      <div className="startup-message" role="status">
-        {feedback ? <p className={feedback.error ? "startup-feedback field-error" : "startup-feedback"}>{feedback.text}</p> : null}
+      {/* Живая область есть всегда (PL-44) и читается диктором; глазами итог виден у строки (B-73). */}
+      <div className="startup-message visually-hidden" role="status">
+        {feedback ? <span>{feedback.text}</span> : null}
       </div>
     </div>
   );
@@ -178,14 +186,21 @@ interface RowProps {
   item: StartupItemView;
   /** Идёт запрос: положение, которое нажал родитель; undefined - запроса нет. */
   pressed?: boolean;
+  /** Итог последнего нажатия на этой строке: показывается под ней (B-73). */
+  note: { text: string; error: boolean } | null;
   onDecide: (on: boolean, e: MouseEvent<HTMLButtonElement>) => void;
+}
+
+/** Издатель записи - Microsoft: часть Windows или программа Microsoft (B-73, пояснение перед выключением). */
+function isMicrosoft(publisher: string): boolean {
+  return publisher.trim().toLowerCase().startsWith("microsoft");
 }
 
 /**
  * Строка: значок вида записи, название, издатель, «откуда», выключатель «Включено / Выключено»; у
  * ждущей записи справа от выключателя ещё «Оставить выключенной» (8.3.11 п.2).
  */
-function StartupRow({ item, pressed, onDecide }: RowProps) {
+function StartupRow({ item, pressed, note, onDecide }: RowProps) {
   const name = startupShortName(item);
   const busy = pressed !== undefined;
   const on = busy ? pressed : item.decision === "on";
@@ -206,6 +221,9 @@ function StartupRow({ item, pressed, onDecide }: RowProps) {
           ) : null}
           <span className="startup-from">{item.from}</span>
         </span>
+        {isMicrosoft(item.publisher) ? (
+          <span className="startup-hint">Программа Windows или Microsoft. Выключайте, только если знаете, что она делает</span>
+        ) : null}
       </div>
       <button
         type="button"
@@ -240,6 +258,11 @@ function StartupRow({ item, pressed, onDecide }: RowProps) {
         >
           Оставить выключенной
         </button>
+      ) : null}
+      {note ? (
+        <p className={note.error ? "startup-row-note field-error" : "startup-row-note"} aria-hidden="true">
+          {note.text}
+        </p>
       ) : null}
     </li>
   );

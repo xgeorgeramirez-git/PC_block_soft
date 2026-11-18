@@ -3483,6 +3483,26 @@ textarea.sites-add-input {
   min-height: 0;
 }
 
+/* Итог нажатия под строкой, у выключателя (B-73); диктору его читает .startup-message. */
+.startup-row-note {
+  grid-column: 2 / -1;
+  margin: var(--space-1) 0 0;
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+.startup-row-note.field-error {
+  color: var(--status-danger);
+}
+
+/* Пояснение у программ Windows и Microsoft перед выключением (B-73). */
+.startup-hint {
+  display: block;
+  margin-top: 2px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
 .startup-feedback {
   margin: 0;
   padding: var(--space-2) var(--space-4);
