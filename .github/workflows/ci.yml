@@ -138,6 +138,106 @@ jobs:
         if: failure()
         run: bash tools/annotate-errors.sh "$RUNNER_TEMP/ci.log" "Проверки"
 
+  # Сервер связи (M7, T1/T2): отдельный модуль cmd/pcblock-relay (go 1.24, без зависимостей) и его
+  # образ deploy/relay/Dockerfile. Корневой модуль его не видит (свой go.mod), поэтому свой job.
+  relay:
+    name: Сервер связи
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.24.x"
+          cache: false
+
+      - name: go vet и тесты с гонками
+        working-directory: cmd/pcblock-relay
+        run: |
+          exec > >(tee -a "$RUNNER_TEMP/ci.log") 2>&1
+          go vet ./...
+          go test -race -count=1 ./...
+
+      - name: Фаззинг разбора тел (30 с)
+        working-directory: cmd/pcblock-relay
+        run: |
+          exec > >(tee -a "$RUNNER_TEMP/ci.log") 2>&1
+          go test -run '^$' -fuzz FuzzDecodeBody -fuzztime 30s .
+
+      - name: Образ — сборка и размер (не больше 20 МБ)
+        run: |
+          exec > >(tee -a "$RUNNER_TEMP/ci.log") 2>&1
+          docker build -f deploy/relay/Dockerfile -t pcblock-relay:ci .
+          size=$(docker image inspect -f '{{.Size}}' pcblock-relay:ci)
+          echo "Размер образа: $size байт"
+          if [ "$size" -gt $((20 * 1024 * 1024)) ]; then
+            echo "::error title=Образ сервера связи::Размер $size байт больше 20 МБ"
+            exit 1
+          fi
+          user=$(docker image inspect -f '{{.Config.User}}' pcblock-relay:ci)
+          [ "$user" = "65532:65532" ] || { echo "::error title=Образ сервера связи::Пользователь «$user», ждали 65532:65532"; exit 1; }
+
+      # Запуск с теми же ограничениями, что в compose.yaml: память 64 МБ, только чтение, без привилегий.
+      - name: Образ — запуск, здоровье, круг через curl, память (NFR-16)
+        run: |
+          exec > >(tee -a "$RUNNER_TEMP/ci.log") 2>&1
+          set -euo pipefail
+          docker run -d --name relay --memory 64m --memory-swap 64m --pids-limit 64 --read-only \
+            --cap-drop ALL --security-opt no-new-privileges:true \
+            -v pcblock-relay-ci:/data -p 127.0.0.1:18080:8080 pcblock-relay:ci -trust-proxy
+          U=http://127.0.0.1:18080
+          for i in $(seq 1 60); do
+            st=$(docker inspect -f '{{.State.Health.Status}}' relay)
+            [ "$st" = healthy ] && break
+            sleep 1
+          done
+          echo "HEALTHCHECK: $st"
+          [ "$st" = healthy ] || { echo "::error title=Сервер связи::HEALTHCHECK не healthy: $st"; exit 1; }
+          curl -fsS "$U/healthz" | tee /dev/stderr | jq -e '.ok == true' >/dev/null
+
+          # Круг: регистрация → код → привязка телефона, доставленная опросом → ответ компьютера.
+          pc=$(curl -fsS -X POST -d '{}' "$U/v1/pc/register" | jq -er .pcToken)
+          code=$(curl -fsS -X POST -H "Authorization: Bearer $pc" -d '{}' "$U/v1/pc/pair-code" | jq -er .code)
+          curl -sS -X POST -d "{\"code\":\"$code\",\"kind\":\"pair1\",\"body\":{\"phonePub\":\"AAA\",\"name\":\"CI\"}}" \
+            "$U/v1/phone/pair" > "$RUNNER_TEMP/pair.json" &
+          pairpid=$!
+          poll=$(curl -fsS -H "Authorization: Bearer $pc" "$U/v1/pc/poll?wait=10")
+          echo "Опрос: $poll"
+          id=$(jq -er '.messages[0].id' <<<"$poll")
+          from=$(jq -er '.messages[0].from' <<<"$poll")
+          jq -e '.messages[0].kind == "pair1" and .messages[0].body.phonePub == "AAA"' <<<"$poll" >/dev/null
+          curl -fsS -X POST -H "Authorization: Bearer $pc" \
+            -d "{\"to\":\"$from\",\"replyTo\":\"$id\",\"kind\":\"pair1r\",\"body\":{\"pcPub\":\"BBB\"}}" "$U/v1/pc/reply"
+          wait "$pairpid"
+          echo "Привязка: $(cat "$RUNNER_TEMP/pair.json")"
+          jq -e '.reply.kind == "pair1r" and (.phoneToken | length) == 43' "$RUNNER_TEMP/pair.json" >/dev/null
+          ph=$(jq -er .phoneToken "$RUNNER_TEMP/pair.json")
+          curl -fsS -X POST -H "Authorization: Bearer $pc" -d '{"body":{"data":"R","sig":"S"}}' "$U/v1/pc/report"
+          curl -fsS -H "Authorization: Bearer $ph" "$U/v1/phone/status" | tee /dev/stderr \
+            | jq -e '.pcLastSeenMs > 0 and .report.data == "R"' >/dev/null
+
+          # Перезапуск: учётные записи в томе сохраняются (запись в /data при --read-only работает).
+          docker restart relay
+          for i in $(seq 1 30); do curl -fsS "$U/healthz" >/dev/null 2>&1 && break; sleep 1; done
+          curl -fsS -H "Authorization: Bearer $ph" "$U/v1/phone/status" | jq -e '.report == null' >/dev/null
+
+          limit=$(docker inspect -f '{{.HostConfig.Memory}}' relay)
+          [ "$limit" = $((64 * 1024 * 1024)) ] || { echo "::error title=Сервер связи::Предел памяти $limit"; exit 1; }
+          mem=$(docker stats --no-stream --format '{{.MemUsage}}' relay | awk '{print $1}')
+          bytes=$(numfmt --from=iec-i "${mem%B}")
+          echo "Память контейнера: $mem ($bytes байт), предел 64 МБ"
+          if [ "$bytes" -gt $((64 * 1024 * 1024)) ]; then
+            echo "::error title=Сервер связи (NFR-16)::Память $mem больше 64 МБ"
+            exit 1
+          fi
+          echo "::notice title=Сервер связи::Образ $(docker image inspect -f '{{.Size}}' pcblock-relay:ci) байт, память $mem"
+      - name: Журнал контейнера
+        if: always()
+        run: docker logs relay 2>&1 | tail -n 50 || true
+      - name: Ошибки — в пометки сборки (их видно без журнала)
+        if: failure()
+        run: bash tools/annotate-errors.sh "$RUNNER_TEMP/ci.log" "Сервер связи"
+
   screens:
     name: Снимки экранов (браузер)
     needs: checks
