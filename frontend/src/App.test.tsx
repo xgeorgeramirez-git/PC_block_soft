@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, render, screen, within } from "@testing-library/react";
+import { act, cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import App from "./App";
 import { DEFAULT_PASSWORD, installBackend, uninstallBackend, type MockBackend, type MockOptions } from "./__mocks__/backend";
@@ -173,6 +173,16 @@ describe("окно с плашки «Попросить сейчас» (RM3-4)",
     await user.click(screen.getByRole("button", { name: "Выйти" }));
     await user.type(await screen.findByLabelText("Пароль родителя"), `${DEFAULT_PASSWORD}{Enter}`);
     expect(await screen.findByRole("heading", { name: "Сегодня" })).toBeTruthy();
+  });
+
+  // Ловит (B-63): ключи --screen=stats и --screen=promos (снимки окна в приёмке) открывают «Сегодня».
+  it("экраны stats и promos: сразу «Статистика» и «Промокоды» после пароля", async () => {
+    for (const [start, title] of [["stats", "Статистика"], ["promos", "Промокоды"]] as const) {
+      const user = setup({ mode: "parent", startScreen: start });
+      await user.type(await screen.findByLabelText("Пароль родителя"), `${DEFAULT_PASSWORD}{Enter}`);
+      expect(await screen.findByRole("heading", { name: title, level: 2 })).toBeTruthy();
+      cleanup();
+    }
   });
 
   it("без экрана запуска: «Сегодня»", async () => {
