@@ -352,7 +352,8 @@ function ChildCard({ card, feedback, busy, onAdd, onReduce, onClear, onUndo, onP
 
 
       {/* Живая область есть всегда (PL-44, B-38): диктор читает сообщение, как только оно появилось. */}
-      {/* Ошибка - в своей постоянной срочной области рядом, а не внутри «статуса» (B-65, PL-44). */}
+      {/* Ошибка (role="alert") - вне области «статус»: вложенные живые области диктор читает непредсказуемо (B-65);
+          role="alert" при появлении читается сразу - для того он и сделан. */}
       <div role="status">
         {feedback && !feedback.error ? (
           <UndoLine
@@ -365,9 +366,7 @@ function ChildCard({ card, feedback, busy, onAdd, onReduce, onClear, onUndo, onP
           />
         ) : null}
       </div>
-      <div aria-live="assertive" aria-atomic="true">
-        {feedback?.error ? <p className="field-error child-feedback">{feedback.text}</p> : null}
-      </div>
+      {feedback?.error ? <UndoLine key={feedback.seq} className="child-feedback" text={feedback.text} error /> : null}
     </article>
   );
 }
