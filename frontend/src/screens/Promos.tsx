@@ -49,6 +49,8 @@ export default function Promos() {
   const [copyError, setCopyError] = useState(false);
 
   const [message, setMessage] = useState("");
+  // copied — «Коды скопированы» под кнопкой «Скопировать все», а не в общем сообщении вверху (B-64).
+  const [copied, setCopied] = useState(false);
   const [actionError, setActionError] = useState("");
   const [confirm, setConfirm] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -137,6 +139,7 @@ export default function Promos() {
       const r = await generatePromos({ count, length, charset, minutes: genMinutes });
       if (!alive.current) return;
       setGenerated(r.promos ?? []);
+      setCopied(false);
       setMessage(r.message);
       setTab("active");
       await load();
@@ -156,12 +159,13 @@ export default function Promos() {
 
   const copyAll = async () => {
     setMessage("");
+    setCopied(false);
     setCopyError(false);
     const text = generated.map((p) => p.codeDisplay).join("\n");
     try {
       if (!navigator.clipboard) throw new Error("no clipboard");
       await navigator.clipboard.writeText(text);
-      if (alive.current) setMessage("Коды скопированы");
+      if (alive.current) setCopied(true);
     } catch {
       if (alive.current) setCopyError(true);
     }
@@ -376,6 +380,9 @@ export default function Promos() {
             <button type="button" className="btn" onClick={() => void copyAll()}>
               Скопировать все
             </button>
+            <p className="promo-copy-status" role="status">
+              {copied ? "Коды скопированы" : ""}
+            </p>
             {copyError ? (
               <p className="field-error" role="alert">
                 Не удалось скопировать, выделите коды вручную
@@ -460,14 +467,14 @@ export default function Promos() {
 
       {confirm ? (
         <Dialog
-          title="Удалить все использованные коды?"
+          title="Очистить историю промокодов?"
           onClose={() => {
             if (!busy) setConfirm(false);
           }}
           actions={
             <>
               <button type="button" className="btn btn-primary" disabled={busy} onClick={() => void clearHistory()}>
-                Удалить
+                Очистить
               </button>
               <button type="button" className="btn" data-autofocus disabled={busy} onClick={() => setConfirm(false)}>
                 Отмена
@@ -475,7 +482,7 @@ export default function Promos() {
             </>
           }
         >
-          <p>Действующие останутся.</p>
+          <p>Использованные коды удалятся, действующие останутся.</p>
         </Dialog>
       ) : null}
     </section>
