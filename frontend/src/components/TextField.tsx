@@ -4,7 +4,7 @@ interface Props {
   label: string;
   value: string;
   onChange: (value: string) => void;
-  type?: "text" | "password";
+  type?: "text" | "password" | "url";
   /** Ошибка у поля (L-121): рамка и текст под полем. */
   error?: string | null;
   hint?: string;
@@ -12,11 +12,12 @@ interface Props {
   autoFocus?: boolean;
   autoComplete?: string;
   maxLength?: number;
+  spellCheck?: boolean;
 }
 
 /** Поле с подписью, подсказкой и ошибкой под ним. Ошибка читается скринридером сразу. */
 const TextField = forwardRef<HTMLInputElement, Props>(function TextField(
-  { label, value, onChange, type = "text", error, hint, disabled, autoFocus, autoComplete, maxLength },
+  { label, value, onChange, type = "text", error, hint, disabled, autoFocus, autoComplete, maxLength, spellCheck },
   ref,
 ) {
   const id = useId();
@@ -40,6 +41,7 @@ const TextField = forwardRef<HTMLInputElement, Props>(function TextField(
         autoFocus={autoFocus}
         autoComplete={autoComplete}
         maxLength={maxLength}
+        spellCheck={spellCheck}
         aria-invalid={error ? "true" : undefined}
         aria-describedby={described || undefined}
         onChange={(e) => onChange(e.target.value)}

@@ -221,6 +221,8 @@ export default function PhoneSection() {
             <TextField
               ref={urlRef}
               label="Адрес сервера"
+              type="url"
+              spellCheck={false}
               hint="Адрес вашего сервера связи. Обычно менять не нужно"
               autoComplete="off"
               maxLength={200}

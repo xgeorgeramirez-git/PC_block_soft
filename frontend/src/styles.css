@@ -3521,6 +3521,10 @@ textarea.sites-add-input {
 
 /* --- Блок «Телефон» в «Настройках» (M7) ----------------------------------------------- */
 
+.phone-url {
+  margin-top: var(--space-4);
+}
+
 .phone-url .form-actions {
   margin-top: 0;
 }
@@ -3549,6 +3553,12 @@ textarea.sites-add-input {
   margin-top: var(--space-4);
   padding-top: var(--space-4);
   border-top: 1px solid var(--line);
+}
+
+/* Имя телефона присылает телефон: длинное без пробелов переносится, а не распирает блок. */
+.phone-paired-line,
+.phone-pair .subsection-title {
+  overflow-wrap: anywhere;
 }
 
 .phone-paired-line {
