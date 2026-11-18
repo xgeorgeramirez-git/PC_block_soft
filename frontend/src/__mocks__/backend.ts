@@ -11,6 +11,7 @@ import { isViolation } from "../lib/journal";
 import { g15Fields } from "./g15";
 import { normalizeLimits } from "../lib/limits";
 import { breakEqual, DEFAULT_BREAK, validateBreak } from "../lib/rest";
+import { REMOTE_DEFAULT_URL } from "../lib/remote";
 import { ADULT_SOURCE_TEXT, DUPLICATE_TEXT, NOT_DOMAIN_TEXT, cleanDomain } from "../lib/sites";
 import type {
   BreakRules,
@@ -39,6 +40,7 @@ import type {
   SiteKind,
   StartupItemView,
   StatsPeriod,
+  RemoteView,
 } from "../types";
 
 export const DEFAULT_PASSWORD = "секрет-123";
@@ -222,6 +224,47 @@ export interface MockOptions {
   startup?: StartupItemView[];
   /** Момент последней проверки автозагрузки (UTC мс); по умолчанию - момент создания мока. */
   startupCheckedAt?: number;
+  /**
+   * Блок «Телефон» (M7) на старте: поля RemoteView; по умолчанию связь выключена, адрес по умолчанию
+   * (D-92). Состояние offline мок не меняет сам (сервер «лежит»), connecting становится online.
+   */
+  remote?: Partial<RemoteView>;
+}
+
+/** Код привязки, число сверки и телефон подменной программы (M7). */
+export const MOCK_PAIR_CODE = "482913";
+export const MOCK_PAIR_SAS = "731004";
+export const MOCK_PHONE_NAME = "Pixel 7";
+/** Срок кода привязки и сверки (протокол, раздел 4). */
+export const MOCK_PAIR_TTL_MS = 10 * 60_000;
+/** Через сколько после показа кода «телефон» присылает ключ и начинается сверка. */
+export const MOCK_COMPARE_AFTER_MS = 2000;
+/** Через сколько после включения связь выходит на связь. */
+export const MOCK_CONNECT_AFTER_MS = 1500;
+/** Текст отказа SetRemote у поля «Адрес сервера» (как у службы). */
+export const REMOTE_URL_ERROR = "Адрес должен начинаться с https://";
+
+/** Блок «Телефон» в памяти мока: вид для окна и моменты переходов. */
+export interface MockRemote {
+  view: RemoteView;
+  /** Когда connecting станет online (UTC мс). */
+  onlineAtMs: number;
+  /** Когда этап code станет compare (UTC мс). */
+  compareAtMs: number;
+}
+
+function mockRemote(over: Partial<RemoteView> | undefined, now: number): MockRemote {
+  const view: RemoteView = {
+    enabled: false,
+    url: REMOTE_DEFAULT_URL,
+    state: "off",
+    lastOkMs: 0,
+    error: "",
+    ...over,
+    pair: { stage: "idle", code: "", expiresMs: 0, sas: "", phoneName: "", error: "", ...over?.pair },
+  };
+  if (!view.phone) delete view.phone;
+  return { view, onlineAtMs: view.state === "connecting" ? now + MOCK_CONNECT_AFTER_MS : 0, compareAtMs: 0 };
 }
 
 /**
@@ -322,6 +365,8 @@ export interface MockState {
   /** «Автозагрузка» по номеру ребёнка (FR-39), строки по номеру записи, как у службы. */
   startup: Map<number, StartupItemView[]>;
   startupCheckedAt: number;
+  /** Блок «Телефон» (M7). */
+  remote: MockRemote;
 }
 
 export type Override = Reply | "reject" | "garbage" | ((request: any) => Reply | Promise<Reply>);
@@ -868,6 +913,12 @@ const PARENT_COMMANDS = new Set([
   "RemoveSites",
   "RestoreSites",
   "SetAdultFilter",
+  "GetRemote",
+  "SetRemote",
+  "RemotePairStart",
+  "RemotePairCancel",
+  "RemotePairConfirm",
+  "RemoteUnpair",
   "ClearStats",
   "ClearJournal",
   "GeneratePromos",
@@ -951,6 +1002,7 @@ function makeState(opts: MockOptions): MockState {
     sites: (opts.sites ?? exampleSites()).map((x) => ({ ...x })),
     startup: new Map(children.map((c) => [c.childId, (opts.startup ?? MOCK_STARTUP).map((x) => ({ ...x }))])),
     startupCheckedAt: opts.startupCheckedAt ?? Date.now(),
+    remote: mockRemote(opts.remote, Date.now()),
   };
 }
 
@@ -1075,6 +1127,23 @@ export function createBackend(opts: MockOptions = {}): MockBackend {
       }
     }
     return null;
+  };
+
+  const idlePair = (): RemoteView["pair"] => ({ stage: "idle", code: "", expiresMs: 0, sas: "", phoneName: "", error: "" });
+  /** Вид блока «Телефон» на момент now: переходы connecting → online, code → compare, срок кода. */
+  const remoteView = (now: number): RemoteView => {
+    const r = state.remote;
+    const v = r.view;
+    if (v.enabled && v.state === "connecting" && r.onlineAtMs > 0 && now >= r.onlineAtMs) v.state = "online";
+    if (v.enabled && v.state === "online") v.lastOkMs = now;
+    const p = v.pair;
+    if ((p.stage === "code" || p.stage === "compare") && p.expiresMs > 0 && now >= p.expiresMs) {
+      v.pair = { ...idlePair(), stage: "failed", error: "expired" };
+    } else if (p.stage === "code" && r.compareAtMs > 0 && now >= r.compareAtMs) {
+      v.pair = { ...p, code: "", sas: MOCK_PAIR_SAS, phoneName: MOCK_PHONE_NAME };
+      v.pair.stage = "compare";
+    }
+    return JSON.parse(JSON.stringify(v)) as RemoteView;
   };
 
   const handlers: Record<string, (req: any, now: number) => Reply> = {
@@ -1947,6 +2016,65 @@ export function createBackend(opts: MockOptions = {}): MockBackend {
         item: { ...item },
         message: `${on ? "Будет" : "Не будет"} запускаться при входе ${genitiveName(child.name)}`,
       });
+    },
+
+    // --- M7: блок «Телефон» ---
+    GetRemote: (_req, now) => okReply(remoteView(now)),
+
+    SetRemote: (req, now) => {
+      const url = typeof req.url === "string" && req.url.trim() !== "" ? req.url.trim() : REMOTE_DEFAULT_URL;
+      if (!/^https:\/\/[^\s/]+/i.test(url)) return fail(REMOTE_URL_ERROR, "url");
+      const r = state.remote;
+      const on = req.enabled === true;
+      const changed = on !== r.view.enabled || url !== r.view.url;
+      r.view.url = url;
+      r.view.enabled = on;
+      if (!on) {
+        r.view.state = "off";
+        r.view.error = "";
+        r.view.pair = idlePair();
+      } else if (changed) {
+        r.view.state = "connecting";
+        r.view.error = "";
+        r.view.lastOkMs = 0;
+        r.onlineAtMs = now + MOCK_CONNECT_AFTER_MS;
+      }
+      return okReply(remoteView(now));
+    },
+
+    RemotePairStart: (_req, now) => {
+      const r = state.remote;
+      if (!r.view.enabled || r.view.state !== "online") {
+        r.view.pair = { ...idlePair(), stage: "failed", error: "no_server" };
+        return okReply(remoteView(now));
+      }
+      r.view.pair = { ...idlePair(), stage: "code", code: MOCK_PAIR_CODE, expiresMs: now + MOCK_PAIR_TTL_MS };
+      r.compareAtMs = now + MOCK_COMPARE_AFTER_MS;
+      return okReply(remoteView(now));
+    },
+
+    RemotePairCancel: (_req, now) => {
+      state.remote.view.pair = idlePair();
+      return okReply(remoteView(now));
+    },
+
+    RemotePairConfirm: (req, now) => {
+      const r = state.remote;
+      remoteView(now);
+      if (r.view.pair.stage !== "compare") return okReply(remoteView(now));
+      if (req.match === true) {
+        // Один телефон (D-92): новый заменяет прежний.
+        r.view.phone = { name: r.view.pair.phoneName, pairedAtMs: now };
+        r.view.pair = idlePair();
+      } else {
+        r.view.pair = { ...idlePair(), stage: "failed", error: "mismatch" };
+      }
+      return okReply(remoteView(now));
+    },
+
+    RemoteUnpair: (_req, now) => {
+      delete state.remote.view.phone;
+      return okReply(remoteView(now));
     },
 
     GetBonusRate: () => okReply({ minutes: state.bonusRate }),

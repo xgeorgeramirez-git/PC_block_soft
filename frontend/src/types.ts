@@ -862,3 +862,50 @@ export interface SetupSites {
   adultOff: string[];
   video: string[];
 }
+
+// --- M7: блок «Телефон» в «Настройках» (FR-40, internal/ipc/commands_m7.go) -----------------
+
+/** Состояние связи с сервером. */
+export type RemoteState = "off" | "connecting" | "online" | "offline";
+/** Ошибка связи: "" - нет; no_server - сервер не отвечает; bad_address; lost - сервер не узнал компьютер, телефон отвязан. */
+export type RemoteError = "" | "no_server" | "bad_address" | "lost";
+/** Этап привязки телефона. */
+export type PairStage = "idle" | "starting" | "code" | "compare" | "failed";
+/** Причина неудачной привязки. */
+export type PairError = "" | "expired" | "mismatch" | "aborted" | "no_server";
+
+/** Привязанный телефон: имя и момент привязки (UTC мс). */
+export interface RemotePhone {
+  name: string;
+  pairedAtMs: number;
+}
+
+/** Привязка: code - 6 цифр на этапе code; sas и phoneName - на этапе compare; expiresMs - срок кода и сверки. */
+export interface RemotePair {
+  stage: PairStage;
+  code: string;
+  expiresMs: number;
+  sas: string;
+  phoneName: string;
+  error: PairError;
+}
+
+/** Ответ всех команд блока «Телефон». phone нет - телефон не привязан; lastOkMs 0 - удачного обмена не было. */
+export interface RemoteView {
+  enabled: boolean;
+  url: string;
+  state: RemoteState;
+  lastOkMs: number;
+  error: RemoteError;
+  phone?: RemotePhone;
+  pair: RemotePair;
+}
+
+export interface SetRemoteRequest {
+  enabled: boolean;
+  url: string;
+}
+
+export interface RemotePairConfirmRequest {
+  match: boolean;
+}
