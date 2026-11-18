@@ -358,8 +358,11 @@ export default function Programs({ initialFilter = "all" }: Props) {
           />
         ) : null}
       </div>
-      {/* Ошибка (role="alert") - вне области «статус»: вложенные живые области диктор читает непредсказуемо (B-65). */}
-      {feedback?.error ? <UndoLine key={feedback.seq} className="programs-feedback" text={feedback.text} error /> : null}
+      {/* Ошибка - в своей постоянной срочной области рядом, а не внутри «статуса»: вложенные живые области
+          диктор читает непредсказуемо, а появившуюся вместе с текстом может пропустить (B-65, PL-44). */}
+      <div className="programs-error" aria-live="assertive" aria-atomic="true">
+        {feedback?.error ? <p className="field-error programs-feedback">{feedback.text}</p> : null}
+      </div>
     </>
   );
 

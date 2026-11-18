@@ -221,7 +221,7 @@ function StartupRow({ item, pressed, note, onDecide }: RowProps) {
           ) : null}
           <span className="startup-from">{item.from}</span>
         </span>
-        {isMicrosoft(item.publisher) ? (
+        {!pending && isMicrosoft(item.publisher) ? (
           <span className="startup-hint">Программа Windows или Microsoft. Выключайте, только если знаете, что она делает</span>
         ) : null}
       </div>

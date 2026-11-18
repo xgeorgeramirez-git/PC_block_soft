@@ -477,6 +477,24 @@ func TestRestoreSites(t *testing.T) {
 	if got := h.store.addSitesCalls - calls; got != 2 {
 		t.Errorf("транзакций хранилища %d, ждали по одной на список", got)
 	}
+	// Сбой хранилища: ошибка, а не «Сайты возвращены»; ничего не записано.
+	h.ok(adminPeer(), tok, ipc.CmdRemoveSites, ipc.RemoveSitesRequest{Domains: []string{"example.com"}}, &rm)
+	h.store.failAddSites = true
+	if r := h.fail(adminPeer(), tok, ipc.CmdRestoreSites, ipc.RestoreSitesRequest{Sites: rm.Removed}); r.Error != textSaveFailed {
+		t.Errorf("сбой хранилища: %q, ждали %q", r.Error, textSaveFailed)
+	}
+	if _, ok := h.store.sites["example.com"]; ok {
+		t.Error("при сбое сайт записан")
+	}
+	h.store.failAddSites = false
+	// Предел 1000 запрещённых: не поместившиеся названы в итоге.
+	for i := 0; len(h.store.sites) < ipc.MaxBlockedSites+10; i++ {
+		h.store.sites[fmt.Sprintf("f%d.ru", i)] = ipc.SiteKindBlocked
+	}
+	h.ok(adminPeer(), tok, ipc.CmdRestoreSites, ipc.RestoreSitesRequest{Sites: rm.Removed}, &rep)
+	if !strings.Contains(rep.Message, "Не поместились (1)") {
+		t.Errorf("при полном списке: %q, ждали «Не поместились (1)»", rep.Message)
+	}
 	if r := h.fail(adminPeer(), tok, ipc.CmdRestoreSites, ipc.RestoreSitesRequest{}); r.Error != ipc.TextBadRequest {
 		t.Errorf("пустой список: %q", r.Error)
 	}

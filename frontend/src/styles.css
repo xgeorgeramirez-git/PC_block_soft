@@ -2059,7 +2059,8 @@ html:has(.shell-child) body {
 }
 
 .programs-page > .page-head,
-.programs-message {
+.programs-message,
+.programs-error {
   flex: none;
 }
 

@@ -2,7 +2,9 @@
 # FB-22, B-67, RM3-13, PL-16).
 # Папка тестовых программ (WatchDir) этого сценария лежит в профиле раннера: %TEMP%\pcb-tmp1 = <профиль>\AppData\
 # Local\Temp\pcb-tmp1 — для службы это папка временных файлов приложения (Roots.tempRel), как Temp\Roblox у
-# заказчика. Тестовые программы — копии системной программы (издатель Microsoft Corporation, New-TestApp).
+# заказчика. Тестовые программы — копии программы с цифровой подписью внутри файла (node.exe раннера, подписант
+# «OpenJS Foundation»): в папках профиля издатель — подписант (B-57), а у копий notepad и cmd подпись в каталоге
+# Windows, не в файле, и издатель там пустой.
 # Дано: pcbinst.exe «Другое» шагом мастера (служба сохраняет отпечаток и издателя), подробный журнал службы.
 # (а) Контроль: pcbother.exe в той же папке без решения закрыта (наблюдатель в этой папке работает).
 # (б) Когда: pcbinst.exe перезаписан той же копией с новым временем изменения (новый отпечаток, тот же издатель) и
@@ -39,7 +41,13 @@ Invoke-Scenario "TMP1" "Установщик во временной папке 
 
   Initialize-Scenario 60
 
-  Step "Тестовые программы pcbinst.exe и pcbother.exe во временной папке" {
+  Step "Тестовые программы pcbinst.exe и pcbother.exe во временной папке (копии подписанного node.exe)" {
+    $node = (Get-Command node.exe -ErrorAction SilentlyContinue).Source
+    Assert-That ($node -and (Test-Path -LiteralPath $node)) "На раннере нет node.exe: тестовой программе нужна подпись внутри файла (B-57)"
+    $sig = Get-AuthenticodeSignature -LiteralPath $node
+    Write-Log "Источник тестовых программ: $node, подпись $($sig.Status), подписант «$($sig.SignerCertificate.Subject)»"
+    Assert-That ($sig.Status -eq "Valid") "Подпись $node не годится: $($sig.Status)"
+    $script:TestAppSource = $node
     $script:Inst = New-TestApp "pcbinst"
     $script:Other = New-TestApp "pcbother"
   }

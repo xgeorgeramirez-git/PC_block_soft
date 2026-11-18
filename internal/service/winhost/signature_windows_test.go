@@ -12,11 +12,16 @@ import (
 // из подписи; вне профилей CompanyName подменён подписью.
 func TestProfileSignedPublisher(t *testing.T) {
 	file := func(string) (string, string, string) { return "Roblox Corporation", "Roblox", "1:2" }
-	signer := func(p string) string {
+	calls := 0
+	signer := func(p string) (string, bool) {
+		calls++
 		if filepath.Base(p) == "signed.exe" {
-			return "Roblox Corporation"
+			return "Roblox Corporation", true
 		}
-		return ""
+		if filepath.Base(p) == "locked.exe" {
+			return "", false // файл не прочитался: ответ не окончательный
+		}
+		return "", true
 	}
 	meta := profileSigned(file, `C:\Users`, signer)
 	cases := []struct{ path, want string }{
@@ -30,6 +35,22 @@ func TestProfileSignedPublisher(t *testing.T) {
 			t.Errorf("%s: %q, %q, %q; ждали издателя %q, описание и отпечаток как есть", c.path, pub, descr, fp, c.want)
 		}
 	}
+	// Ловит: подпись перепроверяется для каждого нового процесса (весь файл читается заново), или
+	// запоминается ответ после сбоя чтения.
+	calls = 0
+	signed := `C:\Users\misha\AppData\Local\Roblox\signed.exe`
+	for i := 0; i < 3; i++ {
+		meta(signed)
+	}
+	if calls != 0 {
+		t.Errorf("подпись того же файла проверялась %d раз, ждали 0 (ответ запомнен)", calls)
+	}
+	locked := `C:\Users\misha\AppData\Local\Temp\locked.exe`
+	meta(locked)
+	meta(locked)
+	if calls != 2 {
+		t.Errorf("после сбоя чтения проверок %d, ждали 2 (не запоминается)", calls)
+	}
 }
 
 // Ловит (B-57): подписанный файл не даёт имени подписанта, неподписанный даёт.
@@ -37,24 +58,24 @@ func TestSignerName(t *testing.T) {
 	pwsh := filepath.Join(os.Getenv("ProgramFiles"), "PowerShell", "7", "pwsh.exe")
 	raw, err := os.ReadFile(pwsh)
 	if err != nil {
-		t.Skipf("нет %s: %v", pwsh, err)
+		t.Fatalf("нет %s: %v (на раннере windows-latest pwsh есть; без файла с подписью внутри тест ничего не ловит)", pwsh, err)
 	}
 	dir := t.TempDir()
 	signed := filepath.Join(dir, "signed.exe")
 	if err := os.WriteFile(signed, raw, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if got := signerName(signed); got != "Microsoft Corporation" {
-		t.Errorf("подписант копии pwsh.exe %q, ждали Microsoft Corporation", got)
+	if got, final := signerName(signed); got != "Microsoft Corporation" || !final {
+		t.Errorf("подписант копии pwsh.exe %q (окончательно %v), ждали Microsoft Corporation", got, final)
 	}
 	plain := filepath.Join(dir, "plain.exe")
 	if err := os.WriteFile(plain, []byte("не PE"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if got := signerName(plain); got != "" {
-		t.Errorf("подписант файла без подписи %q, ждали пусто", got)
+	if got, final := signerName(plain); got != "" || !final {
+		t.Errorf("подписант файла без подписи %q (окончательно %v), ждали пусто и окончательно", got, final)
 	}
-	if got := signerName(filepath.Join(dir, "нет.exe")); got != "" {
+	if got, _ := signerName(filepath.Join(dir, "нет.exe")); got != "" {
 		t.Errorf("подписант несуществующего файла %q, ждали пусто", got)
 	}
 }

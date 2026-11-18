@@ -223,7 +223,7 @@ func (s *Service) hRestoreSites(c *callCtx) ipc.Reply {
 			blocked++
 		}
 	}
-	restored, full := 0, 0
+	restored, written, full := 0, 0, 0
 	for _, kind := range kinds {
 		todo := []string{}
 		for _, d := range byKind[kind] {
@@ -253,21 +253,24 @@ func (s *Service) hRestoreSites(c *callCtx) ipc.Reply {
 		})
 		if err != nil {
 			s.logRate("sites-save", "сайты не возвращены: %v", err)
-			if restored == 0 {
-				return ipc.Fail(textSaveFailed)
+			if written == 0 {
+				return ipc.Fail(textSaveFailed) // ничего не записано: ошибка, а не итог
 			}
 			break
 		}
 		restored += len(todo)
+		written += len(todo)
 	}
 	parts := []string{fmt.Sprintf(textSitesRestored, restored)}
 	if full > 0 {
 		parts = append(parts, fmt.Sprintf(textSitesFull, full))
 	}
 	if restored < len(seen)-full {
-		parts = append(parts, textSaveFailed)
+		parts = append(parts, textSitesRestoreRest)
 	}
-	s.sitesChanged(c.real)
+	if written > 0 {
+		s.sitesChanged(c.real)
+	}
 	reply := ipc.RestoreSitesReply{Message: strings.Join(parts, ". ")}
 	reply.Sites, _ = s.sitesView()
 	return ipc.OK(reply)
