@@ -563,6 +563,11 @@ input[type="radio"]:disabled {
   font-weight: 600;
 }
 
+/* Пустая постоянная область ошибки промокода не занимает места (B-72). */
+.promo-redeem-error:empty {
+  margin: 0;
+}
+
 .login-forgot {
   margin-top: var(--space-6);
 }

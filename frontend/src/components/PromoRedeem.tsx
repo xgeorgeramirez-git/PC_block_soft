@@ -94,11 +94,10 @@ export default function PromoRedeem({ onRedeemed, picker = promoPicker }: Props)
         <button type="button" className="btn" disabled={busy} onClick={() => void submit()}>
           Ввести промокод
         </button>
-        {error ? (
-          <p className="field-error" role="alert">
-            {error}
-          </p>
-        ) : null}
+        {/* Область ошибки есть всегда (B-72): появись она вместе с текстом, диктор может её пропустить. */}
+        <p className="field-error promo-redeem-error" role="alert">
+          {error}
+        </p>
       </div>
       <div
         className={answer ? "promo-answer-slot" : "promo-answer-slot promo-answer-slot-empty"}
