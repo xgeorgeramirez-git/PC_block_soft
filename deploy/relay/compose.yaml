@@ -1,0 +1,44 @@
+# Сервер связи PC Block (M7). Свой проект compose в /opt/pcblock-relay: n8n и traefik не трогает.
+# Портов наружу нет: HTTPS и сертификат делает уже работающий Traefik через сеть web.
+# Установка и обновление: deploy/relay/README.md.
+name: pcblock-relay
+
+services:
+  relay:
+    build:
+      context: ./src
+      dockerfile: deploy/relay/Dockerfile
+    image: pcblock-relay:local
+    command: ["-trust-proxy"]
+    restart: unless-stopped
+    mem_limit: 64m
+    memswap_limit: 64m
+    pids_limit: 64
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    volumes:
+      - pcblock-relay-data:/data
+    networks: [web]
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    labels:
+      traefik.enable: "true"
+      traefik.docker.network: web
+      traefik.http.routers.pcblock.rule: Host(`pcblock.atlas404.ru`)
+      traefik.http.routers.pcblock.entrypoints: websecure
+      traefik.http.routers.pcblock.tls.certresolver: le
+      traefik.http.routers.pcblock.middlewares: pcblock-headers
+      traefik.http.middlewares.pcblock-headers.headers.stsSeconds: "31536000"
+      traefik.http.middlewares.pcblock-headers.headers.contentTypeNosniff: "true"
+      traefik.http.services.pcblock.loadbalancer.server.port: "8080"
+
+volumes:
+  pcblock-relay-data:
+
+networks:
+  web:
+    external: true
