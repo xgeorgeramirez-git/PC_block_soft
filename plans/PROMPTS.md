@@ -250,9 +250,9 @@ Skills to load: dev-methodology, git-guru; uiux-design и usability-heuristics �
 ```text
 Используй скилл dev-methodology — вход B. Ты — оркестратор вехи M7 «Связь с телефоном» проекта PC_block_soft.
 
-Прочитай: CLAUDE.md; ТЗ 2.0 — 1.3, 3.2, FR-40, NFR-1, NFR-16, S55, S56, раздел 9 (строка M7); docs/03_Решения_интервью.md D-88…D-90; черновик plans/2026-11-18-M7-remote-draft.md; docs/LESSONS.md; plans/BACKLOG.md.
+Прочитай: CLAUDE.md; ТЗ 2.0 — 1.3, 3.2, FR-40, NFR-1, NFR-16, S55, S56, раздел 9 (строка M7); docs/03_Решения_интервью.md D-88…D-94; черновик plans/2026-11-18-M7-remote-draft.md; docs/LESSONS.md; plans/BACKLOG.md.
 Skills to load: dev-methodology, git-guru, web-design-guidelines (блок «Телефон» в настройках).
-Сначала: отправь мне команды диагностики VPS из черновика (только чтение) и открытые вопросы оттуда; по моему выводу выбери способ HTTPS и адрес; ответы впиши в ТЗ заменой текста. n8n на сервере не трогать.
+Диагностика VPS и мои ответы уже в черновике (Traefik, сеть web, certresolver le, адрес pcblock.atlas404.ru работает, один телефон, плашка ребёнку, ключ APK в секретах GitHub). Сверь их с ТЗ и начинай. n8n и traefik на сервере не трогать.
 Порядок: Фазы 1–8; план plans/<дата>-M7.md по черновику, ревью плана свежим агентом; конвейер «два слота», реестр plans/M7-agents.md. Сервер связи — cmd/pcblock-relay и deploy/relay/; сеть в службе — только internal/remote; Android — android/ и android.yml. Ставить сервер на VPS — командами для меня (D-90), я выполняю и присылаю вывод.
 Закрытие: версия 0.8.0, «Что нового», APK и установщик в Releases; ветка feature/m7-remote → PR → зелёный CI → слей в main.
 Готово значит: S55, S56 и полный регресс зелёные; R4 зелёная; сервер связи работает на моём VPS рядом с n8n; с моего телефона «+15» и «−15» меняют время ребёнка; короткий отчёт мне простыми словами.
