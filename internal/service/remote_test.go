@@ -434,6 +434,33 @@ func TestRemoteChildrenAndChanged(t *testing.T) {
 	waitRemoteCond(t, "отчёт после изменения в окне", 5*time.Second, func() bool { return r.reportCount() > n })
 }
 
+// Ловит: ребёнок без лимита уходил телефону как «осталось 0» (то же, что «время вышло»);
+// протокол, раздел 6: LeftSec = -1.
+func TestRemoteChildrenUnlimited(t *testing.T) {
+	h, _ := remoteHarness(t, func(h *harness) {
+		id, err := h.store.UpsertChild(child2SID, "Коля")
+		if err != nil {
+			h.t.Fatal(err)
+		}
+		var week [7]core.DayLimit // TotalMin nil — без лимита
+		h.store.SetDayLimits(id, week)
+	})
+	got := remoteHost{h.svc}.Children()
+	if len(got) != 2 {
+		t.Fatalf("детей %d", len(got))
+	}
+	byName := map[string]remote.ChildReport{}
+	for _, c := range got {
+		byName[c.Name] = c
+	}
+	if byName["Коля"].LeftSec != -1 {
+		t.Fatalf("без лимита: LeftSec = %d, want -1", byName["Коля"].LeftSec)
+	}
+	if byName["Миша"].LeftSec != 3600 {
+		t.Fatalf("с лимитом: LeftSec = %d, want 3600", byName["Миша"].LeftSec)
+	}
+}
+
 // Ловит взаимоблокировку: обработчик выключает связь, пока горутина связи ждёт s.mu в
 // ApplyCommand (Wait под s.mu завис бы навсегда).
 func TestRemoteStopWhileApplyWaits(t *testing.T) {

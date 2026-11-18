@@ -129,7 +129,7 @@ type Report struct {
 	Children []ChildReport `json:"children"`
 }
 
-// ChildReport — строка ребёнка в отчёте; LeftSec — то же «осталось», что в окне родителя.
+// ChildReport — строка ребёнка в отчёте; LeftSec — то же «осталось», что в окне родителя; -1 — сегодня без лимита.
 type ChildReport struct {
 	ID       int64  `json:"id"`
 	Name     string `json:"name"`

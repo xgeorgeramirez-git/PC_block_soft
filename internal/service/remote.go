@@ -302,8 +302,12 @@ func (h remoteHost) Children() []remote.ChildReport {
 	out := []remote.ChildReport{}
 	for _, id := range s.childOrder() {
 		c := s.cardOf(s.children[id])
+		left := int64(c.Status.RemainingS)
+		if c.Status.Unlimited {
+			left = -1 // без лимита сегодня (протокол, раздел 6)
+		}
 		out = append(out, remote.ChildReport{
-			ID: c.ChildID, Name: c.Name, UsedSec: int64(c.Status.UsedS), LeftSec: int64(c.Status.RemainingS),
+			ID: c.ChildID, Name: c.Name, UsedSec: int64(c.Status.UsedS), LeftSec: left,
 			ExtraMin: c.ExtraMin, Blocked: c.Status.Lock != "" && c.Status.Lock != ipc.LockNone,
 		})
 	}
