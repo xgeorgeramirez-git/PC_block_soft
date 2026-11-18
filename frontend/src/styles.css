@@ -4,6 +4,7 @@
   --bg: #f3f4f6;
   --surface: #ffffff;
   --line: #d8dce0;
+  --share-bar: #d8dce0; /* полоса доли в «Итогах» */
   --text: #1b1f23;
   --text-muted: #59616a;
   --primary: #2b3138;
@@ -39,6 +40,7 @@
     --bg: #15181b;
     --surface: #1f2327;
     --line: #343a40;
+    --share-bar: #6b7580; /* в тёмной теме линия разделителя почти не видна под строкой (B-64) */
     --text: #eef1f4;
     --text-muted: #a3abb3;
     --primary: #eef1f4;
@@ -967,7 +969,7 @@ input[type="radio"]:disabled {
   position: absolute;
   inset: 2px auto 2px 0;
   width: var(--share, 0%);
-  background: var(--line);
+  background: var(--share-bar);
   border-radius: 2px;
   opacity: 0.55;
   pointer-events: none;

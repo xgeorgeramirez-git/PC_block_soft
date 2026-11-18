@@ -346,7 +346,7 @@ export function Totals({
               </ul>
             )}
           </div>
-          <StatSub id="days" title="По дням">
+          <StatSub id="days" title={data.barsBy === "month" ? "По месяцам" : "По дням"}>
             <DayBars reply={data} />
           </StatSub>
           <StatSub id="programs" title="Программы">
