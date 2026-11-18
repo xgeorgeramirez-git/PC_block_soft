@@ -3,7 +3,8 @@
 
 Ищет длинное и среднее тире в пользовательских строках:
   - Go: строковые литералы в .go (кроме тестов), без комментариев;
-  - фронт: .ts/.tsx в frontend/src (кроме тестов), без комментариев.
+  - фронт: .ts/.tsx в frontend/src (кроме тестов), без комментариев;
+  - телефон: строки android/app/src/main/res/values*/strings.xml (без XML-комментариев).
 Код выхода 1, если найдено. Запуск: python3 tools/scan_ui_texts.py
 """
 import pathlib
@@ -51,6 +52,12 @@ def scan() -> list[str]:
             continue
         rel = path.relative_to(ROOT)
         text = strip_ts_comments(path.read_text(encoding="utf-8"))
+        for no, line in enumerate(text.splitlines(), 1):
+            if any(d in line for d in DASHES):
+                problems.append(f"{rel}:{no}: тире в тексте: {line.strip()[:80]}")
+    for path in sorted((ROOT / "android" / "app" / "src" / "main" / "res").glob("values*/strings.xml")):
+        rel = path.relative_to(ROOT)
+        text = re.sub(r"<!--.*?-->", lambda m: "\n" * m.group(0).count("\n"), path.read_text(encoding="utf-8"), flags=re.S)
         for no, line in enumerate(text.splitlines(), 1):
             if any(d in line for d in DASHES):
                 problems.append(f"{rel}:{no}: тире в тексте: {line.strip()[:80]}")
