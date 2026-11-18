@@ -2932,6 +2932,19 @@ textarea.sites-add-input {
   gap: 0.3rem;
 }
 
+/* Дата и баланс - одной строкой, переносится только описание (B-64). */
+.bonus-history-when,
+.bonus-history-balance {
+  flex: none;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.bonus-history-what {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
 .bonus-history-item {
   display: flex;
   justify-content: space-between;
