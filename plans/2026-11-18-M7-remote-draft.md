@@ -42,14 +42,30 @@
 
 Решено (D-92): адрес `pcblock.atlas404.ru`, один телефон (новая привязка заменяет прежнюю); ребёнку плашка, как при добавлении на компьютере (D-93).
 
-1. Метки Traefik (имя certresolver, точки входа) — по второй диагностике ниже.
+1. (решено) Метки Traefik — см. «Результат диагностики».
 2. Ключ подписи APK — в секретах GitHub (решено, D-94): создать в веха-чате и положить секретом.
 
 ## Результат диагностики VPS (18.11.2026)
 
 - Ubuntu 26.04.1, Docker 29.1.3, Compose 2.40.3; память 3,3 ГБ (свободно ~1,9 ГБ), диск 19 ГБ свободно. Адрес 78.17.4.13.
 - Проекты compose: `traefik` (`/opt/traefik/docker-compose.yml`, `traefik:v3.6`, единственный слушает 80/443), `n8n` (`/opt/n8n/compose.yml`: n8n, runners, postgres, telegram-bot-api), `files` (filebrowser). Общая сеть Docker `web` — через неё Traefik видит сервисы.
-- `pcblock.atlas404.ru` пока не резолвится: нужна A-запись → 78.17.4.13 там же, где запись `n8n` (заказчик делает в панели домена).
+- A-запись `pcblock.atlas404.ru` → 78.17.4.13 заказчик добавил, резолвится (18.11.2026).
+- Traefik (аргументы): `providers.docker.exposedbydefault=false`, `providers.docker.network=web`, точки входа `web` (:80, редирект на https) и `websecure` (:443), certresolver **`le`** (ACME TLS-challenge, `/letsencrypt/acme.json`).
+- Шаблон меток сервиса связи (по образцу n8n):
+  ```yaml
+  networks: [web]            # external: true
+  labels:
+    traefik.enable: "true"
+    traefik.docker.network: web
+    traefik.http.routers.pcblock.rule: Host(`pcblock.atlas404.ru`)
+    traefik.http.routers.pcblock.entrypoints: websecure
+    traefik.http.routers.pcblock.tls.certresolver: le
+    traefik.http.routers.pcblock.middlewares: pcblock-headers
+    traefik.http.middlewares.pcblock-headers.headers.stsSeconds: "31536000"
+    traefik.http.middlewares.pcblock-headers.headers.contentTypeNosniff: "true"
+    traefik.http.services.pcblock.loadbalancer.server.port: "8080"
+  ```
+  Имена роутера, middleware и сервиса — `pcblock*`, чтобы не пересечься с `n8n*`. Длинный опрос ≤ 25 с проходит через Traefik без настроек (тайм-аутов чтения по умолчанию нет).
 - **Вывод:** сервер связи — свой проект `/opt/pcblock-relay` (compose), без опубликованных портов, в сети `web` (external), HTTPS и сертификат — метками Traefik `Host(`pcblock.atlas404.ru`)` с тем же certresolver, что у n8n. Файлы n8n и traefik не правим.
 
 ## Диагностика VPS (только чтение, ничего не меняет) — первая, выполнена
