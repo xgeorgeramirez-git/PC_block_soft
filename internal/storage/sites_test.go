@@ -309,3 +309,60 @@ func TestDayUsageWithSites(t *testing.T) {
 		t.Errorf("ProgramSeconds = %v, %v; want только программа (сайта нет)", got, err)
 	}
 }
+
+// Ловит (B-61): пачка сайтов пишется не одной транзакцией (часть остаётся при сбое), повтор в том
+// же списке получает строку журнала, перенос не отмечается, строка журнала не та.
+func TestAddSiteRulesBatch(t *testing.T) {
+	s := openTemp(t)
+	if _, _, err := s.AddSiteRule("old.ru", SiteStudy); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := s.AddSiteRule("same.ru", SiteBlocked); err != nil {
+		t.Fatal(err)
+	}
+	ev := func(d string, moved bool) Event {
+		kind := "site_added"
+		if moved {
+			kind = "site_moved"
+		}
+		return Event{AtMs: 1000, Kind: kind, Details: map[string]any{"domain": d}}
+	}
+	moved, err := s.AddSiteRules([]string{"a.ru", "old.ru", "same.ru", "b.ru"}, SiteBlocked, ev)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(moved, []bool{false, true, false, false}) {
+		t.Errorf("moved = %v, want [false true false false]", moved)
+	}
+	if n, err := s.CountSiteRules(SiteBlocked); err != nil || n != 4 {
+		t.Errorf("запрещённых %d, %v; want 4", n, err)
+	}
+	events, err := s.ListEvents(EventFilter{Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := []string{}
+	for _, e := range events {
+		got = append(got, e.Kind+" "+e.Details["domain"].(string))
+	}
+	want := []string{"site_added b.ru", "site_moved old.ru", "site_added a.ru"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("журнал %v, want %v (повтор same.ru без строки)", got, want)
+	}
+	// Сбой посреди пачки (неверный вид события) — не записано ничего.
+	bad := func(d string, moved bool) Event {
+		if d == "d.ru" {
+			return Event{AtMs: 1000}
+		}
+		return ev(d, moved)
+	}
+	if _, err := s.AddSiteRules([]string{"c.ru", "d.ru"}, SiteBlocked, bad); err == nil {
+		t.Fatal("сбой события посреди пачки не вернул ошибку")
+	}
+	if n, _ := s.CountSiteRules(SiteBlocked); n != 4 {
+		t.Errorf("после сбоя запрещённых %d, want 4 (пачка откатилась целиком)", n)
+	}
+	if _, err := s.AddSiteRules([]string{""}, SiteBlocked, ev); !errors.Is(err, ErrInvalid) {
+		t.Errorf("пустой домен: %v, want ErrInvalid", err)
+	}
+}

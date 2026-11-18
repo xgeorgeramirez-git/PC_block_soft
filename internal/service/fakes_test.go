@@ -69,9 +69,11 @@ type fakeStore struct {
 	breakStates map[int64]core.BreakState // счёт к перерыву по ребёнку
 	failBreak   bool                      // GetBreakRules возвращает ошибку
 
-	sites     map[string]string // списки сайтов (M4): домен → blocked|study|video_social
-	adultOff  map[int64]bool    // ребёнок с выключенным списком 18+ (M4); нет записи — включён
-	failSites bool              // ListSiteRules возвращает ошибку (M4)
+	sites         map[string]string // списки сайтов (M4): домен → blocked|study|video_social
+	adultOff      map[int64]bool    // ребёнок с выключенным списком 18+ (M4); нет записи — включён
+	failSites     bool              // ListSiteRules возвращает ошибку (M4)
+	failAddSites  bool              // AddSiteRules — сбой, ничего не записано (B-61)
+	addSitesCalls int               // сколько раз вызвана AddSiteRules (одна транзакция на пачку)
 
 	startup        []StartupRecord // автозагрузка всех детей по порядку появления (M5b)
 	nextStartup    int64           // номер последней строки автозагрузки
@@ -152,6 +154,39 @@ func (f *fakeStore) AddSiteRule(domain, kind string) (bool, string, error) {
 		f.sites[domain] = kind
 		return true, prev, nil
 	}
+}
+
+// AddSiteRules — как storage.AddSiteRules: одной транзакцией вместе с журналом; failAddSites —
+// сбой без изменений (откат пачки).
+func (f *fakeStore) AddSiteRules(domains []string, kind string, event func(string, bool) StoredEvent) ([]bool, error) {
+	f.mu.Lock()
+	if f.failAddSites || !fakeSiteKinds[kind] {
+		f.mu.Unlock()
+		return nil, errFake
+	}
+	f.addSitesCalls++
+	moved := make([]bool, len(domains))
+	evs := []StoredEvent{}
+	for i, d := range domains {
+		if d == "" {
+			f.mu.Unlock()
+			return nil, errors.New("пустой домен")
+		}
+		prev, ok := f.sites[d]
+		if ok && prev == kind {
+			continue
+		}
+		moved[i] = ok
+		f.sites[d] = kind
+		if event != nil {
+			evs = append(evs, event(d, moved[i]))
+		}
+	}
+	f.mu.Unlock()
+	for _, e := range evs {
+		_ = f.AppendEvent(e)
+	}
+	return moved, nil
 }
 
 // RemoveSiteRule — как storage.RemoveSiteRule: прежний список для «Отменить».

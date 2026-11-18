@@ -81,38 +81,44 @@ func (s *Service) hAddSites(c *callCtx) ipc.Reply {
 		}
 	}
 	var added, moved, same, full int
-	failed := false
+	todo := []string{}
 	for _, d := range domains {
 		if kindOf[d] == req.Kind {
 			same++
 			continue
 		}
-		if req.Kind == ipc.SiteKindBlocked && blocked >= ipc.MaxBlockedSites {
+		if req.Kind == ipc.SiteKindBlocked && kindOf[d] != ipc.SiteKindBlocked && blocked >= ipc.MaxBlockedSites {
 			full++
 			continue
-		}
-		wasMoved, _, err := s.cfg.Store.AddSiteRule(d, req.Kind)
-		if err != nil {
-			s.logRate("sites-save", "сайт не записан: %v", err)
-			failed = true
-			break
 		}
 		if req.Kind == ipc.SiteKindBlocked {
 			blocked++
 		}
 		kindOf[d] = req.Kind
-		details := map[string]any{"domain": d, "kind": req.Kind}
-		if wasMoved {
-			moved++
-			s.journal.Write(0, evSiteMoved, details)
-		} else {
-			added++
-			s.journal.Write(0, evSiteAdded, details)
-		}
-		reply.Added = append(reply.Added, d)
+		todo = append(todo, d)
 	}
-	if failed && len(reply.Added) == 0 {
-		return ipc.Fail(textSaveFailed)
+	if len(todo) > 0 {
+		// Одна транзакция на пачку вместе с журналом (B-61): 1000 адресов не держат службу секунды.
+		wasMoved, err := s.cfg.Store.AddSiteRules(todo, req.Kind, func(d string, mv bool) StoredEvent {
+			at, off := journalStamp(s.cfg.Clock, s.cfg.Loc)
+			details := map[string]any{"domain": d, "kind": req.Kind}
+			if mv {
+				return StoredEvent{AtMs: at, TzOffsetMin: off, Kind: evSiteMoved, Details: details}
+			}
+			return StoredEvent{AtMs: at, TzOffsetMin: off, Kind: evSiteAdded, Details: details}
+		})
+		if err != nil {
+			s.logRate("sites-save", "сайты не записаны: %v", err)
+			return ipc.Fail(textSaveFailed)
+		}
+		for i, d := range todo {
+			if wasMoved[i] {
+				moved++
+			} else {
+				added++
+			}
+			reply.Added = append(reply.Added, d)
+		}
 	}
 	parts := []string{}
 	for _, p := range []struct {
@@ -122,9 +128,6 @@ func (s *Service) hAddSites(c *callCtx) ipc.Reply {
 		if p.n > 0 {
 			parts = append(parts, fmt.Sprintf(p.text, p.n))
 		}
-	}
-	if failed {
-		parts = append(parts, textSitesAddRest)
 	}
 	reply.Message = strings.Join(parts, ". ")
 	if len(reply.Added) > 0 {

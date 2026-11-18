@@ -3,6 +3,7 @@ package service
 import (
 	"fmt"
 	"sort"
+	"strings"
 	"testing"
 	"time"
 
@@ -418,5 +419,32 @@ func TestRemoveSites(t *testing.T) {
 	h.ok(adminPeer(), tok, ipc.CmdRemoveSites, ipc.RemoveSitesRequest{Domains: []string{"youtube.com"}}, &rm)
 	if rm.Message != "Удалён youtube.com" {
 		t.Errorf("один сайт: %q", rm.Message)
+	}
+}
+
+// Ловит (B-61): пачка адресов пишется по одному (тысяча записей на диск под замком службы) или при
+// сбое хранилища часть остаётся записанной, а родитель видит «добавлено».
+func TestAddSitesOneTransaction(t *testing.T) {
+	h := siteHarness(t)
+	tok := h.login(adminPeer())
+	lines := make([]string, 0, 300)
+	for i := 0; i < 300; i++ {
+		lines = append(lines, fmt.Sprintf("site%d.ru", i))
+	}
+	var rep ipc.AddSitesReply
+	h.ok(adminPeer(), tok, ipc.CmdAddSites, ipc.AddSitesRequest{Text: strings.Join(lines, "\n"), Kind: "blocked"}, &rep)
+	if len(rep.Added) != 300 || h.store.addSitesCalls != 1 {
+		t.Fatalf("добавлено %d, вызовов хранилища %d; ждали 300 и 1", len(rep.Added), h.store.addSitesCalls)
+	}
+	if n := len(h.store.eventsOf(evSiteAdded)); n != 300 {
+		t.Fatalf("строк журнала «сайт добавлен»: %d, ждали 300", n)
+	}
+	h.store.failAddSites = true
+	before := len(h.store.sites)
+	if r := h.fail(adminPeer(), tok, ipc.CmdAddSites, ipc.AddSitesRequest{Text: "x1.ru\nx2.ru", Kind: "blocked"}); r.Error != textSaveFailed {
+		t.Fatalf("сбой пачки: %q, ждали %q", r.Error, textSaveFailed)
+	}
+	if len(h.store.sites) != before {
+		t.Fatal("при сбое пачки часть сайтов записана")
 	}
 }

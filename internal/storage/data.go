@@ -326,7 +326,10 @@ func eventLimit(n int) int {
 }
 
 // AppendEvent дописывает событие в журнал. Вид обязателен; Details nil записывается как {}.
-func (s *Store) AppendEvent(e Event) error {
+func (s *Store) AppendEvent(e Event) error { return appendEventTx(s.db, e) }
+
+// appendEventTx — AppendEvent внутри транзакции tx (или прямо в базу).
+func appendEventTx(tx execer, e Event) error {
 	if e.Kind == "" {
 		return fmt.Errorf("%w: у события нет вида", ErrInvalid)
 	}
@@ -343,7 +346,7 @@ func (s *Store) AppendEvent(e Event) error {
 		child = *e.ChildID
 	}
 	// Подробности передаются строкой: []byte попал бы в базу как BLOB, а не как текст.
-	_, err = s.db.Exec(`INSERT INTO events (child_id, at, tz_offset_min, kind, details) VALUES (?, ?, ?, ?, ?)`,
+	_, err = tx.Exec(`INSERT INTO events (child_id, at, tz_offset_min, kind, details) VALUES (?, ?, ?, ?, ?)`,
 		child, e.AtMs, e.TzOffsetMin, e.Kind, string(raw))
 	if err != nil {
 		return fmt.Errorf("storage: записать событие %q: %w", e.Kind, err)

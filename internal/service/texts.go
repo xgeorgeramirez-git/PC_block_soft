@@ -84,7 +84,6 @@ const (
 	textSitesMoved      = "Перенесено сюда из других списков: %d"
 	textSitesSame       = "Уже были в списке: %d"
 	textSitesFull       = "Не поместились (%d): в списке запрещённых уже 1000 сайтов"
-	textSitesAddRest    = "Остальные сайты не сохранились. Попробуйте ещё раз"
 	textSitesRejected   = "Эти строки не похожи на адрес сайта"
 	textSitesTooMany    = "Можно вставить не больше 1000 адресов за раз"
 	textSitesRemoved    = "Удалено сайтов: %d"
