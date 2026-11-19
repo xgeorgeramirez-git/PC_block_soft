@@ -1125,3 +1125,34 @@ func TestNotifyClosingIsNotRepeatedInSameSessionEnd(t *testing.T) {
 		}
 	})
 }
+
+// Ловит: сообщения службы без «Добавлено» теряются или подменяются плашкой «Добавлено N минут»
+// по числу в тексте: «Пауза закончилась» стража не доходила (R11, D-96), «Пауза 1 ч» и «Убрано
+// 15 минут» показывались как «Добавлено 1 минута» и «Добавлено 15 минут» (FB-25).
+func TestNoticeCommandShowsServiceTextAsIs(t *testing.T) {
+	for _, text := range []string{"Пауза закончилась", "Пауза 1 ч", "Убрано 15 минут", "Доп. время убрано"} {
+		r := newCtRig()
+		r.svc.status = ctRunningStatus(3600)
+		r.svc.cmds = []ipc.GuardCommand{{Kind: ipc.GuardCmdNotice, Text: text}}
+		v := r.poll()
+		if v.Warning == nil || v.Warning.Text != text || v.Warning.Kind != ipc.PlateNotice {
+			t.Fatalf("сообщение «%s»: плашка %+v, ждали текст службы как есть", text, v.Warning)
+		}
+	}
+}
+
+// Ловит: текстовое сообщение службы попадает в «Добавлено N минут» или пропадает при разборе.
+func TestClassifyCommandsSplitsAddedAndText(t *testing.T) {
+	cmds := ClassifyCommands([]ipc.GuardCommand{
+		{Kind: ipc.GuardCmdNotice, Text: "Добавлено 30 минут"},
+		{Kind: ipc.GuardCmdNotice, Text: "Пауза закончилась"},
+		{Kind: ipc.GuardCmdNotice, Text: "Убрано 15 минут"},
+		{Kind: ipc.GuardCmdNotice, Text: "  "},
+	})
+	if len(cmds.NoticeMinutes) != 1 || cmds.NoticeMinutes[0] != 30 {
+		t.Fatalf("минуты: %v, ждали [30]", cmds.NoticeMinutes)
+	}
+	if strings.Join(cmds.Notices, "|") != "Пауза закончилась|Убрано 15 минут" {
+		t.Fatalf("тексты: %q", cmds.Notices)
+	}
+}
