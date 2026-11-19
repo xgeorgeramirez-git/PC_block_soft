@@ -815,6 +815,72 @@
       "error": "Перерыва сейчас нет"
     }
   },
+  "EndPause": {
+    "request": {
+      "childId": 1
+    },
+    "reply": {
+      "ok": true,
+      "payload": {
+        "card": {
+          "childId": 1,
+          "sid": "S-1-5-21-111-222-333-1001",
+          "name": "Миша",
+          "status": {
+            "name": "Миша",
+            "status": "ok",
+            "statusText": "Можно",
+            "label": "85",
+            "tooltip": "Осталось 1 ч 25 мин\nИгры: 20 мин",
+            "summary": "Сегодня осталось 1 ч 25 мин из 2 ч",
+            "day": "2026-10-19",
+            "remainingS": 5100,
+            "limitS": 7200,
+            "usedS": 2100,
+            "unlimited": false,
+            "lock": "none",
+            "reason": "",
+            "detail": "",
+            "until": "",
+            "pauseUntil": "",
+            "used": "Сегодня: 35 мин из 2 ч",
+            "bonusBalance": 0,
+            "forbiddenNote": "",
+            "gamesRemainingS": 1200,
+            "gamesLimitS": 3600,
+            "gamesUnlimited": false,
+            "endMode": "lock",
+            "closeGames": false,
+            "studyOnly": false,
+            "videoRemainingS": 0,
+            "videoLimitS": 0,
+            "videoUnlimited": false,
+            "closeVideo": false,
+            "restUntilMs": 0,
+            "restLeftS": 0,
+            "restMessage": ""
+          },
+          "extraMin": 0,
+          "bonusBalance": 0,
+          "canClearBlock": false,
+          "noForbiddenToday": false,
+          "gamesText": "Игры 40 мин из 1 ч",
+          "pendingPrograms": 0,
+          "videoText": ""
+        },
+        "message": "Пауза закончилась"
+      }
+    }
+  },
+  "EndPause#none": {
+    "request": {
+      "childId": 1
+    },
+    "reply": {
+      "ok": false,
+      "error": "Паузы сейчас нет"
+    }
+  },
   "ExtendSession": {
     "reply": {
       "ok": true,
@@ -3417,77 +3483,6 @@
           "videoText": ""
         },
         "message": "Пауза до 18:30"
-      }
-    }
-  },
-  "PauseAll": {
-    "request": {
-      "preset": "hour1"
-    },
-    "reply": {
-      "ok": true,
-      "payload": {
-        "children": [
-          {
-            "childId": 1,
-            "sid": "S-1-5-21-111-222-333-1001",
-            "name": "Миша",
-            "status": {
-              "name": "Миша",
-              "status": "ok",
-              "statusText": "Можно",
-              "label": "85",
-              "tooltip": "Осталось 1 ч 25 мин\nИгры: 20 мин",
-              "summary": "Сегодня осталось 1 ч 25 мин из 2 ч",
-              "day": "2026-10-19",
-              "remainingS": 5100,
-              "limitS": 7200,
-              "usedS": 2100,
-              "unlimited": false,
-              "lock": "none",
-              "reason": "",
-              "detail": "",
-              "until": "",
-              "pauseUntil": "",
-              "used": "Сегодня: 35 мин из 2 ч",
-              "bonusBalance": 0,
-              "forbiddenNote": "",
-              "gamesRemainingS": 1200,
-              "gamesLimitS": 3600,
-              "gamesUnlimited": false,
-              "endMode": "lock",
-              "closeGames": false,
-              "studyOnly": false,
-              "videoRemainingS": 0,
-              "videoLimitS": 0,
-              "videoUnlimited": false,
-              "closeVideo": false,
-              "restUntilMs": 0,
-              "restLeftS": 0,
-              "restMessage": ""
-            },
-            "extraMin": 0,
-            "bonusBalance": 0,
-            "canClearBlock": false,
-            "noForbiddenToday": false,
-            "gamesText": "Игры 40 мин из 1 ч",
-            "pendingPrograms": 0,
-            "videoText": ""
-          }
-        ],
-        "message": "Пауза для всех детей на 1 ч"
-      }
-    }
-  },
-  "PauseAll#empty": {
-    "request": {
-      "preset": "hour2"
-    },
-    "reply": {
-      "ok": true,
-      "payload": {
-        "children": [],
-        "message": ""
       }
     }
   },

@@ -590,12 +590,14 @@ export interface PauseReply {
   message: string;
 }
 
-export interface PauseAllRequest {
-  preset: PausePreset;
+/** Закончить паузу раньше срока (R11, D-96). */
+export interface EndPauseRequest {
+  childId: number;
 }
 
-export interface PauseAllReply {
-  children: TodayCard[];
+/** Карточка без паузы (правила уже действуют) и «Пауза закончилась». */
+export interface EndPauseReply {
+  card: TodayCard;
   message: string;
 }
 

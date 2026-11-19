@@ -3494,9 +3494,9 @@ test.describe("settings-phone: блок «Телефон»", () => {
     await page.getByRole("button", { name: "Настройки" }).click();
     const box = page.getByRole("region", { name: "Телефон" });
     await expect(box.getByRole("switch", { name: "Связь с телефоном" })).toBeEnabled();
-    // Блок сразу после «Пауза для всех детей».
-    await expect(page.locator(".settings > section > h3").nth(3)).toHaveText("Телефон");
-    await expect(page.locator(".settings > section > h3").nth(2)).toHaveText("Пауза для всех детей");
+    // Блок сразу после «Детских учёток» («Пауза для всех детей» убрана, D-96).
+    await expect(page.locator(".settings > section > h3").nth(2)).toHaveText("Телефон");
+    await expect(page.locator(".settings > section > h3").nth(1)).toHaveText("Детские учётки");
     return box;
   }
 

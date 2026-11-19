@@ -172,6 +172,12 @@ func eventText(kind, name string, d map[string]any) string {
 		}
 	case evStartupClosed:
 		body = "запись автозагрузки «" + programs.ClipName(detStr(d, "name")) + "» запускалась сама и закрыта"
+	case core.EvPauseEnd:
+		// Раньше срока (D-96): «Миша: пауза закончена раньше срока»; по сроку — как раньше.
+		body = detStr(d, "text")
+		if d["early"] == true {
+			body = decapitalize(body)
+		}
 	case core.EvRestBreak, core.EvRestEnded:
 		// «Миша: перерыв на отдых: 15 мин после 60 мин за компьютером», «Миша: вы закончили перерыв».
 		body = decapitalize(detStr(d, "text"))

@@ -85,29 +85,26 @@ func (s *Service) hPause(c *callCtx) ipc.Reply {
 	return ipc.OK(ipc.PauseReply{Card: s.cardOf(cs), Message: msg})
 }
 
-func (s *Service) hPauseAll(c *callCtx) ipc.Reply {
-	var req ipc.PauseAllRequest
+// hEndPause заканчивает паузу ребёнка раньше срока (R11, D-96): правила применяются сразу
+// (время вышло или запретные часы — экран блокировки), ребёнку плашка «Пауза закончилась».
+func (s *Service) hEndPause(c *callCtx) ipc.Reply {
+	var req ipc.EndPauseRequest
 	if c.msg.Into(&req) != nil {
 		return bad()
 	}
-	until, dur, ok := s.pauseUntil(req.Preset)
-	if !ok {
-		return bad()
+	cs := s.children[req.ChildID]
+	if cs == nil {
+		return ipc.Fail(textNoSuchChild)
 	}
-	cards := []ipc.TodayCard{}
-	for _, id := range s.childOrder() {
-		cs := s.children[id]
-		d, err := cs.eng.Pause(until)
-		if err != nil {
-			continue
-		}
-		s.afterDecision(cs, d, nil)
-		s.saveDay(cs)
-		s.noticeGuards(cs, "Пауза "+core.FormatLimit(int(dur.Minutes())))
-		cards = append(cards, s.cardOf(cs))
+	d, err := cs.eng.EndPause()
+	s.afterDecision(cs, d, nil) // и при ErrNoPause: истёкшая без тика пауза закрывается обычным концом
+	if err != nil {
+		return ipc.Fail(textPauseNone)
 	}
-	s.remoteChanged() // телефон увидит новый остаток (FR-40)
-	return ipc.OK(ipc.PauseAllReply{Children: cards, Message: "Пауза для всех детей на " + core.FormatLimit(int(dur.Minutes()))})
+	s.saveDay(cs)
+	s.noticeGuards(cs, textPauseEnded)
+	s.remoteChanged() // телефон увидит, что ребёнок снова под правилами (FR-40)
+	return ipc.OK(ipc.EndPauseReply{Card: s.cardOf(cs), Message: textPauseEnded})
 }
 
 // pauseUntil переводит preset в абсолютный момент конца паузы и её длительность (R11).

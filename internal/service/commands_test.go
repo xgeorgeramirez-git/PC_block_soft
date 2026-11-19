@@ -108,7 +108,7 @@ func wantAllowed(cmd, kind, tok string, test, configured bool) bool {
 		return test && (kind == "admin" || kind == "elev")
 	case ipc.CmdGuardState:
 		return test && (kind == "guard" || kind == "admin" || kind == "elev")
-	case ipc.CmdSaveSchedule, ipc.CmdPause, ipc.CmdPauseAll, ipc.CmdGrantBonus, ipc.CmdUndoBonus, ipc.CmdCopyRules,
+	case ipc.CmdSaveSchedule, ipc.CmdPause, ipc.CmdEndPause, ipc.CmdGrantBonus, ipc.CmdUndoBonus, ipc.CmdCopyRules,
 		ipc.CmdGetSchedule:
 		// Родительские (parentToken): нужен свой токен (R19).
 		return user && own

@@ -621,8 +621,8 @@ func TestRemoteHostLogfPassesThrough(t *testing.T) {
 	}
 }
 
-// Ловит: пауза одному и всем меняла остаток ребёнка, а телефон узнавал об этом только через
-// минуту, по расписанию отчёта (R10).
+// Ловит: пауза и её конец раньше срока меняли остаток ребёнка, а телефон узнавал об этом
+// только через минуту, по расписанию отчёта (R10, D-96).
 func TestRemoteChangedAfterPause(t *testing.T) {
 	r := newTestRelay(t)
 	h, tok := remoteHarness(t)
@@ -636,6 +636,6 @@ func TestRemoteChangedAfterPause(t *testing.T) {
 	waitRemoteCond(t, "отчёт после паузы", 5*time.Second, func() bool { return r.reportCount() > n })
 	time.Sleep(300 * time.Millisecond)
 	n = r.reportCount()
-	h.ok(adminPeer(), tok, ipc.CmdPauseAll, ipc.PauseAllRequest{Preset: ipc.PauseMin15}, nil)
-	waitRemoteCond(t, "отчёт после паузы всем", 5*time.Second, func() bool { return r.reportCount() > n })
+	h.ok(adminPeer(), tok, ipc.CmdEndPause, ipc.EndPauseRequest{ChildID: id}, nil)
+	waitRemoteCond(t, "отчёт после конца паузы", 5*time.Second, func() bool { return r.reportCount() > n })
 }

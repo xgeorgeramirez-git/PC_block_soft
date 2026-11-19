@@ -364,12 +364,23 @@ describe("Settings: о программе", () => {
 });
 
 
+describe("Settings: без «Пауза для всех детей» (D-96)", () => {
+  // Ловит: в «Настройках» осталась пауза для всех, которую нельзя закончить (FB-25).
+  it("блока паузы нет: пауза ставится только у ребёнка на «Сегодня»", async () => {
+    await setup();
+    await screen.findByRole("heading", { name: "Детские учётки" });
+    expect(screen.queryByText(/Пауза/)).toBeNull();
+    expect(screen.queryByRole("button", { name: /паузу|Пауза/ })).toBeNull();
+  });
+});
+
 describe("Settings: блок «Телефон» (M7, FR-40)", () => {
-  // Ловит: блок не на своём месте (план M7, T5: после «Пауза для всех») или опрашивает без сессии.
-  it("стоит сразу после «Пауза для всех», выключен по умолчанию", async () => {
+  // Ловит: блок не на своём месте (после «Детских учёток»; «Пауза для всех» убрана, D-96)
+  // или опрашивает без сессии.
+  it("стоит сразу после «Детских учёток», выключен по умолчанию", async () => {
     await setup();
     const heads = screen.getAllByRole("heading", { level: 3 }).map((h) => h.textContent);
-    expect(heads.indexOf("Телефон")).toBe(heads.indexOf("Пауза для всех детей") + 1);
+    expect(heads.indexOf("Телефон")).toBe(heads.indexOf("Детские учётки") + 1);
     await vi.waitFor(() => expect((screen.getByRole("switch", { name: "Связь с телефоном" }) as HTMLInputElement).disabled).toBe(false));
     expect((screen.getByRole("switch", { name: "Связь с телефоном" }) as HTMLInputElement).checked).toBe(false);
     expect(mock.count("GetRemote")).toBeGreaterThanOrEqual(1);
