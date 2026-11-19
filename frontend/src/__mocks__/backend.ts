@@ -2045,7 +2045,7 @@ export function createBackend(opts: MockOptions = {}): MockBackend {
     RemotePairStart: (_req, now) => {
       const r = state.remote;
       if (!r.view.enabled || r.view.state !== "online") {
-        r.view.pair = { ...idlePair(), stage: "failed", error: "no_server" };
+        r.view.pair = { ...idlePair(), stage: "failed", error: "no_code" };
         return okReply(remoteView(now));
       }
       r.view.pair = { ...idlePair(), stage: "code", code: MOCK_PAIR_CODE, expiresMs: now + MOCK_PAIR_TTL_MS };

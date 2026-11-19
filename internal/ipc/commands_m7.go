@@ -47,7 +47,8 @@ const (
 	PairErrExpired  = "expired"   // 10 минут прошли
 	PairErrMismatch = "mismatch"  // «Не совпадает»
 	PairErrAborted  = "aborted"   // нарушен порядок сообщений (протокол, раздел 4) или телефон отменил
-	PairErrNoServer = "no_server" // сервер не ответил на запрос кода
+	PairErrNoCode   = "no_code"   // сервер не ответил на запрос кода
+	PairErrNoServer = "no_server" // код был показан, связь с сервером оборвалась
 )
 
 // RemoteView — состояние блока «Телефон». LastOKMs — последний удачный обмен с сервером (UTC мс;

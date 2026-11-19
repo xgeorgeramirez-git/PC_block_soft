@@ -872,7 +872,7 @@ export type RemoteError = "" | "no_server" | "bad_address" | "lost";
 /** Этап привязки телефона. */
 export type PairStage = "idle" | "starting" | "code" | "compare" | "failed";
 /** Причина неудачной привязки. */
-export type PairError = "" | "expired" | "mismatch" | "aborted" | "no_server";
+export type PairError = "" | "expired" | "mismatch" | "aborted" | "no_code" | "no_server";
 
 /** Привязанный телефон: имя и момент привязки (UTC мс). */
 export interface RemotePhone {

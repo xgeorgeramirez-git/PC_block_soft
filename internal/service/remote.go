@@ -534,6 +534,8 @@ func pairErrOf(code string) string {
 		return ipc.PairErrMismatch
 	case remote.PairErrNoServer:
 		return ipc.PairErrNoServer
+	case remote.PairErrNoCode:
+		return ipc.PairErrNoCode
 	}
 	return ipc.PairErrAborted
 }

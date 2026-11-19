@@ -30,7 +30,8 @@ const (
 
 // Причины отмены привязки (PairInfo.Error); тексты делает окно.
 const (
-	PairErrNoServer = "no_server" // код не получен или ответ телефону не ушёл
+	PairErrNoCode   = "no_code"   // код не получен: сервер не ответил на pair-code
+	PairErrNoServer = "no_server" // код был показан, ответ телефону не ушёл
 	PairErrExpired  = "expired"   // 10 мин без следующего шага
 	PairErrMismatch = "mismatch"  // «Не совпадает»
 	PairErrAborted  = "aborted"   // нарушен порядок привязки
@@ -837,7 +838,7 @@ func (w *worker) startPairing() {
 	}
 	w.l.setPair(w.r, PairInfo{Stage: StageCode})
 	if w.tok == "" {
-		w.l.setPair(w.r, PairInfo{Stage: StageFailed, Error: PairErrNoServer})
+		w.l.setPair(w.r, PairInfo{Stage: StageFailed, Error: PairErrNoCode})
 		return
 	}
 	var code string
@@ -847,7 +848,7 @@ func (w *worker) startPairing() {
 		return e
 	})
 	if err != nil {
-		reason := PairErrNoServer
+		reason := PairErrNoCode
 		if isUnauthorized(err) {
 			reason = PairErrLost
 		}

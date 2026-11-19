@@ -588,6 +588,7 @@ func TestRemotePairView(t *testing.T) {
 		{remote.PairInfo{Stage: remote.StageFailed, Error: remote.PairErrExpired}, ipc.RemotePair{Stage: ipc.PairFailed, Error: ipc.PairErrExpired}},
 		{remote.PairInfo{Stage: remote.StageFailed, Error: remote.PairErrMismatch}, ipc.RemotePair{Stage: ipc.PairFailed, Error: ipc.PairErrMismatch}},
 		{remote.PairInfo{Stage: remote.StageFailed, Error: remote.PairErrNoServer}, ipc.RemotePair{Stage: ipc.PairFailed, Error: ipc.PairErrNoServer}},
+		{remote.PairInfo{Stage: remote.StageFailed, Error: remote.PairErrNoCode}, ipc.RemotePair{Stage: ipc.PairFailed, Error: ipc.PairErrNoCode}},
 		{remote.PairInfo{Stage: remote.StageFailed, Error: remote.PairErrBadPhone}, ipc.RemotePair{Stage: ipc.PairFailed, Error: ipc.PairErrAborted}},
 		{remote.PairInfo{Stage: remote.StageFailed, Error: remote.PairErrStopped}, ipc.RemotePair{Stage: ipc.PairIdle}},
 	}

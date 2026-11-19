@@ -70,8 +70,10 @@ export function pairErrorText(code: PairError): string {
       return "Подключение отменено. Начните заново";
     case "expired":
       return "Время на подключение вышло. Начните заново";
-    case "no_server":
+    case "no_code":
       return "Не удалось получить код: сервер не отвечает. Проверьте адрес и интернет";
+    case "no_server":
+      return "Нет связи с сервером. Попробуйте ещё раз";
     default:
       return "Подключение прервано. Начните заново";
   }

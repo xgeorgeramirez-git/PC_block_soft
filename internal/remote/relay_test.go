@@ -35,6 +35,7 @@ type miniRelay struct {
 	// Подмены для тестов (под mu).
 	pollHook  func(n int) (status int, body []byte, ok bool) // ok — ответ подменён
 	hangPoll  bool                                           // опрос висит до отмены запроса
+	codeFail  bool                                           // pair-code отвечает 503
 	toPC      func(*Msg)                                     // посредник: сообщение телефона → компьютеру
 	toPhone   func(*Msg)                                     // посредник: ответ компьютера → телефону
 	reqHeader []http.Header
@@ -106,6 +107,11 @@ func (r *miniRelay) hRegister(w http.ResponseWriter, q *http.Request) {
 
 func (r *miniRelay) hPairCode(w http.ResponseWriter, q *http.Request, _ string) {
 	r.mu.Lock()
+	if r.codeFail {
+		r.mu.Unlock()
+		r.fail(w, 503, "busy")
+		return
+	}
 	r.pairCodes++
 	r.code = fmt.Sprintf("%06d", 123450+r.pairCodes)
 	code := r.code

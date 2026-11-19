@@ -1127,3 +1127,17 @@ func TestLinkOutageNewCodeLogged(t *testing.T) {
 		t.Fatalf("потеря %d, возврат %d:\n%s", lost, back, strings.Join(g.h.logs, "\n"))
 	}
 }
+
+// Код не получен — своя причина (окно: «Не удалось получить код»); обрыв после показа кода —
+// «нет связи» (R9).
+func TestPairErrorByStage(t *testing.T) {
+	g := newRig(t, nil)
+	g.start()
+	g.r.mu.Lock()
+	g.r.codeFail = true
+	g.r.mu.Unlock()
+	g.l.StartPairing()
+	if pi := g.waitStage(StageFailed); pi.Error != PairErrNoCode {
+		t.Fatalf("код не получен: %+v", pi)
+	}
+}
