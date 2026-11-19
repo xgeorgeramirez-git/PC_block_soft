@@ -321,7 +321,7 @@ describe("меню окна родителя", () => {
     await user.click(item);
     expect(item.getAttribute("aria-current")).toBe("page");
     const versions = (await screen.findAllByRole("heading", { level: 3 })).map((h) => h.textContent);
-    expect(versions[0]).toBe("Версия 0.8.0. Связь с телефоном");
+    expect(versions[0]).toBe("Версия 0.8.1. Пауза: значок у каждого ребёнка");
     expect(screen.queryByRole("heading", { name: "Помощь" })).toBeNull();
   });
 
