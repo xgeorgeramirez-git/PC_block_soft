@@ -33,6 +33,7 @@ type fakePC struct {
 	wrongHash  bool // ответ cmdr не на эту команду
 	srv        *httptest.Server
 	cmdApplied int
+	notes      []remote.NoteReport
 }
 
 func newFakePC(t *testing.T) *fakePC {
@@ -99,7 +100,8 @@ func (f *fakePC) signed(v any) json.RawMessage {
 
 func (f *fakePC) report() remote.Report {
 	return remote.Report{V: 1, T: remote.TypeReport, PC: "pc1", Phone: "ph1", TS: time.Now().UnixMilli(),
-		Children: []remote.ChildReport{{ID: 3, Name: "Миша", UsedSec: 60, LeftSec: int64(1800 + f.extra*60), ExtraMin: f.extra}}}
+		Children: []remote.ChildReport{{ID: 3, Name: "Миша", UsedSec: 60, LeftSec: int64(1800 + f.extra*60), ExtraMin: f.extra}},
+		Notes:    append([]remote.NoteReport(nil), f.notes...)}
 }
 
 func (f *fakePC) hSend(w http.ResponseWriter, r *http.Request) {
@@ -141,6 +143,23 @@ func (f *fakePC) hSend(w http.ResponseWriter, r *http.Request) {
 			res.Error, res.LastSeq = code, &last
 		}
 		f.reply(w, 200, map[string]any{"reply": remote.Msg{ID: "m3", From: "ph1", Kind: remote.KindCmdR, Body: f.signed(res)}})
+	case remote.KindNote:
+		var s remote.Signed
+		json.Unmarshal(in.Body, &s)
+		st := remote.State{PCID: "pc1", Phone: &remote.Phone{ID: "ph1", Pub: f.phonePub}, LastSeq: f.lastSeq}
+		n, _, code := remote.CheckNote(st, s, "ph1", time.Now())
+		data, _ := unb64(s.Data)
+		res := remote.CmdResult{V: 1, T: remote.TypeNoteR, PC: "pc1", Phone: "ph1", Seq: n.Seq, Cmd: remote.HashData(data), TS: time.Now().UnixMilli()}
+		if code == "" {
+			f.lastSeq = n.Seq
+			f.notes = append(f.notes, remote.NoteReport{ID: n.ID, Child: n.Child, State: remote.NoteQueued, AtMs: 1})
+			rep := f.report()
+			res.OK, res.Report = true, &rep
+		} else {
+			last := f.lastSeq
+			res.Error, res.LastSeq = code, &last
+		}
+		f.reply(w, 200, map[string]any{"reply": remote.Msg{ID: "m4", From: "ph1", Kind: remote.KindNoteR, Body: f.signed(res)}})
 	default:
 		f.reply(w, 400, map[string]any{"error": "bad_request"})
 	}
@@ -252,5 +271,42 @@ func TestPhoneUsage(t *testing.T) {
 	missing := filepath.Join(t.TempDir(), "нет.json")
 	if code, out := runJSON(t, "status", "-state", missing); code != 1 || !strings.Contains(out["error"].(string), "no_state") {
 		t.Fatalf("%d %v", code, out)
+	}
+}
+
+// Ловит: тестовый телефон шлёт сообщение не в общей нумерации с командами, тратит номер на подделку,
+// не видит состояния сообщений в проверенном отчёте (S57).
+func TestPhoneNotes(t *testing.T) {
+	f := newFakePC(t)
+	state := filepath.Join(t.TempDir(), "phone.json")
+	if code, out := runJSON(t, "pair", "-state", state, "-url", f.srv.URL, "-code", "123456"); code != 0 {
+		t.Fatalf("pair: %v", out)
+	}
+	runJSON(t, "confirm", "-state", state)
+	runJSON(t, "cmd", "-state", state, "-child", "3", "-delta", "1")
+	code, out := runJSON(t, "note", "-state", state, "-child", "3", "-text", "Иди ужинать", "-show", "0")
+	id, _ := out["id"].(string)
+	if code != 0 || out["ok"] != true || out["seq"] != float64(2) || len(id) != 22 {
+		t.Fatalf("note: %d %v", code, out)
+	}
+	if _, ok := out["ms"].(float64); !ok {
+		t.Fatalf("note: нет ms: %v", out)
+	}
+	if code, out := runJSON(t, "forge-note", "-state", state, "-child", "3", "-text", "Чужое", "-show", "0"); code != 2 || out["error"] != remote.ErrCodeBadSig {
+		t.Fatalf("forge-note: %d %v", code, out)
+	}
+	if code, out := runJSON(t, "note", "-state", state, "-child", "3", "-text", "x", "-show", "15"); code != 2 || out["error"] != remote.ErrCodeRange || out["seq"] != float64(3) {
+		t.Fatalf("show 15: %d %v", code, out)
+	}
+	if code, out := runJSON(t, "cmd", "-state", state, "-child", "3", "-delta", "1"); code != 0 || out["seq"] != float64(4) {
+		t.Fatalf("команда после сообщений: %d %v", code, out)
+	}
+	code, out = runJSON(t, "notes", "-state", state)
+	notes, _ := out["notes"].([]any)
+	if code != 0 || len(notes) != 1 || notes[0].(map[string]any)["id"] != id || notes[0].(map[string]any)["state"] != remote.NoteQueued {
+		t.Fatalf("notes: %d %v", code, out)
+	}
+	if code, out := runJSON(t, "note", "-state", state, "-child", "3"); code != 1 || out["error"] != errUsage {
+		t.Fatalf("без текста: %d %v", code, out)
 	}
 }

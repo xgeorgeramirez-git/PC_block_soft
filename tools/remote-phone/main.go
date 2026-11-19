@@ -9,6 +9,9 @@
 //	remote-phone status  -state f.json
 //	remote-phone forge-cmd -state f.json -child 3 -delta 15   (подпись чужим ключом)
 //	remote-phone replay  -state f.json                        (повтор последней команды, тот же seq)
+//	remote-phone note    -state f.json -child 3 -text "Иди ужинать" -show 0   (сообщение, FR-41)
+//	remote-phone forge-note -state f.json -child 3 -text "…" -show 0       (подпись чужим ключом)
+//	remote-phone notes   -state f.json                        (состояния сообщений из отчёта)
 //
 // Вывод — одна строка JSON. Код выхода: 0 — удалось, 2 — компьютер ответил отказом (ответ
 // проверен подписью), 1 — любая другая ошибка ({"error":"<код>"}).
@@ -88,7 +91,7 @@ func main() {
 
 func (a *app) run(args []string) int {
 	if len(args) == 0 {
-		return a.emitErr(fail(errUsage, "нужна подкоманда: pair, confirm, cmd, status, forge-cmd, replay"))
+		return a.emitErr(fail(errUsage, "нужна подкоманда: pair, confirm, cmd, status, forge-cmd, replay, note, forge-note, notes"))
 	}
 	sub, rest := args[0], args[1:]
 	fs := flag.NewFlagSet(sub, flag.ContinueOnError)
@@ -99,6 +102,8 @@ func (a *app) run(args []string) int {
 	name := fs.String("name", "Тестовый телефон", "имя телефона (pair)")
 	child := fs.Int64("child", 0, "id ребёнка (cmd, forge-cmd)")
 	delta := fs.Int("delta", 0, "минуты доп. времени, со знаком (cmd, forge-cmd)")
+	text := fs.String("text", "", "текст сообщения (note, forge-note)")
+	show := fs.Int("show", 0, "сколько показывать, с: 0 (до «Понял»), 10, 30, 60 (note, forge-note)")
 	if err := fs.Parse(rest); err != nil {
 		return a.emitErr(fail(errUsage, "%v", err))
 	}
@@ -116,6 +121,14 @@ func (a *app) run(args []string) int {
 		res, rejected = r, err == nil && !r.OK
 	case "status":
 		res, err = a.status(*statePath)
+	case "note", "forge-note":
+		var r noteOut
+		r, err = a.note(*statePath, sub, *child, *text, *show)
+		res, rejected = r, err == nil && !r.OK
+	case "notes":
+		var r statusOut
+		r, err = a.status(*statePath)
+		res = map[string]any{"notes": r.Notes, "reportTs": r.ReportTS, "report": r.Report}
 	default:
 		err = fail(errUsage, "неизвестная подкоманда %q", sub)
 	}
@@ -470,17 +483,18 @@ type statusOut struct {
 	Report       bool                 `json:"report"`
 	ReportTS     int64                `json:"reportTs"`
 	Children     []remote.ChildReport `json:"children"`
+	Notes        []remote.NoteReport  `json:"notes"`
 }
 
 // status — GET /v1/phone/status: доступность по pcLastSeenMs и отчёт, проверенный подписью
 // компьютера (протокол, раздел 6). Отчёт без верной подписи — ошибка, не показывается.
-func (a *app) status(statePath string) (any, error) {
+func (a *app) status(statePath string) (statusOut, error) {
 	st, err := loadState(statePath)
 	if err != nil {
-		return nil, err
+		return statusOut{}, err
 	}
 	if !st.Confirmed {
-		return nil, fail(errNotConfirmed, "сначала confirm")
+		return statusOut{}, fail(errNotConfirmed, "сначала confirm")
 	}
 	var resp struct {
 		PCLastSeenMs int64           `json:"pcLastSeenMs"`
@@ -488,37 +502,132 @@ func (a *app) status(statePath string) (any, error) {
 		Report       json.RawMessage `json:"report"`
 	}
 	if err := a.call(http.MethodGet, st.URL, "/v1/phone/status", st.PhoneToken, nil, &resp); err != nil {
-		return nil, err
+		return statusOut{}, err
 	}
 	out := statusOut{
 		Online:       resp.PCLastSeenMs > 0 && resp.ServerNowMs-resp.PCLastSeenMs <= 60_000,
-		PCLastSeenMs: resp.PCLastSeenMs, ServerNowMs: resp.ServerNowMs, Children: []remote.ChildReport{},
+		PCLastSeenMs: resp.PCLastSeenMs, ServerNowMs: resp.ServerNowMs, Children: []remote.ChildReport{}, Notes: []remote.NoteReport{},
 	}
 	if len(resp.Report) == 0 || string(resp.Report) == "null" {
 		return out, nil
 	}
 	var s remote.Signed
 	if err := json.Unmarshal(resp.Report, &s); err != nil {
-		return nil, fail(errBadAnswer, "report: %v", err)
+		return statusOut{}, fail(errBadAnswer, "report: %v", err)
 	}
 	pcKey, err := st.pcKey()
 	if err != nil {
-		return nil, err
+		return statusOut{}, err
 	}
 	data, err := remote.Verify(pcKey, s)
 	if err != nil {
-		return nil, fail(errBadSig, "report: %v", err)
+		return statusOut{}, fail(errBadSig, "report: %v", err)
 	}
 	var rep remote.Report
 	if err := json.Unmarshal(data, &rep); err != nil {
-		return nil, fail(errBadAnswer, "report: %v", err)
+		return statusOut{}, fail(errBadAnswer, "report: %v", err)
 	}
 	if rep.T != remote.TypeReport || rep.PC != st.PCID || rep.Phone != st.PhoneID {
-		return nil, fail(errBadSig, "отчёт не для этого телефона (t=%q)", rep.T)
+		return statusOut{}, fail(errBadSig, "отчёт не для этого телефона (t=%q)", rep.T)
 	}
 	out.Report, out.ReportTS = true, rep.TS
 	if rep.Children != nil {
 		out.Children = rep.Children
+	}
+	if rep.Notes != nil {
+		out.Notes = rep.Notes
+	}
+	return out, nil
+}
+
+// ---------- note, forge-note ----------
+
+type noteOut struct {
+	OK      bool   `json:"ok"`
+	ID      string `json:"id"`
+	Error   string `json:"error,omitempty"`
+	Ms      int64  `json:"ms"`
+	Seq     int64  `json:"seq"`
+	LastSeq *int64 `json:"lastSeq,omitempty"`
+}
+
+// note — сообщение ребёнку (протокол, раздел 5а): следующий seq (общий с командами), случайный id
+// из 16 байтов, подпись ключом телефона; forge-note — подпись чужим ключом (seq не тратится). Ответ
+// noter принимается, только если подпись компьютера верна и cmd — хэш нашего сообщения.
+func (a *app) note(statePath, sub string, child int64, text string, show int) (noteOut, error) {
+	st, err := loadState(statePath)
+	if err != nil {
+		return noteOut{}, err
+	}
+	if !st.Confirmed {
+		return noteOut{}, fail(errNotConfirmed, "сначала confirm")
+	}
+	if child <= 0 || text == "" {
+		return noteOut{}, fail(errUsage, "%s: нужны -child и -text", sub)
+	}
+	idRaw := make([]byte, 16)
+	if _, err := rand.Read(idRaw); err != nil {
+		return noteOut{}, err
+	}
+	n := remote.Note{V: remote.ProtoVersion, T: remote.TypeNote, PC: st.PCID, Phone: st.PhoneID, Seq: st.Seq + 1,
+		TS: a.now().UnixMilli(), Child: child, ID: b64(idRaw), Text: text, ShowSec: show}
+	data, err := json.Marshal(n)
+	if err != nil {
+		return noteOut{}, err
+	}
+	key, err := st.key()
+	if err != nil {
+		return noteOut{}, err
+	}
+	if sub == "forge-note" {
+		if key, err = remote.NewKey(); err != nil {
+			return noteOut{}, err
+		}
+	} else {
+		st.Seq = n.Seq // номер записан до отправки, как у команды
+		if err := saveState(statePath, st); err != nil {
+			return noteOut{}, err
+		}
+	}
+	signed, err := remote.Sign(key, data)
+	if err != nil {
+		return noteOut{}, err
+	}
+	var resp struct {
+		Reply remote.Msg `json:"reply"`
+	}
+	start := time.Now()
+	err = a.call(http.MethodPost, st.URL, "/v1/phone/send", st.PhoneToken, map[string]any{"kind": remote.KindNote, "body": signed}, &resp)
+	ms := time.Since(start).Milliseconds()
+	if err != nil {
+		return noteOut{}, err
+	}
+	if resp.Reply.Kind != remote.KindNoteR {
+		return noteOut{}, fail(errBadAnswer, "ответ не noter (%q)", resp.Reply.Kind)
+	}
+	var rs remote.Signed
+	if err := json.Unmarshal(resp.Reply.Body, &rs); err != nil {
+		return noteOut{}, fail(errBadAnswer, "noter: %v", err)
+	}
+	pcKey, err := st.pcKey()
+	if err != nil {
+		return noteOut{}, err
+	}
+	rdata, err := remote.Verify(pcKey, rs)
+	if err != nil {
+		return noteOut{}, fail(errBadSig, "noter: %v", err)
+	}
+	var res remote.CmdResult
+	if err := json.Unmarshal(rdata, &res); err != nil {
+		return noteOut{}, fail(errBadAnswer, "noter: %v", err)
+	}
+	if res.T != remote.TypeNoteR || res.PC != st.PCID || res.Phone != st.PhoneID || res.Cmd != remote.HashData(data) {
+		return noteOut{}, fail(errBadSig, "noter не на наше сообщение (t=%q)", res.T)
+	}
+	out := noteOut{OK: res.OK, ID: n.ID, Error: res.Error, Ms: ms, Seq: n.Seq, LastSeq: res.LastSeq}
+	if !res.OK && res.LastSeq != nil && *res.LastSeq > st.Seq && sub == "note" {
+		st.Seq = *res.LastSeq
+		_ = saveState(statePath, st)
 	}
 	return out, nil
 }
