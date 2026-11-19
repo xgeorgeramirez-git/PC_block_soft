@@ -390,6 +390,7 @@ func wndProc(hwnd, msg, wParam, lParam uintptr) uintptr {
 		}
 		procSetWindowPos.Call(hwnd, hwndTopmost, 0, 0, 0, 0, swpNoMove|swpNoSize)
 		procSetForegroundWin.Call(hwnd)
+		raiseNoteAboveLock() // плашка «Сообщение от родителя» остаётся над экраном (FR-41)
 		return 0
 	case wmPaint:
 		paint(hwnd)

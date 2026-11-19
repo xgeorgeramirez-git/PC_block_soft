@@ -29,6 +29,7 @@ const (
 	TargetSpendBonusPlate = "spendBonusPlate"        // «Взять из копилки» на плашке 1 мин (RM3-5)
 	TargetAskMorePlate    = "askMorePlate"           // «Попросить ещё» на плашке 1 мин (RM3-5)
 	TargetEndBreak        = "endBreak"               // «Закончить перерыв» после пароля (R27, приёмка S43)
+	TargetNoteOK          = ipc.ButtonNoteOK         // «Понял» на плашке «Сообщение от родителя» (FR-41, приёмка S57)
 )
 
 // FieldPasswordID — идентификатор поля пароля в TestGuard (действие type) и в GuardState.Fields.
@@ -61,6 +62,7 @@ var targetNames = map[Button]string{
 	ButtonPlateSpendBonus: TargetSpendBonusPlate,
 	ButtonPlateAskMore:    TargetAskMorePlate,
 	ButtonEndBreak:        TargetEndBreak,
+	ButtonNoteOK:          TargetNoteOK,
 }
 
 // TargetName возвращает имя кнопки для канала связи; у ButtonNone и неизвестного значения пусто.

@@ -269,3 +269,34 @@ func TestPromoSide(t *testing.T) {
 		t.Fatalf("ширина места сбоку на узком экране %d, want 0", w)
 	}
 }
+
+// Плашка сообщения (FR-41): блоки не налезают, кнопка «Понял» большая (не меньше 200×56 при 100 %),
+// всё внутри окна; на узком экране плашка не шире экрана; стоит сверху по центру.
+func TestNoteLayout(t *testing.T) {
+	for _, dpi := range []int{96, 120, 144, 192} {
+		for _, areaW := range []int32{1280, 800, 400} {
+			w := NoteWidth(dpi, areaW)
+			if w > areaW {
+				t.Fatalf("dpi %d, экран %d: плашка %d шире экрана", dpi, areaW, w)
+			}
+			l := NewNoteLayout(dpi, w, Scaled(28, dpi), Scaled(150, dpi))
+			in := func(r Rect) bool { return r.Left >= 0 && r.Top >= 0 && r.Right <= l.W && r.Bottom <= l.H }
+			if !in(l.Title) || !in(l.Text) || !in(l.Button) {
+				t.Fatalf("dpi %d: блок вне окна: %+v", dpi, l)
+			}
+			if l.Title.Bottom > l.Text.Top || l.Text.Bottom > l.Button.Top {
+				t.Fatalf("dpi %d: блоки налезают: %+v", dpi, l)
+			}
+			if l.Button.Bottom-l.Button.Top < Scaled(56, dpi) || areaW >= 800 && l.Button.Right-l.Button.Left < Scaled(200, dpi) {
+				t.Fatalf("dpi %d: кнопка мала: %+v", dpi, l.Button)
+			}
+			if c := (l.Button.Left + l.Button.Right) / 2; c < (l.Text.Left+l.Text.Right)/2-1 || c > (l.Text.Left+l.Text.Right)/2+1 {
+				t.Fatalf("dpi %d: кнопка не по центру: %+v", dpi, l)
+			}
+		}
+	}
+	p := NotePlace(96, Rect{Left: 0, Top: 0, Right: 1920, Bottom: 1040}, 560, 300)
+	if p.Left != 680 || p.Top != 24 || p.Right != 1240 || p.Bottom != 324 {
+		t.Fatalf("место: %+v", p)
+	}
+}

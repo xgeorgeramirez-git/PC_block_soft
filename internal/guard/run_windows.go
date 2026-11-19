@@ -52,6 +52,7 @@ type app struct {
 	lock      *LockWindow
 	ui        *lockUI
 	plate     *plateWindow
+	note      *noteWindow // плашка «Сообщение от родителя» (FR-41), поверх экрана блокировки
 	board     *systray.WarningCard
 	boardFail time.Time // когда не удалось создать окно табло; повтор не чаще boardRetry
 	hookTried bool
@@ -305,6 +306,7 @@ func (a *app) tick() {
 	a.applyLock(v)
 	a.applyAnim(v)
 	a.applyPlate(v)
+	a.applyNote(v) // после экрана блокировки: плашка сообщения встаёт над ним
 	for _, t := range a.ctl.QueuedTests() {
 		a.runTestAction(t)
 	}
@@ -425,6 +427,24 @@ func (a *app) applyPlate(v View) {
 	a.plate.apply(text)
 }
 
+// applyNote показывает плашку «Сообщение от родителя» или прячет её (FR-41).
+func (a *app) applyNote(v View) {
+	if v.Note == nil {
+		if a.note != nil {
+			a.note.hide()
+		}
+		return
+	}
+	if a.note == nil {
+		n, err := newNoteWindow(a.press)
+		if err != nil {
+			return // следующий кадр попробует снова; служба ждёт «показано» и повторит
+		}
+		a.note = n
+	}
+	a.note.apply(v.Note)
+}
+
 // shutdown убирает окна и перехват клавиш.
 func (a *app) shutdown() {
 	if a.anim != nil {
@@ -441,6 +461,9 @@ func (a *app) shutdown() {
 	}
 	if a.plate != nil {
 		a.plate.close()
+	}
+	if a.note != nil {
+		a.note.close()
 	}
 	if a.board != nil {
 		a.board.Close()

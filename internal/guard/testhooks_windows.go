@@ -30,6 +30,13 @@ func (a *app) runTestAction(t ipc.TestGuardAction) {
 			}
 			return
 		}
+		if b == ButtonNoteOK {
+			// «Понял» на плашке сообщения: щелчок мыши в её окне (FR-41, приёмка S57).
+			if a.note != nil {
+				a.note.click()
+			}
+			return
+		}
 		if isPlateButton(b) {
 			// Кнопки текстовой плашки: щелчок мыши в её окне (RM3-4, RM3-5).
 			if a.plate != nil {

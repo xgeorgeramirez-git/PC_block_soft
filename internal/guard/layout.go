@@ -180,3 +180,63 @@ func (l PlateLayout) Hit(x, y int32) int {
 	}
 	return -2
 }
+
+// NoteLayout — раскладка плашки «Сообщение от родителя» (FR-41): заголовок, текст крупно с переносами,
+// большая кнопка «Понял» по центру внизу. Координаты клиентские, в пикселях экрана.
+type NoteLayout struct {
+	W, H   int32
+	Title  Rect
+	Text   Rect
+	Button Rect
+}
+
+// Размеры плашки сообщения при 96 dpi: ширина 560, полоса цвета слева 8, поля 24, кнопка 200×56.
+const (
+	noteWidthPx   = 560
+	noteBarPx     = 8
+	notePadPx     = 24
+	noteGapPx     = 10
+	noteBtnGapPx  = 20
+	noteBtnWPx    = 200
+	noteBtnHPx    = 56
+	noteMarginPx  = 24 // от верхнего края рабочей области
+	noteMinSidePx = 16 // от боковых краёв на узком экране
+)
+
+// NoteWidth — ширина плашки сообщения при dpi на экране шириной areaW (узкий экран — уже).
+func NoteWidth(dpi int, areaW int32) int32 {
+	w := Scaled(noteWidthPx, dpi)
+	if limit := areaW - 2*Scaled(noteMinSidePx, dpi); limit > 0 && w > limit {
+		w = limit
+	}
+	return w
+}
+
+// NoteTextWidth — ширина области заголовка и текста плашки шириной w: окно знает её до измерения.
+func NoteTextWidth(dpi int, w int32) int32 {
+	return w - Scaled(noteBarPx, dpi) - 2*Scaled(notePadPx, dpi)
+}
+
+// NewNoteLayout считает плашку ширины w для заголовка высотой titleH и текста высотой textH.
+func NewNoteLayout(dpi int, w, titleH, textH int32) NoteLayout {
+	s := func(px int) int32 { return Scaled(px, dpi) }
+	left, pad := s(noteBarPx)+s(notePadPx), s(notePadPx)
+	l := NoteLayout{W: w}
+	tw := NoteTextWidth(dpi, w)
+	l.Title = Rect{Left: left, Top: pad, Right: left + tw, Bottom: pad + titleH}
+	l.Text = Rect{Left: left, Top: l.Title.Bottom + s(noteGapPx), Right: left + tw, Bottom: l.Title.Bottom + s(noteGapPx) + textH}
+	bw := min(s(noteBtnWPx), tw)
+	bl := left + (tw-bw)/2
+	bt := l.Text.Bottom + s(noteBtnGapPx)
+	l.Button = Rect{Left: bl, Top: bt, Right: bl + bw, Bottom: bt + s(noteBtnHPx)}
+	l.H = l.Button.Bottom + pad
+	return l
+}
+
+// NotePlace — где стоит плашка сообщения высотой h в рабочей области area: сверху по центру, над
+// экраном блокировки (его кнопки и поле пароля — в середине и ниже, NFR-10).
+func NotePlace(dpi int, area Rect, w, h int32) Rect {
+	left := area.Left + (area.Right-area.Left-w)/2
+	top := area.Top + Scaled(noteMarginPx, dpi)
+	return Rect{Left: left, Top: top, Right: left + w, Bottom: top + h}
+}
