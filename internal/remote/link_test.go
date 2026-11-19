@@ -857,6 +857,31 @@ func TestLinkUnauthorizedReregisters(t *testing.T) {
 	}
 }
 
+// 401 не от сервера связи (прокси, чужой сервис) — обычная ошибка с паузой: компьютер не
+// регистрируется заново и телефон не отвязывается (R4, PL-46).
+func TestLinkForeignUnauthorizedKeepsPhone(t *testing.T) {
+	phone := mustKey(t)
+	g := newRig(t, func(g *rig) { g.h.st, _ = pairedState(t, g.r, phone, 7) })
+	g.r.pollHook = func(n int) (int, []byte, bool) {
+		switch {
+		case n <= 2:
+			return 401, []byte(`<html>Proxy login</html>`), true
+		case n <= 4:
+			return 401, []byte(`{"error":"login_required"}`), true
+		}
+		return 0, nil, false
+	}
+	g.start()
+	if len(g.sl.list()) < 4 {
+		t.Fatalf("пауз после 401 %d, ожидали 4", len(g.sl.list()))
+	}
+	n, _, _, _ := g.r.snapshot()
+	st, _, events, _ := g.h.get()
+	if n != 0 || st.PCID != "pc-x" || st.Phone == nil || st.LastSeq != 7 || len(events) != 0 {
+		t.Fatalf("после чужого 401: регистраций %d, %+v, события %v", n, st, events)
+	}
+}
+
 func TestLinkRegistersAndReports(t *testing.T) {
 	g := newRig(t, nil)
 	g.start()
@@ -918,7 +943,16 @@ func TestLinkUnpair(t *testing.T) {
 	phone := mustKey(t)
 	g := newRig(t, func(g *rig) { g.h.st, _ = pairedState(t, g.r, phone, 3) })
 	g.start()
-	g.l.Unpair()
+	// «Отвязать» прежнего телефона, пока в очереди перед ним «Совпадает» нового: новый не страдает (R5).
+	g.l.Unpair("ph0")
+	time.Sleep(30 * time.Millisecond)
+	if st, _, ev, _ := g.h.get(); st.Phone == nil || st.Phone.ID != "ph1" || len(ev) != 0 {
+		t.Fatalf("отвязан чужой телефон: %+v %v", st.Phone, ev)
+	}
+	if _, _, u, _ := g.r.snapshot(); len(u) != 0 {
+		t.Fatalf("на сервере погашен %v", u)
+	}
+	g.l.Unpair("ph1")
 	waitFor(t, "отвязка", func() bool { _, _, u, _ := g.r.snapshot(); return len(u) == 1 && u[0] == "ph1" })
 	st, _, events, _ := g.h.get()
 	if st.Phone != nil || len(events) != 1 || events[0] != "unpaired:Pixel" {
@@ -933,7 +967,7 @@ func TestLinkNotRunning(t *testing.T) {
 		t.Fatalf("%+v", pi)
 	}
 	l.ConfirmPairing(true)
-	l.Unpair()
+	l.Unpair("ph1")
 	l.Changed()
 	l.CancelPairing()
 	l.Stop()

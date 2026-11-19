@@ -149,6 +149,8 @@ func TestClientBadAnswers(t *testing.T) {
 		{"429", 429, []byte(`{"error":"too_many"}`), StatusTooMany},
 		{"404", 404, []byte(`not found`), StatusBadAddress},
 		{"401", 401, []byte(`{"error":"unauthorized"}`), StatusUnauthorized},
+		{"401 прокси", 401, []byte(`<html>Proxy login</html>`), StatusBadAnswer},
+		{"401 чужой код", 401, []byte(`{"error":"login_required"}`), StatusBadAnswer},
 		{"перенаправление", 302, nil, StatusBadAnswer},
 	}
 	for _, cs := range cases {

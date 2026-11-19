@@ -55,7 +55,7 @@ func errCode(err error) string {
 	var se *StatusError
 	if errors.As(err, &se) {
 		switch {
-		case se.Status == http.StatusUnauthorized:
+		case isUnauthorized(err):
 			return StatusUnauthorized
 		case se.Status == http.StatusTooManyRequests:
 			return StatusTooMany
@@ -72,9 +72,12 @@ func errCode(err error) string {
 	return StatusNoServer
 }
 
+// isUnauthorized — сервер связи не узнал компьютер: 401 с телом {"error":"unauthorized"}. Иной 401
+// (прокси, чужой сервис по адресу) — обычная ошибка с паузой, а не «зарегистрироваться заново и
+// отвязать телефон» (PL-46).
 func isUnauthorized(err error) bool {
 	var se *StatusError
-	return errors.As(err, &se) && se.Status == http.StatusUnauthorized
+	return errors.As(err, &se) && se.Status == http.StatusUnauthorized && se.Code == StatusUnauthorized
 }
 
 // ValidateURL проверяет адрес сервера: https с именем хоста; http — только 127.0.0.1 и

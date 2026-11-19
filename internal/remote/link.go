@@ -145,8 +145,9 @@ const (
 )
 
 type action struct {
-	kind  actionKind
-	match bool
+	kind    actionKind
+	match   bool
+	phoneID string // actUnpair: какой телефон отвязать
 }
 
 // run — одно поколение связи.
@@ -334,9 +335,11 @@ func (l *Link) CancelPairing() { l.push(action{kind: actCancelPairing}, nil) }
 // ConfirmPairing — «Совпадает» (true) или «Не совпадает» (false) на этапе compare.
 func (l *Link) ConfirmPairing(match bool) { l.push(action{kind: actConfirm, match: match}, nil) }
 
-// Unpair — «Отвязать». Работает только при запущенной связи; при выключенной служба сама
-// стирает Phone в своём состоянии (токен телефона на сервере тогда остаётся до следующей привязки).
-func (l *Link) Unpair() { l.push(action{kind: actUnpair}, nil) }
+// Unpair — «Отвязать» телефон phoneID (тот, что видел родитель). Записанный телефон другой (новый
+// подключён «Совпадает» раньше в очереди) — ничего. Работает только при запущенной связи; при
+// выключенной служба сама стирает Phone в своём состоянии (токен телефона на сервере тогда
+// остаётся до следующей привязки).
+func (l *Link) Unpair(phoneID string) { l.push(action{kind: actUnpair, phoneID: phoneID}, nil) }
 
 // Changed — отчёт телефону вне очереди (после изменения в окне родителя).
 func (l *Link) Changed() { l.push(action{kind: actReport}, nil) }
@@ -784,7 +787,7 @@ func (w *worker) doActions() {
 		case actConfirm:
 			w.confirm(a.match)
 		case actUnpair:
-			w.unpair()
+			w.unpair(a.phoneID)
 		case actReport:
 			w.reportDue = true
 		}
@@ -946,9 +949,9 @@ func (w *worker) confirm(match bool) {
 	w.reportDue = true
 }
 
-func (w *worker) unpair() {
+func (w *worker) unpair(phoneID string) {
 	st := w.h.LoadState()
-	if st.Phone == nil {
+	if st.Phone == nil || st.Phone.ID != phoneID {
 		return
 	}
 	old := st.Phone

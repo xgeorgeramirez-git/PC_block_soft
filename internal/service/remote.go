@@ -442,7 +442,7 @@ func (s *Service) hRemoteUnpair(c *callCtx) ipc.Reply {
 	case p == nil:
 	case s.rem.link != nil:
 		s.rem.unpairing = p.ID
-		s.rem.link.Unpair()
+		s.rem.link.Unpair(p.ID)
 	default:
 		s.unpairLocal()
 	}
