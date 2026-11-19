@@ -617,6 +617,10 @@ function Reset-Machine {
   try { Remove-ItemProperty -Path "Registry::HKEY_USERS\$($script:MySid)\Software\Microsoft\Windows\CurrentVersion\Policies\System" -Name DisableTaskMgr -ErrorAction SilentlyContinue } catch {}
   try { Remove-Item -Path "Registry::HKEY_USERS\$($script:MySid)\Software\Policies\BraveSoftware\Brave" -Recurse -Force -ErrorAction SilentlyContinue } catch {}
   Remove-StartupTestValues
+  # Сервер связи S55, S56 (M7): процесс и его папка данных.
+  try { Get-Process -Name "pcblock-relay" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue } catch {}
+  try { Remove-Item -LiteralPath (Join-Path $script:Work "relay-data") -Recurse -Force -ErrorAction SilentlyContinue } catch {}
+  try { Remove-Item -LiteralPath (Join-Path $script:Work "phone.json") -Force -ErrorAction SilentlyContinue } catch {}
   try { Remove-Item -LiteralPath $script:Data -Recurse -Force -ErrorAction SilentlyContinue } catch {}
   try { Remove-Item -LiteralPath $script:DefaultData -Recurse -Force -ErrorAction SilentlyContinue } catch {}
   try { Remove-TestUser } catch {}
@@ -1781,4 +1785,117 @@ function Send-BraveKeys([string]$Keys) {
   if (-not (Test-BraveForeground)) { throw "Клавиши $Keys не нажаты: Brave не на переднем плане ($([PcbNative]::Foreground()))" }
   [System.Windows.Forms.SendKeys]::SendWait($Keys)
   Write-Log "Клавиши в окне Brave: $Keys"
+}
+
+# --- Связь с телефоном (M7, S55, S56) ----------------------------------------------------------------------
+# Сервер связи pcblock-relay.exe и тестовый телефон remote-phone.exe собирает windows.yml в build/bin (в
+# установщик не входят). Сервер — на 127.0.0.1:18080 (служба в тестовом режиме разрешает http только для
+# 127.0.0.1), папка данных своя на сценарий. Порт — эксклюзивный ресурс: сценарий останавливает сервер в
+# finally (Stop-Relay), Reset-Machine добивает оставшийся процесс.
+$script:RelayPort = 18080
+$script:RelayUrl = "http://127.0.0.1:$($script:RelayPort)"
+$script:RelayData = Join-Path $script:Work "relay-data"
+$script:RelayProc = $null
+$script:PhoneState = Join-Path $script:Work "phone.json"
+
+function Get-RelayExe { return (Join-Path $script:InstallerDir "pcblock-relay.exe") }
+function Get-PhoneExe { return (Join-Path $script:InstallerDir "remote-phone.exe") }
+
+function Test-RelayPortFree {
+  return (@(Get-NetTCPConnection -LocalPort $script:RelayPort -State Listen -ErrorAction SilentlyContinue).Count -eq 0)
+}
+
+function Test-RelayHealth {
+  try { return [bool](Invoke-RestMethod -Uri "$($script:RelayUrl)/healthz" -TimeoutSec 2 -NoProxy).ok } catch { return $false }
+}
+
+# Запускает сервер связи (папка данных RelayData сохраняется между запусками: компьютер остаётся
+# зарегистрированным) и ждёт /healthz.
+function Start-Relay {
+  $exe = Get-RelayExe
+  Assert-That (Test-Path -LiteralPath $exe) "Нет сервера связи $exe (windows.yml собирает его перед приёмкой)"
+  Wait-Until { Test-RelayPortFree } 30 "порт $($script:RelayPort) свободен перед запуском сервера связи"
+  New-Item -ItemType Directory -Force -Path $script:RelayData | Out-Null
+  $n = Get-Random
+  $script:RelayProc = Start-Process -FilePath $exe -ArgumentList (ConvertTo-ArgString @("-addr", "127.0.0.1:$($script:RelayPort)", "-data", $script:RelayData)) `
+    -PassThru -WindowStyle Hidden -RedirectStandardError (Join-Path $script:Work "relay-$n.err.log") -RedirectStandardOutput (Join-Path $script:Work "relay-$n.out.log")
+  Wait-Until { Test-RelayHealth } 20 "сервер связи отвечает на /healthz"
+  Write-Log "Сервер связи запущен: процесс $($script:RelayProc.Id), $($script:RelayUrl), данные $($script:RelayData)"
+}
+
+# Останавливает сервер связи (сразу, как обрыв) и ждёт освобождения порта. Ничего не бросает без нужды:
+# зовётся из finally.
+function Stop-Relay {
+  if ($script:RelayProc) {
+    try { Stop-Process -Id $script:RelayProc.Id -Force -ErrorAction SilentlyContinue } catch {}
+    try { [void]$script:RelayProc.WaitForExit(10000) } catch {}
+    $script:RelayProc = $null
+  }
+  try { Get-Process -Name "pcblock-relay" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue } catch {}
+  for ($i = 0; $i -lt 50 -and -not (Test-RelayPortFree); $i++) { Start-Sleep -Milliseconds 200 }
+  if (-not (Test-RelayPortFree)) { Write-Log "ERROR: порт $($script:RelayPort) не освободился после остановки сервера связи" }
+}
+
+# Строки журнала сервера связи (метод, путь, код; без токенов и тел) — для текста ошибки.
+function Write-RelayLog([int]$Last = 30) {
+  foreach ($f in @(Get-ChildItem -Path (Join-Path $script:Work "relay-*.log") -ErrorAction SilentlyContinue)) {
+    Get-Content -LiteralPath $f.FullName -Tail $Last -Encoding UTF8 | ForEach-Object { Write-Log "[relay $($f.Name)] $_" }
+  }
+}
+
+# Тестовый телефон: одна строка JSON в выводе. Возвращает Code (0 — удалось, 2 — компьютер отказал,
+# ответ проверен подписью; 1 — прочие ошибки) и Result (разобранный JSON).
+function Invoke-Phone([string[]]$ArgList, [string]$State = $script:PhoneState) {
+  $exe = Get-PhoneExe
+  Assert-That (Test-Path -LiteralPath $exe) "Нет тестового телефона $exe (windows.yml собирает его перед приёмкой)"
+  $prev = [Console]::OutputEncoding
+  [Console]::OutputEncoding = [Text.Encoding]::UTF8
+  try {
+    $all = @($ArgList[0], "-state", $State) + @($ArgList | Select-Object -Skip 1)
+    $lines = @(& $exe @all)
+    $code = $LASTEXITCODE
+  } finally {
+    [Console]::OutputEncoding = $prev
+  }
+  $line = [string]($lines | Select-Object -Last 1)
+  Write-Log "remote-phone $($ArgList -join ' ') -> код $code; $line"
+  $res = $null
+  try { $res = $line | ConvertFrom-Json } catch { throw "Тестовый телефон вывел не JSON: '$line'" }
+  return [pscustomobject]@{ Code = $code; Result = $res }
+}
+
+# Состояние блока «Телефон» (нужна родительская сессия).
+function Get-Remote {
+  $r = Send-Parent "GetRemote"
+  Assert-Reply $r "GetRemote"
+  return $r.payload
+}
+
+function Format-Remote($v) {
+  $ph = if ($v.phone) { "$($v.phone.name)" } else { "нет" }
+  return "enabled=$($v.enabled) url=$($v.url) state=$($v.state) error='$($v.error)' lastOkMs=$($v.lastOkMs) телефон=$ph pair=$($v.pair.stage)/$($v.pair.code)/$($v.pair.sas)/$($v.pair.error)"
+}
+
+# Ждёт состояние связи (GetRemote.state: off, connecting, online, offline); возвращает RemoteView.
+# Сколько секунд ждали — в $script:WaitElapsed.
+function Wait-RemoteState([string]$State, [double]$Seconds) {
+  $sw = [Diagnostics.Stopwatch]::StartNew()
+  while ($true) {
+    $v = Get-Remote
+    if ($v.state -eq $State) { $script:WaitElapsed = $sw.Elapsed.TotalSeconds; return $v }
+    if ($sw.Elapsed.TotalSeconds -gt $Seconds) { throw "За $Seconds с связь с телефоном не пришла в состояние ${State}: $(Format-Remote $v)" }
+    Start-Sleep -Milliseconds 500
+  }
+}
+
+# Сетевые соединения процессов PC Block (служба и все PCBlock.exe): TCP без TimeWait (закрытые соединения,
+# которые ждёт ОС, — не соединения программы) и UDP. NFR-1: при выключенной связи список пуст.
+function Get-PcbNetConns {
+  $pids = @(@(Get-PcbProcs | ForEach-Object { [int]$_.ProcessId }) + @(Get-ServicePid) | Where-Object { $_ -gt 0 } | Select-Object -Unique)
+  $tcp = @(Get-NetTCPConnection -ErrorAction SilentlyContinue | Where-Object { ($pids -contains [int]$_.OwningProcess) -and ([string]$_.State -ne 'TimeWait') })
+  $udp = @(Get-NetUDPEndpoint -ErrorAction SilentlyContinue | Where-Object { $pids -contains [int]$_.OwningProcess })
+  $out = @()
+  foreach ($c in $tcp) { $out += "tcp $($c.LocalAddress):$($c.LocalPort) -> $($c.RemoteAddress):$($c.RemotePort) $($c.State) pid $($c.OwningProcess)" }
+  foreach ($c in $udp) { $out += "udp $($c.LocalAddress):$($c.LocalPort) pid $($c.OwningProcess)" }
+  return $out
 }
