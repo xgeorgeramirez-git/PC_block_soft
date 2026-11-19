@@ -210,7 +210,7 @@ func TestRemoteChildrenForbid(t *testing.T) {
 	misha, kolya := h.childID(childSID), h.childID(child2SID)
 	byID := func() map[int64]remote.ChildReport {
 		out := map[int64]remote.ChildReport{}
-		for _, c := range (remoteHost{h.svc}).Children() {
+		for _, c := range (remoteHost{h.svc}).Children(false) {
 			out[c.ID] = c
 		}
 		return out

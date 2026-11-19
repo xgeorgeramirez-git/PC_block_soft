@@ -169,6 +169,8 @@ type childState struct {
 	startupOff map[string]startupHit
 	// startupFullAt — когда набор собран последней удачной полной проверкой (startupReady).
 	startupFullAt time.Time
+	// presence — «за компьютером» и первый вход за день для телефона (FR-43, presence.go).
+	presence presence
 }
 
 // Service — служба PCBlock без привязки к Windows: логика на портах (doc.go).

@@ -78,7 +78,9 @@ type Host interface {
 	// что ApplyCommand: gen не текущий — отказ; seq ≤ LastSeq — replay; иначе записать LastSeq = seq,
 	// затем поставить сообщение в очередь показа. code: "" | replay | no_child | stale | not_paired.
 	ApplyNote(gen int64, n Note) (code string, lastSeq int64)
-	Children() []ChildReport
+	// Children — строки детей для отчёта; withToday — со «Статистикой за сегодня» (только отчёт
+	// pc/report, раздел 6; в ответе на команду и сообщение её нет).
+	Children(withToday bool) []ChildReport
 	// Notes — состояния последних сообщений для отчёта (не больше 10, не старше суток).
 	Notes() []NoteReport
 	Event(kind, detail string)
@@ -1075,7 +1077,7 @@ func (w *worker) reply(m Msg, st State, s Signed, now time.Time, a answer) {
 	res := CmdResult{V: ProtoVersion, T: a.typ, PC: st.PCID, Phone: m.From, Seq: a.seq, Cmd: hash, TS: now.UnixMilli(), OK: a.code == ""}
 	if res.OK {
 		res.Message = a.msg
-		if rep, ok := w.buildReport(); ok {
+		if rep, ok := w.buildReport(false); ok {
 			res.Report = &rep
 		}
 		w.reportDue = true
@@ -1113,12 +1115,14 @@ func rejected(kind string) string {
 
 // ---------- отчёт (протокол, раздел 6) ----------
 
-func (w *worker) buildReport() (Report, bool) {
+// buildReport — отчёт для привязанного телефона; withToday — со статистикой за сегодня (только
+// pc/report). false — телефона нет.
+func (w *worker) buildReport(withToday bool) (Report, bool) {
 	st := w.h.LoadState()
 	if st.Phone == nil {
 		return Report{}, false
 	}
-	ch := w.h.Children()
+	ch := w.h.Children(withToday)
 	if ch == nil {
 		ch = []ChildReport{}
 	}
@@ -1127,11 +1131,11 @@ func (w *worker) buildReport() (Report, bool) {
 
 func (w *worker) sendReport() {
 	w.lastReport, w.reportDue = w.now(), false // сбой — следующая попытка по расписанию
-	rep, ok := w.buildReport()
+	rep, ok := w.buildReport(true)
 	if !ok {
 		return
 	}
-	raw, err := json.Marshal(rep)
+	raw, err := fitReport(rep, MaxReportBody)
 	if err != nil {
 		return
 	}

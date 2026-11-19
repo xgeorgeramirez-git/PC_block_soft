@@ -181,13 +181,19 @@ func (h *fakeHost) Notes() []NoteReport {
 	return append([]NoteReport(nil), h.notes...)
 }
 
-func (h *fakeHost) Children() []ChildReport {
+func (h *fakeHost) Children(withToday bool) []ChildReport {
 	if h.panicOnce.CompareAndSwap(true, false) {
 		panic("сбой в Children")
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	return append([]ChildReport(nil), h.children...)
+	out := append([]ChildReport(nil), h.children...)
+	if !withToday {
+		for i := range out {
+			out[i].Today = nil
+		}
+	}
+	return out
 }
 
 func (h *fakeHost) Event(kind, detail string) {

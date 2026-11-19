@@ -179,6 +179,42 @@ type ChildReport struct {
 	Forbid string `json:"forbid,omitempty"`
 	// ForbidUntilMs — конец идущего запретного интервала при ForbidActive (часы компьютера).
 	ForbidUntilMs int64 `json:"forbidUntilMs,omitempty"`
+	// Today — «Статистика за сегодня» (FR-43, раздел 6): только в отчёте pc/report, в отчёте внутри
+	// cmdr/noter поля нет; нет и у компьютера старой версии.
+	Today *TodayReport `json:"today,omitempty"`
+}
+
+// TodayReport — «Итоги» за сегодня окна родителя для телефона (FR-43, раздел 6). Моменты — UTC мс
+// по часам компьютера; FirstMs 0 — сегодня ребёнок за компьютер не садился. Списки — по убыванию
+// времени, пустые — [] (не null); More — сколько строк не вошло в списки (урезание, раздел 6).
+type TodayReport struct {
+	FirstMs    int64      `json:"firstMs"`
+	NowAt      bool       `json:"nowAt"`
+	SinceMs    int64      `json:"sinceMs"`
+	UsedSec    int64      `json:"usedSec"`
+	LeftSec    int64      `json:"leftSec"`
+	GamesSec   int64      `json:"gamesSec"`
+	StudySec   int64      `json:"studySec"`
+	VideoSec   int64      `json:"videoSec"`
+	Programs   []TimeItem `json:"programs"`
+	Sites      []TimeItem `json:"sites"`
+	More       TodayMore  `json:"more"`
+	Violations int        `json:"violations"`
+	Bypass     int        `json:"bypass"`
+}
+
+// TimeItem — строка списка программ или сайтов за сегодня: название (≤ MaxItemNameRunes знаков),
+// категория вкладки «Итогов» (Item*: game, study, video, other) и секунды.
+type TimeItem struct {
+	Name string `json:"name"`
+	Cat  string `json:"cat"`
+	Sec  int64  `json:"sec"`
+}
+
+// TodayMore — сколько программ и сайтов не вошло в списки отчёта.
+type TodayMore struct {
+	Programs int `json:"programs"`
+	Sites    int `json:"sites"`
 }
 
 // Note — данные сообщения телефона ребёнку (data в Signed, раздел 5а).

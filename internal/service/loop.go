@@ -32,6 +32,7 @@ func (s *Service) Tick(now time.Time) {
 // tickChild — тик одного ребёнка: сохранение по DueSave до тика (эталон G10), тик ядра, разбор
 // решения. Вызывается под s.mu и только из guard.
 func (s *Service) tickChild(cs *childState, now time.Time) {
+	s.notePresence(cs, now)
 	if cs.admin {
 		return
 	}
@@ -108,7 +109,7 @@ func (s *Service) sampleFor(cs *childState) (core.SessionSample, usageSubject) {
 		return core.SessionSample{}, usageSubject{}
 	}
 	ss := s.sessions[cs.sampleSess]
-	if ss == nil || ss.childID != cs.child.ID || ss.offScreen() {
+	if !s.childOnScreen(cs) { // «за компьютером» для телефона — те же условия (presence.go)
 		s.noteSampleVerdict(cs, "не учитывается", ss)
 		return core.SessionSample{}, usageSubject{}
 	}

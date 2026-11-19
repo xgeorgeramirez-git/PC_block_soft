@@ -2,12 +2,14 @@ package service
 
 import (
 	"encoding/json"
+	"sort"
 	"strings"
 	"sync"
 	"time"
 
 	"pcblock/internal/core"
 	"pcblock/internal/ipc"
+	"pcblock/internal/programs"
 	"pcblock/internal/remote"
 )
 
@@ -361,8 +363,9 @@ func (s *Service) forbidToday(cs *childState) (string, time.Time) {
 	return remote.ForbidNone, time.Time{}
 }
 
-// Children — отчёт телефону: «осталось» и «за компьютером» той же карточкой, что окно родителя.
-func (h remoteHost) Children() []remote.ChildReport {
+// Children — отчёт телефону: «осталось» и «за компьютером» той же карточкой, что окно родителя;
+// withToday — со «Статистикой за сегодня» (todayReport, только отчёт pc/report).
+func (h remoteHost) Children(withToday bool) []remote.ChildReport {
 	s := h.s
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -382,9 +385,72 @@ func (h remoteHost) Children() []remote.ChildReport {
 		if rep.Forbid == remote.ForbidActive {
 			rep.ForbidUntilMs = until.UnixMilli()
 		}
+		if withToday {
+			rep.Today = s.todayReport(s.children[id], left)
+		}
 		out = append(out, rep)
 	}
 	return out
+}
+
+// todayReport — «Статистика за сегодня» для телефона (FR-43): «Итоги» за сегодня тем же кодом, что
+// окно родителя (fillTotals), left — «осталось» строки ребёнка. Программы и сайты — строки вкладок
+// окна без «Остального времени» (скрытых и запрещённых там уже нет), с категорией вкладки (на
+// телефоне «Во что играл»). Урезание по размеру — remote (fitReport). Под s.mu.
+func (s *Service) todayReport(cs *childState, left int64) *remote.TodayReport {
+	var it ipc.MyTodayReply
+	s.fillTotals(cs, ipc.PeriodToday, &it)
+	t := &remote.TodayReport{
+		UsedSec: int64(it.UsedS), LeftSec: left, GamesSec: int64(it.GamesS), StudySec: int64(it.StudyS), VideoSec: int64(it.VideoS),
+		Programs: []remote.TimeItem{}, Sites: []remote.TimeItem{}, Violations: len(it.Violations),
+	}
+	t.FirstMs, t.NowAt, t.SinceMs = s.presenceToday(cs)
+	for _, v := range it.Violations {
+		if v.Kind == core.EvBypass {
+			t.Bypass++
+		}
+	}
+	t.Programs, t.Sites = todayItems(it.Programs)
+	return t
+}
+
+// todayItems — строки вкладок «Итогов» в два списка отчёта: программы и сайты с категорией вкладки,
+// по убыванию времени; «Остальное время» (без пути) не идёт.
+func todayItems(rows []ipc.ProgramTime) (progs, sites []remote.TimeItem) {
+	progs, sites = []remote.TimeItem{}, []remote.TimeItem{}
+	for _, r := range rows {
+		if r.Path == "" || r.Seconds <= 0 {
+			continue
+		}
+		it := remote.TimeItem{Name: r.Name, Cat: todayCat(r.Category), Sec: int64(r.Seconds)}
+		if r.Kind == usageKindSite {
+			sites = append(sites, it)
+		} else {
+			progs = append(progs, it)
+		}
+	}
+	for _, l := range [][]remote.TimeItem{progs, sites} {
+		sort.SliceStable(l, func(i, j int) bool {
+			if l[i].Sec != l[j].Sec {
+				return l[i].Sec > l[j].Sec
+			}
+			return l[i].Name < l[j].Name
+		})
+	}
+	return progs, sites
+}
+
+// todayCat — категория вкладки «Итогов» для телефона (remote.Item*).
+func todayCat(cat string) string {
+	switch cat {
+	case programs.CatGames:
+		return remote.ItemGame
+	case programs.CatStudy:
+		return remote.ItemStudy
+	case usageCatVideo:
+		return remote.ItemVideo
+	}
+	return remote.ItemOther
 }
 
 // Event — запись журнала родителя без ребёнка: телефон подключён, отвязан, потерян.

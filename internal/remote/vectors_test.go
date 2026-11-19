@@ -56,6 +56,10 @@ type vectors struct {
 	CmdrNoForbidden     Signed `json:"cmdrNoForbidden"`
 	ReportForbidJSON    string `json:"reportForbidJson"`
 	ReportForbid        Signed `json:"reportForbid"`
+
+	// «Статистика за сегодня» (FR-43, раздел 6): отчёт pc/report с today (подпись ключом компьютера).
+	ReportTodayJSON string `json:"reportTodayJson"`
+	ReportToday     Signed `json:"reportToday"`
 }
 
 func vectorCommand() Command {
@@ -92,6 +96,24 @@ func vectorReportForbid() Report {
 			{ID: 4, Name: "Коля", UsedSec: 600, LeftSec: 3000, Blocked: true, Forbid: ForbidActive, ForbidUntilMs: 1763496000000},
 			{ID: 5, Name: "Даша", LeftSec: -1, Forbid: ForbidAhead},
 			{ID: 6, Name: "Петя", LeftSec: 0, Blocked: true, Forbid: ForbidNone},
+		}}
+}
+
+// vectorReportToday — отчёт со статистикой за сегодня: Миша — играл и учился, сидит сейчас, урезан
+// список сайтов (more); Коля — сегодня не садился (firstMs 0, пустые списки []); Даша — компьютер
+// старой версии прислал бы её без today.
+func vectorReportToday() Report {
+	return Report{V: 1, T: TypeReport, PC: "pc-vector", Phone: "phone-vector", TS: 1763490006000,
+		Children: []ChildReport{
+			{ID: 3, Name: "Миша", UsedSec: 5400, LeftSec: 1800, ExtraMin: 15, Forbid: ForbidAhead, Today: &TodayReport{
+				FirstMs: 1763463600000, NowAt: true, SinceMs: 1763485200000, UsedSec: 5400, LeftSec: 1800,
+				GamesSec: 2700, StudySec: 1200, VideoSec: 900,
+				Programs: []TimeItem{{Name: "Minecraft", Cat: ItemGame, Sec: 2700}, {Name: "GeoGebra Classic", Cat: ItemStudy, Sec: 1200}, {Name: "Блокнот", Cat: ItemOther, Sec: 300}},
+				Sites:    []TimeItem{{Name: "youtube.com", Cat: ItemVideo, Sec: 900}, {Name: "uchi.ru", Cat: ItemStudy, Sec: 240}},
+				More:     TodayMore{Programs: 0, Sites: 3}, Violations: 2, Bypass: 1}},
+			{ID: 4, Name: "Коля", LeftSec: 3600, Forbid: ForbidNone, Today: &TodayReport{
+				SinceMs: 1763480000000, LeftSec: 3600, Programs: []TimeItem{}, Sites: []TimeItem{}}},
+			{ID: 5, Name: "Даша", LeftSec: -1, Forbid: ForbidNone},
 		}}
 }
 
@@ -151,6 +173,10 @@ func writeVectors(t *testing.T) {
 	nf := vectorNoForbidden()
 	cmdrNF := CmdResult{V: 1, T: TypeCmdR, PC: nf.PC, Phone: nf.Phone, Seq: nf.Seq, Cmd: HashData(nfJSON), TS: repF.TS, OK: true, Message: "Запрет на сегодня снят", Report: &repF}
 	cmdrNFJSON, _ := json.Marshal(cmdrNF)
+	repTJSON, err := fitReport(vectorReportToday(), MaxReportBody)
+	if err != nil {
+		t.Fatal(err)
+	}
 	out := vectors{
 		Comment:   "Векторы протокола связи (docs/07_Протокол_связи.md). Генерирует go test ./internal/remote -run TestVectors -update. Все base64: base64url без '='.",
 		PCPriv:    pcPriv,
@@ -169,6 +195,7 @@ func writeVectors(t *testing.T) {
 		CmdNoForbiddenHash:  HashData(nfJSON),
 		CmdrNoForbiddenJSON: string(cmdrNFJSON), CmdrNoForbidden: sign(pc, cmdrNFJSON, v.CmdrNoForbiddenJSON, v.CmdrNoForbidden),
 		ReportForbidJSON: string(repFJSON), ReportForbid: sign(pc, repFJSON, v.ReportForbidJSON, v.ReportForbid),
+		ReportTodayJSON: string(repTJSON), ReportToday: sign(pc, repTJSON, v.ReportTodayJSON, v.ReportToday),
 	}
 	raw, _ := json.MarshalIndent(out, "", "  ")
 	if err := os.MkdirAll(filepath.Dir(vectorsPath), 0o755); err != nil {
@@ -272,6 +299,18 @@ func TestVectors(t *testing.T) {
 	stF := State{PCID: "pc-vector", Phone: &Phone{ID: "phone-vector", Pub: v.PhonePub}, LastSeq: 18}
 	if c, _, code := CheckCommand(stF, v.CmdNoForbidden, "phone-vector", time.UnixMilli(vectorNoForbidden().TS)); code != "" || c.Op != OpNoForbidden {
 		t.Fatalf("«снять запрет» векторов отклонено: %q %+v", code, c)
+	}
+	// Статистика за сегодня (раздел 6): байты — как отчёт после fitReport, подпись компьютера, поля.
+	repTJSON, _ := fitReport(vectorReportToday(), MaxReportBody)
+	if string(repTJSON) != v.ReportTodayJSON {
+		t.Fatalf("сборка отчёта со статистикой изменилась:\n%s\n%s", repTJSON, v.ReportTodayJSON)
+	}
+	check("reportToday", &v.ReportToday, &pc.PublicKey, v.ReportTodayJSON)
+	var rt Report
+	if err := json.Unmarshal([]byte(v.ReportTodayJSON), &rt); err != nil || len(rt.Children) != 3 || rt.Children[0].Today == nil ||
+		rt.Children[0].Today.Programs[0].Cat != ItemGame || rt.Children[1].Today.FirstMs != 0 || rt.Children[2].Today != nil ||
+		!bytes.Contains([]byte(v.ReportTodayJSON), []byte(`"programs":[],"sites":[]`)) {
+		t.Fatalf("отчёт со статистикой: %s %v", v.ReportTodayJSON, err)
 	}
 	// Команда векторов проходит проверку компьютера.
 	st := State{PCID: "pc-vector", Phone: &Phone{ID: "phone-vector", Pub: v.PhonePub}, LastSeq: 16}
