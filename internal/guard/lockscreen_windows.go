@@ -57,6 +57,10 @@ type lockUI struct {
 	rest    restPaint    // экран перерыва: картинка и плитки таймера
 	sticker stickerPaint // ответ на промокод: кадры стикера (R26)
 
+	// noteLock — заголовок и верх столбца поля и кнопок в координатах экрана: плашка «Сообщение от
+	// родителя» их не закрывает (FR-41, NFR-10).
+	noteLock NoteLock
+
 	onPress func(Button)
 	onEdit  func(string)
 }
@@ -307,6 +311,7 @@ func (u *lockUI) layout() {
 			u.views[e.btn.Button] = e.btn
 		}
 	}
+	u.noteLock = lockNoteGeom(es, rects, v.Lock.Reason, v.FieldLabel)
 	if side && anchorTop >= 0 {
 		w := PromoSideWidth(u.dpi, areaRc, colW)
 		textH := measureHeight(hdc, u.fonts.button, v.Promo.Text, w)
@@ -324,6 +329,32 @@ func (u *lockUI) layout() {
 	u.layoutButtons(want, order)
 
 	invalidate(hwnd)
+}
+
+// lockNoteGeom — заголовок (первый текст с причиной reason) и верх столбца поля и кнопок (подпись поля
+// label, если она прямо над полем) в координатах экрана: окно экрана стоит в начале виртуального
+// экрана, его координаты сдвинуты на (SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN).
+func lockNoteGeom(es []entry, rects []Rect, reason, label string) NoteLock {
+	dx, dy := metric(smXVirtScreen), metric(smYVirtScreen)
+	var g NoteLock
+	title, controls := false, false
+	for i, e := range es {
+		switch {
+		case !title && e.kind == entText && e.text == reason:
+			r := rects[i]
+			g.Title, title = Rect{Left: r.Left + dx, Top: r.Top + dy, Right: r.Right + dx, Bottom: r.Bottom + dy}, true
+		case !controls && (e.kind == entEdit || e.kind == entButton):
+			top := rects[i].Top
+			if e.kind == entEdit && i > 0 && es[i-1].kind == entText && es[i-1].text == label {
+				top = rects[i-1].Top
+			}
+			g.ControlsTop, controls = top+dy, true
+		}
+	}
+	if !controls && len(rects) > 0 {
+		g.ControlsTop = rects[len(rects)-1].Bottom + dy // без кнопок (так не бывает): низ столбца
+	}
+	return g
 }
 
 // layoutButtons создаёт кнопки, если набор изменился (порядок обхода Tab совпадает с порядком

@@ -10,7 +10,8 @@ import (
 )
 
 // Окно плашки «Сообщение от родителя» (FR-41): сверху по центру, поверх всех окон и поверх экрана
-// блокировки PC Block. Не берёт фокус (WS_EX_NOACTIVATE, MA_NOACTIVATE): экран блокировки держит
+// блокировки PC Block — там между его заголовком и столбцом кнопок, не закрывая ни то, ни другое
+// (FitNote, NFR-10); не выше 40 % рабочей области, длинный текст мельче или обрезан с «…». Не берёт фокус (WS_EX_NOACTIVATE, MA_NOACTIVATE): экран блокировки держит
 // ввод пароля и клавиатуру, игра — полный экран. Кнопка «Понял» — область окна, как у плашки
 // (warnings_windows.go). Что показать и когда убрать, решает Model; окно рисует и сообщает нажатие.
 
@@ -23,23 +24,27 @@ const wmNotePress = wmApp + 31 // нажатие «Понял» разбирае
 
 func init() { noteProcPtr = windows.NewCallback(noteProc) }
 
+// Цвета плашки сообщения: рамка нейтральная, как у плашки предупреждения (colorLine), без цветной
+// полосы; заголовок — основным светлым цветом текста (контраст с поверхностью выше 4,5:1).
+var (
+	noteFrameColor = colorLine
+	noteTitleColor = colorText
+)
+
 type noteWindow struct {
 	hwnd, hInst  uintptr
 	dpi          int
-	titleFont    uintptr
-	textFont     uintptr
-	btnFont      uintptr
+	fonts        map[[2]int]uintptr // шрифт по размеру при 96 dpi и жирности
 	surfaceBrush uintptr
-	accentBrush  uintptr
 	onPress      func(Button)
 
 	key     string
 	title   string
-	text    string
+	text    string // как прислала служба
 	button  ButtonView
 	visible bool
 	geom    rect
-	lay     NoteLayout
+	fit     NoteFit
 
 	hover, down bool
 	tracking    bool
@@ -50,12 +55,8 @@ func newNoteWindow(onPress func(Button)) (*noteWindow, error) {
 	if onPress == nil {
 		onPress = func(Button) {}
 	}
-	n := &noteWindow{hInst: hInst, dpi: systemDPI(), onPress: onPress}
+	n := &noteWindow{hInst: hInst, dpi: systemDPI(), onPress: onPress, fonts: map[[2]int]uintptr{}}
 	n.surfaceBrush, _, _ = procCreateSolidBr.Call(colorSurface)
-	n.accentBrush, _, _ = procCreateSolidBr.Call(colorNoteAccent)
-	n.titleFont = makeFont(Scaled(20, n.dpi), 600)
-	n.textFont = makeFont(Scaled(28, n.dpi), 400)
-	n.btnFont = makeFont(Scaled(22, n.dpi), 600)
 	theNote = n
 	cls, err := registerPlainClass("PCBlockGuardNote", noteProcPtr, hInst, n.surfaceBrush)
 	if err != nil {
@@ -76,16 +77,25 @@ func newNoteWindow(onPress func(Button)) (*noteWindow, error) {
 	return n, nil
 }
 
-// colorNoteAccent — полоса плашки сообщения: спокойный синий, не «время кончается» (янтарь).
-var colorNoteAccent = rgb(0x3D, 0x7E, 0xC9)
+// font — шрифт размера px (при 96 dpi) и жирности weight; создаётся один раз.
+func (n *noteWindow) font(px, weight int) uintptr {
+	k := [2]int{px, weight}
+	if f, ok := n.fonts[k]; ok {
+		return f
+	}
+	f := makeFont(Scaled(px, n.dpi), weight)
+	n.fonts[k] = f
+	return f
+}
 
-// apply показывает плашку по View.Note или прячет её (nil).
-func (n *noteWindow) apply(v *NoteView) {
+// apply показывает плашку по View.Note или прячет её (nil). lock — экран блокировки под плашкой
+// (nil — его нет): плашка встаёт между его заголовком и кнопками.
+func (n *noteWindow) apply(v *NoteView, lock *NoteLock) {
 	if v == nil {
 		n.hide()
 		return
 	}
-	key := fmt.Sprintf("%d\x00%s\x00%s", v.Seq, v.Title, v.Text)
+	key := fmt.Sprintf("%d\x00%s\x00%s\x00%v", v.Seq, v.Title, v.Text, lock)
 	if key == n.key && n.visible {
 		n.raise()
 		return
@@ -95,10 +105,10 @@ func (n *noteWindow) apply(v *NoteView) {
 	if len(v.Buttons) > 0 {
 		n.button = v.Buttons[0]
 	}
-	// Заголовок окна — подпись и текст: его читает экранный диктор (доступность).
+	// Заголовок окна — подпись и текст целиком: его читает экранный диктор (доступность).
 	setWindowText(n.hwnd, v.Title+": "+v.Text)
 	n.hover, n.down = false, false
-	n.layout()
+	n.layout(lock)
 	invalidate(n.hwnd)
 }
 
@@ -119,18 +129,21 @@ func (n *noteWindow) hide() {
 	procShowWindow.Call(n.hwnd, swHide)
 }
 
-// layout считает размер по тексту (NoteLayout) и ставит окно сверху по центру рабочей области.
-func (n *noteWindow) layout() {
+// layout подбирает плашку под место (FitNote: шрифт, плотность, обрезка) и ставит окно: на рабочем
+// столе сверху по центру рабочей области, над экраном блокировки — между заголовком и кнопками.
+func (n *noteWindow) layout(lock *NoteLock) {
 	wa := workArea()
-	w := NoteWidth(n.dpi, wa.right-wa.left)
-	tw := NoteTextWidth(n.dpi, w)
 	hdc, _, _ := procGetDC.Call(n.hwnd)
-	titleH := measureHeight(hdc, n.titleFont, n.title, tw)
-	textH := measureHeight(hdc, n.textFont, n.text, tw)
+	measure := func(px int, width int32, s string) int32 {
+		weight := 400
+		if s == n.title { // заголовок полужирный; текст родителя, совпавший с ним, мерится так же — не страшно
+			weight = 600
+		}
+		return measureHeight(hdc, n.font(px, weight), s, width)
+	}
+	n.fit = FitNote(n.dpi, Rect{Left: wa.left, Top: wa.top, Right: wa.right, Bottom: wa.bottom}, lock, n.title, n.text, measure)
 	procReleaseDC.Call(n.hwnd, hdc)
-	n.lay = NewNoteLayout(n.dpi, w, titleH, textH)
-	p := NotePlace(n.dpi, Rect{Left: wa.left, Top: wa.top, Right: wa.right, Bottom: wa.bottom}, w, n.lay.H)
-	g := toRect(p)
+	g := toRect(n.fit.Place)
 	n.geom, n.visible = g, true
 	procSetWindowPos.Call(n.hwnd, hwndTopmost, uintptr(g.left), uintptr(g.top), uintptr(g.right-g.left), uintptr(g.bottom-g.top),
 		swpNoActivate|swpShowWindow)
@@ -141,16 +154,21 @@ func (n *noteWindow) paint(hwnd uintptr) {
 	hdc, _, _ := procBeginPaint.Call(hwnd, uintptr(unsafe.Pointer(&ps)))
 	var rc rect
 	procGetClientRect.Call(hwnd, uintptr(unsafe.Pointer(&rc)))
-	roundBox(hdc, rc, colorSurface, colorNoteAccent, 2, 0)
-	bar := rect{rc.left + 1, rc.top + 1, rc.left + 1 + Scaled(noteBarPx, n.dpi), rc.bottom - 1}
-	procFillRect.Call(hdc, uintptr(unsafe.Pointer(&bar)), n.accentBrush)
+	// Нейтральная рамка, как у остальных плашек стража: цвет — только для статусов (ТЗ 8.0).
+	roundBox(hdc, rc, colorSurface, noteFrameColor, 1, 0)
 	procSetBkMode.Call(hdc, transparent)
-	// Текст родителя — по левому краю: переводы строк и списки читаются как написаны.
-	drawWrapped(hdc, n.titleFont, colorSecondary, n.title, toRect(n.lay.Title), 0)
-	drawWrapped(hdc, n.textFont, colorText, n.text, toRect(n.lay.Text), 0)
+	l, d := n.fit.Layout, n.fit.Density
+	// Заголовок — светлым и крупнее текста подписи (контраст как у основного текста); текст родителя —
+	// по левому краю: переводы строк и списки читаются как написаны.
+	drawWrapped(hdc, n.font(d.TitlePx, 600), noteTitleColor, n.title, toRect(l.Title), 0)
+	drawWrapped(hdc, n.font(n.fit.FontPx, 400), colorText, n.fit.Text, toRect(l.Text), 0)
 	if n.button.Button != ButtonNone {
 		look := lookOf(n.button.Main, n.button.Enabled, n.down || n.hover)
-		drawButtonRect(hdc, toRect(n.lay.Button), n.button.Label, n.btnFont, look, Scaled(8, n.dpi), n.surfaceBrush, false)
+		btnPx := 22
+		if d == NoteCompact {
+			btnPx = 18
+		}
+		drawButtonRect(hdc, toRect(l.Button), n.button.Label, n.font(btnPx, 600), look, Scaled(8, n.dpi), n.surfaceBrush, false)
 	}
 	procEndPaint.Call(hwnd, uintptr(unsafe.Pointer(&ps)))
 }
@@ -158,7 +176,7 @@ func (n *noteWindow) paint(hwnd uintptr) {
 // hit: точка lParam (клиентские координаты) на кнопке «Понял».
 func (n *noteWindow) hit(lParam uintptr) bool {
 	x, y := int32(int16(lParam&0xFFFF)), int32(int16(lParam>>16&0xFFFF))
-	r := n.lay.Button
+	r := n.fit.Layout.Button
 	return n.button.Button != ButtonNone && n.button.Enabled && x >= r.Left && x < r.Right && y >= r.Top && y < r.Bottom
 }
 
@@ -167,7 +185,7 @@ func (n *noteWindow) click() bool {
 	if !n.visible || n.button.Button == ButtonNone {
 		return false
 	}
-	r := n.lay.Button
+	r := n.fit.Layout.Button
 	x, y := (r.Left+r.Right)/2, (r.Top+r.Bottom)/2
 	lp := uintptr(uint32(y)<<16 | uint32(x)&0xFFFF)
 	procSendMessage.Call(n.hwnd, wmLButtonDown, 1, lp)
@@ -180,11 +198,13 @@ func (n *noteWindow) close() {
 		procDestroyWindow.Call(n.hwnd)
 		n.hwnd = 0
 	}
-	for _, b := range []uintptr{n.surfaceBrush, n.accentBrush, n.titleFont, n.textFont, n.btnFont} {
-		if b != 0 {
-			procDeleteObject.Call(b)
-		}
+	if n.surfaceBrush != 0 {
+		procDeleteObject.Call(n.surfaceBrush)
 	}
+	for _, f := range n.fonts {
+		procDeleteObject.Call(f)
+	}
+	n.fonts = map[[2]int]uintptr{}
 	theNote = nil
 }
 

@@ -86,6 +86,9 @@ const (
 	dtWordBreak = 0x0010
 	dtCalcRect  = 0x0400
 	dtNoPrefix  = 0x0800
+	// dtEditControl вместе с dtWordBreak переносит и слово длиннее строки (по буквам), а не выводит
+	// его за край; последняя строка, видная наполовину, не рисуется. Расчёт высоты — с тем же флагом.
+	dtEditControl = 0x2000
 
 	errClassExists = syscall.Errno(1410) // ERROR_CLASS_ALREADY_EXISTS
 	spiGetWorkArea = 0x0030
@@ -218,14 +221,22 @@ func (f fontSet) free() {
 	}
 }
 
-// measureHeight возвращает высоту текста, разбитого по словам в ширину width.
+// measureHeight возвращает высоту текста, разбитого по словам в ширину width (длинное слово — по
+// буквам, как рисует drawWrapped).
 func measureHeight(hdc, font uintptr, text string, width int32) int32 {
+	_, h := measureSize(hdc, font, text, width)
+	return h
+}
+
+// measureSize — ширина и высота текста, разбитого по словам в ширину width, тем же переносом, что
+// drawWrapped (dtEditControl: слово без пробелов длиннее строки переносится, а не выходит за край).
+func measureSize(hdc, font uintptr, text string, width int32) (int32, int32) {
 	old, _, _ := procSelectObject.Call(hdc, font)
 	rc := rect{0, 0, width, 0}
 	procDrawText.Call(hdc, uintptr(unsafe.Pointer(utf16(text))), ^uintptr(0),
-		uintptr(unsafe.Pointer(&rc)), dtCalcRect|dtWordBreak|dtCenter|dtNoPrefix)
+		uintptr(unsafe.Pointer(&rc)), dtCalcRect|dtWordBreak|dtEditControl|dtCenter|dtNoPrefix)
 	procSelectObject.Call(hdc, old)
-	return rc.bottom - rc.top
+	return rc.right - rc.left, rc.bottom - rc.top
 }
 
 // drawWrapped рисует текст в прямоугольнике с переносом по словам; align это dtCenter или 0
@@ -234,7 +245,7 @@ func drawWrapped(hdc, font, color uintptr, text string, rc rect, align uintptr) 
 	old, _, _ := procSelectObject.Call(hdc, font)
 	procSetTextColor.Call(hdc, color)
 	procDrawText.Call(hdc, uintptr(unsafe.Pointer(utf16(text))), ^uintptr(0),
-		uintptr(unsafe.Pointer(&rc)), align|dtWordBreak|dtNoPrefix)
+		uintptr(unsafe.Pointer(&rc)), align|dtWordBreak|dtEditControl|dtNoPrefix)
 	procSelectObject.Call(hdc, old)
 }
 

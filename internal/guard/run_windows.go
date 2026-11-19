@@ -442,7 +442,12 @@ func (a *app) applyNote(v View) {
 		}
 		a.note = n
 	}
-	a.note.apply(v.Note)
+	var lock *NoteLock
+	if a.lock != nil && a.lock.Visible() && a.ui != nil {
+		g := a.ui.noteLock
+		lock = &g // плашка — между заголовком экрана блокировки и его кнопками (NFR-10)
+	}
+	a.note.apply(v.Note, lock)
 }
 
 // shutdown убирает окна и перехват клавиш.
