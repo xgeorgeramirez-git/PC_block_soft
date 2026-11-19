@@ -2011,6 +2011,92 @@
       }
     }
   },
+  "GuardPoll#note": {
+    "request": {
+      "sample": {
+        "atMs": 1760000000000,
+        "tzOffsetMin": 0,
+        "sessionActive": true,
+        "lastInputAgoMs": 0,
+        "fullscreen": false,
+        "foreground": "",
+        "foregroundPath": "",
+        "foregroundDomain": "",
+        "domainUnread": false,
+        "domainNoAddress": false,
+        "lockUnknown": false
+      },
+      "events": [
+        {
+          "kind": "noteShown",
+          "atMs": 1759999997000,
+          "threshold": 0,
+          "button": "",
+          "detail": "",
+          "noteId": "AAECAwQFBgcICQoLDA0ODw"
+        },
+        {
+          "kind": "noteDone",
+          "atMs": 1759999999900,
+          "threshold": 0,
+          "button": "",
+          "detail": "",
+          "noteId": "AAECAwQFBgcICQoLDA0ODw"
+        }
+      ]
+    },
+    "reply": {
+      "ok": true,
+      "payload": {
+        "status": {
+          "name": "Миша",
+          "status": "ok",
+          "statusText": "Можно",
+          "label": "85",
+          "tooltip": "Осталось 1 ч 25 мин\nИгры: 20 мин",
+          "summary": "Сегодня осталось 1 ч 25 мин из 2 ч",
+          "day": "2026-10-19",
+          "remainingS": 5100,
+          "limitS": 7200,
+          "usedS": 2100,
+          "unlimited": false,
+          "lock": "none",
+          "reason": "",
+          "detail": "",
+          "until": "",
+          "pauseUntil": "",
+          "used": "Сегодня: 35 мин из 2 ч",
+          "bonusBalance": 0,
+          "forbiddenNote": "",
+          "gamesRemainingS": 1200,
+          "gamesLimitS": 3600,
+          "gamesUnlimited": false,
+          "endMode": "lock",
+          "closeGames": false,
+          "studyOnly": false,
+          "videoRemainingS": 0,
+          "videoLimitS": 0,
+          "videoUnlimited": false,
+          "closeVideo": false,
+          "restUntilMs": 0,
+          "restLeftS": 0,
+          "restMessage": ""
+        },
+        "warnings": [],
+        "commands": [
+          {
+            "kind": "note",
+            "note": {
+              "id": "BAECAwQFBgcICQoLDA0ODw",
+              "text": "Иди ужинать",
+              "showS": 0,
+              "waitS": 597
+            }
+          }
+        ]
+      }
+    }
+  },
   "GuardShutdown": {
     "reply": {
       "ok": true,
@@ -2066,7 +2152,9 @@
         "closedTab": "",
         "closedTabWay": "",
         "promoSticker": "",
-        "promoText": ""
+        "promoText": "",
+        "note": "",
+        "noteId": ""
       }
     }
   },
@@ -2098,7 +2186,9 @@
         "closedTab": "",
         "closedTabWay": "",
         "promoSticker": "",
-        "promoText": ""
+        "promoText": "",
+        "note": "",
+        "noteId": ""
       }
     }
   },
@@ -2127,7 +2217,9 @@
         "closedTab": "",
         "closedTabWay": "",
         "promoSticker": "",
-        "promoText": ""
+        "promoText": "",
+        "note": "",
+        "noteId": ""
       }
     }
   },
@@ -2158,7 +2250,9 @@
         "closedTab": "youtube.com",
         "closedTabWay": "ctrlW",
         "promoSticker": "",
-        "promoText": ""
+        "promoText": "",
+        "note": "",
+        "noteId": ""
       }
     }
   },
@@ -2187,7 +2281,9 @@
         "closedTab": "",
         "closedTabWay": "",
         "promoSticker": "",
-        "promoText": ""
+        "promoText": "",
+        "note": "",
+        "noteId": ""
       }
     }
   },
@@ -2221,7 +2317,9 @@
         "closedTab": "",
         "closedTabWay": "",
         "promoSticker": "017",
-        "promoText": "Ура! +30 минут"
+        "promoText": "Ура! +30 минут",
+        "note": "",
+        "noteId": ""
       }
     }
   },
@@ -2255,7 +2353,9 @@
         "closedTab": "",
         "closedTabWay": "",
         "promoSticker": "",
-        "promoText": ""
+        "promoText": "",
+        "note": "",
+        "noteId": ""
       }
     }
   },
