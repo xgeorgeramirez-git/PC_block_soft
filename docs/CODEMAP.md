@@ -28,6 +28,7 @@
 | `internal/version` | 1 (2) | version хранит номер версии программы. |
 | `internal/winsession` | 5 (0) | winsession запускает процессы в интерактивных сеансах Windows: |
 | `tools/adultlist` | 1 (1) | (нет комментария Package) |
+| `tools/remote-phone` | 1 (1) | (нет комментария Package) |
 
 ## Миграции базы
 
