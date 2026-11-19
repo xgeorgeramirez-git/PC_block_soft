@@ -36,6 +36,7 @@ type fakePC struct {
 	notes      []remote.NoteReport
 	forbid     string // запретные часы в отчёте (раздел 6)
 	forbidEnd  int64
+	today      *remote.TodayReport // статистика за сегодня в отчёте (FR-43)
 }
 
 func newFakePC(t *testing.T) *fakePC {
@@ -102,7 +103,7 @@ func (f *fakePC) signed(v any) json.RawMessage {
 
 func (f *fakePC) report() remote.Report {
 	return remote.Report{V: 1, T: remote.TypeReport, PC: "pc1", Phone: "ph1", TS: time.Now().UnixMilli(),
-		Children: []remote.ChildReport{{ID: 3, Name: "Миша", UsedSec: 60, LeftSec: int64(1800 + f.extra*60), ExtraMin: f.extra, Forbid: f.forbid, ForbidUntilMs: f.forbidEnd}},
+		Children: []remote.ChildReport{{ID: 3, Name: "Миша", UsedSec: 60, LeftSec: int64(1800 + f.extra*60), ExtraMin: f.extra, Forbid: f.forbid, ForbidUntilMs: f.forbidEnd, Today: f.today}},
 		Notes:    append([]remote.NoteReport(nil), f.notes...)}
 }
 
@@ -359,5 +360,46 @@ func TestPhoneForbidOff(t *testing.T) {
 	ch, _ = out["children"].([]any)
 	if code != 0 || ch[0].(map[string]any)["forbid"] != remote.ForbidCleared {
 		t.Fatalf("status после снятия: %d %v", code, out)
+	}
+}
+
+// Ловит: тестовый телефон не печатает «Статистику за сегодня» (S59 сверяет её с окном), today
+// без -child, неизвестный ребёнок; вывод для человека теряет игры и «за компьютером».
+func TestPhoneToday(t *testing.T) {
+	f := newFakePC(t)
+	f.today = &remote.TodayReport{FirstMs: 1763460000000, NowAt: true, SinceMs: 1763461000000, UsedSec: 3900, LeftSec: 1800,
+		GamesSec: 1200, StudySec: 600, Programs: []remote.TimeItem{{Name: "Minecraft", Cat: remote.ItemGame, Sec: 1200}},
+		Sites: []remote.TimeItem{}, More: remote.TodayMore{Sites: 2}, Violations: 2, Bypass: 1}
+	state := filepath.Join(t.TempDir(), "phone.json")
+	if code, out := runJSON(t, "pair", "-state", state, "-url", f.srv.URL, "-code", "123456"); code != 0 {
+		t.Fatalf("pair: %v", out)
+	}
+	runJSON(t, "confirm", "-state", state)
+	code, out := runJSON(t, "today", "-state", state, "-child", "3")
+	td, _ := out["today"].(map[string]any)
+	progs, _ := td["programs"].([]any)
+	if code != 0 || out["child"] != float64(3) || td["firstMs"] != float64(1763460000000) || td["gamesSec"] != float64(1200) || len(progs) != 1 ||
+		progs[0].(map[string]any)["cat"] != remote.ItemGame || td["nowAt"] != true || out["reportTs"] == nil {
+		t.Fatalf("today: %d %v", code, out)
+	}
+	if code, out := runJSON(t, "status", "-state", state); code != 0 || out["children"].([]any)[0].(map[string]any)["today"] == nil {
+		t.Fatalf("status без today: %v", out)
+	}
+	if code, out := runJSON(t, "today", "-state", state); code != 1 || out["error"] != errUsage {
+		t.Fatalf("без -child: %d %v", code, out)
+	}
+	if code, out := runJSON(t, "today", "-state", state, "-child", "9"); code != 1 || out["error"] != errNoChild {
+		t.Fatalf("нет ребёнка: %d %v", code, out)
+	}
+	var buf bytes.Buffer
+	a := &app{out: &buf, http: &http.Client{Timeout: 10 * time.Second}, now: time.Now}
+	if a.run([]string{"status", "-state", state, "-human"}) != 0 {
+		t.Fatalf("status -human: %s", buf.String())
+	}
+	text := buf.String()
+	for _, want := range []string{"На связи", "Миша (id 3)", "За компьютером с ", "первый вход ", "игры 20 мин", "учёба 10 мин", "Minecraft (game) 20 мин", "сайты: и ещё 2", "из них попыток обхода 1"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("status -human без %q:\n%s", want, text)
+		}
 	}
 }

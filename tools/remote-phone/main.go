@@ -1,4 +1,4 @@
-// Команда remote-phone — тестовый телефон приёмки S55…S58 (M7, FR-40, docs/07_Протокол_связи.md).
+// Команда remote-phone — тестовый телефон приёмки S55…S59 (M7, FR-40, docs/07_Протокол_связи.md).
 // Делает то же, что Android-приложение, но из командной строки: привязка кодом со сверкой числа,
 // команды доп. времени, проверенный отчёт компьютера. Криптография — только функции
 // internal/remote (подпись, обязательство, число сверки), своей здесь нет. В установщик не входит.
@@ -6,7 +6,8 @@
 //	remote-phone pair    -state f.json -url http://127.0.0.1:18080 -code 123456 [-name Pixel]
 //	remote-phone confirm -state f.json
 //	remote-phone cmd     -state f.json -child 3 -delta 15
-//	remote-phone status  -state f.json
+//	remote-phone status  -state f.json [-human]          (отчёт; -human — для человека, со статистикой за сегодня)
+//	remote-phone today   -state f.json -child 3 [-human] (статистика за сегодня одного ребёнка, FR-43)
 //	remote-phone forge-cmd -state f.json -child 3 -delta 15   (подпись чужим ключом)
 //	remote-phone replay  -state f.json                        (повтор последней команды, тот же seq)
 //	remote-phone note    -state f.json -child 3 -text "Иди ужинать" -show 0   (сообщение, FR-41)
@@ -15,8 +16,9 @@
 //	remote-phone forbid-off -state f.json -child 3            (снять запрет на сегодня, FR-42)
 //	remote-phone forge-forbid-off -state f.json -child 3      (подпись чужим ключом)
 //
-// Вывод — одна строка JSON. Код выхода: 0 — удалось, 2 — компьютер ответил отказом (ответ
-// проверен подписью), 1 — любая другая ошибка ({"error":"<код>"}).
+// Вывод — одна строка JSON (с -human у status и today — строки для человека). Код выхода: 0 —
+// удалось, 2 — компьютер ответил отказом (ответ проверен подписью), 1 — любая другая ошибка
+// ({"error":"<код>"}).
 package main
 
 import (
@@ -47,6 +49,7 @@ const (
 	errCommit       = "commit"         // обязательство компьютера не сошлось с раскрытым nPc
 	errNotConfirmed = "not_confirmed"
 	errNoCmd        = "no_cmd"
+	errNoChild      = "no_child" // ребёнка нет в отчёте (today)
 )
 
 // phoneState — файл -state: всё, что телефон помнит между вызовами.
@@ -93,7 +96,7 @@ func main() {
 
 func (a *app) run(args []string) int {
 	if len(args) == 0 {
-		return a.emitErr(fail(errUsage, "нужна подкоманда: pair, confirm, cmd, status, forge-cmd, replay, note, forge-note, notes, forbid-off, forge-forbid-off"))
+		return a.emitErr(fail(errUsage, "нужна подкоманда: pair, confirm, cmd, status, today, forge-cmd, replay, note, forge-note, notes, forbid-off, forge-forbid-off"))
 	}
 	sub, rest := args[0], args[1:]
 	fs := flag.NewFlagSet(sub, flag.ContinueOnError)
@@ -106,6 +109,7 @@ func (a *app) run(args []string) int {
 	delta := fs.Int("delta", 0, "минуты доп. времени, со знаком (cmd, forge-cmd)")
 	text := fs.String("text", "", "текст сообщения (note, forge-note)")
 	show := fs.Int("show", 0, "сколько показывать, с: 0 (до «Понял»), 10, 30, 60 (note, forge-note)")
+	human := fs.Bool("human", false, "вывод для человека вместо JSON (status, today)")
 	if err := fs.Parse(rest); err != nil {
 		return a.emitErr(fail(errUsage, "%v", err))
 	}
@@ -122,7 +126,36 @@ func (a *app) run(args []string) int {
 		r, err = a.command(*statePath, sub, *child, *delta)
 		res, rejected = r, err == nil && !r.OK
 	case "status":
-		res, err = a.status(*statePath)
+		var r statusOut
+		r, err = a.status(*statePath)
+		if err == nil && *human {
+			a.printText(r, 0)
+			return 0
+		}
+		res = r
+	case "today":
+		var r statusOut
+		r, err = a.status(*statePath)
+		if err == nil && *child == 0 {
+			err = fail(errUsage, "нужен -child")
+		}
+		if err == nil {
+			var c *remote.ChildReport
+			for i := range r.Children {
+				if r.Children[i].ID == *child {
+					c = &r.Children[i]
+				}
+			}
+			switch {
+			case c == nil:
+				err = fail(errNoChild, "ребёнка %d нет в отчёте", *child)
+			case *human:
+				a.printText(r, *child)
+				return 0
+			default:
+				res = map[string]any{"reportTs": r.ReportTS, "child": c.ID, "name": c.Name, "today": c.Today}
+			}
+		}
 	case "note", "forge-note":
 		var r noteOut
 		r, err = a.note(*statePath, sub, *child, *text, *show)
@@ -552,6 +585,73 @@ func (a *app) status(statePath string) (statusOut, error) {
 		out.Notes = rep.Notes
 	}
 	return out, nil
+}
+
+// printText — отчёт для человека: строка ребёнка и «Статистика за сегодня» (FR-43), время — по
+// местным часам этого компьютера. only > 0 — только этот ребёнок.
+func (a *app) printText(r statusOut, only int64) {
+	hm := func(ms int64) string { return time.UnixMilli(ms).Format("15:04") }
+	online := "Компьютер не на связи"
+	if r.Online {
+		online = "На связи"
+	}
+	if !r.Report {
+		fmt.Fprintf(a.out, "%s, отчёта нет\n", online)
+		return
+	}
+	fmt.Fprintf(a.out, "%s, данные на %s\n", online, hm(r.ReportTS))
+	for _, c := range r.Children {
+		if only > 0 && c.ID != only {
+			continue
+		}
+		left := "без лимита"
+		if c.LeftSec >= 0 {
+			left = "осталось " + dur(c.LeftSec)
+		}
+		fmt.Fprintf(a.out, "%s (id %d): использовано %s, %s, доп. время %d мин\n", c.Name, c.ID, dur(c.UsedSec), left, c.ExtraMin)
+		t := c.Today
+		if t == nil {
+			fmt.Fprintln(a.out, "  статистики за сегодня нет (компьютер старой версии)")
+			continue
+		}
+		at := "Не за компьютером с " + hm(t.SinceMs)
+		if t.NowAt {
+			at = "За компьютером с " + hm(t.SinceMs)
+		}
+		first := "сегодня не садился"
+		if t.FirstMs > 0 {
+			first = "первый вход " + hm(t.FirstMs)
+		}
+		fmt.Fprintf(a.out, "  %s, %s\n", at, first)
+		fmt.Fprintf(a.out, "  всего %s, игры %s, учёба %s, видео и соцсети %s\n", dur(t.UsedSec), dur(t.GamesSec), dur(t.StudySec), dur(t.VideoSec))
+		for _, l := range []struct {
+			title string
+			items []remote.TimeItem
+			more  int
+		}{{"программы", t.Programs, t.More.Programs}, {"сайты", t.Sites, t.More.Sites}} {
+			parts := []string{}
+			for _, it := range l.items {
+				parts = append(parts, fmt.Sprintf("%s (%s) %s", it.Name, it.Cat, dur(it.Sec)))
+			}
+			if l.more > 0 {
+				parts = append(parts, fmt.Sprintf("и ещё %d", l.more))
+			}
+			if len(parts) == 0 {
+				parts = append(parts, "нет")
+			}
+			fmt.Fprintf(a.out, "  %s: %s\n", l.title, strings.Join(parts, ", "))
+		}
+		fmt.Fprintf(a.out, "  нарушений %d, из них попыток обхода %d\n", t.Violations, t.Bypass)
+	}
+}
+
+// dur — «1 ч 05 мин», «7 мин», «0 мин» (минуты вниз).
+func dur(sec int64) string {
+	m := sec / 60
+	if m >= 60 {
+		return fmt.Sprintf("%d ч %02d мин", m/60, m%60)
+	}
+	return fmt.Sprintf("%d мин", m)
 }
 
 // ---------- note, forge-note ----------
