@@ -176,6 +176,9 @@ func PauseText(now, until time.Time) string {
 // PauseEndText — запись журнала об окончании паузы (R11).
 const PauseEndText = "Пауза закончилась"
 
+// PauseEndedEarlyText — запись журнала: родитель закончил паузу раньше срока (D-96).
+const PauseEndedEarlyText = "Пауза закончена раньше срока"
+
 // NoForbiddenOnText и NoForbiddenOffText — записи журнала о снятии и возврате запретных
 // часов на сегодня (R24, D-51).
 const (

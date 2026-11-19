@@ -22,6 +22,9 @@ var ErrPromoRange = errors.New("промокод: можно от 1 до 600 м�
 // ErrPausePast — конец паузы не позже текущего момента.
 var ErrPausePast = errors.New("пауза: конец должен быть в будущем")
 
+// ErrNoPause — закончить паузу нельзя: паузы сейчас нет (не ставили или срок прошёл).
+var ErrNoPause = errors.New("пауза: паузы сейчас нет")
+
 // Decision — решение ядра на этот момент: что показать стражу и значку. Цифры и тексты —
 // единственный источник для значка, мини-панели, «Моей статистики» и карточки родителя
 // (Review Focus 5).
@@ -301,6 +304,24 @@ func (e *Engine) Pause(until time.Time) (Decision, error) {
 	return e.finish(e.decide(e.acc.State(), false), closed), nil
 }
 
+// EndPause заканчивает паузу раньше срока (R11, D-96): момент конца паузы снимается, и
+// правила применяются заново тем же путём, что и по сроку (pauseEnded): время вышло или
+// идут запретные часы — блокировка сразу. Событие EvPauseEnd с отметкой early. Паузы
+// нет (не ставили или срок уже прошёл) — ErrNoPause, событий нет.
+func (e *Engine) EndPause() (Decision, error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	now := e.now()
+	closed := e.advance(now)
+	if until, ok := e.pauseUntil(e.acc.State()); !ok || !now.Before(until) {
+		e.checkPauseEnd(now) // срок прошёл, а тика ещё не было: обычный конец по сроку
+		return e.finish(e.decide(e.acc.State(), false), closed), ErrNoPause
+	}
+	e.acc.SetPause(nil)
+	e.pauseEnded(true)
+	return e.finish(e.decide(e.acc.State(), false), closed), nil
+}
+
 // SpendBonus тратит min минут из копилки (R10, FR-11): увеличивает доп. время на сегодня
 // (как AddExtra), снимает блокировку «время вышло», если остаток стал больше нуля; пороги
 // взводятся заново. Баланс копилки ядро не хранит — проверку и запись в журнал бонусов
@@ -455,10 +476,20 @@ func (e *Engine) checkPauseEnd(now time.Time) {
 	st := e.acc.State()
 	until, ok := e.pauseUntil(st)
 	if !ok || !now.Before(until) {
-		e.pauseWasActive = false
-		e.rearm()
-		e.pending = append(e.pending, Event{Kind: EvPauseEnd, Details: map[string]any{"text": PauseEndText}})
+		e.pauseEnded(false)
 	}
+}
+
+// pauseEnded — общий конец паузы (по сроку и раньше срока, R11): пороги взводятся на новое
+// ближайшее событие, в журнал уходит EvPauseEnd; early — родитель закончил раньше (D-96).
+func (e *Engine) pauseEnded(early bool) {
+	e.pauseWasActive = false
+	e.rearm()
+	det := map[string]any{"text": PauseEndText}
+	if early {
+		det = map[string]any{"text": PauseEndedEarlyText, "early": true}
+	}
+	e.pending = append(e.pending, Event{Kind: EvPauseEnd, Details: det})
 }
 
 // limitFor возвращает лимит и день недели дня day; день не разобран — без лимита.
