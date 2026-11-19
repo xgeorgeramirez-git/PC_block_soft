@@ -223,11 +223,11 @@ func TestNoteDeliveryStates(t *testing.T) {
 	if rp := r.lastReport(t, ph); len(rp.Notes) != 1 || rp.Notes[0].State != remote.NoteShown || rp.Notes[0].AtMs != h.real.Now().UnixMilli() {
 		t.Fatalf("отчёт: %+v", rp.Notes)
 	}
-	if st := h.storedNotes(); len(st) != 1 || st[0].Text != "" || st[0].State != remote.NoteShown {
-		t.Fatalf("запись после показа: %+v", st)
+	if st := h.storedNotes(); len(st) != 1 || st[0].Text != "Иди\nужинать" || st[0].State != remote.NoteShown {
+		t.Fatalf("запись после показа (текст нужен до «Понял»: страж мог перезапуститься): %+v", st)
 	}
 	if got := noteCmds(h.step(activeSample)); len(got) != 0 {
-		t.Fatalf("показанное отдано снова: %+v", got)
+		t.Fatalf("показанное отдано снова раньше 5 с: %+v", got)
 	}
 	// Событие чужого сеанса (другой ребёнок) и неизвестный id — ничего.
 	h.poll(activeSample, ipc.GuardEvent{Kind: ipc.GuardEvNoteDone, NoteID: "zzz"})
@@ -239,6 +239,44 @@ func TestNoteDeliveryStates(t *testing.T) {
 	waitRemoteCond(t, "отчёт после «Понял»", 5*time.Second, func() bool { return r.reportCount() > before })
 	if rp := r.lastReport(t, ph); rp.Notes[0].State != remote.NoteRead {
 		t.Fatalf("отчёт: %+v", rp.Notes)
+	}
+	if st := h.storedNotes(); len(st) != 1 || st[0].Text != "" {
+		t.Fatalf("текст хранится после «Понял»: %+v", st)
+	}
+}
+
+// Ловит: показанное «до Понял» не отдаётся снова и пропадает, если страж перезапустился во время
+// показа; прочитанное отдаётся снова.
+func TestNoteShownResentUntilRead(t *testing.T) {
+	r := newTestRelay(t)
+	h, tok := remoteHarness(t)
+	h.childLogsIn()
+	id := h.childID(childSID)
+	ph := pairPhone(t, h, tok, r)
+	h.ok(adminPeer(), tok, ipc.CmdLogout, nil, nil)
+	ph.note(1, id, "n1", "Иди ужинать", 0, h.real.Now())
+	if got := noteCmds(h.step(activeSample)); len(got) != 1 {
+		t.Fatalf("первая отдача: %+v", got)
+	}
+	h.poll(activeSample, ipc.GuardEvent{Kind: ipc.GuardEvNoteShown, AtMs: h.real.Now().UnixMilli(), NoteID: "n1"})
+	// Страж перезапустился и плашку потерял: через 5 с служба отдаёт сообщение снова, с текстом.
+	var again []ipc.GuardNote
+	for i := 0; i < 6 && len(again) == 0; i++ {
+		again = noteCmds(h.step(activeSample))
+	}
+	if len(again) != 1 || again[0].ID != "n1" || again[0].Text != "Иди ужинать" || again[0].ShowS != 0 || again[0].WaitS <= 0 {
+		t.Fatalf("показанное не отдано снова: %+v", again)
+	}
+	if h.noteStates()["n1"] != remote.NoteShown {
+		t.Fatalf("состояние: %v", h.noteStates())
+	}
+	// Новый страж показал (повтор «показано» — ничего) и «Понял»: больше не отдаётся.
+	h.poll(activeSample, ipc.GuardEvent{Kind: ipc.GuardEvNoteShown, NoteID: "n1"})
+	h.poll(activeSample, ipc.GuardEvent{Kind: ipc.GuardEvNoteDone, NoteID: "n1"})
+	for i := 0; i < 7; i++ {
+		if got := noteCmds(h.step(activeSample)); len(got) != 0 {
+			t.Fatalf("прочитанное отдано снова: %+v", got)
+		}
 	}
 }
 

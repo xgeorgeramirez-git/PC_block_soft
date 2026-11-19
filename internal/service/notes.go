@@ -29,7 +29,9 @@ const (
 	noteResend = 5 * time.Second
 )
 
-// noteRec — сообщение в очереди службы. Текст хранится, только пока сообщение ждёт показа.
+// noteRec — сообщение в очереди службы. Текст хранится, пока сообщение ждёт показа и пока оно на
+// экране (shown): перезапущенный страж получит его снова; «Понял», конец показа и срок ожидания текст
+// стирают.
 type noteRec struct {
 	ID       string `json:"id"`
 	Child    int64  `json:"child"`
@@ -215,12 +217,22 @@ func (s *Service) deliverNotes(cs *childState, ss *sessState, session uint32, re
 	}
 	var out []ipc.GuardCommand
 	for _, r := range s.notes.list {
-		if r.Child != cs.child.ID || r.State != remote.NoteQueued {
+		if r.Child != cs.child.ID {
 			continue
 		}
-		left := noteWait - real.Sub(time.UnixMilli(r.QueuedMs))
-		if left <= 0 {
-			continue // погасит expireNotes
+		var left time.Duration
+		switch {
+		case r.State == remote.NoteQueued:
+			left = noteWait - real.Sub(time.UnixMilli(r.QueuedMs))
+			if left <= 0 {
+				continue // погасит expireNotes
+			}
+		case r.State == remote.NoteShown && r.Text != "":
+			// На экране, «Понял» ещё не было: страж мог перезапуститься и плашку потерять. Живой страж
+			// то же id второй раз не показывает; новый покажет снова.
+			left = noteWait
+		default:
+			continue
 		}
 		if r.sentTo == session && real.Sub(r.sentAt) < noteResend && !real.Before(r.sentAt) {
 			continue
@@ -235,7 +247,8 @@ func (s *Service) deliverNotes(cs *childState, ss *sessState, session uint32, re
 
 // noteEvent — событие стража о сообщении: показано (shown) или «Понял»/время вышло (read). Чужое
 // сообщение (другой ребёнок) и неизвестный id пропускаются. Показ после срока ожидания засчитывается:
-// плашка на экране, это правда для телефона.
+// плашка на экране, это правда для телефона. Текст стирается на read: до него показанное отдаётся
+// стражу снова (deliverNotes).
 func (s *Service) noteEvent(cs *childState, ev ipc.GuardEvent, real time.Time) {
 	if ev.NoteID == "" || !s.loadNotes() {
 		return
@@ -252,7 +265,10 @@ func (s *Service) noteEvent(cs *childState, ev ipc.GuardEvent, real time.Time) {
 		default:
 			return
 		}
-		r.AtMs, r.Text = real.UnixMilli(), ""
+		r.AtMs = real.UnixMilli()
+		if r.State == remote.NoteRead {
+			r.Text = ""
+		}
 		s.noteChanged()
 		return
 	}

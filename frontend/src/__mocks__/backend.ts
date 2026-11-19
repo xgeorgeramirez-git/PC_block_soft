@@ -292,7 +292,7 @@ export const MOCK_JOURNAL_GROUPS: Record<Exclude<JournalGroup, "">, readonly str
     "extra_time", "extra_undone", "pause", "pause_end", "no_forbidden", "day_closed",
     "bonus_spent", "bonus_granted", "bonus_grant", "bonus_undo", "bonus_clear", "bonus_reduce",
     "promo_redeem", "promo_create", "promo_generate", "promo_history_cleared", "rest_break", "rest_ended",
-    "bonus_spend",
+    "remote_note", "bonus_spend",
   ],
   programs: [
     "program_decided", "program_undone", "program_hidden", "program_shown", "program_renamed", "program_pending",
@@ -304,7 +304,7 @@ export const MOCK_JOURNAL_GROUPS: Record<Exclude<JournalGroup, "">, readonly str
   settings: [
     "setup_done", "password_failed", "password_changed", "password_reset", "uninstall_forgot",
     "settings_changed", "children_changed", "child_admin", "child_admin_off", "stats_cleared", "journal_cleared",
-    "block_cleared", "remote", "remote_note", "settings",
+    "block_cleared", "remote", "settings",
   ],
   system: ["safe_mode", "internal_error", "db_recovered"],
 };

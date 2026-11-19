@@ -65,6 +65,7 @@ func TestJournalGroupsCoverEventKinds(t *testing.T) {
 		"program_pending": "programs", "site_added": "programs", "brave_restored": "programs",
 		"internal_error": "system", "db_recovered": "system", "safe_mode": "system",
 		"password_failed": "settings", "settings_changed": "settings",
+		"remote": "settings", "remote_note": "time",
 	}
 	for k, g := range want {
 		if len(in[k]) != 1 || in[k][0] != g {

@@ -16,6 +16,7 @@ var journalGroups = map[string][]string{
 		core.EvBonusSpent, core.EvBonusGranted, evBonusGrant, evBonusUndo, evBonusClear, evBonusReduce,
 		core.EvPromoRedeem, evPromoCreate, evPromoGenerate, evPromoHistoryCleared,
 		core.EvRestBreak, core.EvRestEnded,
+		evRemoteNote, // сообщение ребёнку с телефона — рядом с доп. временем с телефона (FR-41)
 	},
 	ipc.JournalGroupPrograms: {
 		evProgramDecided, evProgramUndone, evProgramHidden, evProgramShown, evProgramRenamed, evProgramPending,
@@ -28,7 +29,7 @@ var journalGroups = map[string][]string{
 	ipc.JournalGroupSettings: {
 		evSetupDone, evPasswordFailed, evPasswordChanged, evPasswordReset, evUninstallForgot,
 		evSettingsChanged, evChildrenChanged, evChildAdmin, evChildAdminOff, evStatsCleared, evJournalCleared,
-		core.EvBlockCleared, evRemote, evRemoteNote,
+		core.EvBlockCleared, evRemote,
 	},
 	ipc.JournalGroupSystem: {core.EvSafeMode, evInternalError, evDBRecovered},
 }
