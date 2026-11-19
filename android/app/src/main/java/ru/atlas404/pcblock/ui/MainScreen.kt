@@ -38,13 +38,17 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.contentDescription
@@ -331,6 +335,12 @@ private fun ChildCard(
 private fun CustomDialog(child: Proto.Child, onDismiss: () -> Unit, onSend: (Int) -> Unit) {
     var text by rememberSaveable { mutableStateOf("") }
     var bad by remember { mutableStateOf(false) }
+    // Поле получает фокус при открытии: родитель сразу набирает число (ревью M7, R12).
+    val field = remember { FocusRequester() }
+    LaunchedEffect(Unit) {
+        withFrameNanos { } // окно диалога присоединено, поле уже в дереве фокуса
+        field.requestFocus()
+    }
     fun send(sign: Int) {
         val n = Format.minutes(text)
         if (n == null) bad = true else onSend(sign * n)
@@ -352,6 +362,7 @@ private fun CustomDialog(child: Proto.Child, onDismiss: () -> Unit, onSend: (Int
                     isError = bad,
                     supportingText = { if (bad) Text(stringResource(R.string.err_range)) },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    modifier = Modifier.focusRequester(field),
                 )
             }
         },
