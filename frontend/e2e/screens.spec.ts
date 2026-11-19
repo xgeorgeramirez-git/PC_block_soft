@@ -178,7 +178,7 @@ test("s02 сегодня, значок паузы", async ({ page }) => {
 
   await off.click();
   const picker = dasha.getByRole("group", { name: "На сколько поставить паузу" });
-  await expect(picker.getByRole("button")).toHaveText(["15 минут", "1 час", "2 часа", "До конца дня"]);
+  await expect(picker.getByRole("button")).toHaveText(["15 минут", "1 час", "2 часа", "До конца дня", "Отмена"]);
   await noHorizontalScroll(page);
   await page.screenshot({ path: `${SCREENS}/today-pause-picker.png`, fullPage: true });
 
