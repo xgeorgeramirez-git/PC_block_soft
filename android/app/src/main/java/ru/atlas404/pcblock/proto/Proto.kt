@@ -176,20 +176,33 @@ object Proto {
 
     // ---------- сообщение (раздел 5а) ----------
 
-    /** Текст, который уйдёт на компьютер: переводы строк \n, управляющие знаки убраны, края обрезаны. */
+    /**
+     * Текст, который уйдёт на компьютер, — как NoteText в Go (internal/remote/proto.go): переводы
+     * строк \n, табуляция — пробел; управляющие знаки (Cc), невидимые знаки форматирования (Cf, кроме
+     * U+200D — склейки эмодзи), знак замены U+FFFD и одинокие половинки UTF-16 убраны; края обрезаны.
+     * Текст только из невидимых знаков — пустой: «Текст от 1 до 300 знаков» ещё на телефоне.
+     */
     fun cleanNote(raw: String): String {
         val sb = StringBuilder(raw.length)
         val s = raw.replace("\r\n", "\n").replace('\r', '\n')
-        for (ch in s) {
+        var i = 0
+        while (i < s.length) {
+            val cp = s.codePointAt(i)
+            i += Character.charCount(cp)
+            val type = Character.getType(cp)
             when {
-                ch == '\n' -> sb.append(ch)
-                ch == '\t' -> sb.append(' ')
-                ch.isISOControl() -> {}
-                else -> sb.append(ch)
+                cp == '\n'.code -> sb.append('\n')
+                cp == '\t'.code -> sb.append(' ')
+                type == Character.CONTROL.toInt() || type == Character.SURROGATE.toInt() || cp == 0xFFFD -> {}
+                type == Character.FORMAT.toInt() && cp != 0x200D -> {}
+                else -> sb.appendCodePoint(cp)
             }
         }
         return sb.toString().trim()
     }
+
+    /** Ошибка текста для экрана: null — годится, иначе NOTE_RANGE («Текст от 1 до 300 знаков»). */
+    fun noteProblem(raw: String): Problem? = if (noteOk(raw)) null else Problem.NOTE_RANGE
 
     /** Длина в знаках Unicode (как считает компьютер) после обрезки: для счётчика «12/300». */
     fun noteLength(raw: String): Int = cleanNote(raw).let { it.codePointCount(0, it.length) }
@@ -325,5 +338,32 @@ object Proto {
         block()
     } catch (e: JSONException) {
         throw ProtoException("неверные данные: ${e.message}")
+    }
+}
+
+/**
+ * Повтор сообщения после обрыва (протокол, раздел 5а): если на отправку не пришёл ответ компьютера
+ * (сеть оборвалась, сервер связи не дождался компьютера, ответ не разобран), сообщение могло дойти.
+ * Повтор того же текста тому же ребёнку с тем же показом идёт с тем же id: компьютер считает тот же id
+ * с новым seq одним сообщением. Ответ компьютера (принято или отказ) — повтор не нужен, следующее
+ * сообщение получает новый id.
+ */
+class NoteRetry {
+    private data class Pending(val child: Long, val text: String, val showSec: Int, val id: String)
+
+    private var pending: Pending? = null
+
+    /** id для отправки: тот же, что у неотвеченного такого же сообщения, иначе newId(). */
+    fun idFor(child: Long, text: String, showSec: Int, newId: () -> String): String {
+        val p = pending
+        if (p != null && p.child == child && p.text == text && p.showSec == showSec) return p.id
+        val id = newId()
+        pending = Pending(child, text, showSec, id)
+        return id
+    }
+
+    /** Компьютер ответил (принято или отказ): повторять не нужно. */
+    fun answered() {
+        pending = null
     }
 }

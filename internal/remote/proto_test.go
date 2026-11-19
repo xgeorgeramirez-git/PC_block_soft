@@ -186,6 +186,10 @@ func TestNoteText(t *testing.T) {
 		{"1\n2\n3\n4\n5\n6", "1\n2\n3\n4\n5\n6", true},
 		{"1\n2\n3\n4\n5\n6\n7", "1\n2\n3\n4\n5\n6\n7", false},
 		{"\n\n\n\n\n\nтекст\n", "текст", true}, // переводы по краям обрезаны
+		// Только невидимые знаки — пусто (тот же набор, что NoteTest.invisibleCharsRemovedLikeGo телефона).
+		{"\u200b\u200e\u200f\ufeff\u2060\u00ad\u202e\U000E0001\ufffd \n", "", false},
+		{"\u200bИди\u2060 ужинать\ufeff", "Иди ужинать", true},
+		{"\u200e👨\u200d👩", "👨\u200d👩", true},
 	}
 	for _, c := range cases {
 		got, ok := NoteText(c.in)

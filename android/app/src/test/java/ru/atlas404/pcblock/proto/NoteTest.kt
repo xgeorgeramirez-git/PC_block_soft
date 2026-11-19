@@ -109,6 +109,47 @@ class NoteTest {
         assertTrue(Proto.noteOk("1\r\n2\r\n3\r\n4\r\n5\r\n6"))
     }
 
+    @Test
+    fun invisibleCharsRemovedLikeGo() {
+        // Как NoteText в Go: Cf (U+200B, U+200E, U+200F, U+FEFF, U+2060, U+00AD, U+202E, тег U+E0001)
+        // убраны, кроме U+200D; знак замены U+FFFD и одинокая половинка UTF-16 — тоже.
+        val invisible = "\u200b\u200e\u200f\ufeff\u2060\u00ad\u202e" + String(Character.toChars(0xE0001)) + "\ufffd\ud800 \n"
+        assertEquals("", Proto.cleanNote(invisible))
+        assertFalse(Proto.noteOk(invisible))
+        assertEquals(Problem.NOTE_RANGE, Proto.noteProblem(invisible))
+        assertEquals("Текст от 1 до 300 знаков", Strings[Problem.NOTE_RANGE.resName])
+        assertEquals("Иди ужинать", Proto.cleanNote("\u200bИди\u2060 ужинать\ufeff"))
+        assertEquals("👨\u200d👩", Proto.cleanNote("\u200e👨\u200d👩"))
+        assertNull(Proto.noteProblem("Иди ужинать"))
+        // Невидимые знаки не считаются в 300.
+        assertTrue(Proto.noteOk("x".repeat(300) + "\u200b".repeat(20)))
+    }
+
+    // ---------- повтор после обрыва ----------
+
+    @Test
+    fun retryWithoutAnswerKeepsSameId() {
+        val r = NoteRetry()
+        var n = 0
+        val gen = { "id${++n}" }
+        val a = r.idFor(3, "Иди ужинать", 0, gen)
+        // Ответа не было (обрыв сети): повтор того же сообщения — тот же id.
+        assertEquals(a, r.idFor(3, "Иди ужинать", 0, gen))
+        assertEquals(a, r.idFor(3, "Иди ужинать", 0, gen))
+        // Другой текст, ребёнок или показ — другое сообщение.
+        val b = r.idFor(3, "Иди ужинать!", 0, gen)
+        assertTrue(a != b)
+        val c = r.idFor(4, "Иди ужинать!", 0, gen)
+        assertTrue(b != c)
+        val d = r.idFor(4, "Иди ужинать!", 30, gen)
+        assertTrue(c != d)
+        // Компьютер ответил: следующее такое же — новое сообщение.
+        r.answered()
+        val e = r.idFor(4, "Иди ужинать!", 30, gen)
+        assertTrue(d != e)
+        assertEquals(5, n)
+    }
+
     // ---------- ответ noter ----------
 
     @Test

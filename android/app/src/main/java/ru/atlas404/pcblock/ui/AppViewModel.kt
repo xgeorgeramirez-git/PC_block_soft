@@ -20,6 +20,7 @@ import ru.atlas404.pcblock.net.RelayException
 import ru.atlas404.pcblock.proto.B64
 import ru.atlas404.pcblock.proto.Crypto
 import ru.atlas404.pcblock.proto.Format
+import ru.atlas404.pcblock.proto.NoteRetry
 import ru.atlas404.pcblock.proto.Problem
 import ru.atlas404.pcblock.proto.Proto
 import ru.atlas404.pcblock.proto.ProtoException
@@ -45,6 +46,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     private val prefs = Prefs(app)
     private val rnd = SecureRandom()
+    private val noteRetry = NoteRetry() // повтор сообщения без ответа — с тем же id
 
     var screen by mutableStateOf(Screen.CONNECT)
         private set
@@ -344,8 +346,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun sendNote(childId: Long, raw: String, onSent: () -> Unit) {
         if (noteBusy || busyChild != null || peer == null) return
         val text = Proto.cleanNote(raw)
-        if (!Proto.noteOk(text)) {
-            noteError = Problem.NOTE_RANGE
+        Proto.noteProblem(text)?.let {
+            noteError = it
             return
         }
         val showSec = noteShowSec
@@ -379,13 +381,15 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         val key = PhoneKey.load() ?: return fail(Problem.NOT_PAIRED, repair = true)
         return try {
             val seq = prefs.nextSeq() // записан до отправки: общий счёт с командами
-            val id = Proto.newNoteId(rnd)
+            // Повтор после обрыва без ответа — тот же id: компьютер не покажет сообщение дважды.
+            val id = noteRetry.idFor(childId, text, showSec) { Proto.newNoteId(rnd) }
             val now = System.currentTimeMillis()
             val data = Proto.noteData(pr.pcId, pr.phoneId, seq, now, childId, id, text, showSec)
             val signed = Crypto.seal(key, data)
             val m = RelayClient(prefs.url).send(prefs.phoneToken, Proto.KIND_NOTE, Proto.signedToJson(signed))
             if (m.kind != Proto.KIND_NOTER) throw ProtoException("ожидался noter")
             val reply = Proto.openNoteReply(pr, Proto.signedFromJson(m.body), data)
+            noteRetry.answered()
             if (reply.ok) {
                 val n = SavedNote(id, childId, text, showSec, now)
                 prefs.notes.add(n)
@@ -432,6 +436,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         notes = emptyList()
         noteBusy = false
         noteError = null
+        noteRetry.answered() // новая привязка — неотвеченное прежнее не повторяется
         fastUntilMs = 0
         url = prefs.url
     }
