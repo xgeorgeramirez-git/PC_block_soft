@@ -141,6 +141,8 @@ Invoke-Scenario "S57" "Сообщение ребёнку с телефона: п
       Wait-NoteState $script:Id2 "shown" 10
       $note = @(Get-PcbWindowRects | Where-Object { $_.Class -eq "PCBlockGuardNote" }) | Select-Object -First 1
       Assert-That ($null -ne $note) "Окно плашки сообщения не видно поверх экрана блокировки"
+      $script:ShortNoteH = $note.Bottom - $note.Top
+      $script:PwdTop = (@(Get-PcbWindowRects -Children | Where-Object { $_.Class -eq "Button" -and $_.Text -eq "Пароль родителя" }) | Select-Object -First 1).Top
       foreach ($b in @(Get-PcbWindowRects -Children | Where-Object { $_.Class -eq "Button" })) {
         Assert-That (-not (Test-RectsOverlap $note $b)) "Плашка $(Format-Rect $note) закрывает кнопку «$($b.Text)» $(Format-Rect $b)"
       }
@@ -173,13 +175,19 @@ Invoke-Scenario "S57" "Сообщение ребёнку с телефона: п
       Assert-That ($null -ne $pwdBtn) "Кнопки «Пароль родителя» на экране блокировки нет среди окон"
       foreach ($b in $buttons) {
         Assert-That (-not (Test-RectsOverlap $note $b)) "Плашка $(Format-Rect $note) закрывает кнопку «$($b.Text)» $(Format-Rect $b)"
+        Assert-That ($b.Top -ge $screen.Top -and $b.Bottom -le $screen.Bottom) "Кнопка «$($b.Text)» $(Format-Rect $b) за краем экрана: экран блокировки раздвинут слишком"
       }
+      # Текст целиком (FR-41): 6 строк не влезают в высоту плашки короткого сообщения (одна строка, «…» запрещено).
+      Assert-That (($note.Bottom - $note.Top) -ge [int]($script:ShortNoteH * 1.5)) "Плашка длинного сообщения $(Format-Rect $note) не выше короткой ($($script:ShortNoteH) px): текст обрезан"
       Assert-That ($note.Top -ge $screen.Top -and $note.Bottom -le $screen.Bottom -and $note.Left -ge $screen.Left -and $note.Right -le $screen.Right) "Плашка $(Format-Rect $note) за краем экрана"
       Assert-That (($note.Bottom - $note.Top) -le [int]($screen.Height * 0.4) + 1) "Плашка выше 40 % экрана: $(Format-Rect $note)"
       Save-Screen "s57-note-long-lock"
       Invoke-GuardClick "noteOk"
       $g = Wait-GuardState { param($s) -not $s.noteId } 5 "длинное сообщение закрыто «Понял»"
       Assert-That ($g.lockShown) "Экран блокировки пропал вместе с плашкой: $(Format-GuardState $g)"
+      Start-Sleep -Milliseconds 700
+      $back = (@(Get-PcbWindowRects -Children | Where-Object { $_.Class -eq "Button" -and $_.Text -eq "Пароль родителя" }) | Select-Object -First 1).Top
+      Assert-That ([math]::Abs($back - $script:PwdTop) -le 1) "Кнопки экрана блокировки не вернулись на место после «Понял»: «Пароль родителя» сверху $back, было $($script:PwdTop)"
       Wait-NoteState $script:Id3 "read" 10
     }
 
