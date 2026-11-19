@@ -1,0 +1,56 @@
+name: Уборка репозитория
+
+# Удаляет слитые рабочие ветки и лишние выпуски (с метками) по списку. Только вручную и только
+# по просьбе заказчика (CLAUDE.md, правило 7): из сессии разработки ветки и выпуски напрямую
+# не удаляются (403). Ветки main и screenshots не удаляются никогда.
+# Запуск: gh api -X POST repos/xgeorgeramirez-git/PC_block_soft/actions/workflows/repo-cleanup.yml/dispatches \
+#   -f ref=main -f 'inputs[branches]=feature/a fix/b' -f 'inputs[releases]=v0.8.0-beta.1'
+
+on:
+  workflow_dispatch:
+    inputs:
+      branches:
+        description: "Ветки через пробел (только слитые в main или tmp/*, spike/*)"
+        required: false
+        default: ""
+        type: string
+      releases:
+        description: "Метки выпусков через пробел, например v0.8.0-beta.1"
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Удалить ветки и выпуски
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          BRANCHES: ${{ inputs.branches }}
+          RELEASES: ${{ inputs.releases }}
+        run: |
+          set -euo pipefail
+          for b in $BRANCHES; do
+            case "$b" in main|screenshots) echo "::warning::$b не удаляется"; continue;; esac
+            ahead=$(gh api "repos/$REPO/compare/main...$b" --jq .ahead_by 2>/dev/null || echo "нет")
+            if [ "$ahead" = "нет" ]; then echo "::warning::ветки $b нет"; continue; fi
+            if [ "$ahead" != "0" ]; then
+              case "$b" in tmp/*|spike/*) ;; *) echo "::warning::$b не слита в main (впереди на $ahead), пропущена"; continue;; esac
+            fi
+            gh api -X DELETE "repos/$REPO/git/refs/heads/$b" && echo "::notice::ветка $b удалена"
+          done
+          for t in $RELEASES; do
+            [[ "$t" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-beta\.[0-9]+)?$ ]] || { echo "::warning::метка «$t» не в виде v0.8.0 или v0.8.0-beta.1"; continue; }
+            if gh release view "$t" --repo "$REPO" >/dev/null 2>&1; then
+              gh release delete "$t" --repo "$REPO" --cleanup-tag --yes && echo "::notice::выпуск $t и метка удалены"
+            elif gh api "repos/$REPO/git/refs/tags/$t" >/dev/null 2>&1; then
+              gh api -X DELETE "repos/$REPO/git/refs/tags/$t" && echo "::notice::метка $t удалена"
+            else
+              echo "::warning::выпуска $t нет"
+            fi
+          done
