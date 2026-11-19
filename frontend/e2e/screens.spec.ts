@@ -3493,7 +3493,7 @@ test.describe("settings-phone: блок «Телефон»", () => {
     await page.goto("/");
     await page.getByRole("button", { name: "Настройки" }).click();
     const box = page.getByRole("region", { name: "Телефон" });
-    await expect(box.getByRole("checkbox", { name: "Связь с телефоном" })).toBeEnabled();
+    await expect(box.getByRole("switch", { name: "Связь с телефоном" })).toBeEnabled();
     // Блок сразу после «Пауза для всех детей».
     await expect(page.locator(".settings > section > h3").nth(3)).toHaveText("Телефон");
     await expect(page.locator(".settings > section > h3").nth(2)).toHaveText("Пауза для всех детей");
@@ -3509,7 +3509,7 @@ test.describe("settings-phone: блок «Телефон»", () => {
 
   test("settings-phone-off", async ({ page }) => {
     const box = await openPhone(page, undefined);
-    await expect(box.getByRole("checkbox", { name: "Связь с телефоном" })).not.toBeChecked();
+    await expect(box.getByRole("switch", { name: "Связь с телефоном" })).not.toBeChecked();
     await expect(box.getByText("Программа будет связываться только с вашим сервером. Выключено: программа совсем без интернета")).toBeVisible();
     await expect(box.getByLabel("Адрес сервера")).toHaveCount(0);
     await expect(box.getByRole("button", { name: /Подключить/ })).toHaveCount(0);

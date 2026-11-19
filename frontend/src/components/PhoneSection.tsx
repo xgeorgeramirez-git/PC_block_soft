@@ -203,6 +203,9 @@ export default function PhoneSection() {
       <label className="switch">
         <input
           type="checkbox"
+          role="switch"
+          aria-checked={enabled}
+          aria-describedby="phone-toggle-hint"
           data-focus="toggle"
           checked={enabled}
           disabled={view === null || busy}
@@ -210,7 +213,9 @@ export default function PhoneSection() {
         />
         <span>Связь с телефоном</span>
       </label>
-      <p className="field-hint">Программа будет связываться только с вашим сервером. Выключено: программа совсем без интернета</p>
+      <p id="phone-toggle-hint" className="field-hint">
+        Программа будет связываться только с вашим сервером. Выключено: программа совсем без интернета
+      </p>
 
       {view === null && !loadError ? <p className="panel-text">Узнаю состояние связи…</p> : null}
       {loadError ? <p className="field-hint phone-load-error">{loadError}</p> : null}
@@ -261,14 +266,26 @@ export default function PhoneSection() {
             ) : pair?.stage === "code" ? (
               <>
                 <h4 className="subsection-title">Код для телефона</h4>
-                <p className="field-hint">Откройте PC Block на телефоне и введите этот код</p>
-                <p className="phone-code">
+                <p id="phone-code-hint" className="field-hint">
+                  Откройте PC Block на телефоне и введите этот код
+                </p>
+                <p id="phone-code" className="phone-code">
                   {formatCode(pair.code)}
                 </p>
-                <p className="panel-text phone-code-ttl">Действует 10 минут</p>
+                <p id="phone-code-ttl" className="panel-text phone-code-ttl">
+                  Действует 10 минут
+                </p>
                 <p className="field-hint phone-countdown">{`Осталось ${countdownText(pair.expiresMs, now)}`}</p>
                 <div className="form-actions">
-                  <button type="button" className="btn" data-focus="cancel" disabled={busy} onClick={pairCancel}>
+                  {/* Фокус переходит на «Отмена»: код зачитывается её описанием (R11). */}
+                  <button
+                    type="button"
+                    className="btn"
+                    data-focus="cancel"
+                    aria-describedby="phone-code-hint phone-code phone-code-ttl"
+                    disabled={busy}
+                    onClick={pairCancel}
+                  >
                     Отмена
                   </button>
                 </div>
@@ -276,13 +293,22 @@ export default function PhoneSection() {
             ) : pair?.stage === "compare" ? (
               <>
                 <h4 className="subsection-title">{pair.phoneName ? `Сверка числа: ${pair.phoneName}` : "Сверка числа"}</h4>
-                <p className="panel-text">На телефоне должно быть число</p>
-                <p className="phone-code">
+                <p id="phone-sas-hint" className="panel-text">
+                  На телефоне должно быть число
+                </p>
+                <p id="phone-sas" className="phone-code">
                   {formatSas(pair.sas)}
                 </p>
                 <p className="field-hint">Нажмите «Совпадает» и на телефоне</p>
                 <div className="form-actions">
-                  <button type="button" className="btn btn-primary" data-focus="match" disabled={busy} onClick={() => confirm(true)}>
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    data-focus="match"
+                    aria-describedby="phone-sas-hint phone-sas"
+                    disabled={busy}
+                    onClick={() => confirm(true)}
+                  >
                     Совпадает
                   </button>
                   <button type="button" className="btn" disabled={busy} onClick={() => confirm(false)}>

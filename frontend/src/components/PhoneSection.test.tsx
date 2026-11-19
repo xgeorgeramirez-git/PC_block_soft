@@ -35,13 +35,13 @@ async function setup(remote?: Partial<RemoteView>) {
   mock = installBackend({ sessionActive: true, remote });
   const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
   const view = render(<PhoneSection />);
-  await screen.findByRole("checkbox", { name: "Связь с телефоном" });
-  await vi.waitFor(() => expect((screen.getByRole("checkbox", { name: "Связь с телефоном" }) as HTMLInputElement).disabled).toBe(false));
+  await screen.findByRole("switch", { name: "Связь с телефоном" });
+  await vi.waitFor(() => expect((screen.getByRole("switch", { name: "Связь с телефоном" }) as HTMLInputElement).disabled).toBe(false));
   return { user, view };
 }
 
 const box = () => screen.getByRole("region", { name: "Телефон" });
-const toggle = () => screen.getByRole("checkbox", { name: "Связь с телефоном" }) as HTMLInputElement;
+const toggle = () => screen.getByRole("switch", { name: "Связь с телефоном" }) as HTMLInputElement;
 const status = () => box().querySelector(".phone-message") as HTMLElement;
 const tick = (ms: number) => act(() => vi.advanceTimersByTimeAsync(ms));
 
@@ -269,5 +269,39 @@ describe("PhoneSection: опрос", () => {
     await tick(5000);
     await vi.waitFor(() => expect(within(box()).getByText("На связи")).toBeTruthy());
     expect(screen.queryByText("Не удалось узнать состояние связи. Пробуем ещё раз")).toBeNull();
+  });
+});
+
+// R11: описание элемента по aria-describedby (как его прочитает экранный диктор).
+function described(el: Element): string {
+  return (el.getAttribute("aria-describedby") ?? "")
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((id) => document.getElementById(id)?.textContent ?? "")
+    .join(" ");
+}
+
+describe("PhoneSection: доступность (R11)", () => {
+  it("выключатель — switch с aria-checked, пояснение читается описанием", async () => {
+    const { user } = await setup();
+    expect(toggle().getAttribute("aria-checked")).toBe("false");
+    expect(described(toggle())).toBe("Программа будет связываться только с вашим сервером. Выключено: программа совсем без интернета");
+    await user.click(toggle());
+    await vi.waitFor(() => expect(toggle().getAttribute("aria-checked")).toBe("true"));
+  });
+
+  it("появившийся код и число сверки зачитываются вместе с кнопкой в фокусе", async () => {
+    const { user } = await setup(online);
+    await user.click(within(box()).getByRole("button", { name: "Подключить телефон" }));
+    await within(box()).findByText("482 913");
+    const cancel = within(box()).getByRole("button", { name: "Отмена" });
+    await vi.waitFor(() => expect(document.activeElement).toBe(cancel));
+    expect(described(cancel)).toContain("482 913");
+    expect(described(cancel)).toContain("Действует 10 минут");
+    await tick(MOCK_COMPARE_AFTER_MS);
+    await within(box()).findByText("731 004");
+    const match = within(box()).getByRole("button", { name: "Совпадает" });
+    expect(described(match)).toContain("На телефоне должно быть число");
+    expect(described(match)).toContain("731 004");
   });
 });

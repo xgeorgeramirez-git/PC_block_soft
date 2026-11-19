@@ -370,8 +370,8 @@ describe("Settings: блок «Телефон» (M7, FR-40)", () => {
     await setup();
     const heads = screen.getAllByRole("heading", { level: 3 }).map((h) => h.textContent);
     expect(heads.indexOf("Телефон")).toBe(heads.indexOf("Пауза для всех детей") + 1);
-    await vi.waitFor(() => expect((screen.getByRole("checkbox", { name: "Связь с телефоном" }) as HTMLInputElement).disabled).toBe(false));
-    expect((screen.getByRole("checkbox", { name: "Связь с телефоном" }) as HTMLInputElement).checked).toBe(false);
+    await vi.waitFor(() => expect((screen.getByRole("switch", { name: "Связь с телефоном" }) as HTMLInputElement).disabled).toBe(false));
+    expect((screen.getByRole("switch", { name: "Связь с телефоном" }) as HTMLInputElement).checked).toBe(false);
     expect(mock.count("GetRemote")).toBeGreaterThanOrEqual(1);
   });
 });
