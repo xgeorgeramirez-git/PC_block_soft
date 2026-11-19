@@ -330,8 +330,8 @@ func longNote() string {
 	return strings.Join(parts, "\n") + "!"
 }
 
-// Ловит: длинное сообщение (300 знаков, 5 переводов строк) при 150 % уводит кнопку «Понял» за экран
-// или плашка выше 40 % рабочей области; на рабочем столе плашка не сверху по центру.
+// Ловит: длинное сообщение (300 знаков, 5 переводов строк) при 150 % уводит кнопку «Понял» за экран,
+// плашка выше 40 % рабочей области или текст обрезан; на рабочем столе плашка не сверху по центру.
 func TestNoteLayoutLongText(t *testing.T) {
 	text := longNote()
 	if n := len([]rune(text)); n != 300 || strings.Count(text, "\n") != 5 {
@@ -362,75 +362,121 @@ func TestNoteLayoutLongText(t *testing.T) {
 		if got := fakeNoteMeasure(c.dpi)(f.FontPx, tw, f.Text); got != f.Layout.Text.Bottom-f.Layout.Text.Top {
 			t.Fatalf("dpi %d: высота текста %d, в раскладке %d", c.dpi, got, f.Layout.Text.Bottom-f.Layout.Text.Top)
 		}
-		if f.Text != text && (!strings.HasSuffix(f.Text, "…") || f.FontPx != NoteFontMinPx) {
-			t.Fatalf("dpi %d: обрезано не мельчайшим шрифтом или без многоточия: %d %q", c.dpi, f.FontPx, f.Text)
-		}
-		if f.FontPx < NoteFontMinPx {
-			t.Fatalf("dpi %d: шрифт %d мельче %d", c.dpi, f.FontPx, NoteFontMinPx)
-		}
+		checkNoteWhole(t, fmt.Sprintf("рабочий стол, dpi %d", c.dpi), c.dpi, c.area, f, text)
 	}
-	// Сначала мельче шрифт, потом обрезка: текст средней длины влезает целиком мельче 28.
+	// Сначала шире плашка, потом мельче шрифт: текст средней длины влезает целиком мельче 28.
 	mid := strings.Repeat("Иди ужинать. ", 12)
 	f := FitNote(144, Rect{Left: 0, Top: 0, Right: 1920, Bottom: 1032}, nil, textNoteTitle, mid, fakeNoteMeasure(144))
-	if f.Text != mid || f.FontPx >= NoteFontPx {
+	if f.Text != mid || f.FontPx != NoteFontPx || f.Layout.W <= NoteWidth(144, 1920) {
 		t.Fatalf("средний текст: шрифт %d, текст %q", f.FontPx, f.Text)
 	}
 }
 
-// Ловит: плашка над экраном блокировки закрывает его заголовок («Время вышло…») или столбец кнопок
-// («Попросить ещё», «Пароль родителя», выход — NFR-10). Геометрия экрана 1024×768 при 100 % — как на
-// снимке s57-note-lock.png: заголовок 65…115, первая кнопка с 272.
-func TestNoteLayoutOverLockScreen(t *testing.T) {
-	cases := []struct {
-		name string
-		dpi  int
-		area Rect
-		lock NoteLock
-	}{
-		{"1024×768", 96, Rect{Left: 0, Top: 0, Right: 1024, Bottom: 768}, NoteLock{Title: Rect{Left: 62, Top: 65, Right: 962, Bottom: 115}, ControlsTop: 272}},
-		{"1920×1080 150 %", 144, Rect{Left: 0, Top: 0, Right: 1920, Bottom: 1032},
-			NoteLock{Title: Rect{Left: 285, Top: 140, Right: 1635, Bottom: 215}, ControlsTop: 450}},
-		{"1366×768 125 %", 120, Rect{Left: 0, Top: 0, Right: 1366, Bottom: 728},
-			NoteLock{Title: Rect{Left: 120, Top: 40, Right: 1246, Bottom: 103}, ControlsTop: 300}},
-	}
-	for _, c := range cases {
-		for _, text := range []string{"Скоро ужин, собирайся", longNote()} {
-			f := FitNote(c.dpi, c.area, &c.lock, textNoteTitle, text, fakeNoteMeasure(c.dpi))
-			p := f.Place
-			if p.Bottom > c.lock.ControlsTop {
-				t.Fatalf("%s: плашка %+v заходит на столбец кнопок (с %d)", c.name, p, c.lock.ControlsTop)
-			}
-			if p.Top < c.lock.Title.Bottom && p.Bottom > c.lock.Title.Top {
-				t.Fatalf("%s: плашка %+v закрывает заголовок %+v (%d знаков)", c.name, p, c.lock.Title, len([]rune(text)))
-			}
-			if p.Top < c.area.Top || p.Left < c.area.Left || p.Right > c.area.Right {
-				t.Fatalf("%s: плашка вне области: %+v", c.name, p)
-			}
-			l := f.Layout
-			if l.Title.Bottom > l.Text.Top || l.Text.Bottom > l.Button.Top || l.Button.Bottom > l.H || l.Text.Bottom-l.Text.Top <= 0 {
-				t.Fatalf("%s: блоки налезают: %+v", c.name, l)
-			}
-			if l.Button.Bottom-l.Button.Top < Scaled(40, c.dpi) {
-				t.Fatalf("%s: кнопка «Понял» мала: %+v", c.name, l.Button)
-			}
-		}
-	}
-	// Короткий текст на 1024×768 — целиком.
-	c := cases[0]
-	if f := FitNote(c.dpi, c.area, &c.lock, textNoteTitle, "Скоро ужин, собирайся", fakeNoteMeasure(c.dpi)); f.Text != "Скоро ужин, собирайся" {
-		t.Fatalf("короткий текст обрезан: %q", f.Text)
+// plain300 — 300 знаков без переводов строк (снимок s57-note-long-lock.png).
+func plain300() string {
+	return string([]rune(strings.Repeat("Иди ужинать, суп остывает, потом доделаешь уроки. ", 7))[:300])
+}
+
+// lockCase — экран блокировки под плашкой: геометрия столбца как у lockNoteGeom (координаты экрана).
+type lockCase struct {
+	name string
+	dpi  int
+	area Rect
+	lock NoteLock
+}
+
+// lockCases — экраны, на которых длинное сообщение обязано встать целиком, не закрыв заголовок и
+// кнопки. 1024×768 при 100 % — как на снимке CI: заголовок 65…115, кнопки 272…680.
+func lockCases() []lockCase {
+	return []lockCase{
+		{"1024×768", 96, Rect{Left: 0, Top: 0, Right: 1024, Bottom: 768},
+			NoteLock{Title: Rect{Left: 62, Top: 65, Right: 962, Bottom: 115}, ControlsTop: 272, MaxUp: 65 - 16, MaxDown: 768 - 16 - 680}},
+		{"1366×768", 96, Rect{Left: 0, Top: 0, Right: 1366, Bottom: 768},
+			NoteLock{Title: Rect{Left: 233, Top: 65, Right: 1133, Bottom: 115}, ControlsTop: 272, MaxUp: 65 - 16, MaxDown: 768 - 16 - 680}},
+		{"1920×1080", 96, Rect{Left: 0, Top: 0, Right: 1920, Bottom: 1080},
+			NoteLock{Title: Rect{Left: 510, Top: 186, Right: 1410, Bottom: 236}, ControlsTop: 393, MaxUp: 186 - 16, MaxDown: 1080 - 16 - 801}},
+		{"1920×1080 150 %", 144, Rect{Left: 0, Top: 0, Right: 1920, Bottom: 1080},
+			NoteLock{Title: Rect{Left: 285, Top: 140, Right: 1635, Bottom: 215}, ControlsTop: 450, MaxUp: 140 - 24, MaxDown: 1080 - 24 - 1000}},
 	}
 }
 
-func TestTruncateToFit(t *testing.T) {
-	m := func(s string) int32 { return int32(len([]rune(s))) }
-	if got := truncateToFit("Иди ужинать скорее", 8, m); got != "Иди ужи…" {
-		t.Fatalf("обрезка: %q", got)
+// checkNoteWhole — текст показан целиком (без «…», все строки в раскладке), шрифт не мельче 14 px,
+// плашка в области, не шире 80 % и не выше 40 % её, блоки не налезают.
+func checkNoteWhole(t *testing.T, name string, dpi int, area Rect, f NoteFit, text string) {
+	t.Helper()
+	if f.Text != text || strings.Contains(f.Text, "…") {
+		t.Fatalf("%s: текст обрезан: %q", name, f.Text)
 	}
-	if got := truncateToFit("Иди    ужинать", 6, m); got != "Иди…" {
-		t.Fatalf("пробелы перед многоточием: %q", got)
+	if f.FontPx < 14 {
+		t.Fatalf("%s: шрифт %d мельче 14", name, f.FontPx)
 	}
-	if got := truncateToFit("Привет", 0, m); got != "…" {
-		t.Fatalf("ничего не влезает: %q", got)
+	l, p := f.Layout, f.Place
+	tw := NoteTextWidth(dpi, l.W, f.Density)
+	if got := fakeNoteMeasure(dpi)(f.FontPx, tw, text); got != l.Text.Bottom-l.Text.Top || l.Text.Right-l.Text.Left != tw {
+		t.Fatalf("%s: не все строки видны: текст %d px, место %+v", name, got, l.Text)
+	}
+	if l.Title.Bottom > l.Text.Top || l.Text.Bottom > l.Button.Top || l.Button.Bottom > l.H || p.Bottom-p.Top != l.H || p.Right-p.Left != l.W {
+		t.Fatalf("%s: блоки налезают: %+v %+v", name, l, p)
+	}
+	if p.Top < area.Top || p.Bottom > area.Bottom || p.Left < area.Left || p.Right > area.Right {
+		t.Fatalf("%s: плашка %+v вне области %+v", name, p, area)
+	}
+	if h := p.Bottom - p.Top; h > (area.Bottom-area.Top)*40/100 {
+		t.Fatalf("%s: плашка %d px выше 40 %% области", name, h)
+	}
+	if w := p.Right - p.Left; w > (area.Right-area.Left)*80/100 {
+		t.Fatalf("%s: плашка %d px шире 80 %% области", name, w)
+	}
+}
+
+// Ловит (S57, снимок s57-note-long-lock.png): длинное сообщение над экраном блокировки показано одной
+// строкой мелким шрифтом и обрезано «…»; плашка закрывает заголовок или кнопки экрана блокировки
+// (NFR-10); кнопки, сдвинутые вниз ради плашки, уходят за экран; шрифт длинного мельче короткого.
+func TestNoteLayoutOverLockScreen(t *testing.T) {
+	short := "Скоро ужин, собирайся"
+	for _, c := range lockCases() {
+		fs := FitNote(c.dpi, c.area, &c.lock, textNoteTitle, short, fakeNoteMeasure(c.dpi))
+		if fs.ShiftUp != 0 || fs.ShiftDown != 0 {
+			t.Fatalf("%s: короткое сообщение двигает экран блокировки: %+v", c.name, fs)
+		}
+		for _, text := range []string{short, plain300(), longNote()} {
+			name := fmt.Sprintf("%s, %d знаков", c.name, len([]rune(text)))
+			f := FitNote(c.dpi, c.area, &c.lock, textNoteTitle, text, fakeNoteMeasure(c.dpi))
+			checkNoteWhole(t, name, c.dpi, c.area, f, text)
+			if f.ShiftUp < 0 || f.ShiftUp > c.lock.MaxUp || f.ShiftDown < 0 || f.ShiftDown > c.lock.MaxDown {
+				t.Fatalf("%s: сдвиг экрана блокировки вверх %d, вниз %d вне пределов %+v", name, f.ShiftUp, f.ShiftDown, c.lock)
+			}
+			title := c.lock.Title
+			title.Top, title.Bottom = title.Top-f.ShiftUp, title.Bottom-f.ShiftUp
+			controls := c.lock.ControlsTop + f.ShiftDown
+			p := f.Place
+			if p.Bottom > controls {
+				t.Fatalf("%s: плашка %+v заходит на столбец кнопок (с %d)", name, p, controls)
+			}
+			if p.Top < title.Bottom && p.Bottom > title.Top {
+				t.Fatalf("%s: плашка %+v закрывает заголовок %+v", name, p, title)
+			}
+			if l := f.Layout; l.Button.Bottom-l.Button.Top < Scaled(40, c.dpi) {
+				t.Fatalf("%s: кнопка «Понял» мала: %+v", name, l.Button)
+			}
+		}
+		if fl := FitNote(c.dpi, c.area, &c.lock, textNoteTitle, plain300(), fakeNoteMeasure(c.dpi)); fl.FontPx < fs.FontPx {
+			t.Fatalf("%s: шрифт длинного сообщения %d мельче короткого %d", c.name, fl.FontPx, fs.FontPx)
+		}
+	}
+}
+
+// Ловит: на низком экране (1366×768 при 125 %, места между заголовком и кнопками почти нет)
+// сообщение обрезано или мельче 14 px, кнопка «Понял» или кнопки экрана блокировки за экраном.
+// Здесь допустимо закрыть заголовок: кнопки и поле пароля важнее (NFR-10).
+func TestNoteLayoutOverLockLowScreen(t *testing.T) {
+	area := Rect{Left: 0, Top: 0, Right: 1366, Bottom: 728}
+	lock := NoteLock{Title: Rect{Left: 120, Top: 40, Right: 1246, Bottom: 103}, ControlsTop: 300, MaxUp: 10, MaxDown: 20}
+	for _, text := range []string{plain300(), longNote()} {
+		f := FitNote(120, area, &lock, textNoteTitle, text, fakeNoteMeasure(120))
+		checkNoteWhole(t, "1366×768 125 %", 120, area, f, text)
+		if f.Place.Bottom > lock.ControlsTop+f.ShiftDown || f.ShiftDown > lock.MaxDown || f.ShiftUp > lock.MaxUp {
+			t.Fatalf("плашка %+v заходит на кнопки или сдвиг вне пределов: %+v", f.Place, f)
+		}
 	}
 }
