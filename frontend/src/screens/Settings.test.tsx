@@ -351,7 +351,7 @@ describe("Settings: о программе", () => {
   it("версия приходит от программы", async () => {
     await setup({ version: "0.4.2" });
     expect(await within(section("О программе")).findByText("Версия 0.4.2")).toBeTruthy();
-    expect(within(section("О программе")).getByText("Данные хранятся только на этом компьютере")).toBeTruthy();
+    expect(within(section("О программе")).getByText("Данные хранятся на этом компьютере. Если включена связь с телефоном, на ваш сервер передаются имена детей и их время за сегодня")).toBeTruthy();
   });
 
   it("версию узнать не удалось - так и говорит", async () => {
