@@ -91,10 +91,10 @@ cd /opt/traefik && sudo docker compose logs --tail 50
 
 ## Обновление (когда я попрошу)
 
-**Шаг 1.** Скачивает новую версию программы сервера.
+**Шаг 1.** Скачивает новую версию программы сервера (основная ветка `main`; так надёжнее, чем `git pull` в облегчённой копии).
 
 ```bash
-sudo git -C /opt/pcblock-relay/src pull --ff-only
+sudo git -C /opt/pcblock-relay/src fetch --depth 1 origin main && sudo git -C /opt/pcblock-relay/src reset --hard FETCH_HEAD
 ```
 
 **Шаг 2.** Обновляет файл настроек сервера (если он менялся).
