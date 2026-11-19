@@ -249,7 +249,7 @@ func init() {
 		ipc.CmdGetSchedule:  {parentToken(false), (*Service).hGetSchedule},
 		ipc.CmdSaveSchedule: {parentToken(true), (*Service).hSaveSchedule},
 		ipc.CmdPause:        {parentToken(true), (*Service).hPause},
-		ipc.CmdPauseAll:     {parentToken(true), (*Service).hPauseAll},
+		ipc.CmdEndPause:     {parentToken(true), (*Service).hEndPause},
 		ipc.CmdGrantBonus:   {parentToken(true), (*Service).hGrantBonus},
 		ipc.CmdUndoBonus:    {parentToken(true), (*Service).hUndoBonus},
 		ipc.CmdGetBonus:     {or(parentToken(false), childSelf()), (*Service).hGetBonus},

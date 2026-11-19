@@ -54,7 +54,7 @@ const (
 	CmdGetSchedule  = "GetSchedule"  // запретные интервалы ребёнка (R7)
 	CmdSaveSchedule = "SaveSchedule" // сохранить интервалы, вернуть нормализованные (R7)
 	CmdPause        = "Pause"        // пауза одному ребёнку (R11)
-	CmdPauseAll     = "PauseAll"     // пауза всем детям (FR-25)
+	CmdEndPause     = "EndPause"     // закончить паузу ребёнка раньше срока (R11, D-96)
 	CmdGrantBonus   = "GrantBonus"   // начислить в копилку (FR-22)
 	CmdUndoBonus    = "UndoBonus"    // отменить начисление на 10 с
 	CmdGetBonus     = "GetBonus"     // баланс и история копилки
@@ -96,7 +96,7 @@ var AllCommands = []string{
 	CmdSaveLimits, CmdAddExtra, CmdReduceExtra, CmdClearExtra, CmdUndoExtra, CmdClearBlock, CmdListEvents, CmdChangePassword,
 	CmdSetChildren, CmdParentStats, CmdGetDiag, CmdSetDiag, CmdOpenLogs,
 	CmdSetNoForbidden, CmdClearBonus, CmdReduceBonus, CmdCreatePromo, CmdListPromos, CmdGetBonusRate, CmdSetBonusRate,
-	CmdGetSchedule, CmdSaveSchedule, CmdPause, CmdPauseAll,
+	CmdGetSchedule, CmdSaveSchedule, CmdPause, CmdEndPause,
 	CmdGrantBonus, CmdUndoBonus, CmdGetBonus, CmdCopyRules,
 	CmdMyToday, CmdFirstRunSeen, CmdAskMore, CmdSpendBonus, CmdRedeemPromo,
 	CmdGuardPoll, CmdGuardLogoff, CmdGuardShutdown, CmdGuardSwitchUser, CmdGuardClosing,

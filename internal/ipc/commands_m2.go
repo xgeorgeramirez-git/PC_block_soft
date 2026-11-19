@@ -58,15 +58,15 @@ type PauseReply struct {
 	Message string    `json:"message"`
 }
 
-// PauseAllRequest — пауза всем детям (FR-25).
-type PauseAllRequest struct {
-	Preset PausePreset `json:"preset"`
+// EndPauseRequest — закончить паузу ребёнка раньше срока (R11, D-96).
+type EndPauseRequest struct {
+	ChildID int64 `json:"childId"`
 }
 
-// PauseAllReply — карточки всех детей и сообщение.
-type PauseAllReply struct {
-	Children []TodayCard `json:"children"`
-	Message  string      `json:"message"`
+// EndPauseReply — карточка без паузы (правила уже действуют) и сообщение «Пауза закончилась».
+type EndPauseReply struct {
+	Card    TodayCard `json:"card"`
+	Message string    `json:"message"`
 }
 
 // GrantBonusRequest — начислить в копилку (FR-22): минуты 1..600 и причина.

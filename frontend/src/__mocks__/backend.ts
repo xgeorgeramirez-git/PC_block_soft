@@ -554,6 +554,24 @@ function statusCore(child: MockChild, nowMs: number): ChildStatus {
     ? `Сегодня: ${formatDuration(child.usedS)}`
     : `Сегодня: ${formatDuration(child.usedS)} из ${formatLimit(limitMin)}`;
 
+  // Пауза (R11) сильнее запретных часов и лимита, как decide ядра: ограничения не действуют.
+  if (child.pauseUntil) {
+    const remainingS = limit.unlimited ? 0 : Math.max(0, limitS - child.usedS);
+    return {
+      ...base,
+      status: "paused",
+      statusText: "Пауза",
+      label: String(Math.floor(remainingS / 60)),
+      tooltip: "Пауза: ограничения не действуют",
+      summary: `Пауза до ${child.pauseUntil}. Ограничения не действуют`,
+      limitS,
+      unlimited: limit.unlimited,
+      remainingS,
+      lock: "none",
+      used: usedText,
+    };
+  }
+
   if (child.forbiddenUntil) {
     const reason = "Сейчас нельзя пользоваться компьютером";
     return {
@@ -882,7 +900,7 @@ const PARENT_COMMANDS = new Set([
   "GetSchedule",
   "SaveSchedule",
   "Pause",
-  "PauseAll",
+  "EndPause",
   "GrantBonus",
   "UndoBonus",
   "GetBonus",
@@ -1355,12 +1373,19 @@ export function createBackend(opts: MockOptions = {}): MockBackend {
       if (!child) return fail("Ребёнок не найден");
       child.pauseUntil = "18:30";
       addEvent(now, child, "pause", `${child.name}: пауза`);
-      return okReply({ card: card(child, now), message: "Пауза до 18:30" });
+      // Сообщение как у hPause службы: «Пауза 1 ч» по сроку; конец - на карточке рядом со значком.
+      const label: Record<string, string> = { min15: "15 мин", hour1: "1 ч", hour2: "2 ч", endOfDay: "до конца дня" };
+      return okReply({ card: card(child, now), message: `Пауза ${label[req.preset] ?? "1 ч"}` });
     },
 
-    PauseAll: (_req, now) => {
-      for (const c of state.children) c.pauseUntil = "18:30";
-      return okReply({ children: state.children.map((c) => card(c, now)), message: "Пауза для всех детей на 1 ч" });
+    // Как hEndPause службы (D-96): паузы нет - отказ; есть - снята, запись журнала, плашка ребёнку.
+    EndPause: (req, now) => {
+      const child = childById(req.childId);
+      if (!child) return fail("Ребёнок не найден");
+      if (!child.pauseUntil) return fail("Паузы сейчас нет");
+      child.pauseUntil = undefined;
+      addEvent(now, child, "pause_end", `${child.name}: пауза закончена раньше срока`);
+      return okReply({ card: card(child, now), message: "Пауза закончилась" });
     },
 
     AddExtra: (req, now) => {

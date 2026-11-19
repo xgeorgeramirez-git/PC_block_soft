@@ -6,7 +6,12 @@
 # Предупреждения до конца паузы 30, 15, 5, 1 (D-54): секунды точно проверяет эталон G11; здесь по
 # журналу показанных предупреждений стража: 30, 15, 5 по порядку с текстом про паузу, без повторов
 # (плашку 1 мин экран блокировки при ускорении 60 может сменить в ту же секунду: её не требуем).
-# Снимки: s11-paused.png (экран снят во время паузы).
+# Закончить раньше срока (D-96): снова пауза 1 ч, родитель нажимает значок ещё раз (EndPause) —
+# служба сразу снова «forbidden», экран стража вернулся не позже 2 с после выхода родителя (его
+# сессия прячет экран, Ruling 19), в журнале «пауза закончена раньше срока». Плашку «Пауза
+# закончилась» страж показывает, только когда экрана блокировки нет (под экраном говорит экран):
+# поэтому её проверяем отдельно — запрет на сегодня снят, пауза 15 мин и сразу конец.
+# Снимки: s11-paused.png (экран снят во время паузы), s11-pause-ended.png (плашка «Пауза закончилась»).
 $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "common.ps1")
 
@@ -61,5 +66,46 @@ Invoke-Scenario "S11" "Пауза в запретные часы: экран с�
     Assert-That ($found.Count -ge 1) "Записей «Пауза 1 ч»: $($found.Count), ждали хотя бы одну"
   }
 
-  Write-Log "S11: пауза 1 ч сняла экран блокировки, по окончании блокировка forbidden вернулась"
+  Step "Снова пауза 1 ч и «Закончить паузу»: блокировка сразу, экран не позже 2 с" {
+    Assert-Reply (Send-Parent "Logout") "Logout после журнала"
+    $script:Token = ""
+    Use-Parent { Assert-Reply (Send-Parent "Pause" @{ childId = (Get-ChildId); preset = "hour1" }) "Pause" }
+    [void](Wait-LockHidden 10)
+    Assert-That ((Get-Status).lock -eq "none") "Во время второй паузы блокировка '$((Get-Status).lock)', ждали none"
+    Open-Parent
+    $r = Send-Parent "EndPause" @{ childId = (Get-ChildId) }
+    Assert-Reply $r "EndPause"
+    Assert-That ($r.payload.message -eq "Пауза закончилась") "Ответ EndPause «$($r.payload.message)», ждали «Пауза закончилась»"
+    Assert-That ($r.payload.card.status.status -eq "forbidden") "Карточка после EndPause: '$($r.payload.card.status.status)', ждали forbidden"
+    $st = Get-Status
+    Assert-That ($st.lock -eq "forbidden" -and $st.pauseUntil -eq "") "Служба после EndPause: блокировка '$($st.lock)', пауза до '$($st.pauseUntil)'"
+    $r = Send-Parent "EndPause" @{ childId = (Get-ChildId) }
+    Assert-That ((-not $r.ok) -and $r.error -eq "Паузы сейчас нет") "Повторный EndPause: ok=$($r.ok) «$($r.error)», ждали «Паузы сейчас нет»"
+    Assert-Reply (Send-Parent "Logout") "Logout"
+    $script:Token = ""
+    $g = Wait-LockShown 2 "forbidden"
+    Write-Log "Экран вернулся через $([math]::Round($script:WaitElapsed, 1)) с после выхода родителя"
+  }
+
+  Step "Журнал родителя: «пауза закончена раньше срока»" {
+    Use-Parent {
+      $found = Find-Events 'пауза закончена раньше срока'
+      Assert-That ($found.Count -eq 1) "Записей «пауза закончена раньше срока»: $($found.Count), ждали одну"
+    }
+  }
+
+  Step "Без экрана блокировки ребёнок видит плашку «Пауза закончилась»" {
+    Use-Parent { Assert-Reply (Send-Parent "SetNoForbidden" @{ childId = (Get-ChildId); on = $true }) "SetNoForbidden on" }
+    [void](Wait-LockHidden 10)
+    Use-Parent { Assert-Reply (Send-Parent "Pause" @{ childId = (Get-ChildId); preset = "min15" }) "Pause 15 мин" }
+    $g = Wait-GuardState { param($s) [string]$s.plate -eq "Пауза 15 мин" } 5 "плашка «Пауза 15 мин» (не «Добавлено 15 минут»)"
+    Use-Parent { Assert-Reply (Send-Parent "EndPause" @{ childId = (Get-ChildId) }) "EndPause" }
+    $g = Wait-GuardState { param($s) [string]$s.plate -eq "Пауза закончилась" } 5 "плашка «Пауза закончилась»"
+    Assert-That ($g.plateKind -eq "notice") "Вид плашки «$($g.plateKind)», ждали notice"
+    Assert-That (-not $g.lockShown) "Экран блокировки при снятом запрете: $(Format-GuardState $g)"
+    Start-Sleep -Milliseconds 500 # поток окон перерисовывает плашку по своему таймеру
+    Save-Screen "s11-pause-ended"
+  }
+
+  Write-Log "S11: пауза 1 ч сняла экран блокировки, по окончании блокировка forbidden вернулась; «Закончить паузу» вернула её сразу"
 }

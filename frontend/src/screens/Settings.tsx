@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
-import { changePassword, getBonusRate, getDiag, getToday, listAccounts, openLogs, pauseAll, setBonusRate, setChildren, setDiag, version } from "../api";
+import { changePassword, getBonusRate, getDiag, getToday, listAccounts, openLogs, setBonusRate, setChildren, setDiag, version } from "../api";
 import Dialog from "../components/Dialog";
 import Notice from "../components/Notice";
-import PausePicker from "../components/PausePicker";
 import PhoneSection from "../components/PhoneSection";
 import ServiceNotices from "../components/ServiceNotices";
 import TextField from "../components/TextField";
@@ -55,7 +54,6 @@ export default function Settings({ onOpenChildren }: { onOpenChildren?: () => vo
           void listAccounts().then((a) => alive.current && setAccounts(a), () => undefined);
         }}
       />
-      <PauseAllSection />
       <PhoneSection />
       <BonusRateSection />
       <DiagSection />
@@ -218,54 +216,6 @@ function DiagSection() {
       <p className="field-hint">Если Windows попросит разрешение, нажмите «Продолжить».</p>
       {logsPath ? <p className="field-hint">{`Папка с логами: ${logsPath}`}</p> : null}
       {logsError ? <p className="field-error">{logsError}</p> : null}
-    </section>
-  );
-}
-
-// --- Пауза для всех детей (FR-25) ----------------------------------------------
-
-function PauseAllSection() {
-  const [message, setMessage] = useState("");
-  const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
-  const alive = useRef(true);
-  useEffect(() => {
-    alive.current = true;
-    return () => {
-      alive.current = false;
-    };
-  }, []);
-
-  const onPick = async (preset: Parameters<typeof pauseAll>[0]) => {
-    setBusy(true);
-    setError("");
-    try {
-      const reply = await pauseAll(preset);
-      if (alive.current) setMessage(reply.message);
-    } catch (e) {
-      if (alive.current) setError(errorText(e));
-    } finally {
-      if (alive.current) setBusy(false);
-    }
-  };
-
-  return (
-    <section className="panel" aria-labelledby="settings-pause-all">
-      <h3 id="settings-pause-all" className="section-title">
-        Пауза для всех детей
-      </h3>
-      <p className="panel-text">Снять ограничения сразу у всех детей, например на время общего фильма. Время при этом считается.</p>
-      <PausePicker withMin15={false} disabled={busy} onPick={(p) => void onPick(p)} />
-      {message ? (
-        <p className="panel-note" role="status">
-          {message}
-        </p>
-      ) : null}
-      {error ? (
-        <p className="field-error" role="alert">
-          {error}
-        </p>
-      ) : null}
     </section>
   );
 }

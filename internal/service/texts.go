@@ -18,6 +18,8 @@ const (
 	textRetry         = "Не удалось выполнить. Попробуйте ещё раз"
 	textSaveFailed    = "Не удалось сохранить. Попробуйте ещё раз"
 	textNoSuchChild   = "Такого ребёнка нет в списке"
+	textPauseNone     = "Паузы сейчас нет"
+	textPauseEnded    = "Пауза закончилась"
 	textEnterPassword = "Введите пароль"
 	textWrongPassword = "Неверный пароль"
 	textHashBroken    = "Пароль сейчас проверить не получается. Администратор Windows может задать новый"

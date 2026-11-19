@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -194,6 +195,7 @@ func (c *Controller) TestMode() bool {
 type Commands struct {
 	HideLock      bool                  // родительская сессия открыта: экран спрятать (Ruling 19)
 	NoticeMinutes []int                 // «Добавлено N минут»: плашка на 5 с
+	Notices       []string              // другие сообщения службы («Пауза закончилась»): плашкой как есть
 	Blocked       []ipc.BlockedPlate    // плашки о закрытых программах (FR-13), по порядку
 	Tests         []ipc.TestGuardAction // действия TestGuard (только тестовый режим)
 	CloseTab      string                // домен последней команды closeTab (RM4-2); «» — нет
@@ -208,8 +210,12 @@ func ClassifyCommands(cmds []ipc.GuardCommand) Commands {
 		case ipc.GuardCmdHideLock:
 			out.HideLock = true
 		case ipc.GuardCmdNotice:
-			if n, ok := NoticeMinutes(c.Text); ok {
+			// Число берётся только из «Добавлено N минут»: у «Пауза 1 ч» и «Убрано 15 минут» оно
+			// значит другое (FB-25), такие сообщения показываются текстом службы.
+			if n, ok := NoticeMinutes(c.Text); ok && strings.HasPrefix(c.Text, "Добавлен") {
 				out.NoticeMinutes = append(out.NoticeMinutes, n)
+			} else if t := strings.TrimSpace(c.Text); t != "" {
+				out.Notices = append(out.Notices, t)
 			}
 		case ipc.GuardCmdTest:
 			if c.Test != nil {
@@ -384,6 +390,9 @@ func (c *Controller) PollOnce() PollResult {
 	c.model.OnWarnings(now, DecisionFromStatus(rep.Status), cmds.HideLock, IncomingOf(rep.Warnings))
 	for _, minutes := range cmds.NoticeMinutes {
 		c.model.OnExtraAdded(now, minutes)
+	}
+	for _, text := range cmds.Notices {
+		c.model.OnPlateNotice(now, text)
 	}
 	for _, pl := range cmds.Blocked {
 		c.model.OnBlocked(now, pl)

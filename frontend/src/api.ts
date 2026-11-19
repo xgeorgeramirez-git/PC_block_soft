@@ -40,7 +40,7 @@ import type {
   GetScheduleReply,
   GrantBonusReply,
   Interval,
-  PauseAllReply,
+  EndPauseReply,
   PausePreset,
   PauseReply,
   SaveScheduleReply,
@@ -390,10 +390,9 @@ export function pause(childId: number, preset: PausePreset): Promise<PauseReply>
   return call("Pause", { childId, preset });
 }
 
-/** Пауза всем детям (FR-25). Пустой список карточек приходит как null: приводим к []. */
-export async function pauseAll(preset: PausePreset): Promise<PauseAllReply> {
-  const r = await call<object, Partial<PauseAllReply>>("PauseAll", { preset });
-  return { children: r.children ?? [], message: r.message ?? "" };
+/** Закончить паузу ребёнка раньше срока (R11, D-96); паузы нет - ошибка «Паузы сейчас нет». */
+export function endPause(childId: number): Promise<EndPauseReply> {
+  return call("EndPause", { childId });
 }
 
 /** Начислить в копилку (FR-22). */

@@ -380,11 +380,9 @@ func examples() map[string]example {
 		}),
 		"SaveSchedule#invalid": fail(SaveScheduleRequest{ChildID: 1, Intervals: []Interval{{Weekday: 1, StartMin: 600, EndMin: 600}}},
 			"Начало и конец совпадают", FieldEnd, nil),
-		CmdPause: ok(PauseRequest{ChildID: 1, Preset: PauseHour1}, PauseReply{Card: card(okStatus(), 0, false), Message: "Пауза до 18:30"}),
-		CmdPauseAll: ok(PauseAllRequest{Preset: PauseHour1}, PauseAllReply{
-			Children: []TodayCard{card(okStatus(), 0, false)}, Message: "Пауза для всех детей на 1 ч",
-		}),
-		"PauseAll#empty": ok(PauseAllRequest{Preset: PauseHour2}, PauseAllReply{}),
+		CmdPause:        ok(PauseRequest{ChildID: 1, Preset: PauseHour1}, PauseReply{Card: card(okStatus(), 0, false), Message: "Пауза до 18:30"}),
+		CmdEndPause:     ok(EndPauseRequest{ChildID: 1}, EndPauseReply{Card: card(okStatus(), 0, false), Message: "Пауза закончилась"}),
+		"EndPause#none": fail(EndPauseRequest{ChildID: 1}, "Паузы сейчас нет", "", nil),
 		CmdGrantBonus: ok(GrantBonusRequest{ChildID: 1, Minutes: 30, Reason: "за уборку"}, GrantBonusReply{
 			BalanceAfter: 75, Message: "Начислено 30 минут. Баланс 75 мин", BonusID: "b-21", UndoUntilMs: t0 + 10_000,
 		}),
@@ -664,7 +662,7 @@ func TestContractHasEveryCommand(t *testing.T) {
 		}
 	}
 	if len(AllCommands) != 86 {
-		t.Errorf("команд %d, ждали 86 (6 команд M7: GetRemote, SetRemote, RemotePairStart, RemotePairCancel, RemotePairConfirm, RemoteUnpair; RestoreSites из 0.7.1; 2 команды M5b: ListStartup, SetStartup; 6 команд M5: ClearStats, ClearJournal, GeneratePromos, ClearPromoHistory, AddSites, RemoveSites; 5 команд M4: ListSites, AddSite, RemoveSite, SetAdultFilter, тестовая TestSeedPrograms; тестовая TestSeedDay и EndBreak из раунда 0.3.2; 46 из M1/M2/0.2.1 без команд Помощника, 9 из фидбек-раунда 0.2.2: OpenLogs, SetNoForbidden, ClearBonus, ReduceBonus, CreatePromo, ListPromos, RedeemPromo, GetBonusRate, SetBonusRate, GuardClosing из раунда 0.2.3, тестовая TestSession из 0.2.5 и 5 программ M3: ListPrograms, DecideProgram, SetProgramsCategory, UndoProgram, ScanPrograms; SetProgramsHidden и RenameProgram из раунда 0.3.1)", len(AllCommands))
+		t.Errorf("команд %d, ждали 86 (6 команд M7: GetRemote, SetRemote, RemotePairStart, RemotePairCancel, RemotePairConfirm, RemoteUnpair; RestoreSites из 0.7.1; EndPause вместо PauseAll из раунда 0.8.1; 2 команды M5b: ListStartup, SetStartup; 6 команд M5: ClearStats, ClearJournal, GeneratePromos, ClearPromoHistory, AddSites, RemoveSites; 5 команд M4: ListSites, AddSite, RemoveSite, SetAdultFilter, тестовая TestSeedPrograms; тестовая TestSeedDay и EndBreak из раунда 0.3.2; 46 из M1/M2/0.2.1 без команд Помощника, 9 из фидбек-раунда 0.2.2: OpenLogs, SetNoForbidden, ClearBonus, ReduceBonus, CreatePromo, ListPromos, RedeemPromo, GetBonusRate, SetBonusRate, GuardClosing из раунда 0.2.3, тестовая TestSession из 0.2.5 и 5 программ M3: ListPrograms, DecideProgram, SetProgramsCategory, UndoProgram, ScanPrograms; SetProgramsHidden и RenameProgram из раунда 0.3.1)", len(AllCommands))
 	}
 }
 
