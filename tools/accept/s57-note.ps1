@@ -7,7 +7,10 @@
 # read; в журнале «Тест: сообщение с телефона: «Иди ужинать»». Когда: сообщение на 10 с при экране блокировки.
 # Тогда: оно видно поверх экрана и через 10 с исчезает, отметка read. Сообщение с чужой подписью не показывается.
 # Журнал читается только после закрытия плашки: родительская сессия в сеансе ребёнка прячет плашки (Ruling 19).
-# Снимки: s57-note.png (плашка на рабочем столе), s57-note-lock.png (плашка поверх экрана блокировки).
+# Затем длинное сообщение (300 знаков, 5 переводов строк) поверх экрана блокировки: плашка не закрывает ни одной
+# кнопки экрана («Пароль родителя» видна, NFR-10), не выходит за экран и не выше 40 % его, «Понял» её закрывает.
+# Снимки: s57-note.png (плашка на рабочем столе), s57-note-lock.png (плашка поверх экрана блокировки),
+# s57-note-long-lock.png (длинное сообщение поверх экрана блокировки).
 $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "common.ps1")
 
@@ -136,6 +139,11 @@ Invoke-Scenario "S57" "Сообщение ребёнку с телефона: п
       Assert-That ($g.lockShown -and $g.lockKind -eq "timeUp") "Экран блокировки снят сообщением: $(Format-GuardState $g)"
       Assert-That ((Test-HasButton $g "parentPassword") -and (Test-HasButton $g "noteOk")) "Нет «Пароль родителя» или «Понял»: $(Format-GuardState $g)"
       Wait-NoteState $script:Id2 "shown" 10
+      $note = @(Get-PcbWindowRects | Where-Object { $_.Class -eq "PCBlockGuardNote" }) | Select-Object -First 1
+      Assert-That ($null -ne $note) "Окно плашки сообщения не видно поверх экрана блокировки"
+      foreach ($b in @(Get-PcbWindowRects -Children | Where-Object { $_.Class -eq "Button" })) {
+        Assert-That (-not (Test-RectsOverlap $note $b)) "Плашка $(Format-Rect $note) закрывает кнопку «$($b.Text)» $(Format-Rect $b)"
+      }
       Save-Screen "s57-note-lock"
       $g = Wait-GuardState { param($s) -not $s.noteId } 15 "плашка исчезла по сроку 10 с"
       $gone = $sw.Elapsed.TotalSeconds
@@ -143,6 +151,36 @@ Invoke-Scenario "S57" "Сообщение ребёнку с телефона: п
       Assert-Between $gone 7 13 "Плашка на 10 с видна, с"
       Assert-That ($g.lockShown) "Экран блокировки пропал вместе с плашкой: $(Format-GuardState $g)"
       Wait-NoteState $script:Id2 "read" 10
+    }
+
+    Step "Длинное сообщение (300 знаков, 5 переводов строк) поверх экрана блокировки: кнопки видны, «Понял» на экране" {
+      $line = ("Иди ужинать скорее, " * 3).Substring(0, 49)
+      $long = ((@($line) * 6) -join "`n") + "!"
+      Assert-That ($long.Length -eq 300) "Длинный текст $($long.Length) знаков, ждали 300"
+      $r = Invoke-Phone @("note", "-child", "$($script:ChildId)", "-text", $long, "-show", "0")
+      Assert-That ($r.Code -eq 0 -and $r.Result.ok) "Длинное сообщение не принято: код $($r.Code), $($r.Result | ConvertTo-Json -Compress)"
+      $script:Id3 = [string]$r.Result.id
+      $g = Wait-GuardState { param($s) $s.noteId -eq $script:Id3 } 5 "длинное сообщение поверх экрана блокировки"
+      Assert-That ($g.lockShown -and (Test-HasButton $g "parentPassword") -and (Test-HasButton $g "noteOk")) "Нет экрана, «Пароль родителя» или «Понял»: $(Format-GuardState $g)"
+      Assert-That (([string]$g.note).Split("`n").Count -eq 6) "Переводы строк потерялись: '$($g.note)'"
+      Start-Sleep -Milliseconds 700
+      $screen = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+      $note = @(Get-PcbWindowRects | Where-Object { $_.Class -eq "PCBlockGuardNote" }) | Select-Object -First 1
+      Assert-That ($null -ne $note) "Окно плашки сообщения не видно: $((Get-PcbWindowRects | ForEach-Object { $_.Class }) -join ', ')"
+      $buttons = @(Get-PcbWindowRects -Children | Where-Object { $_.Class -eq "Button" })
+      Write-Log ("Экран {0}×{1}; плашка {2}; кнопки: {3}" -f $screen.Width, $screen.Height, (Format-Rect $note), (($buttons | ForEach-Object { "$($_.Text) $(Format-Rect $_)" }) -join '; '))
+      $pwdBtn = @($buttons | Where-Object { $_.Text -eq "Пароль родителя" }) | Select-Object -First 1
+      Assert-That ($null -ne $pwdBtn) "Кнопки «Пароль родителя» на экране блокировки нет среди окон"
+      foreach ($b in $buttons) {
+        Assert-That (-not (Test-RectsOverlap $note $b)) "Плашка $(Format-Rect $note) закрывает кнопку «$($b.Text)» $(Format-Rect $b)"
+      }
+      Assert-That ($note.Top -ge $screen.Top -and $note.Bottom -le $screen.Bottom -and $note.Left -ge $screen.Left -and $note.Right -le $screen.Right) "Плашка $(Format-Rect $note) за краем экрана"
+      Assert-That (($note.Bottom - $note.Top) -le [int]($screen.Height * 0.4) + 1) "Плашка выше 40 % экрана: $(Format-Rect $note)"
+      Save-Screen "s57-note-long-lock"
+      Invoke-GuardClick "noteOk"
+      $g = Wait-GuardState { param($s) -not $s.noteId } 5 "длинное сообщение закрыто «Понял»"
+      Assert-That ($g.lockShown) "Экран блокировки пропал вместе с плашкой: $(Format-GuardState $g)"
+      Wait-NoteState $script:Id3 "read" 10
     }
 
     Step "Аварийный выход на месте: «Пароль родителя» открывает панель пароля" {
@@ -157,5 +195,5 @@ Invoke-Scenario "S57" "Сообщение ребёнку с телефона: п
     Stop-Relay
   }
 
-  Write-Log "S57: сообщение показано не позже 5 с со звуком, «Понял» и срок 10 с поверх экрана блокировки дали «Прочитано», подделка не показана"
+  Write-Log "S57: сообщение показано не позже 5 с со звуком, «Понял» и срок 10 с поверх экрана блокировки дали «Прочитано», длинное не закрыло кнопки экрана, подделка не показана"
 }
