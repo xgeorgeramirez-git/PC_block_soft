@@ -586,6 +586,7 @@ func (m *Model) SetAutoSwitchAfter(d time.Duration) {
 // advance приводит состояние к моменту now: обрыв связи, срок плашки, конец паузы.
 // Вызывается каждым изменяющим методом; View его не вызывает и состояния не меняет.
 func (m *Model) advance(now time.Time) {
+	m.noteClock(now) // до обрыва: время на экране считается по связи на этом отрезке
 	if m.offlineAt(now) {
 		m.resetUI()
 		return

@@ -14,7 +14,8 @@ import (
 // перекрывает: пока она видна без экрана блокировки, сообщение ждёт (PL-34). Ждёт и при родительской
 // сессии и без связи со службой. Жизнь плашки (PL-70): showS = 0 — до «Понял»; 10, 30, 60 с —
 // исчезает сама по сроку, «Понял» есть и тогда; не показанное за WaitS забывается молча (службу
-// оно уже погасило).
+// оно уже погасило). Срок показа идёт, только пока плашка на экране: за родительской сессией и без
+// связи со службой он стоит.
 
 const (
 	textNoteTitle = "Сообщение от родителя"
@@ -28,7 +29,9 @@ type noteItem struct {
 	show      time.Duration // 0 — до «Понял»
 	waitUntil time.Time     // не показанное к этому моменту забывается
 	shownAt   time.Time
-	seq       int // номер показа (звук один раз на показ)
+	seq       int           // номер показа (звук один раз на показ)
+	seen      time.Duration // сколько плашка была видна: срок показа идёт только на экране
+	clockAt   time.Time     // до этого момента seen уже посчитано
 }
 
 // NoteView — плашка сообщения для окна.
@@ -70,7 +73,8 @@ func (m *Model) OnNote(now time.Time, n ipc.GuardNote) {
 // advanceNotes подводит сообщения к моменту now: показанное на время закрывается по сроку, следующее
 // показывается, если можно. Под m.mu.
 func (m *Model) advanceNotes(now time.Time) {
-	if n := m.note; n != nil && n.show > 0 && !now.Before(n.shownAt.Add(n.show)) {
+	m.noteClock(now)
+	if n := m.note; n != nil && n.show > 0 && n.seen >= n.show {
 		m.noteDone(now)
 	}
 	if m.note != nil {
@@ -87,10 +91,33 @@ func (m *Model) advanceNotes(now time.Time) {
 		}
 		m.noteQ = m.noteQ[1:]
 		m.noteSeq++
-		head.shownAt, head.seq = now, m.noteSeq
+		head.shownAt, head.seq, head.clockAt = now, m.noteSeq, now
 		m.note = head
 		m.noteEvents = append(m.noteEvents, ipc.GuardEvent{Kind: ipc.GuardEvNoteShown, AtMs: now.UnixMilli(), NoteID: head.id})
 		return
+	}
+}
+
+// noteClock прибавляет к сроку показа время, пока плашка была на экране: с прошлого подсчёта до now,
+// если тогда она была видна (есть решение службы, нет родительской сессии), и не дальше обрыва связи
+// (lastOK + offlineAfter). Родительская сессия и обрыв меняются только после advance (OnWarnings),
+// поэтому состояние на отрезке — то, что сейчас. Зовут advance до проверки обрыва и advanceNotes. Под m.mu.
+func (m *Model) noteClock(now time.Time) {
+	n := m.note
+	if n == nil {
+		return
+	}
+	if m.hasDec && !m.hidden {
+		end := now
+		if off := m.lastOK.Add(offlineAfter); end.After(off) {
+			end = off
+		}
+		if end.After(n.clockAt) {
+			n.seen += end.Sub(n.clockAt)
+		}
+	}
+	if now.After(n.clockAt) {
+		n.clockAt = now
 	}
 }
 

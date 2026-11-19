@@ -232,3 +232,49 @@ func TestControllerPhoneNote(t *testing.T) {
 		t.Fatalf("GuardState: %+v", st)
 	}
 }
+
+// Срок показа 10 с идёт, только пока плашка на экране: за родительской сессией и без связи со службой
+// он стоит, после возврата плашка видна оставшееся время.
+func TestNoteTimedCountsOnlyVisible(t *testing.T) {
+	m := NewModel()
+	m.OnDecision(t0, runningDecision(3600), false, nil)
+	m.OnNote(t0, noteOf("a", "Скоро ужин", 10))
+	m.TakeNoteEvents()
+	m.OnDecision(at(4*time.Second), runningDecision(3600), true, nil) // родитель: 4 с показано
+	m.Tick(at(30 * time.Second))
+	m.OnDecision(at(30*time.Second), runningDecision(3600), false, nil)
+	if v := m.View(at(30 * time.Second)); v.Note == nil {
+		t.Fatal("срок показа шёл за родительской сессией")
+	}
+	keepAlive(m, runningDecision(3600), 31, 35)
+	if v := m.View(at(35 * time.Second)); v.Note == nil {
+		t.Fatal("закрылась раньше 10 с на экране (4 + 5)")
+	}
+	m.OnDecision(at(36*time.Second), runningDecision(3600), false, nil)
+	if v := m.View(at(36 * time.Second)); v.Note != nil {
+		t.Fatal("не закрылась через 10 с на экране")
+	}
+	if got := noteKinds(m.TakeNoteEvents()); got != "noteDone:a" {
+		t.Fatalf("события: %s", got)
+	}
+
+	// Обрыв связи: последний ответ в 2 с, плашка видна до 12 с (offlineAfter), потом без связи до 60 с.
+	m2 := NewModel()
+	m2.OnDecision(t0, runningDecision(3600), false, nil)
+	m2.OnNote(t0, noteOf("b", "Скоро ужин", 30))
+	m2.OnDecision(at(2*time.Second), runningDecision(3600), false, nil)
+	m2.Tick(at(40 * time.Second))
+	m2.Tick(at(60 * time.Second))
+	m2.OnDecision(at(60*time.Second), runningDecision(3600), false, nil)
+	if v := m2.View(at(60 * time.Second)); v.Note == nil {
+		t.Fatal("срок показа шёл без связи со службой")
+	}
+	keepAlive(m2, runningDecision(3600), 61, 77) // 12 + 17 = 29 с на экране
+	if v := m2.View(at(77 * time.Second)); v.Note == nil {
+		t.Fatal("закрылась раньше 30 с на экране")
+	}
+	m2.OnDecision(at(78*time.Second), runningDecision(3600), false, nil)
+	if v := m2.View(at(78 * time.Second)); v.Note != nil {
+		t.Fatal("не закрылась через 30 с на экране")
+	}
+}
