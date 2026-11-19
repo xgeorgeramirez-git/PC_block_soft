@@ -3002,7 +3002,8 @@ textarea.sites-add-input {
 /* Выбор срока паузы — всплывает над значком, а не раздвигает ряд действий (FB-5). */
 .pause-picker {
   position: absolute;
-  bottom: calc(100% + var(--space-1));
+  /* Вниз от значка: имя и статус ребёнка над кнопками не закрываются (визуальная приёмка FB-25). */
+  top: calc(100% + var(--space-1));
   left: 0;
   z-index: 5;
   display: flex;
@@ -3015,6 +3016,10 @@ textarea.sites-add-input {
   border: 1px solid var(--line);
   border-radius: 8px;
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.12);
+}
+
+.pause-toggle-label {
+  margin-left: var(--space-1);
 }
 
 .pause-picker-hint {

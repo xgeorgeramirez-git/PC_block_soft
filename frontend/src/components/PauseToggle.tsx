@@ -92,6 +92,8 @@ export default function PauseToggle({ paused, until, busy = false, onPick, onEnd
           <rect x="5" y="4" width="3.5" height="12" rx="1" />
           <rect x="11.5" y="4" width="3.5" height="12" rx="1" />
         </svg>
+        {/* Во время паузы видно словами, что сделает нажатие (визуальная приёмка FB-25). */}
+        {paused ? <span className="pause-toggle-label">Закончить паузу</span> : null}
       </button>
       {paused && until ? <span className="pause-toggle-until">{`Пауза до ${until}`}</span> : null}
       {open && !paused ? (
@@ -113,6 +115,16 @@ export default function PauseToggle({ paused, until, busy = false, onPick, onEnd
               {o.label}
             </button>
           ))}
+          <button
+            type="button"
+            className="btn btn-small"
+            onClick={() => {
+              setOpen(false);
+              button.current?.focus();
+            }}
+          >
+            Отмена
+          </button>
         </div>
       ) : null}
     </div>

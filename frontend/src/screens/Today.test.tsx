@@ -497,16 +497,31 @@ describe("Today: значок-переключатель паузы (R11, D-96)"
     await user.click(toggle);
     expect(toggle.getAttribute("aria-expanded")).toBe("true");
     const group = within(misha).getByRole("group", { name: "На сколько поставить паузу" });
-    expect(within(group).getAllByRole("button").map((b) => b.textContent)).toEqual(["15 минут", "1 час", "2 часа", "До конца дня"]);
+    expect(within(group).getAllByRole("button").map((b) => b.textContent)).toEqual(["15 минут", "1 час", "2 часа", "До конца дня", "Отмена"]);
     await user.click(within(group).getByRole("button", { name: "1 час" }));
     expect(mock.calls.find((c) => c.command === "Pause")?.payload).toEqual({ childId: 1, preset: "hour1" });
     const on = await within(misha).findByRole("button", { name: OFF_HINT });
     expect(on.getAttribute("aria-pressed")).toBe("true");
     expect(on.getAttribute("title")).toBe(OFF_HINT);
+    // Во время паузы видно словами, что сделает нажатие (визуальная приёмка FB-25).
+    expect(on.textContent).toBe("Закончить паузу");
     // «Пауза до 18:30» — рядом со значком; ниже ответ службы «Пауза 1 ч».
     expect(within(on.parentElement!).getByText("Пауза до 18:30")).toBeTruthy();
     expect(within(misha).getByRole("status").textContent).toBe("Пауза 1 ч");
     expect(within(misha).queryByRole("group", { name: "На сколько поставить паузу" })).toBeNull();
+  });
+
+  // Ловит: выбор срока нельзя закрыть без выбора (визуальная приёмка FB-25).
+  it("«Отмена» закрывает выбор срока без паузы, фокус на значке", async () => {
+    const user = setup({ children: [mockChild({ usedS: 7200 })] });
+    const misha = await screen.findByRole("article", { name: "Миша" });
+    const toggle = within(misha).getByRole("button", { name: ON_HINT });
+    await user.click(toggle);
+    const group = within(misha).getByRole("group", { name: "На сколько поставить паузу" });
+    await user.click(within(group).getByRole("button", { name: "Отмена" }));
+    expect(within(misha).queryByRole("group", { name: "На сколько поставить паузу" })).toBeNull();
+    expect(mock.calls.some((c) => c.command === "Pause")).toBe(false);
+    expect(document.activeElement).toBe(toggle);
   });
 
   // Ловит: паузу нельзя закончить (FB-25) или нужно подтверждение; значок держится локальным флагом.
