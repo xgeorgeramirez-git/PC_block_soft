@@ -71,5 +71,6 @@ func (s *Service) hEndBreak(c *callCtx) ipc.Reply {
 	}
 	s.afterDecision(cs, d, nil)
 	s.saveDay(cs)
+	s.remoteChanged() // телефон увидит новый остаток (FR-40)
 	return ipc.OK(ipc.CardReply{Card: s.cardOf(cs), Message: textBreakEnded})
 }

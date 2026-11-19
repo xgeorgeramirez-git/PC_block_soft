@@ -792,6 +792,7 @@ func (s *Service) hClearBlock(c *callCtx) ipc.Reply {
 		s.logRate("bypass", "снятие блокировки не записано в базу: %v", err)
 	}
 	s.afterDecision(cs, d, nil)
+	s.remoteChanged() // телефон увидит новый остаток (FR-40)
 	return ipc.OK(ipc.CardReply{Card: s.cardOf(cs), Message: textBlockCleared})
 }
 

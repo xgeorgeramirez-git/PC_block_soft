@@ -189,6 +189,7 @@ func (s *Service) hRedeemPromo(c *callCtx) ipc.Reply {
 	if c.kind != kindGuard {
 		s.noticeGuards(cs, msg)
 	}
+	s.remoteChanged() // телефон увидит новый остаток (FR-40)
 	return ipc.OK(ipc.RedeemPromoReply{Card: s.cardOf(cs), AddedMin: minutes, Message: msg})
 }
 

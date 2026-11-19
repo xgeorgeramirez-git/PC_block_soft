@@ -54,6 +54,7 @@ func (s *Service) hSaveSchedule(c *callCtx) ipc.Reply {
 	cs.rulesAt = c.real
 	s.applyRules(cs, s.readRules(cs.child.ID))
 	s.journal.Write(cs.child.ID, evSettingsChanged, map[string]any{"text": "изменены запретные часы"})
+	s.remoteChanged() // запретные часы меняют «заблокирован» в отчёте телефону (FR-40)
 	return ipc.OK(ipc.SaveScheduleReply{Intervals: toIPCIntervals(norm), Card: s.cardOf(cs), Message: textSaved})
 }
 
@@ -80,6 +81,7 @@ func (s *Service) hPause(c *callCtx) ipc.Reply {
 	s.saveDay(cs)
 	msg := "Пауза " + core.FormatLimit(int(dur.Minutes()))
 	s.noticeGuards(cs, msg)
+	s.remoteChanged() // телефон увидит новый остаток (FR-40)
 	return ipc.OK(ipc.PauseReply{Card: s.cardOf(cs), Message: msg})
 }
 
@@ -104,6 +106,7 @@ func (s *Service) hPauseAll(c *callCtx) ipc.Reply {
 		s.noticeGuards(cs, "Пауза "+core.FormatLimit(int(dur.Minutes())))
 		cards = append(cards, s.cardOf(cs))
 	}
+	s.remoteChanged() // телефон увидит новый остаток (FR-40)
 	return ipc.OK(ipc.PauseAllReply{Children: cards, Message: "Пауза для всех детей на " + core.FormatLimit(int(dur.Minutes()))})
 }
 
@@ -266,6 +269,7 @@ func (s *Service) hAskMore(c *callCtx) ipc.Reply {
 	s.saveDay(cs)
 	msg := "Добавлено " + minutesText(req.Minutes)
 	s.journal.Write(cs.child.ID, core.EvExtraTime, map[string]any{"minutes": req.Minutes, "text": core.ExtraText(req.Minutes)})
+	s.remoteChanged() // телефон увидит новый остаток (FR-40)
 	return ipc.OK(ipc.AskMoreReply{Card: s.cardOf(cs), Message: msg})
 }
 
@@ -306,6 +310,7 @@ func (s *Service) hSpendBonus(c *callCtx) ipc.Reply {
 	s.journal.Write(cs.child.ID, core.EvBonusSpent, map[string]any{
 		"minutes": req.Minutes, "balance": bal, "text": core.BonusSpentText(req.Minutes),
 	})
+	s.remoteChanged() // телефон увидит новый остаток (FR-40)
 	return ipc.OK(ipc.SpendBonusReply{Card: s.cardOf(cs), Message: core.BonusSpentText(req.Minutes), BalanceAfter: bal})
 }
 
