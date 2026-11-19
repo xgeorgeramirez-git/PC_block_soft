@@ -5,6 +5,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.res.stringResource
 import ru.atlas404.pcblock.R
 import ru.atlas404.pcblock.proto.Format
+import ru.atlas404.pcblock.proto.NoteMark
 import ru.atlas404.pcblock.proto.Problem
 import java.time.ZoneId
 
@@ -27,6 +28,8 @@ fun Problem.res(): Int = when (this) {
     Problem.BAD_REPLY -> R.string.err_bad_reply
     Problem.SERVER -> R.string.err_server
     Problem.KEY -> R.string.err_key
+    Problem.NOTE_RANGE -> R.string.err_note_range
+    Problem.NOTE_PC_OFFLINE -> R.string.err_note_pc_offline
 }
 
 /** «19:05» или «17.11 19:05» по местному времени телефона. */
@@ -39,9 +42,30 @@ fun clockText(ms: Long): String =
 fun problemText(p: Problem, lastSeenMs: Long): String =
     if (p == Problem.PC_OFFLINE && lastSeenMs > 0) {
         stringResource(R.string.err_pc_offline_since, clockText(lastSeenMs))
+    } else if (p == Problem.NOTE_PC_OFFLINE && lastSeenMs > 0) {
+        stringResource(R.string.err_note_pc_offline_since, clockText(lastSeenMs))
     } else {
         stringResource(p.res())
     }
+
+/** Отметка сообщения на телефоне. */
+@StringRes
+fun NoteMark.res(): Int = when (this) {
+    NoteMark.SENT -> R.string.note_mark_sent
+    NoteMark.DELIVERED -> R.string.note_mark_delivered
+    NoteMark.READ -> R.string.note_mark_read
+    NoteMark.SHOWN -> R.string.note_mark_shown
+    NoteMark.NOT_DELIVERED -> R.string.note_mark_expired
+}
+
+/** Подпись выбора показа. */
+@StringRes
+fun showSecRes(sec: Int): Int = when (sec) {
+    10 -> R.string.note_show_10
+    30 -> R.string.note_show_30
+    60 -> R.string.note_show_60
+    else -> R.string.note_show_until
+}
 
 @Composable
 fun durationText(seconds: Long): String =
