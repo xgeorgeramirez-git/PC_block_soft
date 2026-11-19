@@ -555,7 +555,7 @@ func TestMeasureLongWordWraps(t *testing.T) {
 }
 
 // Ловит: настоящая плашка сообщения (мерка Windows) с длинным текстом над экраном блокировки
-// закрывает его заголовок или кнопки, выходит за рабочую область или выше 40 % её.
+// закрывает его заголовок или кнопки, выходит за рабочую область или выше 40 % её, текст обрезан.
 func TestNoteWindowOverLockFits(t *testing.T) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
@@ -566,7 +566,8 @@ func TestNoteWindowOverLockFits(t *testing.T) {
 	defer n.close()
 	wa := workArea()
 	text := strings.Repeat(strings.Repeat("Иди ужинать скорее ", 2)+"\n", 5) + strings.Repeat("ж", 110)
-	lock := &NoteLock{Title: Rect{Left: wa.left + 62, Top: wa.top + 65, Right: wa.left + 962, Bottom: wa.top + 115}, ControlsTop: wa.top + 272}
+	lock := &NoteLock{Title: Rect{Left: wa.left + 62, Top: wa.top + 65, Right: wa.left + 962, Bottom: wa.top + 115}, ControlsTop: wa.top + 272,
+		MaxUp: 65 - 16, MaxDown: 768 - 16 - 680}
 	for _, lk := range []*NoteLock{nil, lock} {
 		n.apply(&NoteView{Seq: 1, ID: "a", Title: textNoteTitle, Text: text,
 			Buttons: []ButtonView{{Button: ButtonNoteOK, Label: textNoteOK, Main: true, Enabled: true}}}, lk)
@@ -578,11 +579,20 @@ func TestNoteWindowOverLockFits(t *testing.T) {
 		if h := g.bottom - g.top; h > (wa.bottom-wa.top)*40/100 {
 			t.Fatalf("плашка %d px выше 40 %% области", h)
 		}
-		if lk != nil && (g.bottom > lk.ControlsTop || g.top < lk.Title.Bottom && g.bottom > lk.Title.Top) {
-			t.Fatalf("плашка %+v закрывает заголовок %+v или кнопки (с %d)", g, lk.Title, lk.ControlsTop)
+		if lk != nil {
+			f := n.fit
+			up, down := f.ShiftUp, f.ShiftDown
+			if up > lk.MaxUp || down > lk.MaxDown || g.bottom > lk.ControlsTop+down || g.top < lk.Title.Bottom-up && g.bottom > lk.Title.Top-up {
+				t.Fatalf("плашка %+v закрывает заголовок %+v или кнопки (с %d), сдвиг %d/%d", g, lk.Title, lk.ControlsTop, up, down)
+			}
 		}
-		if !strings.HasSuffix(n.fit.Text, "…") && n.fit.Text != text {
-			t.Fatalf("показан чужой текст: %q", n.fit.Text)
+		// Текст целиком (FR-41): без «…», все строки в раскладке (мерка Windows), шрифт не мельче 14 px.
+		hdc, _, _ := procGetDC.Call(n.hwnd)
+		tw := NoteTextWidth(n.dpi, n.fit.Layout.W, n.fit.Density)
+		need := measureHeight(hdc, n.font(n.fit.FontPx, 400), text, tw)
+		procReleaseDC.Call(n.hwnd, hdc)
+		if n.fit.Text != text || n.fit.FontPx < 14 || need > n.fit.Layout.Text.Bottom-n.fit.Layout.Text.Top {
+			t.Fatalf("текст не целиком: шрифт %d, нужно %d px, место %+v, %q", n.fit.FontPx, need, n.fit.Layout.Text, n.fit.Text)
 		}
 		n.hide()
 	}

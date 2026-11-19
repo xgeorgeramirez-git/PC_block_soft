@@ -57,9 +57,11 @@ type lockUI struct {
 	rest    restPaint    // экран перерыва: картинка и плитки таймера
 	sticker stickerPaint // ответ на промокод: кадры стикера (R26)
 
-	// noteLock — заголовок и верх столбца поля и кнопок в координатах экрана: плашка «Сообщение от
-	// родителя» их не закрывает (FR-41, NFR-10).
-	noteLock NoteLock
+	// noteLock — заголовок и верх столбца поля и кнопок в координатах экрана, как стоят без плашки
+	// «Сообщение от родителя»: она их не закрывает (FR-41, NFR-10). noteUp, noteDown — экран раздвинут
+	// под длинное сообщение (FitNote): заголовок вверх, столбец поля и кнопок вниз.
+	noteLock         NoteLock
+	noteUp, noteDown int32
 
 	onPress func(Button)
 	onEdit  func(string)
@@ -274,6 +276,10 @@ func (u *lockUI) layout() {
 	}
 	top := FlowTop(Rect{area.left, area.top, area.right, area.bottom}, FlowHeight(items), s(24))
 	rects := Flow(Rect{area.left, area.top, area.right, area.bottom}, top, items)
+	// Место плашки сообщения — по раскладке без сдвига (иначе сдвиг менял бы сам себя); потом экран
+	// раздвигается под неё, не дальше, чем позволяет эта раскладка.
+	u.noteLock = lockNoteGeom(es, rects, v.Lock.Reason, v.FieldLabel, area, s(noteLockEdgePx))
+	spreadLock(rects, lockSplit(es, v.FieldLabel), min(u.noteUp, u.noteLock.MaxUp), min(u.noteDown, u.noteLock.MaxDown))
 
 	u.texts, u.hasFrame = u.texts[:0], false
 	u.rest.showCat, u.rest.showTiles = false, false
@@ -311,7 +317,6 @@ func (u *lockUI) layout() {
 			u.views[e.btn.Button] = e.btn
 		}
 	}
-	u.noteLock = lockNoteGeom(es, rects, v.Lock.Reason, v.FieldLabel)
 	if side && anchorTop >= 0 {
 		w := PromoSideWidth(u.dpi, areaRc, colW)
 		textH := measureHeight(hdc, u.fonts.button, v.Promo.Text, w)
@@ -331,30 +336,69 @@ func (u *lockUI) layout() {
 	invalidate(hwnd)
 }
 
-// lockNoteGeom — заголовок (первый текст с причиной reason) и верх столбца поля и кнопок (подпись поля
-// label, если она прямо над полем) в координатах экрана: окно экрана стоит в начале виртуального
-// экрана, его координаты сдвинуты на (SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN).
-func lockNoteGeom(es []entry, rects []Rect, reason, label string) NoteLock {
-	dx, dy := metric(smXVirtScreen), metric(smYVirtScreen)
-	var g NoteLock
-	title, controls := false, false
+// lockSplit — номер первого блока столбца поля и кнопок: подпись поля label, если она прямо над полем,
+// иначе поле или первая кнопка; len(es) — их нет.
+func lockSplit(es []entry, label string) int {
 	for i, e := range es {
-		switch {
-		case !title && e.kind == entText && e.text == reason:
-			r := rects[i]
-			g.Title, title = Rect{Left: r.Left + dx, Top: r.Top + dy, Right: r.Right + dx, Bottom: r.Bottom + dy}, true
-		case !controls && (e.kind == entEdit || e.kind == entButton):
-			top := rects[i].Top
+		if e.kind == entEdit || e.kind == entButton {
 			if e.kind == entEdit && i > 0 && es[i-1].kind == entText && es[i-1].text == label {
-				top = rects[i-1].Top
+				return i - 1
 			}
-			g.ControlsTop, controls = top+dy, true
+			return i
 		}
 	}
-	if !controls && len(rects) > 0 {
-		g.ControlsTop = rects[len(rects)-1].Bottom + dy // без кнопок (так не бывает): низ столбца
+	return len(es)
+}
+
+// spreadLock раздвигает раскладку под плашку сообщения: блоки до split (заголовок и пояснения) вверх на
+// up, с split (поле и кнопки) вниз на down.
+func spreadLock(rects []Rect, split int, up, down int32) {
+	for i := range rects {
+		d := -max(0, up)
+		if i >= split {
+			d = max(0, down)
+		}
+		rects[i].Top += d
+		rects[i].Bottom += d
+	}
+}
+
+// lockNoteGeom — заголовок (первый текст с причиной reason), верх столбца поля и кнопок (lockSplit) и
+// насколько экран можно раздвинуть, не подходя к краю области area ближе edge, — в координатах экрана:
+// окно экрана стоит в начале виртуального экрана, его координаты сдвинуты на (SM_XVIRTUALSCREEN,
+// SM_YVIRTUALSCREEN).
+func lockNoteGeom(es []entry, rects []Rect, reason, label string, area rect, edge int32) NoteLock {
+	dx, dy := metric(smXVirtScreen), metric(smYVirtScreen)
+	var g NoteLock
+	if len(rects) == 0 {
+		return g
+	}
+	for i, e := range es {
+		if e.kind == entText && e.text == reason {
+			r := rects[i]
+			g.Title = Rect{Left: r.Left + dx, Top: r.Top + dy, Right: r.Right + dx, Bottom: r.Bottom + dy}
+			break
+		}
+	}
+	last := rects[len(rects)-1].Bottom
+	g.MaxUp = max(0, rects[0].Top-(area.top+edge))
+	if split := lockSplit(es, label); split < len(es) {
+		g.ControlsTop = rects[split].Top + dy
+		g.MaxDown = max(0, area.bottom-edge-last)
+	} else {
+		g.ControlsTop = last + dy // без кнопок (так не бывает): низ столбца
 	}
 	return g
+}
+
+// setNoteShift раздвигает экран под плашку сообщения (NoteFit.ShiftUp, ShiftDown); 0, 0 — как без неё.
+// Раскладка заново, только если сдвиг сменился.
+func (u *lockUI) setNoteShift(up, down int32) {
+	if up == u.noteUp && down == u.noteDown {
+		return
+	}
+	u.noteUp, u.noteDown = up, down
+	u.layout()
 }
 
 // layoutButtons создаёт кнопки, если набор изменился (порядок обхода Tab совпадает с порядком

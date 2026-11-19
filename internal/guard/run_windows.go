@@ -433,6 +433,9 @@ func (a *app) applyNote(v View) {
 		if a.note != nil {
 			a.note.hide()
 		}
+		if a.ui != nil {
+			a.ui.setNoteShift(0, 0) // экран блокировки — на место
+		}
 		return
 	}
 	if a.note == nil {
@@ -448,6 +451,14 @@ func (a *app) applyNote(v View) {
 		lock = &g // плашка — между заголовком экрана блокировки и его кнопками (NFR-10)
 	}
 	a.note.apply(v.Note, lock)
+	if a.ui != nil {
+		if lock != nil {
+			// Длинному сообщению экран блокировки раздвигается: кнопки ниже, заголовок выше (FitNote).
+			a.ui.setNoteShift(a.note.fit.ShiftUp, a.note.fit.ShiftDown)
+		} else {
+			a.ui.setNoteShift(0, 0)
+		}
+	}
 }
 
 // shutdown убирает окна и перехват клавиш.
