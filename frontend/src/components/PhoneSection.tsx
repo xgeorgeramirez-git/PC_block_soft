@@ -329,6 +329,12 @@ export default function PhoneSection() {
                 {view.phone ? <p className="panel-text phone-paired-line">{pairedLine(view.phone)}</p> : null}
                 {/* Кнопки рядом (form-actions), как в соседних блоках; при телефоне - одной ширины. */}
                 <div className={view.phone ? "form-actions phone-pair-actions" : "form-actions"}>
+                  {/* «Отвязать» первой: пояснения ниже относятся к кнопке подключения и стоят сразу под ней. */}
+                  {view.phone ? (
+                    <button type="button" className="btn" data-focus="unpair" disabled={busy} onClick={() => setConfirmUnpair(true)}>
+                      Отвязать
+                    </button>
+                  ) : null}
                   <button
                     type="button"
                     className={view.phone ? "btn" : "btn btn-primary"}
@@ -340,11 +346,6 @@ export default function PhoneSection() {
                   >
                     {pairButtonLabel(view)}
                   </button>
-                  {view.phone ? (
-                    <button type="button" className="btn" data-focus="unpair" disabled={busy} onClick={() => setConfirmUnpair(true)}>
-                      Отвязать
-                    </button>
-                  ) : null}
                 </div>
                 {!can.ok ? (
                   <p id={pairHintId} className="field-hint phone-why">
