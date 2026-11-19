@@ -3542,10 +3542,10 @@ textarea.sites-add-input {
   font-variant-numeric: tabular-nums;
 }
 
-/* Ошибка связи - состояние, а не ответ на действие: без живой области, цвет статуса и текст. */
+/* Причина под строкой состояния - тем же цветом статуса (.status-*), обычным начертанием и без
+   живой области: это состояние, а не ответ на действие. Красный (.field-error) - только ошибкам действий. */
 .phone-conn-error {
   margin: var(--space-1) 0 0;
-  color: var(--status-danger);
   font-size: 14px;
 }
 
@@ -3587,15 +3587,30 @@ textarea.sites-add-input {
   font-variant-numeric: tabular-nums;
 }
 
-/* Причина, по которой «Подключить телефон» недоступна: как .spend-note, заметно, а не серой подсказкой. */
-.phone-why {
-  margin: var(--space-3) 0 0;
-  padding: var(--space-2) var(--space-3);
-  border-left: 4px solid var(--status-warn);
-  background: var(--bg);
+.phone-paired-line + .form-actions {
+  margin-top: var(--space-3);
+}
+
+/* «Подключить другой телефон» и «Отвязать» заполняют ряд: в узкой карточке обе в ряд не входят и
+   встают одна под другой одной ширины, во всю ширину ряда; в широкой делят ряд без пустого хвоста. */
+.phone-pair-actions > .btn {
+  flex: 1 1 auto;
+}
+
+/* Недоступная кнопка подключения - серая, как .btn:disabled в остальном окне, но остаётся в Tab-порядке:
+   пояснение под ней (.field-hint) зачитывается по фокусу через aria-describedby. */
+.phone .btn[aria-disabled="true"],
+.phone .btn[aria-disabled="true"]:hover {
+  border-style: solid;
+  background: var(--surface);
   color: var(--text);
-  font-size: 16px;
-  font-weight: 600;
+  opacity: 0.55;
+}
+
+.phone .btn-primary[aria-disabled="true"],
+.phone .btn-primary[aria-disabled="true"]:hover {
+  background: var(--primary);
+  color: var(--primary-text);
 }
 
 /* Постоянная область статуса (PL-44): пустая не занимает места. */

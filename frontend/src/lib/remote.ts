@@ -27,10 +27,13 @@ function pad2(n: number): string {
   return n < 10 ? `0${n}` : `${n}`;
 }
 
-/** «18.11 21:40» в поясе. */
+/** Неразрывный пробел: дата и время не расходятся по строкам. */
+const NBSP = "\u00a0";
+
+/** «18.11 21:40» в поясе, через неразрывный пробел. */
 function dayTime(ms: number, tzOffsetMin: number): string {
   const d = new Date(ms + tzOffsetMin * 60_000);
-  return `${pad2(d.getUTCDate())}.${pad2(d.getUTCMonth() + 1)} ${formatTimeOfDay(ms, tzOffsetMin)}`;
+  return `${pad2(d.getUTCDate())}.${pad2(d.getUTCMonth() + 1)}${NBSP}${formatTimeOfDay(ms, tzOffsetMin)}`;
 }
 
 /**
@@ -43,6 +46,16 @@ export function statusLine(v: RemoteView, nowMs: number, tzOffsetMin: number = l
   if (v.lastOkMs <= 0) return v.state === "connecting" ? "Подключаемся…" : "Нет связи с сервером";
   const when = sameLocalDay(v.lastOkMs, nowMs, tzOffsetMin) ? formatTimeOfDay(v.lastOkMs, tzOffsetMin) : dayTime(v.lastOkMs, tzOffsetMin);
   return `Нет связи с ${when}`;
+}
+
+/** Цвет строки состояния и причины под ней (классы .status-*): красный оставлен ошибкам действий. */
+export type RemoteTone = "ok" | "warn" | "neutral";
+
+export function statusTone(v: RemoteView): RemoteTone {
+  if (!v.enabled || v.state === "off") return "neutral";
+  if (v.state === "online") return "ok";
+  if (v.state === "connecting" && v.lastOkMs <= 0) return "neutral";
+  return "warn";
 }
 
 const NO_SERVER_TEXT = "Не удаётся связаться с сервером. Проверьте адрес и интернет";
@@ -81,7 +94,7 @@ export function pairErrorText(code: PairError): string {
 
 /** «Телефон подключён: Pixel 7, с 18.11 21:40». */
 export function pairedLine(phone: RemotePhone, tzOffsetMin: number = localOffsetMin()): string {
-  const since = `с ${dayTime(phone.pairedAtMs, tzOffsetMin)}`;
+  const since = `с${NBSP}${dayTime(phone.pairedAtMs, tzOffsetMin)}`;
   return phone.name ? `Телефон подключён: ${phone.name}, ${since}` : `Телефон подключён, ${since}`;
 }
 
@@ -95,12 +108,19 @@ export function pollMs(v: RemoteView): number {
   return isPairing(v.pair.stage) ? POLL_PAIRING_MS : POLL_IDLE_MS;
 }
 
-/** Можно ли нажать «Подключить телефон», и если нет - почему (подсказка под кнопкой). */
+/** Подпись кнопки подключения: другой телефон, заново после неудачи или первый. */
+export function pairButtonLabel(v: RemoteView): string {
+  if (v.phone) return "Подключить другой телефон";
+  return v.pair.stage === "failed" ? "Подключить заново" : "Подключить телефон";
+}
+
+/** Можно ли нажать кнопку подключения, и если нет - почему (подсказка под кнопкой, её же подписью). */
 export function canPair(v: RemoteView): { ok: boolean; why: string } {
   if (!v.enabled || v.state === "off") return { ok: false, why: "Чтобы подключить телефон, включите связь и сохраните адрес сервера" };
   if (v.state === "online") return { ok: true, why: "" };
+  const label = pairButtonLabel(v);
   if (v.state === "connecting" && v.lastOkMs <= 0) {
-    return { ok: false, why: "Подключить телефон можно, когда программа выйдет на связь с сервером" };
+    return { ok: false, why: `${label} можно, когда программа выйдет на связь с сервером` };
   }
-  return { ok: false, why: "Подключить телефон можно, когда связь с сервером восстановится" };
+  return { ok: false, why: `${label} можно, когда связь с сервером восстановится` };
 }

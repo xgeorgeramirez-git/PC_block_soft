@@ -9,10 +9,12 @@ import {
   formatSas,
   isPairing,
   pairErrorText,
+  pairButtonLabel,
   pairedLine,
   pollMs,
   remoteErrorText,
   statusLine,
+  statusTone,
 } from "./remote";
 
 // Москва: UTC+3. Моменты - константами (не у границы суток).
@@ -71,7 +73,7 @@ describe("строка состояния", () => {
     expect(statusLine(view({ state: "offline", lastOkMs: 0 }), AT_2140, MSK)).toBe("Нет связи с сервером");
   });
   it("связь пропала в другой день - с датой", () => {
-    expect(statusLine(view({ state: "offline", lastOkMs: AT_1905 - 86_400_000 }), AT_2140, MSK)).toBe("Нет связи с 17.11 19:05");
+    expect(statusLine(view({ state: "offline", lastOkMs: AT_1905 - 86_400_000 }), AT_2140, MSK)).toBe("Нет связи с 17.11\u00a019:05");
   });
 });
 
@@ -99,10 +101,10 @@ describe("тексты ошибок - на «вы», без техники", () 
 
 describe("подключённый телефон", () => {
   it("имя и момент привязки в местном времени", () => {
-    expect(pairedLine({ name: "Pixel 7", pairedAtMs: AT_2140 }, MSK)).toBe("Телефон подключён: Pixel 7, с 18.11 21:40");
+    expect(pairedLine({ name: "Pixel 7", pairedAtMs: AT_2140 }, MSK)).toBe("Телефон подключён: Pixel 7, с\u00a018.11\u00a021:40");
   });
   it("без имени - просто «Телефон подключён»", () => {
-    expect(pairedLine({ name: "", pairedAtMs: AT_2140 }, MSK)).toBe("Телефон подключён, с 18.11 21:40");
+    expect(pairedLine({ name: "", pairedAtMs: AT_2140 }, MSK)).toBe("Телефон подключён, с\u00a018.11\u00a021:40");
   });
 });
 
@@ -123,6 +125,28 @@ describe("опрос и доступность «Подключить телеф
     expect(canPair(view({ enabled: false, state: "off" })).why).toBe("Чтобы подключить телефон, включите связь и сохраните адрес сервера");
     expect(canPair(view({ state: "connecting", lastOkMs: 0 })).why).toBe("Подключить телефон можно, когда программа выйдет на связь с сервером");
     expect(canPair(view({ state: "offline" })).why).toBe("Подключить телефон можно, когда связь с сервером восстановится");
+  });
+  it("причина называет кнопку так же, как она подписана", () => {
+    const pixel = { name: "Pixel 7", pairedAtMs: AT_2140 };
+    expect(pairButtonLabel(view())).toBe("Подключить телефон");
+    expect(pairButtonLabel(view({ phone: pixel }))).toBe("Подключить другой телефон");
+    const failed = { ...view().pair, stage: "failed" as const, error: "expired" as const };
+    expect(pairButtonLabel(view({ pair: failed }))).toBe("Подключить заново");
+    expect(canPair(view({ state: "offline", phone: pixel })).why).toBe("Подключить другой телефон можно, когда связь с сервером восстановится");
+    expect(canPair(view({ state: "connecting", lastOkMs: 0, pair: failed })).why).toBe(
+      "Подключить заново можно, когда программа выйдет на связь с сервером",
+    );
+  });
+});
+
+describe("цвет состояния", () => {
+  it("на связи - зелёный, нет связи - предупреждение, остальное - приглушённый", () => {
+    expect(statusTone(view())).toBe("ok");
+    expect(statusTone(view({ state: "offline" }))).toBe("warn");
+    expect(statusTone(view({ state: "connecting" }))).toBe("warn");
+    expect(statusTone(view({ state: "connecting", lastOkMs: 0 }))).toBe("neutral");
+    expect(statusTone(view({ state: "offline", lastOkMs: 0 }))).toBe("warn");
+    expect(statusTone(view({ enabled: false, state: "off" }))).toBe("neutral");
   });
 });
 

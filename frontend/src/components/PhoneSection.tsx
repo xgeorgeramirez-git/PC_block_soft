@@ -10,11 +10,13 @@ import {
   countdownText,
   formatCode,
   formatSas,
+  pairButtonLabel,
   pairErrorText,
   pairedLine,
   pollMs,
   remoteErrorText,
   statusLine,
+  statusTone,
 } from "../lib/remote";
 import type { RemoteView } from "../types";
 
@@ -194,6 +196,7 @@ export default function PhoneSection() {
   const pair = view?.pair;
   const can = view ? canPair(view) : { ok: false, why: "" };
   const connError = view && enabled ? remoteErrorText(view.error) : "";
+  const tone = view ? statusTone(view) : "neutral";
 
   return (
     <section ref={box} className="panel phone" aria-labelledby="settings-phone">
@@ -249,9 +252,9 @@ export default function PhoneSection() {
           </form>
 
           <p className="phone-state">
-            <span className="phone-state-label">Состояние:</span> <span className={`phone-state-value phone-state-${view.state}`}>{statusLine(view, now)}</span>
+            <span className="phone-state-label">Состояние:</span> <span className={`phone-state-value status status-${tone}`}>{statusLine(view, now)}</span>
           </p>
-          {connError ? <p className="phone-conn-error">{connError}</p> : null}
+          {connError ? <p className={`phone-conn-error status-${tone}`}>{connError}</p> : null}
 
           <div className="phone-pair">
             {pair?.stage === "starting" ? (
@@ -299,7 +302,7 @@ export default function PhoneSection() {
                 <p id="phone-sas" className="phone-code">
                   {formatSas(pair.sas)}
                 </p>
-                <p className="field-hint">Нажмите «Совпадает» и на телефоне</p>
+                <p className="field-hint">Если число совпало, нажмите «Совпадает» здесь и на телефоне</p>
                 <div className="form-actions">
                   <button
                     type="button"
@@ -323,17 +326,9 @@ export default function PhoneSection() {
                     {pairErrorText(pair.error)}
                   </p>
                 ) : null}
-                {view.phone ? (
-                  <div className="phone-paired">
-                    <p className="panel-text phone-paired-line">{pairedLine(view.phone)}</p>
-                    <div className="form-actions">
-                      <button type="button" className="btn" data-focus="unpair" disabled={busy} onClick={() => setConfirmUnpair(true)}>
-                        Отвязать
-                      </button>
-                    </div>
-                  </div>
-                ) : null}
-                <div className="form-actions">
+                {view.phone ? <p className="panel-text phone-paired-line">{pairedLine(view.phone)}</p> : null}
+                {/* Кнопки рядом (form-actions), как в соседних блоках; при телефоне - одной ширины. */}
+                <div className={view.phone ? "form-actions phone-pair-actions" : "form-actions"}>
                   <button
                     type="button"
                     className={view.phone ? "btn" : "btn btn-primary"}
@@ -343,15 +338,20 @@ export default function PhoneSection() {
                     aria-describedby={can.ok ? undefined : pairHintId}
                     onClick={() => can.ok && pairStart()}
                   >
-                    {view.phone ? "Подключить другой телефон" : pair?.stage === "failed" ? "Подключить заново" : "Подключить телефон"}
+                    {pairButtonLabel(view)}
                   </button>
+                  {view.phone ? (
+                    <button type="button" className="btn" data-focus="unpair" disabled={busy} onClick={() => setConfirmUnpair(true)}>
+                      Отвязать
+                    </button>
+                  ) : null}
                 </div>
-                {view.phone ? <p className="field-hint">Прежний телефон будет отвязан, когда вы подключите новый</p> : null}
                 {!can.ok ? (
-                  <p id={pairHintId} className="phone-why">
+                  <p id={pairHintId} className="field-hint phone-why">
                     {can.why}
                   </p>
                 ) : null}
+                {view.phone ? <p className="field-hint">Прежний телефон будет отвязан, когда вы подключите новый</p> : null}
               </>
             )}
           </div>

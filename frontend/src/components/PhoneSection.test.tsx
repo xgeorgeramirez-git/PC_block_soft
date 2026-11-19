@@ -118,7 +118,8 @@ describe("PhoneSection: подключение телефона", () => {
     expect(btn.getAttribute("aria-disabled")).toBe("true");
     expect(btn.disabled).toBe(false);
     const hint = within(box()).getByText("Подключить телефон можно, когда программа выйдет на связь с сервером");
-    expect(hint.className).toBe("phone-why");
+    // Обычная серая подсказка рядом с кнопкой, а не заметная плашка.
+    expect(hint.className).toBe("field-hint phone-why");
     expect(btn.getAttribute("aria-describedby")).toBe(hint.id);
     await user.click(btn);
     expect(mock.count("RemotePairStart")).toBe(0);
@@ -140,7 +141,7 @@ describe("PhoneSection: подключение телефона", () => {
     const sas = await within(box()).findByText("731 004");
     expect(sas.className).toContain("phone-code");
     expect(within(box()).getByText("На телефоне должно быть число")).toBeTruthy();
-    expect(within(box()).getByText("Нажмите «Совпадает» и на телефоне")).toBeTruthy();
+    expect(within(box()).getByText("Если число совпало, нажмите «Совпадает» здесь и на телефоне")).toBeTruthy();
     expect(within(box()).queryByText("482 913")).toBeNull();
     // «Отмена» исчезла вместе с кодом: фокус на «Совпадает», а не потерян.
     await vi.waitFor(() => expect(document.activeElement).toBe(within(box()).getByRole("button", { name: "Совпадает" })));
@@ -209,6 +210,10 @@ describe("PhoneSection: подключённый телефон", () => {
     expect(within(box()).getByRole("button", { name: "Подключить другой телефон" })).toBeTruthy();
     expect(within(box()).getByText("Прежний телефон будет отвязан, когда вы подключите новый")).toBeTruthy();
     expect(within(box()).queryByRole("button", { name: "Подключить телефон" })).toBeNull();
+    // Обе кнопки - в одном ряду кнопок (одной ширины - стили, снимок settings-phone-paired).
+    const other = within(box()).getByRole("button", { name: "Подключить другой телефон" });
+    expect(other.parentElement).toBe(within(box()).getByRole("button", { name: "Отвязать" }).parentElement);
+    expect(other.parentElement?.className).toBe("form-actions phone-pair-actions");
   });
 
   it("«Отвязать» спрашивает подтверждение; «Отмена» оставляет телефон", async () => {
@@ -238,8 +243,16 @@ describe("PhoneSection: подключённый телефон", () => {
     expect(within(box()).getByText("Не удаётся связаться с сервером. Проверьте адрес и интернет")).toBeTruthy();
     // Нет связи не значит «отвязан» (Review Focus 2).
     expect(within(box()).getByText(/^Телефон подключён: Pixel 7/)).toBeTruthy();
-    expect(within(box()).getByRole("button", { name: "Подключить другой телефон" }).getAttribute("aria-disabled")).toBe("true");
-    expect(within(box()).getByText("Подключить телефон можно, когда связь с сервером восстановится")).toBeTruthy();
+    const btn = within(box()).getByRole("button", { name: "Подключить другой телефон" });
+    expect(btn.getAttribute("aria-disabled")).toBe("true");
+    // Пояснение называет кнопку её подписью и зачитывается вместе с ней.
+    const why = within(box()).getByText("Подключить другой телефон можно, когда связь с сервером восстановится");
+    expect(btn.getAttribute("aria-describedby")).toBe(why.id);
+    expect(why.className).toBe("field-hint phone-why");
+    // Состояние и его причина - одним цветом статуса; красный - только ошибкам действий.
+    const state = within(box()).getByText(/^Нет связи с /);
+    expect(state.className).toContain("status status-warn");
+    expect(within(box()).getByText("Не удаётся связаться с сервером. Проверьте адрес и интернет").className).toBe("phone-conn-error status-warn");
   });
 });
 

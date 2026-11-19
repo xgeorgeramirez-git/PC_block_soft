@@ -3551,7 +3551,7 @@ test.describe("settings-phone: блок «Телефон»", () => {
     await expect(box.locator(".phone-code")).toHaveText("731 004");
     await expect(box.getByRole("button", { name: "Совпадает", exact: true })).toBeVisible();
     await expect(box.getByRole("button", { name: "Не совпадает" })).toBeVisible();
-    await expect(box.getByText("Нажмите «Совпадает» и на телефоне")).toBeVisible();
+    await expect(box.getByText("Если число совпало, нажмите «Совпадает» здесь и на телефоне")).toBeVisible();
     await shot(page, box, "settings-phone-compare");
   });
 
@@ -3561,6 +3561,14 @@ test.describe("settings-phone: блок «Телефон»", () => {
     await expect(box.getByRole("button", { name: "Отвязать" })).toBeVisible();
     await expect(box.getByRole("button", { name: "Подключить другой телефон" })).toBeVisible();
     await expect(box.getByText("Прежний телефон будет отвязан, когда вы подключите новый")).toBeVisible();
+    // Дата и время привязки - одной строкой. Кнопки одной ширины: в узкой карточке (340 px) обе в ряд
+    // не входят и встают одна под другой во всю ширину ряда.
+    const line = box.locator(".phone-paired-line");
+    expect(await line.evaluate((el) => el.textContent)).toContain("18.11\u00a021:40");
+    const rect = async (name: string) => (await box.getByRole("button", { name }).boundingBox())!;
+    const [unpairBtn, otherBtn] = [await rect("Отвязать"), await rect("Подключить другой телефон")];
+    expect(Math.abs(unpairBtn.width - otherBtn.width)).toBeLessThan(1);
+    expect(Math.abs(unpairBtn.x - otherBtn.x)).toBeLessThan(1);
     await shot(page, box, "settings-phone-paired");
     // «Отвязать» спрашивает подтверждение.
     await box.getByRole("button", { name: "Отвязать" }).click();
@@ -3577,7 +3585,12 @@ test.describe("settings-phone: блок «Телефон»", () => {
     await expect(box.getByText("Не удаётся связаться с сервером. Проверьте адрес и интернет")).toBeVisible();
     await expect(box.getByText("Телефон подключён: Pixel 7, с 18.11 21:40")).toBeVisible();
     await expect(box.getByRole("button", { name: "Подключить другой телефон" })).toHaveAttribute("aria-disabled", "true");
-    await expect(box.locator(".phone-why")).toHaveText("Подключить телефон можно, когда связь с сервером восстановится");
+    const other = box.getByRole("button", { name: "Подключить другой телефон" });
+    await expect(box.locator(".phone-why")).toHaveText("Подключить другой телефон можно, когда связь с сервером восстановится");
+    await expect(other).toHaveAccessibleDescription("Подключить другой телефон можно, когда связь с сервером восстановится");
+    // Недоступная кнопка - серая сплошной рамкой, как недоступные кнопки окна, а не пунктиром.
+    expect(await other.evaluate((el) => getComputedStyle(el).borderStyle)).toBe("solid");
+    expect(await other.evaluate((el) => getComputedStyle(el).opacity)).toBe("0.55");
     await shot(page, box, "settings-phone-offline");
   });
 });
