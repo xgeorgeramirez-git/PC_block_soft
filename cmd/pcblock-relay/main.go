@@ -40,15 +40,7 @@ func main() {
 	// и Shutdown укладывается в 5 с.
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, os.Interrupt)
 	defer stop()
-	srv := &http.Server{
-		Addr:              *addr,
-		Handler:           s.Handler(),
-		ReadHeaderTimeout: 10 * time.Second,
-		IdleTimeout:       120 * time.Second,
-		MaxHeaderBytes:    16 << 10,
-		BaseContext:       func(net.Listener) context.Context { return ctx },
-		// WriteTimeout нет: длинный опрос сам ограничен 25 с.
-	}
+	srv := newHTTPServer(*addr, s.Handler(), ctx)
 	errc := make(chan error, 1)
 	go func() { errc <- srv.ListenAndServe() }()
 	logger.Printf("pcblock-relay слушает %s, данные %s, trust-proxy=%v", *addr, *data, *trust)
@@ -65,6 +57,21 @@ func main() {
 		if err := srv.Shutdown(sctx); err != nil {
 			logger.Printf("остановка: %v", err)
 		}
+	}
+}
+
+// newHTTPServer — HTTP-сервер со сроками. ReadTimeout считает чтение запроса (заголовки и тело
+// ≤ 16 КБ), а не ответ: длинный опрос 25 с им не обрывается. WriteTimeout нет: опрос сам
+// ограничен 25 с, ожидание ответа компьютера — 10 с.
+func newHTTPServer(addr string, h http.Handler, ctx context.Context) *http.Server {
+	return &http.Server{
+		Addr:              addr,
+		Handler:           h,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       15 * time.Second,
+		IdleTimeout:       120 * time.Second,
+		MaxHeaderBytes:    16 << 10,
+		BaseContext:       func(net.Listener) context.Context { return ctx },
 	}
 }
 

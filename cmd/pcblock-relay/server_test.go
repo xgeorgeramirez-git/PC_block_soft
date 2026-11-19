@@ -695,3 +695,32 @@ func TestUnseenPCPurgedAfterDay(t *testing.T) {
 	}
 	expect(t, e.get("/v1/pc/poll?wait=0", aliveTok), 200, "")
 }
+
+// Ловит: pair1 через phone/send обходил код и пределы phone/pair (R6).
+func TestSendRejectsPair1(t *testing.T) {
+	e := newEnv(t, tcfg{})
+	p := e.pair()
+	expect(t, e.post("/v1/phone/send", p.phoneToken, `{"kind":"pair1","body":{}}`), 400, "bad_request")
+	if n := e.s.queueLen(p.pcID); n != 0 {
+		t.Fatalf("в очереди %d", n)
+	}
+}
+
+// Ловит: 504 на phone/pair возвращал код, хотя опрос уже выдал pair1 компьютеру (R8): второй
+// телефон мог бы ввести тот же код, а компьютер уже на этапе wait_nonce.
+func TestPair504AfterDeliveryKeepsCodeSpent(t *testing.T) {
+	e := newEnv(t, tcfg{PollMax: 2 * time.Second, ReplyWait: 200 * time.Millisecond})
+	_, pcTok := e.register()
+	code := e.pairCode(pcTok)
+	ph := e.async(req{method: "POST", path: "/v1/phone/pair", body: `{"code":"` + code + `","kind":"pair1","body":{}}`})
+	if m := msgs(t, e.get("/v1/pc/poll?wait=25", pcTok)); len(m) != 1 {
+		t.Fatalf("pair1 не выдан: %v", m)
+	}
+	expect(t, wait(t, ph, 2*time.Second), 504, "pc_offline")
+	expect(t, e.post("/v1/phone/pair", "", `{"code":"`+code+`","kind":"pair1","body":{}}`), 403, "bad_code")
+
+	// Компьютер pair1 не получил — код возвращается: телефон может повторить тот же код.
+	code = e.pairCode(pcTok)
+	expect(t, e.post("/v1/phone/pair", "", `{"code":"`+code+`","kind":"pair1","body":{}}`), 504, "pc_offline")
+	expect(t, e.post("/v1/phone/pair", "", `{"code":"`+code+`","kind":"pair1","body":{}}`), 504, "pc_offline")
+}

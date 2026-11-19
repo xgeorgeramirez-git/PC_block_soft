@@ -7,7 +7,7 @@
 
 ## Файлы
 
-- `main.go` — флаги, `http.Server` (ReadHeaderTimeout 10 с, IdleTimeout 120 с, без WriteTimeout),
+- `main.go` — флаги, `http.Server` (`newHTTPServer`: ReadHeaderTimeout 10 с, ReadTimeout 15 с — чтение запроса, не ответа, IdleTimeout 120 с, без WriteTimeout),
   остановка по SIGTERM (базовый контекст отменяется, длинные опросы возвращаются сразу, Shutdown 5 с),
   режим `-health URL` для Docker HEALTHCHECK.
 - `server.go` — `Config`, `New`, `Handler`, обработчики всех путей, ожидание ответа компьютера, чистка.

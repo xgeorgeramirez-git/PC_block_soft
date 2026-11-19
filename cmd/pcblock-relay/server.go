@@ -655,10 +655,12 @@ func (s *Server) hPhonePair(w http.ResponseWriter, r *http.Request) {
 	b.notify()
 	s.mu.Unlock()
 
-	reply, ok := s.awaitReply(r.Context(), pcID, msgID, wt)
+	reply, ok, delivered := s.awaitReply(r.Context(), pcID, msgID, wt)
 	if !ok {
+		// Код возвращается, только если компьютер pair1 не получил: выданный pair1 уже перевёл
+		// его привязку дальше, и код у компьютера погашен (протокол, раздел 4).
 		s.mu.Lock()
-		if b.code == "" && s.now().Before(codeExp) {
+		if !delivered && b.code == "" && s.now().Before(codeExp) {
 			b.code, b.codeExp = code, codeExp
 		}
 		s.mu.Unlock()
@@ -734,7 +736,9 @@ func (s *Server) hPhoneSend(w http.ResponseWriter, r *http.Request) {
 		s.mu.Unlock()
 		return
 	}
-	if !kindRe.MatchString(in.Kind) {
+	// pair1 — только через phone/pair (код и его пределы); иначе привязанный телефон начинал бы
+	// новую привязку в обход кода.
+	if !kindRe.MatchString(in.Kind) || in.Kind == "pair1" {
 		s.mu.Unlock()
 		s.fail(w, http.StatusBadRequest, "bad_request")
 		return
@@ -756,7 +760,7 @@ func (s *Server) hPhoneSend(w http.ResponseWriter, r *http.Request) {
 	b.notify()
 	s.mu.Unlock()
 
-	reply, ok := s.awaitReply(r.Context(), ph.PCID, msgID, wt)
+	reply, ok, _ := s.awaitReply(r.Context(), ph.PCID, msgID, wt)
 	if !ok {
 		s.fail(w, http.StatusGatewayTimeout, "pc_offline")
 		return
@@ -766,26 +770,28 @@ func (s *Server) hPhoneSend(w http.ResponseWriter, r *http.Request) {
 
 // awaitReply ждёт ответа компьютера до ReplyWait. Не дождались — сообщение убирается из очереди
 // (если ещё не выдано), чтобы компьютер не выполнил команду, о которой телефон думает «не отправлена».
-func (s *Server) awaitReply(ctx context.Context, pcID, msgID string, wt *waiter) (Msg, bool) {
+// delivered — сообщение уже выдано опросом компьютеру (из очереди не убрано).
+func (s *Server) awaitReply(ctx context.Context, pcID, msgID string, wt *waiter) (m Msg, ok, delivered bool) {
 	t := time.NewTimer(s.cfg.ReplyWait)
 	defer t.Stop()
 	select {
 	case m := <-wt.ch:
-		return m, true
+		return m, true, true
 	case <-t.C:
 	case <-ctx.Done():
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	delete(s.waiters, msgID)
-	if b := s.boxes[pcID]; b != nil {
-		b.q.remove(msgID)
+	delivered = true
+	if b := s.boxes[pcID]; b != nil && b.q.remove(msgID) {
+		delivered = false
 	}
 	select {
 	case m := <-wt.ch: // ответ успел прийти в последний момент
-		return m, true
+		return m, true, true
 	default:
-		return Msg{}, false
+		return Msg{}, false, delivered
 	}
 }
 
