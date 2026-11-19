@@ -73,7 +73,10 @@ import ru.atlas404.pcblock.proto.NoteMark
 import ru.atlas404.pcblock.proto.Proto
 import ru.atlas404.pcblock.store.SavedNote
 
-/** Шаг 6: на связи ли компьютер, карточки детей, «+15», «−15», «Своё число»; меню «Отключить телефон». */
+/**
+ * Шаг 6: на связи ли компьютер, карточки детей: ±15/±30/±60, «Своё число», «Снять запрет на сегодня»,
+ * «Сообщение», «Статистика за сегодня»; меню «Отключить телефон».
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MainScreen(vm: AppViewModel) {
@@ -86,6 +89,14 @@ fun MainScreen(vm: AppViewModel) {
     var askUnpair by rememberSaveable { mutableStateOf(false) }
     var customFor by remember { mutableStateOf<Proto.Child?>(null) }
     var noteFor by remember { mutableStateOf<Proto.Child?>(null) }
+    var statsFor by rememberSaveable { mutableStateOf<Long?>(null) }
+
+    // «Статистика за сегодня» поверх главного экрана: опрос (выше) продолжается, данные обновляются.
+    val statsId = statsFor
+    if (statsId != null) {
+        StatsScreen(child = vm.report?.children?.firstOrNull { it.id == statsId }, onBack = { statsFor = null })
+        return
+    }
 
     Scaffold(
         topBar = {
@@ -149,6 +160,8 @@ fun MainScreen(vm: AppViewModel) {
                         lastSeenMs = vm.lastSeenMs,
                         onDelta = { d -> vm.command(c.id, d) },
                         onCustom = { customFor = c },
+                        onClearForbidden = { vm.clearForbidden(c.id) },
+                        onStats = { statsFor = c.id },
                         notes = vm.notes.filter { it.child == c.id }.sortedByDescending { it.sentAtMs }.take(3),
                         onNote = {
                             vm.clearNoteError()
@@ -258,6 +271,8 @@ private fun ChildCard(
     lastSeenMs: Long,
     onDelta: (Int) -> Unit,
     onCustom: () -> Unit,
+    onClearForbidden: () -> Unit,
+    onStats: () -> Unit,
     notes: List<SavedNote>,
     onNote: () -> Unit,
 ) {
@@ -294,38 +309,73 @@ private fun ChildCard(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
+            child.activeForbidUntilMs?.let { until ->
+                Text(
+                    stringResource(R.string.forbid_until, clockText(until)),
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
+            if (child.forbidView == Proto.ForbidView.CLEARED) {
+                Text(
+                    stringResource(R.string.forbid_cleared),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
             Spacer(Modifier.size(4.dp))
-            val add = stringResource(R.string.btn_add15_desc, child.name)
-            val sub = stringResource(R.string.btn_sub15_desc, child.name)
+            // Две строки по три: «+15/+30/+60» и «−15/−30/−60» (FR-42), ширина делится поровну.
+            for (sign in listOf(1, -1)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    for (m in Proto.QUICK_ADD) {
+                        val label = stringResource(if (sign > 0) R.string.btn_add else R.string.btn_sub, m)
+                        val desc = stringResource(if (sign > 0) R.string.btn_add_desc else R.string.btn_sub_desc, m, child.name)
+                        val mod = Modifier
+                            .weight(1f)
+                            .heightIn(min = 52.dp)
+                            .semantics { contentDescription = desc }
+                        val content: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit = {
+                            Text(label, maxLines = 1, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                        }
+                        if (sign > 0) {
+                            FilledTonalButton(
+                                onClick = { onDelta(m) },
+                                enabled = !locked,
+                                contentPadding = PaddingValues(horizontal = 4.dp),
+                                modifier = mod,
+                                content = content,
+                            )
+                        } else {
+                            OutlinedButton(
+                                onClick = { onDelta(-m) },
+                                enabled = !locked,
+                                contentPadding = PaddingValues(horizontal = 4.dp),
+                                modifier = mod,
+                                content = content,
+                            )
+                        }
+                    }
+                }
+            }
             val own = stringResource(R.string.btn_custom_desc, child.name)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+            OutlinedButton(
+                onClick = onCustom,
+                enabled = !locked,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 52.dp)
+                    .semantics { contentDescription = own },
+            ) { Text(stringResource(R.string.btn_custom)) }
+            if (child.forbidView == Proto.ForbidView.BUTTON) {
+                val nfDesc = stringResource(R.string.btn_no_forbidden_desc, child.name)
                 FilledTonalButton(
-                    onClick = { onDelta(15) },
+                    onClick = onClearForbidden,
                     enabled = !locked,
-                    contentPadding = PaddingValues(horizontal = 8.dp),
                     modifier = Modifier
-                        .weight(1f)
+                        .fillMaxWidth()
                         .heightIn(min = 52.dp)
-                        .semantics { contentDescription = add },
-                ) { Text(stringResource(R.string.btn_add15), textAlign = androidx.compose.ui.text.style.TextAlign.Center) }
-                OutlinedButton(
-                    onClick = { onDelta(-15) },
-                    enabled = !locked,
-                    contentPadding = PaddingValues(horizontal = 8.dp),
-                    modifier = Modifier
-                        .weight(1f)
-                        .heightIn(min = 52.dp)
-                        .semantics { contentDescription = sub },
-                ) { Text(stringResource(R.string.btn_sub15), textAlign = androidx.compose.ui.text.style.TextAlign.Center) }
-                OutlinedButton(
-                    onClick = onCustom,
-                    enabled = !locked,
-                    contentPadding = PaddingValues(horizontal = 8.dp),
-                    modifier = Modifier
-                        .weight(1.2f)
-                        .heightIn(min = 52.dp)
-                        .semantics { contentDescription = own },
-                ) { Text(stringResource(R.string.btn_custom), textAlign = androidx.compose.ui.text.style.TextAlign.Center) }
+                        .semantics { contentDescription = nfDesc },
+                ) { Text(stringResource(R.string.btn_no_forbidden), textAlign = androidx.compose.ui.text.style.TextAlign.Center) }
             }
             val noteDesc = stringResource(R.string.btn_note_desc, child.name)
             OutlinedButton(
@@ -336,6 +386,17 @@ private fun ChildCard(
                     .heightIn(min = 52.dp)
                     .semantics { contentDescription = noteDesc },
             ) { Text(stringResource(R.string.btn_note)) }
+            if (child.today != null) {
+                // Статистика только читается: доступна и пока идёт команда.
+                val statsDesc = stringResource(R.string.btn_stats_desc, child.name)
+                OutlinedButton(
+                    onClick = onStats,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 52.dp)
+                        .semantics { contentDescription = statsDesc },
+                ) { Text(stringResource(R.string.btn_stats)) }
+            }
             if (notes.isNotEmpty()) NoteList(notes)
             // Постоянная область итога команды: TalkBack зачитывает её сам.
             Row(

@@ -34,7 +34,56 @@ object Proto {
     /** Привязанный компьютер: чьи подписи и для какого телефона принимаем. */
     data class Peer(val pcId: String, val phoneId: String, val pcPub: PublicKey)
 
-    /** Строка ребёнка из отчёта. leftSec < 0 — лимита нет. */
+    /** Быстрые кнопки карточки ребёнка (FR-42): «+N» и «−N» минут. */
+    val QUICK_ADD = listOf(15, 30, 60)
+
+    const val OP_NO_FORBIDDEN = "noForbidden"
+
+    /** Запретные часы ребёнка сегодня (раздел 6, поле forbid). */
+    enum class Forbid(val wire: String) {
+        NONE("none"),
+        AHEAD("ahead"),
+        ACTIVE("active"),
+        CLEARED("cleared"),
+        ;
+
+        companion object {
+            fun of(s: String): Forbid? = values().firstOrNull { it.wire == s }
+        }
+    }
+
+    /** Что показать на карточке про запрет: ничего, кнопку «Снять запрет на сегодня» или «Запрет на сегодня снят». */
+    enum class ForbidView { HIDDEN, BUTTON, CLEARED }
+
+    /** Строка «Итогов» за сегодня: программа или сайт, вкладка cat (game/study/video/other), секунды. */
+    data class Item(val name: String, val cat: String, val sec: Long)
+
+    /**
+     * «Статистика за сегодня» (раздел 6, поле today; FR-43). asOfMs — время отчёта, в котором она
+     * пришла («данные на HH:MM»): отчёт из ответа на команду today не несёт, телефон держит прежний.
+     */
+    data class Today(
+        val firstMs: Long,
+        val nowAt: Boolean,
+        val sinceMs: Long,
+        val usedSec: Long,
+        val leftSec: Long,
+        val gamesSec: Long,
+        val studySec: Long,
+        val videoSec: Long,
+        val programs: List<Item>,
+        val sites: List<Item>,
+        val morePrograms: Int,
+        val moreSites: Int,
+        val violations: Int,
+        val bypass: Int,
+        val asOfMs: Long,
+    )
+
+    /**
+     * Строка ребёнка из отчёта. leftSec < 0 — лимита нет. forbid = null — компьютер старой версии
+     * (кнопки снятия запрета нет); today = null — статистики за сегодня нет (кнопки нет).
+     */
     data class Child(
         val id: Long,
         val name: String,
@@ -42,7 +91,21 @@ object Proto {
         val leftSec: Long,
         val extraMin: Int,
         val blocked: Boolean,
-    )
+        val forbid: Forbid? = null,
+        val forbidUntilMs: Long = 0,
+        val today: Today? = null,
+    ) {
+        val forbidView: ForbidView
+            get() = when (forbid) {
+                Forbid.AHEAD, Forbid.ACTIVE -> ForbidView.BUTTON
+                Forbid.CLEARED -> ForbidView.CLEARED
+                Forbid.NONE, null -> ForbidView.HIDDEN
+            }
+
+        /** Конец идущих запретных часов («Запретные часы до HH:MM»), null — не идут или конец неизвестен. */
+        val activeForbidUntilMs: Long?
+            get() = if (forbid == Forbid.ACTIVE && forbidUntilMs > 0) forbidUntilMs else null
+    }
 
     /** Состояние сообщения из отчёта (раздел 5а). */
     enum class NoteState(val wire: String) {
@@ -86,6 +149,16 @@ object Proto {
         return json.toByteArray(Charsets.UTF_8)
     }
 
+    /**
+     * Байты data команды «Снять запрет на сегодня» (раздел 5б): поля как у команды доп. времени,
+     * вместо delta — op. Порядок фиксирован, чтобы совпадать с вектором Go байт в байт.
+     */
+    fun noForbiddenData(pc: String, phone: String, seq: Long, ts: Long, child: Long): ByteArray {
+        val json = "{\"v\":$VERSION,\"t\":\"cmd\",\"pc\":${JSONObject.quote(pc)},\"phone\":${JSONObject.quote(phone)}," +
+            "\"seq\":$seq,\"ts\":$ts,\"child\":$child,\"op\":\"$OP_NO_FORBIDDEN\"}"
+        return json.toByteArray(Charsets.UTF_8)
+    }
+
     fun signedToJson(s: Signed): JSONObject = JSONObject().put("data", s.data).put("sig", s.sig)
 
     fun signedFromJson(v: Any?): Signed {
@@ -123,9 +196,57 @@ object Proto {
                 leftSec = c.optLong("leftSec", 0),
                 extraMin = c.optInt("extraMin", 0),
                 blocked = c.optBoolean("blocked", false),
+                forbid = Forbid.of(c.optString("forbid", "")),
+                forbidUntilMs = c.optLong("forbidUntilMs", 0),
+                today = parseToday(c.optJSONObject("today"), ts),
             )
         }
         Report(ts, children, parseNotes(o.optJSONArray("notes")))
+    }
+
+    /** Поле today: кривые строки списков пропускаются; не объект — статистики нет (сам отчёт принят). */
+    private fun parseToday(t: JSONObject?, ts: Long): Today? {
+        if (t == null) return null
+        val more = t.optJSONObject("more")
+        return Today(
+            firstMs = t.optLong("firstMs", 0),
+            nowAt = t.optBoolean("nowAt", false),
+            sinceMs = t.optLong("sinceMs", 0),
+            usedSec = t.optLong("usedSec", 0),
+            leftSec = t.optLong("leftSec", 0),
+            gamesSec = t.optLong("gamesSec", 0),
+            studySec = t.optLong("studySec", 0),
+            videoSec = t.optLong("videoSec", 0),
+            programs = parseItems(t.optJSONArray("programs")),
+            sites = parseItems(t.optJSONArray("sites")),
+            morePrograms = more?.optInt("programs", 0) ?: 0,
+            moreSites = more?.optInt("sites", 0) ?: 0,
+            violations = t.optInt("violations", 0),
+            bypass = t.optInt("bypass", 0),
+            asOfMs = ts,
+        )
+    }
+
+    private fun parseItems(arr: JSONArray?): List<Item> {
+        if (arr == null) return emptyList()
+        val out = ArrayList<Item>()
+        for (i in 0 until arr.length()) {
+            val it = arr.optJSONObject(i) ?: continue
+            val name = it.optString("name", "")
+            if (name.isEmpty()) continue
+            out.add(Item(name, it.optString("cat", "other"), maxOf(0L, it.optLong("sec", 0))))
+        }
+        return out
+    }
+
+    /**
+     * Отчёт из ответа на команду (cmdr) today не несёт (раздел 6): у детей без today берётся
+     * статистика из прежнего отчёта (со своим временем «данные на»). Остальное — из свежего.
+     */
+    fun keepToday(fresh: Report, prev: Report?): Report {
+        if (prev == null) return fresh
+        val old = prev.children.associate { it.id to it.today }
+        return fresh.copy(children = fresh.children.map { c -> if (c.today != null) c else c.copy(today = old[c.id]) })
     }
 
     /** Строки notes: непонятное состояние или кривая строка пропускаются, остальное показывается. */

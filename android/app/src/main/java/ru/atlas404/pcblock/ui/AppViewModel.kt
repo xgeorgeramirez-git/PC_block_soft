@@ -283,17 +283,27 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Команда доп. времени: +N или −N минут ребёнку (протокол, раздел 5). */
     fun command(childId: Long, delta: Int) {
-        if (busyChild != null || noteBusy || peer == null) return
         if (delta == 0 || delta !in -Proto.MAX_DELTA..Proto.MAX_DELTA) {
-            note = CmdNote(childId, false, "", Problem.RANGE)
+            if (busyChild == null && !noteBusy && peer != null) note = CmdNote(childId, false, "", Problem.RANGE)
             return
         }
+        runCommand(childId) { pr, seq, ts -> Proto.commandData(pr.pcId, pr.phoneId, seq, ts, childId, delta) }
+    }
+
+    /** «Снять запрет на сегодня» (протокол, раздел 5б): та же нумерация seq, подпись и проверка ответа. */
+    fun clearForbidden(childId: Long) {
+        runCommand(childId) { pr, seq, ts -> Proto.noForbiddenData(pr.pcId, pr.phoneId, seq, ts, childId) }
+    }
+
+    private fun runCommand(childId: Long, build: (Proto.Peer, Long, Long) -> ByteArray) {
+        if (busyChild != null || noteBusy || peer == null) return
         busyChild = childId
         note = null
         viewModelScope.launch {
-            val out = withContext(Dispatchers.IO) { sendCommand(childId, delta) }
+            val out = withContext(Dispatchers.IO) { sendCommand(childId, build) }
             busyChild = null
-            out.report?.let { report = it }
+            // В отчёте из ответа today нет: статистика остаётся из последнего отдельного отчёта.
+            out.report?.let { report = Proto.keepToday(it, report) }
             if (out.repair) needRepair = true
             note = out.note
             refresh()
@@ -303,13 +313,13 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     private class CmdOutcome(val note: CmdNote, val report: Proto.Report? = null, val repair: Boolean = false)
 
     /** Отправка в фоновом потоке; состояние экрана меняет вызывающий в главном. */
-    private fun sendCommand(childId: Long, delta: Int): CmdOutcome {
+    private fun sendCommand(childId: Long, build: (Proto.Peer, Long, Long) -> ByteArray): CmdOutcome {
         fun fail(p: Problem, repair: Boolean = false) = CmdOutcome(CmdNote(childId, false, "", p), repair = repair)
         val pr = peer ?: return fail(Problem.NOT_PAIRED)
         val key = PhoneKey.load() ?: return fail(Problem.NOT_PAIRED, repair = true)
         return try {
             val seq = prefs.nextSeq()
-            val data = Proto.commandData(pr.pcId, pr.phoneId, seq, System.currentTimeMillis(), childId, delta)
+            val data = build(pr, seq, System.currentTimeMillis())
             val signed = Crypto.seal(key, data)
             val m = RelayClient(prefs.url).send(prefs.phoneToken, Proto.KIND_CMD, Proto.signedToJson(signed))
             if (m.kind != Proto.KIND_CMDR) throw ProtoException("ожидался cmdr")
