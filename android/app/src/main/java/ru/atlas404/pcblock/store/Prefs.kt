@@ -11,6 +11,16 @@ import android.content.SharedPreferences
 class Prefs(context: Context) {
     private val sp: SharedPreferences = context.getSharedPreferences("pcblock", Context.MODE_PRIVATE)
 
+    /** Отправленные сообщения и выбор показа (раздел 5а протокола). */
+    val notes = NoteBook(object : Kv {
+        override fun getString(key: String): String? = sp.getString(key, null)
+        override fun putString(key: String, value: String?) {
+            sp.edit().apply { if (value == null) remove(key) else putString(key, value) }.apply()
+        }
+        override fun getInt(key: String, def: Int): Int = sp.getInt(key, def)
+        override fun putInt(key: String, value: Int) = sp.edit().putInt(key, value).apply()
+    })
+
     companion object {
         const val DEFAULT_URL = "https://pcblock.atlas404.ru"
         private const val URL = "url"
@@ -50,6 +60,7 @@ class Prefs(context: Context) {
             .putLong(SEQ, 0)
             .putLong(LAST_REPORT_TS, 0)
             .remove(LAST_REPORT)
+            .remove(NoteBook.NOTES)
             .commit()
     }
 
@@ -79,6 +90,7 @@ class Prefs(context: Context) {
         sp.edit()
             .remove(PC_ID).remove(PHONE_ID).remove(PHONE_TOKEN).remove(PC_PUB)
             .remove(SEQ).remove(LAST_REPORT_TS).remove(LAST_REPORT)
+            .remove(NoteBook.NOTES)
             .commit()
     }
 }

@@ -24,6 +24,7 @@ import ru.atlas404.pcblock.proto.Problem
 import ru.atlas404.pcblock.proto.Proto
 import ru.atlas404.pcblock.proto.ProtoException
 import ru.atlas404.pcblock.store.Prefs
+import ru.atlas404.pcblock.store.SavedNote
 import java.security.SecureRandom
 
 enum class Screen { CONNECT, COMPARE, MAIN }
@@ -35,6 +36,10 @@ data class CmdNote(val childId: Long, val ok: Boolean, val message: String, val 
 class AppViewModel(app: Application) : AndroidViewModel(app) {
     companion object {
         const val POLL_MS = 15_000L
+
+        /** После отправки сообщения отметки обновляются чаще: раз в 3 с в течение минуты. */
+        const val FAST_POLL_MS = 3_000L
+        const val FAST_WINDOW_MS = 60_000L
         const val COMPARE_TTL_MS = 10 * 60_000L
     }
 
@@ -82,6 +87,20 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         private set
     var note by mutableStateOf<CmdNote?>(null)
         private set
+
+    // ---------- сообщения (FR-41) ----------
+    /** Последние сообщения по детям (до 3 на ребёнка), отметки из отчёта. */
+    var notes by mutableStateOf<List<SavedNote>>(prefs.notes.all())
+        private set
+    var noteBusy by mutableStateOf(false)
+        private set
+    var noteError by mutableStateOf<Problem?>(null)
+        private set
+
+    /** Выбор «сколько показывать», запоминается на телефоне. */
+    var noteShowSec by mutableStateOf(prefs.notes.showSec)
+        private set
+    private var fastUntilMs = 0L
 
     /** Когда компьютер последний раз был на связи (для «не на связи с HH:MM» в отказе команды). */
     var lastSeenMs by mutableStateOf(0L)
@@ -188,6 +207,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         peer = loadPeer()
         report = null
         note = null
+        notes = emptyList()
+        noteError = null
         mainError = null
         needRepair = false
         screen = Screen.MAIN
@@ -211,7 +232,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         pollJob = viewModelScope.launch {
             while (isActive) {
                 refresh()
-                delay(POLL_MS)
+                delay(if (System.currentTimeMillis() < fastUntilMs) FAST_POLL_MS else POLL_MS)
             }
         }
     }
@@ -242,6 +263,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                         val rep = Proto.openReport(pr, s, prefs.lastReportTs)
                         report = rep
                         prefs.saveReport(rep.ts, Proto.signedToJson(s).toString())
+                        applyNoteStates(rep)
                     } catch (e: ProtoException) {
                         // Отчёт без подписи компьютера, чужой или старее показанного не показываем.
                     }
@@ -259,7 +281,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Команда доп. времени: +N или −N минут ребёнку (протокол, раздел 5). */
     fun command(childId: Long, delta: Int) {
-        if (busyChild != null || peer == null) return
+        if (busyChild != null || noteBusy || peer == null) return
         if (delta == 0 || delta !in -Proto.MAX_DELTA..Proto.MAX_DELTA) {
             note = CmdNote(childId, false, "", Problem.RANGE)
             return
@@ -306,6 +328,86 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    // ---------- сообщение ребёнку (протокол, раздел 5а) ----------
+
+    fun chooseShowSec(sec: Int) {
+        prefs.notes.showSec = sec
+        noteShowSec = prefs.notes.showSec
+    }
+
+    /** Открыт новый диалог сообщения: прежняя ошибка не показывается. */
+    fun clearNoteError() {
+        if (!noteBusy) noteError = null
+    }
+
+    /** Отправить сообщение; onSent вызывается, когда компьютер его принял (диалог закрывается). */
+    fun sendNote(childId: Long, raw: String, onSent: () -> Unit) {
+        if (noteBusy || busyChild != null || peer == null) return
+        val text = Proto.cleanNote(raw)
+        if (!Proto.noteOk(text)) {
+            noteError = Problem.NOTE_RANGE
+            return
+        }
+        val showSec = noteShowSec
+        noteBusy = true
+        noteError = null
+        viewModelScope.launch {
+            val out = withContext(Dispatchers.IO) { sendNoteNow(childId, text, showSec) }
+            noteBusy = false
+            if (out.repair) needRepair = true
+            if (out.saved != null) {
+                notes = prefs.notes.all()
+                fastUntilMs = System.currentTimeMillis() + FAST_WINDOW_MS
+                onSent()
+                if (pollJob?.isActive == true) {
+                    stopPolling()
+                    startPolling() // сразу опрос, дальше раз в 3 с
+                } else {
+                    refresh()
+                }
+            } else {
+                noteError = out.problem
+            }
+        }
+    }
+
+    private class NoteOutcome(val saved: SavedNote? = null, val problem: Problem? = null, val repair: Boolean = false)
+
+    private fun sendNoteNow(childId: Long, text: String, showSec: Int): NoteOutcome {
+        fun fail(p: Problem, repair: Boolean = false) = NoteOutcome(problem = p, repair = repair)
+        val pr = peer ?: return fail(Problem.NOT_PAIRED)
+        val key = PhoneKey.load() ?: return fail(Problem.NOT_PAIRED, repair = true)
+        return try {
+            val seq = prefs.nextSeq() // записан до отправки: общий счёт с командами
+            val id = Proto.newNoteId(rnd)
+            val now = System.currentTimeMillis()
+            val data = Proto.noteData(pr.pcId, pr.phoneId, seq, now, childId, id, text, showSec)
+            val signed = Crypto.seal(key, data)
+            val m = RelayClient(prefs.url).send(prefs.phoneToken, Proto.KIND_NOTE, Proto.signedToJson(signed))
+            if (m.kind != Proto.KIND_NOTER) throw ProtoException("ожидался noter")
+            val reply = Proto.openNoteReply(pr, Proto.signedFromJson(m.body), data)
+            if (reply.ok) {
+                val n = SavedNote(id, childId, text, showSec, now)
+                prefs.notes.add(n)
+                NoteOutcome(saved = n)
+            } else {
+                reply.lastSeq?.let { prefs.raiseSeq(it) }
+                fail(Problem.fromNote(reply.error))
+            }
+        } catch (e: RelayException) {
+            fail(Problem.fromRelayNote(e.code), repair = e.code == RelayClient.UNAUTHORIZED)
+        } catch (e: ProtoException) {
+            fail(Problem.BAD_REPLY)
+        } catch (e: Exception) {
+            fail(Problem.KEY)
+        }
+    }
+
+    /** Отметки сообщений только из проверенного отчёта. */
+    private fun applyNoteStates(rep: Proto.Report) {
+        if (prefs.notes.apply(rep.notes)) notes = prefs.notes.all()
+    }
+
     /**
      * «Отключить телефон»: забыть ключ и привязку только на телефоне. Компьютер отвязывает родитель
      * («Отвязать» в блоке «Телефон»): об этом говорит текст подтверждения (unpair_text).
@@ -327,6 +429,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         mainError = null
         needRepair = false
         busyChild = null
+        notes = emptyList()
+        noteBusy = false
+        noteError = null
+        fastUntilMs = 0
         url = prefs.url
     }
 

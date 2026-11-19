@@ -21,6 +21,15 @@ object Proto {
     const val KIND_PAIR2R = "pair2r"
     const val KIND_CMD = "cmd"
     const val KIND_CMDR = "cmdr"
+    const val KIND_NOTE = "note"
+    const val KIND_NOTER = "noter"
+
+    /** Сообщение с телефона (раздел 5а): до 300 знаков, не больше 5 переводов строк. */
+    const val MAX_NOTE = 300
+    const val MAX_NOTE_LINES = 5
+
+    /** Сколько показывать: 0 — пока не нажмёт «Понял», иначе секунды. */
+    val SHOW_SEC = listOf(0, 10, 30, 60)
 
     /** Привязанный компьютер: чьи подписи и для какого телефона принимаем. */
     data class Peer(val pcId: String, val phoneId: String, val pcPub: PublicKey)
@@ -35,7 +44,25 @@ object Proto {
         val blocked: Boolean,
     )
 
-    data class Report(val ts: Long, val children: List<Child>)
+    /** Состояние сообщения из отчёта (раздел 5а). */
+    enum class NoteState(val wire: String) {
+        QUEUED("queued"),
+        SHOWN("shown"),
+        READ("read"),
+        EXPIRED("expired"),
+        ;
+
+        companion object {
+            fun of(s: String): NoteState? = values().firstOrNull { it.wire == s }
+        }
+    }
+
+    data class NoteStatus(val id: String, val child: Long, val state: NoteState, val atMs: Long)
+
+    data class Report(val ts: Long, val children: List<Child>, val notes: List<NoteStatus> = emptyList())
+
+    /** Проверенный ответ на сообщение: ok — компьютер принял (ещё не показал). */
+    data class NoteReply(val ok: Boolean, val error: String, val lastSeq: Long?)
 
     /** Проверенный ответ на команду. */
     data class CmdReply(
@@ -98,7 +125,23 @@ object Proto {
                 blocked = c.optBoolean("blocked", false),
             )
         }
-        Report(ts, children)
+        Report(ts, children, parseNotes(o.optJSONArray("notes")))
+    }
+
+    /** Строки notes: непонятное состояние или кривая строка пропускаются, остальное показывается. */
+    private fun parseNotes(arr: JSONArray?): List<NoteStatus> {
+        if (arr == null) return emptyList()
+        val out = ArrayList<NoteStatus>()
+        for (i in 0 until arr.length()) {
+            val n = arr.optJSONObject(i) ?: continue
+            val id = n.optString("id", "")
+            val state = NoteState.of(n.optString("state", "")) ?: continue
+            if (id.isEmpty() || !n.has("child")) continue
+            val child = n.optLong("child", Long.MIN_VALUE)
+            if (child == Long.MIN_VALUE) continue
+            out.add(NoteStatus(id, child, state, n.optLong("atMs", 0)))
+        }
+        return out
     }
 
     // ---------- ответ на команду (раздел 5) ----------
@@ -127,6 +170,95 @@ object Proto {
                 error = if (ok) "" else o.optString("error", ""),
                 lastSeq = if (o.has("lastSeq") && !o.isNull("lastSeq")) o.getLong("lastSeq") else null,
                 report = report,
+            )
+        }
+    }
+
+    // ---------- сообщение (раздел 5а) ----------
+
+    /** Текст, который уйдёт на компьютер: переводы строк \n, управляющие знаки убраны, края обрезаны. */
+    fun cleanNote(raw: String): String {
+        val sb = StringBuilder(raw.length)
+        val s = raw.replace("\r\n", "\n").replace('\r', '\n')
+        for (ch in s) {
+            when {
+                ch == '\n' -> sb.append(ch)
+                ch == '\t' -> sb.append(' ')
+                ch.isISOControl() -> {}
+                else -> sb.append(ch)
+            }
+        }
+        return sb.toString().trim()
+    }
+
+    /** Длина в знаках Unicode (как считает компьютер) после обрезки: для счётчика «12/300». */
+    fun noteLength(raw: String): Int = cleanNote(raw).let { it.codePointCount(0, it.length) }
+
+    /** Текст годится: 1…300 знаков после обрезки и не больше 5 переводов строк. */
+    fun noteOk(raw: String): Boolean {
+        val t = cleanNote(raw)
+        val n = t.codePointCount(0, t.length)
+        return n in 1..MAX_NOTE && t.count { it == '\n' } <= MAX_NOTE_LINES
+    }
+
+    /** Выбор показа из настроек: незнакомое значение — «Пока не нажмёт «Понял»». */
+    fun normalShowSec(v: Int): Int = if (v in SHOW_SEC) v else 0
+
+    /** Случайный id сообщения: 16 байт base64url. */
+    fun newNoteId(rnd: java.util.Random): String = B64.enc(ByteArray(NONCE_LEN).also { rnd.nextBytes(it) })
+
+    /**
+     * Байты data сообщения. Строки кодируются как json.Marshal в Go (экранирование <, >, &,
+     * U+2028/2029), порядок полей фиксирован: так байты совпадают с вектором Go.
+     */
+    fun noteData(pc: String, phone: String, seq: Long, ts: Long, child: Long, id: String, text: String, showSec: Int): ByteArray {
+        require(noteOk(text) && cleanNote(text) == text) { "текст вне 1…300 знаков" }
+        require(showSec in SHOW_SEC) { "showSec не из 0, 10, 30, 60" }
+        val json = "{\"v\":$VERSION,\"t\":\"note\",\"pc\":${goQuote(pc)},\"phone\":${goQuote(phone)}," +
+            "\"seq\":$seq,\"ts\":$ts,\"child\":$child,\"id\":${goQuote(id)},\"text\":${goQuote(text)},\"showSec\":$showSec}"
+        return json.toByteArray(Charsets.UTF_8)
+    }
+
+    /** Строка JSON так, как её пишет encoding/json Go. */
+    fun goQuote(s: String): String {
+        val sb = StringBuilder(s.length + 2).append('"')
+        var i = 0
+        while (i < s.length) {
+            val c = s[i]
+            when {
+                c == '"' -> sb.append("\\\"")
+                c == '\\' -> sb.append("\\\\")
+                c == '\n' -> sb.append("\\n")
+                c == '\r' -> sb.append("\\r")
+                c == '\t' -> sb.append("\\t")
+                c == '\b' -> sb.append("\\b")
+                c == '\u000c' -> sb.append("\\f")
+                c < ' ' || c == '<' || c == '>' || c == '&' || c == '\u2028' || c == '\u2029' ->
+                    sb.append(String.format(java.util.Locale.ROOT, "\\u%04x", c.code))
+                c.isHighSurrogate() && i + 1 < s.length && s[i + 1].isLowSurrogate() -> {
+                    sb.append(c).append(s[i + 1])
+                    i++
+                }
+                c.isSurrogate() -> sb.append("\\ufffd") // одиночная половинка: Go пишет U+FFFD
+                else -> sb.append(c)
+            }
+            i++
+        }
+        return sb.append('"').toString()
+    }
+
+    /** Ответ noter: подпись компьютера → t, v → pc, phone → cmd = хэш именно нашего сообщения. */
+    fun openNoteReply(peer: Peer, s: Signed, noteData: ByteArray): NoteReply {
+        val data = Crypto.open(peer.pcPub, s)
+        val o = parseObject(data)
+        return guard {
+            expectHeader(o, KIND_NOTER, peer)
+            if (o.optString("cmd", "") != Crypto.hashData(noteData)) throw ProtoException("ответ не на это сообщение")
+            val ok = o.optBoolean("ok", false)
+            NoteReply(
+                ok = ok,
+                error = if (ok) "" else o.optString("error", ""),
+                lastSeq = if (o.has("lastSeq") && !o.isNull("lastSeq")) o.getLong("lastSeq") else null,
             )
         }
     }

@@ -22,6 +22,8 @@ enum class Problem(val resName: String) {
     BAD_REPLY("err_bad_reply"),
     SERVER("err_server"),
     KEY("err_key"),
+    NOTE_RANGE("err_note_range"),
+    NOTE_PC_OFFLINE("err_note_pc_offline"),
     ;
 
     companion object {
@@ -46,5 +48,11 @@ enum class Problem(val resName: String) {
             "range" -> RANGE
             else -> BAD_REPLY
         }
+
+        /** Отказ компьютера в ответе noter (раздел 5а): range — про длину текста. */
+        fun fromNote(code: String): Problem = if (code == "range") NOTE_RANGE else fromCmd(code)
+
+        /** Сбой связи при отправке сообщения: «не на связи» говорит, что не отправлено именно сообщение. */
+        fun fromRelayNote(code: String): Problem = fromRelay(code).let { if (it == PC_OFFLINE) NOTE_PC_OFFLINE else it }
     }
 }
