@@ -55,6 +55,7 @@ const (
 	pairTTL        = 10 * time.Minute
 	panicPause     = 5 * time.Second
 	logEvery       = time.Minute
+	netLogRepeat   = time.Hour // та же ошибка связи — в журнал работы не чаще (PL-53)
 )
 
 // Host — порт службы. Каждый метод сам берёт блокировку службы (s.mu); Link вызывает их без
@@ -121,6 +122,16 @@ type Link struct {
 	randMu sync.Mutex
 	logMu  sync.Mutex
 	logAt  map[string]time.Time
+	net    netLog            // под logMu: связь с сервером для журнала работы (общая для поколений)
+	quiet  map[string]netLog // под logMu: прочие повторяющиеся ошибки по ключу (logChange)
+}
+
+// netLog — что последним записано в журнал работы о связи: строка пишется при смене состояния
+// (на связи ↔ нет связи, новый код ошибки), та же ошибка — не чаще netLogRepeat (PL-53).
+type netLog struct {
+	down bool
+	code string
+	at   time.Time
 }
 
 type actionKind int
@@ -199,6 +210,7 @@ func NewLink(cfg Config) *Link {
 		hc:    &http.Client{Transport: tr, CheckRedirect: noRedirect},
 		pair:  PairInfo{Stage: StageIdle},
 		logAt: map[string]time.Time{},
+		quiet: map[string]netLog{},
 	}
 }
 
@@ -389,6 +401,62 @@ func (l *Link) logRate(key, format string, args ...any) {
 	l.cfg.Host.Logf(format, args...)
 }
 
+// netFail — запрос к серверу не удался (опрос, регистрация): строка «нет связи» при потере связи
+// или новом коде ошибки, повтор той же — не чаще раза в час.
+func (l *Link) netFail(what string, err error) {
+	code := errCode(err)
+	now := l.cfg.Now()
+	l.logMu.Lock()
+	n := l.net
+	var line string
+	switch {
+	case !n.down || n.code != code:
+		line = "связь с телефоном: нет связи с сервером (%s, %s): %v"
+	case now.Sub(n.at) >= netLogRepeat || now.Before(n.at):
+		line = "связь с телефоном: всё ещё нет связи с сервером (%s, %s): %v"
+	}
+	if line != "" {
+		l.net = netLog{down: true, code: code, at: now}
+	}
+	l.logMu.Unlock()
+	if line != "" {
+		l.cfg.Host.Logf(line, what, code, err)
+	}
+}
+
+// netOK — запрос к серверу удался: после потери связи — строка «связь восстановлена».
+func (l *Link) netOK() {
+	l.logMu.Lock()
+	was := l.net.down
+	l.net = netLog{at: l.cfg.Now()}
+	l.logMu.Unlock()
+	if was {
+		l.cfg.Host.Logf("связь с телефоном: связь с сервером восстановлена")
+	}
+}
+
+// logChange — повторяющаяся ошибка запроса (отчёт): пока связи нет, молчит (о потере уже написал
+// опрос); иначе строка при новом коде ошибки, та же — не чаще раза в час; err == nil — удался.
+func (l *Link) logChange(key string, err error, format string, args ...any) {
+	now := l.cfg.Now()
+	l.logMu.Lock()
+	if err == nil {
+		delete(l.quiet, key)
+		l.logMu.Unlock()
+		return
+	}
+	code := errCode(err)
+	q, seen := l.quiet[key]
+	write := !l.net.down && (!seen || q.code != code || now.Sub(q.at) >= netLogRepeat || now.Before(q.at))
+	if write {
+		l.quiet[key] = netLog{down: true, code: code, at: now}
+	}
+	l.logMu.Unlock()
+	if write {
+		l.cfg.Host.Logf(format, args...)
+	}
+}
+
 func (l *Link) randBytes(n int) ([]byte, error) {
 	b := make([]byte, n)
 	l.randMu.Lock()
@@ -486,7 +554,7 @@ func (l *Link) poll(r *run) {
 		if err != nil {
 			code := errCode(err)
 			l.update(r, func() { l.status.Online, l.status.LastErr = false, code })
-			l.logRate("poll-"+code, "связь с телефоном: опрос сервера не удался: %v", err)
+			l.netFail("опрос", err)
 			d := l.backoff(fails)
 			fails++
 			if !l.cfg.Sleep(r.ctx, d) {
@@ -495,6 +563,7 @@ func (l *Link) poll(r *run) {
 			continue
 		}
 		fails = 0
+		l.netOK()
 		now := l.cfg.Now().UnixMilli()
 		l.update(r, func() { l.status.Online, l.status.LastErr, l.status.LastOKMs = true, "", now })
 		if len(msgs) > 0 {
@@ -650,7 +719,7 @@ func (w *worker) ensureRegistered() bool {
 				if err != nil {
 					code := errCode(err)
 					w.setStatusErr(code)
-					w.l.logRate("register-"+code, "связь с телефоном: регистрация на сервере не удалась: %v", err)
+					w.l.netFail("регистрация", err)
 					if !retry() {
 						return false
 					}
@@ -997,7 +1066,6 @@ func (w *worker) sendReport() {
 	if err != nil {
 		return
 	}
-	if err := w.call(func(ctx context.Context, c *Client) error { return c.SendReport(ctx, s) }); err != nil {
-		w.l.logRate("report", "связь с телефоном: отчёт не отправлен: %v", err)
-	}
+	err = w.call(func(ctx context.Context, c *Client) error { return c.SendReport(ctx, s) })
+	w.l.logChange("report", err, "связь с телефоном: отчёт не отправлен: %v", err)
 }

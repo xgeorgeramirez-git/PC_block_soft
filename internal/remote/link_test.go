@@ -1024,3 +1024,72 @@ func TestPanicDuringPairingShowsAborted(t *testing.T) {
 		t.Fatalf("%+v", pi)
 	}
 }
+
+// ---------- журнал работы при обрыве (R1, PL-53) ----------
+
+func (h *fakeHost) logsWith(sub string) int {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	n := 0
+	for _, s := range h.logs {
+		if strings.Contains(s, sub) {
+			n++
+		}
+	}
+	return n
+}
+
+// Полтора часа обрыва: одна строка о потере (и не больше одной часовой), возврат — «восстановлена».
+func TestLinkOutageLogsByChange(t *testing.T) {
+	var failing atomic.Bool
+	failing.Store(true)
+	g := newRig(t, nil)
+	start := g.clock.Ms()
+	g.sl.hook = func(d time.Duration) {
+		g.clock.Add(d)
+		if g.clock.Ms()-start >= (90 * time.Minute).Milliseconds() {
+			failing.Store(false)
+		}
+	}
+	g.r.pollHook = func(int) (int, []byte, bool) {
+		if failing.Load() {
+			return 503, []byte(`{"error":"busy"}`), true
+		}
+		return 0, nil, false
+	}
+	g.l.Start()
+	waitFor(t, "конец обрыва", func() bool { return !failing.Load() && g.l.Status().Online })
+	if n := len(g.sl.list()); n < 150 {
+		t.Fatalf("опросов в обрыве %d, ожидали ~180", n)
+	}
+	lost, again, back := g.h.logsWith(": нет связи с сервером"), g.h.logsWith("всё ещё нет связи"), g.h.logsWith("связь с сервером восстановлена")
+	if lost != 1 || again > 1 || back != 1 {
+		g.h.mu.Lock()
+		t.Fatalf("потеря %d, повтор %d, возврат %d; журнал:\n%s", lost, again, back, strings.Join(g.h.logs, "\n"))
+	}
+	g.h.mu.Lock()
+	total := len(g.h.logs)
+	g.h.mu.Unlock()
+	if total > 3 {
+		t.Fatalf("строк в журнале работы %d", total)
+	}
+}
+
+// Новый код ошибки — новая строка; та же — молчит.
+func TestLinkOutageNewCodeLogged(t *testing.T) {
+	g := newRig(t, nil)
+	g.r.pollHook = func(n int) (int, []byte, bool) {
+		switch {
+		case n <= 3:
+			return 503, []byte(`{"error":"busy"}`), true
+		case n <= 6:
+			return 200, []byte(`{"messages":"x"}`), true
+		}
+		return 0, nil, false
+	}
+	g.start()
+	if lost, back := g.h.logsWith(": нет связи с сервером"), g.h.logsWith("восстановлена"); lost != 2 || back != 1 {
+		g.h.mu.Lock()
+		t.Fatalf("потеря %d, возврат %d:\n%s", lost, back, strings.Join(g.h.logs, "\n"))
+	}
+}

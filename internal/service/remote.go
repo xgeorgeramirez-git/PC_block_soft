@@ -332,12 +332,13 @@ func (h remoteHost) Event(kind, detail string) {
 	s.journal.Write(0, evRemote, map[string]any{"action": kind, "phone": detail})
 }
 
-// Logf — журнал работы службы с ограничителем (связь сама ограничивает свои повторы по ключу).
+// Logf — журнал работы службы без второго ограничителя: повторы связь ограничивает сама (строка о
+// связи — при смене состояния, та же ошибка — не чаще раза в час, PL-53).
 func (h remoteHost) Logf(format string, args ...any) {
 	s := h.s
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.logRate("remote|"+format, format, args...)
+	s.cfg.Logf(format, args...)
 }
 
 // --- команды окна ---------------------------------------------------------------------------

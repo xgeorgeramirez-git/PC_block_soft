@@ -606,3 +606,16 @@ func TestRemotePairView(t *testing.T) {
 		}
 	}
 }
+
+// Ловит: служба второй раз ограничивала строки связи раз в минуту по формату, и строка о новом
+// состоянии связи (новый код ошибки, «восстановлена») терялась; повторы ограничивает сама связь
+// (R1, PL-53).
+func TestRemoteHostLogfPassesThrough(t *testing.T) {
+	h, _ := remoteHarness(t)
+	host := remoteHost{h.svc}
+	host.Logf("связь с телефоном: нет связи с сервером (%s, %s): %v", "опрос", "no_server", "x")
+	host.Logf("связь с телефоном: нет связи с сервером (%s, %s): %v", "опрос", "bad_answer", "y")
+	if got := strings.Count(h.logText(), "нет связи с сервером"); got != 2 {
+		t.Fatalf("строк о связи %d, ожидали 2:\n%s", got, h.logText())
+	}
+}
