@@ -1,7 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as api from "../api";
 import { ADULT_SOURCE_TEXT } from "../lib/sites";
-import { DEFAULT_PASSWORD, installBackend, mockChild, statusOf, uninstallBackend } from "./backend";
+import {
+  DEFAULT_PASSWORD,
+  MOCK_COMPARE_AFTER_MS,
+  MOCK_CONNECT_AFTER_MS,
+  MOCK_PAIR_TTL_MS,
+  installBackend,
+  mockChild,
+  statusOf,
+  uninstallBackend,
+} from "./backend";
 import type { ProgramDTO } from "../types";
 
 // Подмена программы сама должна вести себя как служба, иначе тесты экранов проверяют выдумку.
@@ -682,5 +691,62 @@ describe("«Автозагрузка» (FR-39, 8.3.11)", () => {
   it("startup: [] - пустые блоки", async () => {
     installBackend({ sessionActive: true, startup: [], startupCheckedAt: 5 });
     expect(await api.listStartup(1)).toEqual({ pending: [], own: [], shared: [], checkedAt: 5, checking: false });
+  });
+});
+
+describe("блок «Телефон» (M7)", () => {
+  it("по умолчанию выключено и адрес по умолчанию; команды только в родительской сессии", async () => {
+    installBackend();
+    await expect(api.getRemote()).rejects.toMatchObject({ message: "Сессия закончилась. Введите пароль" });
+    uninstallBackend();
+    installBackend({ sessionActive: true });
+    const v = await api.getRemote();
+    expect(v).toMatchObject({ enabled: false, state: "off", url: "https://pcblock.atlas404.ru", pair: { stage: "idle" } });
+    expect(v.phone).toBeUndefined();
+  });
+
+  it("включение → connecting → online; неверный адрес - отказ у поля url", async () => {
+    installBackend({ sessionActive: true });
+    expect((await api.setRemote(true, "")).state).toBe("connecting");
+    vi.advanceTimersByTime(MOCK_CONNECT_AFTER_MS);
+    const v = await api.getRemote();
+    expect(v.state).toBe("online");
+    expect(v.lastOkMs).toBe(Date.now());
+    const err = await api.setRemote(true, "http://x.ru").catch((e: unknown) => e);
+    expect(err).toMatchObject({ message: "Адрес должен начинаться с https://", field: "url" });
+  });
+
+  it("код 10 мин → через 2 с сверка → «Совпадает» привязывает, «Не совпадает» - failed mismatch", async () => {
+    installBackend({ sessionActive: true, remote: { enabled: true, state: "online" } });
+    const c = await api.remotePairStart();
+    expect(c.pair).toMatchObject({ stage: "code", code: "482913", expiresMs: Date.now() + 10 * 60_000 });
+    vi.advanceTimersByTime(MOCK_COMPARE_AFTER_MS);
+    expect((await api.getRemote()).pair).toMatchObject({ stage: "compare", sas: "731004", phoneName: "Pixel 7", code: "" });
+    const ok = await api.remotePairConfirm(true);
+    expect(ok.phone).toEqual({ name: "Pixel 7", pairedAtMs: Date.now() });
+    expect(ok.pair.stage).toBe("idle");
+
+    await api.remotePairStart();
+    vi.advanceTimersByTime(MOCK_COMPARE_AFTER_MS);
+    const bad = await api.remotePairConfirm(false);
+    expect(bad.pair).toMatchObject({ stage: "failed", error: "mismatch" });
+    expect(bad.phone?.name).toBe("Pixel 7");
+    expect((await api.remoteUnpair()).phone).toBeUndefined();
+  });
+
+  it("срок кода вышел - failed expired; выключение отменяет привязку", async () => {
+    installBackend({ sessionActive: true, sessionIdleS: 3600, remote: { enabled: true, state: "online" } });
+    await api.remotePairStart();
+    vi.advanceTimersByTime(MOCK_PAIR_TTL_MS);
+    expect((await api.getRemote()).pair).toMatchObject({ stage: "failed", error: "expired" });
+    await api.remotePairStart();
+    const off = await api.setRemote(false, "https://pcblock.atlas404.ru");
+    expect(off).toMatchObject({ enabled: false, state: "off", pair: { stage: "idle" } });
+  });
+
+  it("offline мок не чинит сам: сервер «лежит»", async () => {
+    installBackend({ sessionActive: true, remote: { enabled: true, state: "offline", lastOkMs: 1, error: "no_server" } });
+    vi.advanceTimersByTime(60_000);
+    expect(await api.getRemote()).toMatchObject({ state: "offline", lastOkMs: 1, error: "no_server" });
   });
 });

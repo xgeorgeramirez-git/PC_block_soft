@@ -8,14 +8,16 @@
 | Пакет | Файлов (тесты) | Роль |
 |---|---|---|
 | `.` | 1 (0) | main: точка входа, запуск окна |
+| `cmd/pcblock-relay` | 5 (5) | main — сервер связи pcblock-relay компьютера и телефона PC Block (протокол |
 | `internal/auth` | 2 (1) | auth — пароль родителя: проверка длины и паузы после неверных вводов (R19); только стандартная библиотека. |
 | `internal/auth/pwhash` | 1 (1) | pwhash — хеш пароля родителя Argon2id (NFR-9): память 64 МБ, 3 прохода, строка формата PHC. |
 | `internal/core` | 13 (19) | core — ядро правил и учёта времени: активные секунды, лимиты, предупреждения, блокировка; только стандартная библиотека, всё внешнее через порты. |
 | `internal/guard` | 28 (20) | guard — страж сеанса: нативный экран блокировки Windows, который |
-| `internal/ipc` | 17 (9) | ipc — канал связи службы программы с её окнами, стражем сеанса и значком на том |
+| `internal/ipc` | 18 (9) | ipc — канал связи службы программы с её окнами, стражем сеанса и значком на том |
 | `internal/launch` | 1 (1) | launch разбирает ключи запуска программы: в каком режиме работает PCBlock.exe. |
 | `internal/programs` | 4 (7) | programs — классификация программ по пути exe (веха M3: R12, R13, RM3-1, RM3-12): |
-| `internal/service` | 38 (58) | service — служба PCBlock: фоновая часть, которая считает время за компьютером, |
+| `internal/remote` | 5 (6) | remote — связь компьютера с телефоном родителя через сервер связи (M7, FR-40, |
+| `internal/service` | 39 (60) | service — служба PCBlock: фоновая часть, которая считает время за компьютером, |
 | `internal/service/winhost` | 34 (13) | winhost — Windows-обвязка службы PCBlock: всё, что внутри internal/service |
 | `internal/sites` | 5 (5) | sites — домены сайтов: нормализация ввода родителя и поля адреса Brave, punycode, свои списки родителя и встроенный список «18+». |
 | `internal/sound` | 3 (1) | sound — звук предупреждения заказчика (D-55, FR-9). Файл заказчика |
@@ -26,6 +28,7 @@
 | `internal/version` | 1 (2) | version хранит номер версии программы. |
 | `internal/winsession` | 5 (0) | winsession запускает процессы в интерактивных сеансах Windows: |
 | `tools/adultlist` | 1 (1) | (нет комментария Package) |
+| `tools/remote-phone` | 1 (1) | (нет комментария Package) |
 
 ## Миграции базы
 
@@ -58,6 +61,7 @@
 - `src/components/Notice.tsx`
 - `src/components/PausePicker.tsx`
 - `src/components/PeriodTabs.tsx`
+- `src/components/PhoneSection.tsx`
 - `src/components/PromoRedeem.tsx`
 - `src/components/PromoSticker.tsx`
 - `src/components/RestSettings.tsx`
@@ -83,6 +87,7 @@
 - `src/lib/numinput.ts`
 - `src/lib/password.ts`
 - `src/lib/programs.ts`
+- `src/lib/remote.ts`
 - `src/lib/rest.ts`
 - `src/lib/schedule.ts`
 - `src/lib/sites.ts`

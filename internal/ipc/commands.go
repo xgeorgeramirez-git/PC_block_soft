@@ -114,6 +114,7 @@ var AllCommands = []string{
 	CmdClearStats, CmdClearJournal, // M5 (FR-38)
 	CmdGeneratePromos, CmdClearPromoHistory, // M5 (FR-35, commands_m5.go)
 	CmdListStartup, CmdSetStartup, // M5b (FR-39, commands_m5b.go)
+	CmdGetRemote, CmdSetRemote, CmdRemotePairStart, CmdRemotePairCancel, CmdRemotePairConfirm, CmdRemoteUnpair, // M7 (FR-40, commands_m7.go)
 }
 
 // Имена полей, к которым служба привязывает ошибку (Reply.Field, L-121).
@@ -130,6 +131,7 @@ const (
 	FieldCode        = "code"    // промокод (R26, D-50)
 	FieldEndMode     = "endMode" // режим «Когда время вышло» (R8, FR-18)
 	FieldName        = "name"    // своё название программы (D-59)
+	FieldURL         = "url"     // «Адрес сервера» блока «Телефон» (M7)
 )
 
 // LimitField — имя поля лимита дня недели (1 = пн … 7 = вс) для ошибок SaveLimits и Setup.

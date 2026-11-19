@@ -3,6 +3,7 @@ import { changePassword, getBonusRate, getDiag, getToday, listAccounts, openLogs
 import Dialog from "../components/Dialog";
 import Notice from "../components/Notice";
 import PausePicker from "../components/PausePicker";
+import PhoneSection from "../components/PhoneSection";
 import ServiceNotices from "../components/ServiceNotices";
 import TextField from "../components/TextField";
 import { CallError, errorText } from "../lib/errors";
@@ -10,7 +11,7 @@ import { genitiveName } from "../lib/format";
 import { validatePasswordPair } from "../lib/password";
 import type { Account, ChildInfo } from "../types";
 
-/** Общие настройки (FR-25, сценарий 8.3.8): пароль, детские учётки, пауза для всех, автобонус, логи, О программе. */
+/** Общие настройки (FR-25, сценарий 8.3.8): пароль, детские учётки, пауза для всех, телефон (FR-40), автобонус, логи, О программе. */
 export default function Settings({ onOpenChildren }: { onOpenChildren?: () => void }) {
   const [notices, setNotices] = useState<string[]>([]);
   const [children, setChildrenList] = useState<ChildInfo[] | null>(null);
@@ -55,6 +56,7 @@ export default function Settings({ onOpenChildren }: { onOpenChildren?: () => vo
         }}
       />
       <PauseAllSection />
+      <PhoneSection />
       <BonusRateSection />
       <DiagSection />
       <AboutSection />
@@ -587,7 +589,7 @@ function AboutSection() {
         О программе
       </h3>
       <p>{text}</p>
-      <p className="field-hint">Данные хранятся только на этом компьютере</p>
+      <p className="field-hint">Данные хранятся на этом компьютере. Если включена связь с телефоном, на ваш сервер передаются имена детей и их время за сегодня</p>
     </section>
   );
 }

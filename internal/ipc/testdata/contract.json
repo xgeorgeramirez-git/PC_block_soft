@@ -1178,6 +1178,140 @@
       }
     }
   },
+  "GetRemote": {
+    "request": {},
+    "reply": {
+      "ok": true,
+      "payload": {
+        "enabled": false,
+        "url": "https://pcblock.atlas404.ru",
+        "state": "off",
+        "lastOkMs": 0,
+        "error": "",
+        "pair": {
+          "stage": "idle",
+          "code": "",
+          "expiresMs": 0,
+          "sas": "",
+          "phoneName": "",
+          "error": ""
+        }
+      }
+    }
+  },
+  "GetRemote#code": {
+    "request": {},
+    "reply": {
+      "ok": true,
+      "payload": {
+        "enabled": true,
+        "url": "https://pcblock.atlas404.ru",
+        "state": "online",
+        "lastOkMs": 1760000000000,
+        "error": "",
+        "pair": {
+          "stage": "code",
+          "code": "482913",
+          "expiresMs": 1760000600000,
+          "sas": "",
+          "phoneName": "",
+          "error": ""
+        }
+      }
+    }
+  },
+  "GetRemote#compare": {
+    "request": {},
+    "reply": {
+      "ok": true,
+      "payload": {
+        "enabled": true,
+        "url": "https://pcblock.atlas404.ru",
+        "state": "online",
+        "lastOkMs": 1760000000000,
+        "error": "",
+        "pair": {
+          "stage": "compare",
+          "code": "",
+          "expiresMs": 1760000600000,
+          "sas": "731004",
+          "phoneName": "Pixel 7",
+          "error": ""
+        }
+      }
+    }
+  },
+  "GetRemote#offline": {
+    "request": {},
+    "reply": {
+      "ok": true,
+      "payload": {
+        "enabled": true,
+        "url": "https://pcblock.atlas404.ru",
+        "state": "offline",
+        "lastOkMs": 1760000000000,
+        "error": "no_server",
+        "phone": {
+          "name": "Pixel 7",
+          "pairedAtMs": 1759996400000
+        },
+        "pair": {
+          "stage": "idle",
+          "code": "",
+          "expiresMs": 0,
+          "sas": "",
+          "phoneName": "",
+          "error": ""
+        }
+      }
+    }
+  },
+  "GetRemote#online": {
+    "request": {},
+    "reply": {
+      "ok": true,
+      "payload": {
+        "enabled": true,
+        "url": "https://pcblock.atlas404.ru",
+        "state": "online",
+        "lastOkMs": 1760000000000,
+        "error": "",
+        "pair": {
+          "stage": "idle",
+          "code": "",
+          "expiresMs": 0,
+          "sas": "",
+          "phoneName": "",
+          "error": ""
+        }
+      }
+    }
+  },
+  "GetRemote#paired": {
+    "request": {},
+    "reply": {
+      "ok": true,
+      "payload": {
+        "enabled": true,
+        "url": "https://pcblock.atlas404.ru",
+        "state": "online",
+        "lastOkMs": 1760000000000,
+        "error": "",
+        "phone": {
+          "name": "Pixel 7",
+          "pairedAtMs": 1759996400000
+        },
+        "pair": {
+          "stage": "idle",
+          "code": "",
+          "expiresMs": 0,
+          "sas": "",
+          "phoneName": "",
+          "error": ""
+        }
+      }
+    }
+  },
   "GetSchedule": {
     "request": {
       "childId": 1
@@ -3511,6 +3645,119 @@
       "field": "minutes"
     }
   },
+  "RemotePairCancel": {
+    "request": {},
+    "reply": {
+      "ok": true,
+      "payload": {
+        "enabled": true,
+        "url": "https://pcblock.atlas404.ru",
+        "state": "online",
+        "lastOkMs": 1760000000000,
+        "error": "",
+        "pair": {
+          "stage": "idle",
+          "code": "",
+          "expiresMs": 0,
+          "sas": "",
+          "phoneName": "",
+          "error": ""
+        }
+      }
+    }
+  },
+  "RemotePairConfirm": {
+    "request": {
+      "match": true
+    },
+    "reply": {
+      "ok": true,
+      "payload": {
+        "enabled": true,
+        "url": "https://pcblock.atlas404.ru",
+        "state": "online",
+        "lastOkMs": 1760000000000,
+        "error": "",
+        "phone": {
+          "name": "Pixel 7",
+          "pairedAtMs": 1759996400000
+        },
+        "pair": {
+          "stage": "idle",
+          "code": "",
+          "expiresMs": 0,
+          "sas": "",
+          "phoneName": "",
+          "error": ""
+        }
+      }
+    }
+  },
+  "RemotePairConfirm#mismatch": {
+    "request": {
+      "match": false
+    },
+    "reply": {
+      "ok": true,
+      "payload": {
+        "enabled": true,
+        "url": "https://pcblock.atlas404.ru",
+        "state": "online",
+        "lastOkMs": 1760000000000,
+        "error": "",
+        "pair": {
+          "stage": "failed",
+          "code": "",
+          "expiresMs": 0,
+          "sas": "",
+          "phoneName": "",
+          "error": "mismatch"
+        }
+      }
+    }
+  },
+  "RemotePairStart": {
+    "request": {},
+    "reply": {
+      "ok": true,
+      "payload": {
+        "enabled": true,
+        "url": "https://pcblock.atlas404.ru",
+        "state": "online",
+        "lastOkMs": 1760000000000,
+        "error": "",
+        "pair": {
+          "stage": "starting",
+          "code": "",
+          "expiresMs": 0,
+          "sas": "",
+          "phoneName": "",
+          "error": ""
+        }
+      }
+    }
+  },
+  "RemoteUnpair": {
+    "request": {},
+    "reply": {
+      "ok": true,
+      "payload": {
+        "enabled": true,
+        "url": "https://pcblock.atlas404.ru",
+        "state": "online",
+        "lastOkMs": 1760000000000,
+        "error": "",
+        "pair": {
+          "stage": "idle",
+          "code": "",
+          "expiresMs": 0,
+          "sas": "",
+          "phoneName": "",
+          "error": ""
+        }
+      }
+    }
+  },
   "RemoveSite": {
     "request": {
       "domain": "example.com"
@@ -4781,6 +5028,41 @@
           ]
         }
       }
+    }
+  },
+  "SetRemote": {
+    "request": {
+      "enabled": true,
+      "url": "https://pcblock.atlas404.ru"
+    },
+    "reply": {
+      "ok": true,
+      "payload": {
+        "enabled": true,
+        "url": "https://pcblock.atlas404.ru",
+        "state": "connecting",
+        "lastOkMs": 0,
+        "error": "",
+        "pair": {
+          "stage": "idle",
+          "code": "",
+          "expiresMs": 0,
+          "sas": "",
+          "phoneName": "",
+          "error": ""
+        }
+      }
+    }
+  },
+  "SetRemote#badAddress": {
+    "request": {
+      "enabled": true,
+      "url": "http://pcblock.example.ru"
+    },
+    "reply": {
+      "ok": false,
+      "error": "Адрес должен начинаться с https://",
+      "field": "url"
     }
   },
   "SetStartup": {

@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Значок: циферблат со стрелками. Своя простая графика. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Циферблат -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="@color/icon_fg"
+        android:strokeWidth="5"
+        android:pathData="M54,30a22,22 0,1 1,-0.01 0z" />
+    <!-- Стрелки: на 12 и на 4 -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="@color/icon_fg"
+        android:strokeWidth="5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M54,38L54,52L64,58" />
+    <!-- Метки 3, 6, 9 -->
+    <path
+        android:fillColor="@color/icon_fg"
+        android:pathData="M68,50h4v4h-4z M52,66h4v4h-4z M36,50h4v4h-4z" />
+</vector>

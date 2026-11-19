@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Все тексты приложения. Родителю на «вы», без длинных тире (tools/scan_ui_texts.py). -->
+<resources>
+    <string name="app_name">PC Block</string>
+
+    <!-- Подключение -->
+    <string name="connect_title">Подключение к компьютеру</string>
+    <string name="connect_hint">На компьютере откройте PC Block, «Настройки», блок «Телефон» и нажмите «Подключить телефон». Введите код с экрана компьютера.</string>
+    <string name="connect_url_label">Адрес сервера</string>
+    <string name="connect_code_label">Код с экрана компьютера</string>
+    <string name="connect_code_support">6 цифр, действует 10 минут</string>
+    <string name="connect_button">Подключить</string>
+    <string name="connect_busy">Подключаемся…</string>
+
+    <!-- Сверка числа -->
+    <string name="compare_title">Сверьте число</string>
+    <string name="compare_lead">На экране компьютера должно быть такое же число:</string>
+    <string name="compare_explain">Нажмите «Совпадает» и на телефоне, и на компьютере. Если числа разные, нажмите «Не совпадает».</string>
+    <string name="compare_match">Совпадает</string>
+    <string name="compare_mismatch">Не совпадает</string>
+    <string name="compare_number_desc">Число для сверки: %1$s</string>
+
+    <!-- Главный экран -->
+    <string name="main_title">PC Block</string>
+    <string name="menu_more">Ещё</string>
+    <string name="menu_unpair">Отключить телефон</string>
+    <string name="menu_refresh">Обновить</string>
+    <string name="pc_online">Компьютер на связи</string>
+    <string name="pc_offline_since">Компьютер не на связи с %1$s</string>
+    <string name="pc_offline">Компьютер не на связи</string>
+    <string name="pc_checking">Проверяем связь…</string>
+    <string name="data_at">Данные на %1$s</string>
+    <string name="no_data">Компьютер ещё не прислал данные. Они появятся, когда компьютер будет на связи.</string>
+    <string name="no_children">На компьютере нет детей с правилами.</string>
+    <string name="child_used">Сегодня за компьютером %1$s</string>
+    <string name="child_left">Осталось %1$s</string>
+    <string name="child_unlimited">Без лимита</string>
+    <string name="child_blocked">Компьютер заблокирован</string>
+    <string name="child_extra">Доп. время сегодня: %1$s</string>
+    <string name="btn_add15">+15 мин</string>
+    <string name="btn_sub15">−15 мин</string>
+    <string name="btn_add15_desc">Добавить 15 минут, %1$s</string>
+    <string name="btn_sub15_desc">Убавить 15 минут, %1$s</string>
+    <string name="btn_custom">Своё число</string>
+    <string name="btn_custom_desc">Своё число минут, %1$s</string>
+    <string name="cmd_sending">Отправляем…</string>
+    <string name="cmd_done">Готово</string>
+
+    <!-- Своё число -->
+    <string name="custom_title">Своё число минут</string>
+    <string name="custom_label">Минуты, от 1 до 240</string>
+    <string name="custom_add">Добавить</string>
+    <string name="custom_sub">Убавить</string>
+    <string name="cancel">Отмена</string>
+
+    <!-- Отключить телефон -->
+    <string name="unpair_title">Отключить телефон?</string>
+    <string name="unpair_text">Телефон забудет компьютер. На компьютере тоже нажмите «Отвязать» в блоке «Телефон». Подключить снова можно новым кодом.</string>
+    <string name="unpair_confirm">Отключить</string>
+    <string name="reconnect">Подключить заново</string>
+
+    <!-- Длительности и время -->
+    <string name="dur_min">%1$d мин</string>
+    <string name="dur_hm">%1$d ч %2$02d мин</string>
+    <string name="time_other_day">%1$s %2$s</string>
+
+    <!-- Ошибки (протокол связи, раздел 5) -->
+    <string name="err_bad_address">Адрес должен начинаться с https://</string>
+    <string name="err_code_format">Введите 6 цифр кода с экрана компьютера</string>
+    <string name="err_bad_code">Код неверный или устарел. Нажмите «Подключить телефон» на компьютере ещё раз</string>
+    <string name="err_too_many">Слишком много попыток. Подождите 10 минут и попробуйте снова</string>
+    <string name="err_network">Нет связи с сервером. Проверьте адрес и интернет</string>
+    <string name="err_pc_offline">Компьютер не на связи. Команда не отправлена</string>
+    <string name="err_pc_offline_since">Компьютер не на связи с %1$s. Команда не отправлена</string>
+    <string name="err_pc_offline_pair">Компьютер не ответил. Проверьте, что он включён и на связи, и попробуйте ещё раз</string>
+    <string name="err_busy">Компьютер занят. Повторите через минуту</string>
+    <string name="err_not_paired">Телефон не подключён к этому компьютеру. Подключите заново</string>
+    <string name="err_stale">Команда устарела, повторите</string>
+    <string name="err_no_child">Ребёнок не найден</string>
+    <string name="err_range">Можно от 1 до 240 минут</string>
+    <string name="err_pair_failed">Не удалось подключить. Попробуйте ещё раз</string>
+    <string name="err_pair_cancelled">Подключение отменено. Начните заново</string>
+    <string name="err_bad_reply">Ответ компьютера не прошёл проверку. Повторите</string>
+    <string name="err_server">Сервер связи не смог выполнить запрос. Повторите позже</string>
+    <string name="err_key">Не удалось создать ключ на телефоне. Повторите</string>
+</resources>

@@ -1,0 +1,27 @@
+{
+  "comment": "Векторы протокола связи (docs/07_Протокол_связи.md). Генерирует go test ./internal/remote -run TestVectors -update. Все base64: base64url без '='.",
+  "pcPriv": "MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgFIXFur2cYOoOsDeSjNB68Q9IhKzKt27GPZxRfvXHIW6hRANCAAS2F4kGwqeAdHA33rlEpzq3H8Y-se5TygIvu58I3OJ0kKdGBLAb8mflAf4Z67bC248zTA3m4JjAzcqHsD4_mx2o",
+  "pcPub": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEtheJBsKngHRwN965RKc6tx_GPrHuU8oCL7ufCNzidJCnRgSwG_Jn5QH-Geu2wtuPM0wN5uCYwM3Kh7A-P5sdqA",
+  "phonePriv": "MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgPmd0BmSid3hjyWZjR493ady3RGpFBtYES1uUqVgIQX-hRANCAARHRgYjGr2K67Q0BhPZDfMcRGd5Wi11xDvuPhjMmpgh3R-JgZN_dNvP7oFf86uOmZkOBz_FyDqC0VDK8zkKFtTM",
+  "phonePub": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAER0YGIxq9iuu0NAYT2Q3zHERneVotdcQ77j4YzJqYId0fiYGTf3Tbz-6BX_OrjpmZDgc_xcg6gtFQyvM5ChbUzA",
+  "nPc": "AAECAwQFBgcICQoLDA0ODw",
+  "nPhone": "8O_u7ezr6uno5-bl5OPi4Q",
+  "commit": "SNKAnOitpLUQhcOUf220afc6hAghH7_61FPLmQN9D6M",
+  "sas": "127518",
+  "cmdJson": "{\"v\":1,\"t\":\"cmd\",\"pc\":\"pc-vector\",\"phone\":\"phone-vector\",\"seq\":17,\"ts\":1763490000000,\"child\":3,\"delta\":15}",
+  "cmd": {
+    "data": "eyJ2IjoxLCJ0IjoiY21kIiwicGMiOiJwYy12ZWN0b3IiLCJwaG9uZSI6InBob25lLXZlY3RvciIsInNlcSI6MTcsInRzIjoxNzYzNDkwMDAwMDAwLCJjaGlsZCI6MywiZGVsdGEiOjE1fQ",
+    "sig": "MEUCIQDORzw8mMSmh0Z2Tn7UWmBR0xX7XBpm2YIw7Gv6hp-IeAIgeY6_wHJmUHgdMb6X1gA-2C7bVH3EdHpp4uVy7gYvsF0"
+  },
+  "cmdHash": "d4nDfJ1QSSCSx8rO-t60DPyp3DKsDFzVTPWYRWPAqq0",
+  "cmdrJson": "{\"v\":1,\"t\":\"cmdr\",\"pc\":\"pc-vector\",\"phone\":\"phone-vector\",\"seq\":17,\"cmd\":\"d4nDfJ1QSSCSx8rO-t60DPyp3DKsDFzVTPWYRWPAqq0\",\"ts\":1763490001000,\"ok\":true,\"message\":\"Добавлено 15 минут\",\"report\":{\"v\":1,\"t\":\"report\",\"pc\":\"pc-vector\",\"phone\":\"phone-vector\",\"ts\":1763490001000,\"children\":[{\"id\":3,\"name\":\"Миша\",\"usedSec\":3600,\"leftSec\":1800,\"extraMin\":15,\"blocked\":false}]}}",
+  "cmdr": {
+    "data": "eyJ2IjoxLCJ0IjoiY21kciIsInBjIjoicGMtdmVjdG9yIiwicGhvbmUiOiJwaG9uZS12ZWN0b3IiLCJzZXEiOjE3LCJjbWQiOiJkNG5EZkoxUVNTQ1N4OHJPLXQ2MERQeXAzREtzREZ6VlRQV1lSV1BBcXEwIiwidHMiOjE3NjM0OTAwMDEwMDAsIm9rIjp0cnVlLCJtZXNzYWdlIjoi0JTQvtCx0LDQstC70LXQvdC-IDE1INC80LjQvdGD0YIiLCJyZXBvcnQiOnsidiI6MSwidCI6InJlcG9ydCIsInBjIjoicGMtdmVjdG9yIiwicGhvbmUiOiJwaG9uZS12ZWN0b3IiLCJ0cyI6MTc2MzQ5MDAwMTAwMCwiY2hpbGRyZW4iOlt7ImlkIjozLCJuYW1lIjoi0JzQuNGI0LAiLCJ1c2VkU2VjIjozNjAwLCJsZWZ0U2VjIjoxODAwLCJleHRyYU1pbiI6MTUsImJsb2NrZWQiOmZhbHNlfV19fQ",
+    "sig": "MEQCIDchPzjDxjtqnU7Rq_aozZDm-7VKfedbcogGr0XxvaMzAiBzZuv_Irm9pSlFABffyPv4f1GSR4vbuHD3fq3aFUcaGg"
+  },
+  "reportJson": "{\"v\":1,\"t\":\"report\",\"pc\":\"pc-vector\",\"phone\":\"phone-vector\",\"ts\":1763490001000,\"children\":[{\"id\":3,\"name\":\"Миша\",\"usedSec\":3600,\"leftSec\":1800,\"extraMin\":15,\"blocked\":false}]}",
+  "report": {
+    "data": "eyJ2IjoxLCJ0IjoicmVwb3J0IiwicGMiOiJwYy12ZWN0b3IiLCJwaG9uZSI6InBob25lLXZlY3RvciIsInRzIjoxNzYzNDkwMDAxMDAwLCJjaGlsZHJlbiI6W3siaWQiOjMsIm5hbWUiOiLQnNC40YjQsCIsInVzZWRTZWMiOjM2MDAsImxlZnRTZWMiOjE4MDAsImV4dHJhTWluIjoxNSwiYmxvY2tlZCI6ZmFsc2V9XX0",
+    "sig": "MEQCICoE3abKvKrpNdyoWAqc9vXlzwWs4FpRoUI8Hy-68L6lAiBcKYq7JKSz62r49p4ptrlQ5Lnye0gUfKIgy2aByDO2EA"
+  }
+}

@@ -351,7 +351,7 @@ describe("Settings: о программе", () => {
   it("версия приходит от программы", async () => {
     await setup({ version: "0.4.2" });
     expect(await within(section("О программе")).findByText("Версия 0.4.2")).toBeTruthy();
-    expect(within(section("О программе")).getByText("Данные хранятся только на этом компьютере")).toBeTruthy();
+    expect(within(section("О программе")).getByText("Данные хранятся на этом компьютере. Если включена связь с телефоном, на ваш сервер передаются имена детей и их время за сегодня")).toBeTruthy();
   });
 
   it("версию узнать не удалось - так и говорит", async () => {
@@ -363,3 +363,15 @@ describe("Settings: о программе", () => {
   });
 });
 
+
+describe("Settings: блок «Телефон» (M7, FR-40)", () => {
+  // Ловит: блок не на своём месте (план M7, T5: после «Пауза для всех») или опрашивает без сессии.
+  it("стоит сразу после «Пауза для всех», выключен по умолчанию", async () => {
+    await setup();
+    const heads = screen.getAllByRole("heading", { level: 3 }).map((h) => h.textContent);
+    expect(heads.indexOf("Телефон")).toBe(heads.indexOf("Пауза для всех детей") + 1);
+    await vi.waitFor(() => expect((screen.getByRole("switch", { name: "Связь с телефоном" }) as HTMLInputElement).disabled).toBe(false));
+    expect((screen.getByRole("switch", { name: "Связь с телефоном" }) as HTMLInputElement).checked).toBe(false);
+    expect(mock.count("GetRemote")).toBeGreaterThanOrEqual(1);
+  });
+});

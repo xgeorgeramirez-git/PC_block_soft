@@ -122,6 +122,19 @@ const CASES: [string, string, (req: any) => Promise<unknown>][] = [
   ["RemoveSites", "RemoveSites", (r) => api.removeSites(r.domains)],
   ["RestoreSites", "RestoreSites", (r) => api.restoreSites(r.sites)],
   ["SetAdultFilter", "SetAdultFilter", (r) => api.setAdultFilter(r.childId, r.on)],
+  ["GetRemote", "GetRemote", () => api.getRemote()],
+  ["GetRemote", "GetRemote#online", () => api.getRemote()],
+  ["GetRemote", "GetRemote#code", () => api.getRemote()],
+  ["GetRemote", "GetRemote#compare", () => api.getRemote()],
+  ["GetRemote", "GetRemote#paired", () => api.getRemote()],
+  ["GetRemote", "GetRemote#offline", () => api.getRemote()],
+  ["SetRemote", "SetRemote", (r) => api.setRemote(r.enabled, r.url)],
+  ["SetRemote", "SetRemote#badAddress", (r) => api.setRemote(r.enabled, r.url)],
+  ["RemotePairStart", "RemotePairStart", () => api.remotePairStart()],
+  ["RemotePairCancel", "RemotePairCancel", () => api.remotePairCancel()],
+  ["RemotePairConfirm", "RemotePairConfirm", (r) => api.remotePairConfirm(r.match)],
+  ["RemotePairConfirm", "RemotePairConfirm#mismatch", (r) => api.remotePairConfirm(r.match)],
+  ["RemoteUnpair", "RemoteUnpair", () => api.remoteUnpair()],
 ];
 
 describe("успешные ответы контракта", () => {
@@ -263,6 +276,12 @@ describe("полнота", () => {
       "ClearJournal",
       "GeneratePromos",
       "ClearPromoHistory",
+      "GetRemote",
+      "SetRemote",
+      "RemotePairStart",
+      "RemotePairCancel",
+      "RemotePairConfirm",
+      "RemoteUnpair",
     ]) {
       expect(examples[command], `нет примера ${command}`).toBeDefined();
       expect(wrapped.has(command), `нет обёртки ${command}`).toBe(true);

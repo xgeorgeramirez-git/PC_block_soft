@@ -300,6 +300,14 @@ func init() {
 		// M5b: автозагрузка (FR-39) — только родитель.
 		ipc.CmdListStartup: {parentToken(false), (*Service).hListStartup},
 		ipc.CmdSetStartup:  {parentToken(true), (*Service).hSetStartup},
+
+		// M7: связь с телефоном (FR-40) — только родитель.
+		ipc.CmdGetRemote:         {parentToken(false), (*Service).hGetRemote},
+		ipc.CmdSetRemote:         {parentToken(true), (*Service).hSetRemote},
+		ipc.CmdRemotePairStart:   {parentToken(true), (*Service).hRemotePairStart},
+		ipc.CmdRemotePairCancel:  {parentToken(true), (*Service).hRemotePairCancel},
+		ipc.CmdRemotePairConfirm: {parentToken(true), (*Service).hRemotePairConfirm},
+		ipc.CmdRemoteUnpair:      {parentToken(true), (*Service).hRemoteUnpair},
 	}
 }
 

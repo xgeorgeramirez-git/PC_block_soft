@@ -78,6 +78,7 @@ import type {
   ListStartupReply,
   SetStartupReply,
   SiteKind,
+  RemoteView,
 } from "./types";
 
 function bridge(): PCBlockApp {
@@ -625,4 +626,58 @@ export async function listStartup(childId: number, refresh = false): Promise<Lis
 /** Включить или выключить запись автозагрузки ребёнку; ответ - строка с решением службы и сообщение. */
 export function setStartup(childId: number, id: number, on: boolean): Promise<SetStartupReply> {
   return call("SetStartup", { childId, id, on });
+}
+
+// --- M7: блок «Телефон» (FR-40, commands_m7.go) -------------------------------
+
+/** Ответ блока «Телефон»: этап привязки всегда объект, телефона нет - поле отсутствует (не null, L-22). */
+function remoteOf(r: Partial<RemoteView> | null | undefined): RemoteView {
+  const pair = r?.pair;
+  const view: RemoteView = {
+    enabled: r?.enabled === true,
+    url: r?.url ?? "",
+    state: r?.state ?? "off",
+    lastOkMs: r?.lastOkMs ?? 0,
+    error: r?.error ?? "",
+    pair: {
+      stage: pair?.stage ?? "idle",
+      code: pair?.code ?? "",
+      expiresMs: pair?.expiresMs ?? 0,
+      sas: pair?.sas ?? "",
+      phoneName: pair?.phoneName ?? "",
+      error: pair?.error ?? "",
+    },
+  };
+  if (r?.phone) view.phone = { name: r.phone.name ?? "", pairedAtMs: r.phone.pairedAtMs ?? 0 };
+  return view;
+}
+
+/** Состояние связи с телефоном. */
+export async function getRemote(): Promise<RemoteView> {
+  return remoteOf(await call<object, RemoteView>("GetRemote", {}));
+}
+
+/** Включить или выключить связь и задать адрес сервера; неверный адрес - отказ с полем "url". */
+export async function setRemote(enabled: boolean, url: string): Promise<RemoteView> {
+  return remoteOf(await call<object, RemoteView>("SetRemote", { enabled, url }));
+}
+
+/** «Подключить телефон»: служба запрашивает код у сервера (этап starting, затем code). */
+export async function remotePairStart(): Promise<RemoteView> {
+  return remoteOf(await call<object, RemoteView>("RemotePairStart", {}));
+}
+
+/** «Отмена» привязки. */
+export async function remotePairCancel(): Promise<RemoteView> {
+  return remoteOf(await call<object, RemoteView>("RemotePairCancel", {}));
+}
+
+/** «Совпадает» (match = true) или «Не совпадает» на этапе сверки числа. */
+export async function remotePairConfirm(match: boolean): Promise<RemoteView> {
+  return remoteOf(await call<object, RemoteView>("RemotePairConfirm", { match }));
+}
+
+/** «Отвязать» телефон. */
+export async function remoteUnpair(): Promise<RemoteView> {
+  return remoteOf(await call<object, RemoteView>("RemoteUnpair", {}));
 }

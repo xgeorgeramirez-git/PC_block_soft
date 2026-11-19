@@ -321,6 +321,22 @@ func examples() map[string]example {
 			Message: "Не будет запускаться при входе Миши",
 		}),
 		"SetStartup#failed": fail(SetStartupRequest{ChildID: 1, ID: 7, On: true}, "Не удалось сохранить. Попробуйте ещё раз", "", nil),
+
+		// M7: блок «Телефон» в «Настройках» (FR-40, commands_m7.go). Ответ всех шести команд — RemoteView.
+		CmdGetRemote:        ok(Empty{}, remoteOff()),
+		"GetRemote#online":  ok(Empty{}, remoteOnline()),
+		"GetRemote#code":    ok(Empty{}, remoteCode()),
+		"GetRemote#compare": ok(Empty{}, remoteCompare()),
+		"GetRemote#paired":  ok(Empty{}, remotePaired()),
+		"GetRemote#offline": ok(Empty{}, remoteOffline()),
+		CmdSetRemote:        ok(SetRemoteRequest{Enabled: true, URL: RemoteDefaultURL}, remoteConnecting()),
+		"SetRemote#badAddress": fail(SetRemoteRequest{Enabled: true, URL: "http://pcblock.example.ru"},
+			"Адрес должен начинаться с https://", FieldURL, nil),
+		CmdRemotePairStart:           ok(Empty{}, remoteStarting()),
+		CmdRemotePairCancel:          ok(Empty{}, remoteOnline()),
+		CmdRemotePairConfirm:         ok(RemotePairConfirmRequest{Match: true}, remotePaired()),
+		"RemotePairConfirm#mismatch": ok(RemotePairConfirmRequest{Match: false}, remoteFailed()),
+		CmdRemoteUnpair:              ok(Empty{}, remoteOnline()),
 		CmdRedeemPromo: ok(RedeemPromoRequest{ChildID: 1, Code: "a1234"}, RedeemPromoReply{
 			Card: card(okStatus(), 30, false), AddedMin: 30, Message: "Добавлено 30 минут",
 		}),
@@ -647,8 +663,76 @@ func TestContractHasEveryCommand(t *testing.T) {
 			t.Errorf("пример для %s есть, а в AllCommands её нет", c)
 		}
 	}
-	if len(AllCommands) != 80 {
-		t.Errorf("команд %d, ждали 80 (RestoreSites из 0.7.1; 2 команды M5b: ListStartup, SetStartup; 6 команд M5: ClearStats, ClearJournal, GeneratePromos, ClearPromoHistory, AddSites, RemoveSites; 5 команд M4: ListSites, AddSite, RemoveSite, SetAdultFilter, тестовая TestSeedPrograms; тестовая TestSeedDay и EndBreak из раунда 0.3.2; 46 из M1/M2/0.2.1 без команд Помощника, 9 из фидбек-раунда 0.2.2: OpenLogs, SetNoForbidden, ClearBonus, ReduceBonus, CreatePromo, ListPromos, RedeemPromo, GetBonusRate, SetBonusRate, GuardClosing из раунда 0.2.3, тестовая TestSession из 0.2.5 и 5 программ M3: ListPrograms, DecideProgram, SetProgramsCategory, UndoProgram, ScanPrograms; SetProgramsHidden и RenameProgram из раунда 0.3.1)", len(AllCommands))
+	if len(AllCommands) != 86 {
+		t.Errorf("команд %d, ждали 86 (6 команд M7: GetRemote, SetRemote, RemotePairStart, RemotePairCancel, RemotePairConfirm, RemoteUnpair; RestoreSites из 0.7.1; 2 команды M5b: ListStartup, SetStartup; 6 команд M5: ClearStats, ClearJournal, GeneratePromos, ClearPromoHistory, AddSites, RemoveSites; 5 команд M4: ListSites, AddSite, RemoveSite, SetAdultFilter, тестовая TestSeedPrograms; тестовая TestSeedDay и EndBreak из раунда 0.3.2; 46 из M1/M2/0.2.1 без команд Помощника, 9 из фидбек-раунда 0.2.2: OpenLogs, SetNoForbidden, ClearBonus, ReduceBonus, CreatePromo, ListPromos, RedeemPromo, GetBonusRate, SetBonusRate, GuardClosing из раунда 0.2.3, тестовая TestSession из 0.2.5 и 5 программ M3: ListPrograms, DecideProgram, SetProgramsCategory, UndoProgram, ScanPrograms; SetProgramsHidden и RenameProgram из раунда 0.3.1)", len(AllCommands))
+	}
+}
+
+// Примеры блока «Телефон» (M7): момент t0, сервер по умолчанию (D-92).
+func remoteOff() RemoteView {
+	return RemoteView{URL: RemoteDefaultURL, State: RemoteStateOff, Pair: RemotePair{Stage: PairIdle}}
+}
+
+func remoteConnecting() RemoteView {
+	v := remoteOff()
+	v.Enabled, v.State = true, RemoteStateConnecting
+	return v
+}
+
+func remoteOnline() RemoteView {
+	v := remoteConnecting()
+	v.State, v.LastOKMs = RemoteStateOnline, t0
+	return v
+}
+
+func remoteStarting() RemoteView {
+	v := remoteOnline()
+	v.Pair = RemotePair{Stage: PairStarting}
+	return v
+}
+
+func remoteCode() RemoteView {
+	v := remoteOnline()
+	v.Pair = RemotePair{Stage: PairCode, Code: "482913", ExpiresMs: t0 + 10*60_000}
+	return v
+}
+
+func remoteCompare() RemoteView {
+	v := remoteOnline()
+	v.Pair = RemotePair{Stage: PairCompare, ExpiresMs: t0 + 10*60_000, SAS: "731004", PhoneName: "Pixel 7"}
+	return v
+}
+
+func remoteFailed() RemoteView {
+	v := remoteOnline()
+	v.Pair = RemotePair{Stage: PairFailed, Error: PairErrMismatch}
+	return v
+}
+
+func remotePaired() RemoteView {
+	v := remoteOnline()
+	v.Phone = &RemotePhone{Name: "Pixel 7", PairedAtMs: t0 - 3_600_000}
+	return v
+}
+
+// remoteOffline — связь включена, сервер не отвечает; телефон привязан (нет связи не значит «отвязан»).
+func remoteOffline() RemoteView {
+	v := remotePaired()
+	v.State, v.Error = RemoteStateOffline, RemoteErrNoServer
+	return v
+}
+
+// Ловит: пример без телефона отдаёт "phone": null вместо отсутствующего ключа (L-22).
+func TestRemoteViewPhoneOmitted(t *testing.T) {
+	raw := string(Payload(remoteOnline()))
+	if strings.Contains(raw, `"phone"`) {
+		t.Fatalf("без телефона ключа phone быть не должно: %s", raw)
+	}
+	if !strings.Contains(string(Payload(remotePaired())), `"phone":{"name":"Pixel 7"`) {
+		t.Fatalf("у привязанного телефона нет имени в ответе")
+	}
+	if RemoteDefaultURL != "https://pcblock.atlas404.ru" {
+		t.Fatalf("адрес по умолчанию (D-92): %s", RemoteDefaultURL)
 	}
 }
 

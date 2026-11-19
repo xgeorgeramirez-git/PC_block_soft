@@ -1,0 +1,189 @@
+# Android-приложение «PC Block» для родителя (M7, T9): JVM-тесты протокола, debug APK, подписанный
+# release APK (если есть секреты, D-94) и выкладка APK в выпуск, который создаёт windows.yml.
+# Журналы Actions из песочницы агента не читаются: ошибки Gradle уходят пометками ::error.
+name: Android
+
+on:
+  push:
+    branches: [main, feature/m7-android, feature/m7-remote]
+    paths:
+      - "android/**"
+      - "testdata/remote/**"
+      - "internal/version/**"
+      - ".github/workflows/android.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "android/**"
+      - "testdata/remote/**"
+      - "internal/version/**"
+      - ".github/workflows/android.yml"
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Выпуск, в который положить APK (например v0.8.0-beta.1); пусто — только сборка"
+        type: string
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+concurrency:
+  group: android-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: true
+
+jobs:
+  apk:
+    name: APK для телефона
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Версия из internal/version/version.go
+        id: meta
+        run: |
+          exec > >(tee -a "$RUNNER_TEMP/ci.log") 2>&1
+          ver=$(sed -n 's/^const Version = "\([^"]*\)".*/\1/p' internal/version/version.go)
+          if [ -z "$ver" ]; then
+            echo "::error title=Версия::не найдена в internal/version/version.go"
+            exit 1
+          fi
+          echo "ver=$ver" >> "$GITHUB_OUTPUT"
+          echo "Версия: $ver"
+
+      - name: Тесты JVM и сборка debug
+        working-directory: android
+        run: |
+          exec > >(tee -a "$RUNNER_TEMP/ci.log" "$RUNNER_TEMP/gradle.log") 2>&1
+          chmod +x gradlew
+          ./gradlew --no-daemon --stacktrace testDebugUnitTest assembleDebug
+
+      - name: Итог JVM-тестов
+        if: always()
+        run: |
+          python3 - <<'EOF'
+          import glob, xml.etree.ElementTree as ET
+          files = glob.glob("android/app/build/test-results/testDebugUnitTest/TEST-*.xml")
+          tests = fail = 0
+          for f in files:
+              r = ET.parse(f).getroot()
+              tests += int(r.get("tests", 0))
+              fail += int(r.get("failures", 0)) + int(r.get("errors", 0))
+              for case in r.iter("testcase"):
+                  for bad in list(case.findall("failure")) + list(case.findall("error")):
+                      msg = (bad.get("message") or bad.text or "").strip().replace("%", "%25").replace("\n", "%0A")[:900]
+                      print(f"::error title=JVM-тест {case.get('classname')}.{case.get('name')}::{msg}")
+          print(f"::notice title=JVM-тесты::тестов {tests}, упало {fail}, файлов {len(files)}")
+          EOF
+
+      - name: Ключ подписи из секретов
+        id: sign
+        env:
+          ANDROID_KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          if [ -z "$ANDROID_KEYSTORE_B64" ] || [ -z "$ANDROID_KEYSTORE_PASSWORD" ]; then
+            echo "signed=false" >> "$GITHUB_OUTPUT"
+            echo "::warning title=Подпись APK::секретов ANDROID_KEYSTORE_B64 и ANDROID_KEYSTORE_PASSWORD нет: собран только debug, в выпуск APK не кладётся"
+            exit 0
+          fi
+          printf '%s' "$ANDROID_KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.p12"
+          echo "signed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Сборка release (подписанная)
+        if: steps.sign.outputs.signed == 'true'
+        working-directory: android
+        env:
+          ANDROID_KEYSTORE_FILE: ${{ runner.temp }}/release.p12
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          VER: ${{ steps.meta.outputs.ver }}
+        run: |
+          exec > >(tee -a "$RUNNER_TEMP/ci.log" "$RUNNER_TEMP/gradle.log") 2>&1
+          ./gradlew --no-daemon --stacktrace assembleRelease
+          apk=app/build/outputs/apk/release/app-release.apk
+          if [ ! -f "$apk" ]; then
+            echo "::error title=Подпись APK::подписанный app-release.apk не появился"
+            ls -la app/build/outputs/apk/release || true
+            exit 1
+          fi
+          bt=$(ls -d "$ANDROID_HOME"/build-tools/* 2>/dev/null | sort -V | tail -n 1)
+          if [ -n "$bt" ] && [ -x "$bt/apksigner" ]; then
+            "$bt/apksigner" verify --print-certs "$apk" | grep -E 'Signer #1 certificate (DN|SHA-256)' || true
+            "$bt/apksigner" verify "$apk"
+          else
+            echo "::warning title=Подпись APK::apksigner не найден, проверка подписи пропущена"
+          fi
+          mkdir -p "$RUNNER_TEMP/apk"
+          cp "$apk" "$RUNNER_TEMP/apk/PCBlock-$VER.apk"
+
+      - name: Debug APK — в артефакт
+        env:
+          VER: ${{ steps.meta.outputs.ver }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/apk"
+          cp android/app/build/outputs/apk/debug/app-debug.apk "$RUNNER_TEMP/apk/PCBlock-$VER-debug.apk"
+          ls -la "$RUNNER_TEMP/apk"
+
+      - uses: actions/upload-artifact@v6
+        with:
+          name: pcblock-apk-${{ steps.meta.outputs.ver }}-${{ github.sha }}
+          path: ${{ runner.temp }}/apk/*.apk
+          retention-days: 14
+
+      # Выпуск создаёт windows.yml (на main — v<версия>, предварительный — v<версия>-beta.N).
+      # Ждём его появления до 20 минут и докладываем APK. Без подписи — пропуск: неподписанный
+      # или debug APK в выпуске помешал бы потом поставить подписанный поверх.
+      - name: APK — в выпуск
+        if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && inputs.release_tag != '')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SIGNED: ${{ steps.sign.outputs.signed }}
+          VER: ${{ steps.meta.outputs.ver }}
+          TAG_INPUT: ${{ inputs.release_tag }}
+        run: |
+          exec > >(tee -a "$RUNNER_TEMP/ci.log") 2>&1
+          if [ "$SIGNED" != "true" ]; then
+            echo "::warning title=Выпуск::APK не подписан (нет секретов): в выпуск не кладётся"
+            exit 0
+          fi
+          tag="${TAG_INPUT:-v$VER}"
+          for i in $(seq 1 120); do
+            if gh release view "$tag" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+              break
+            fi
+            if [ "$i" = 120 ]; then
+              echo "::error title=Выпуск::выпуск $tag не появился за 20 минут"
+              exit 1
+            fi
+            sleep 10
+          done
+          gh release upload "$tag" "$RUNNER_TEMP/apk/PCBlock-$VER.apk" --clobber --repo "$GITHUB_REPOSITORY"
+          echo "::notice title=Выпуск::PCBlock-$VER.apk выложен в $tag"
+
+      - name: Ошибки Gradle — в пометки сборки
+        if: failure()
+        run: |
+          log="$RUNNER_TEMP/gradle.log"
+          [ -s "$log" ] || exit 0
+          sed -e 's/\x1b\[[0-9;]*[A-Za-z]//g' -e 's/\r$//' "$log" \
+            | grep -nE -A3 '^e: |^w: .*error|error:|FAILED|FAILURE|What went wrong|Could not (resolve|find|get)|Unresolved reference|Execution failed' \
+            | grep -v '^--$' | tail -n 80 > "$RUNNER_TEMP/gradle-errors.txt" || true
+          [ -s "$RUNNER_TEMP/gradle-errors.txt" ] || tail -n 80 "$log" > "$RUNNER_TEMP/gradle-errors.txt"
+          split -l 10 "$RUNNER_TEMP/gradle-errors.txt" "$RUNNER_TEMP/gerr-"
+          n=0
+          for c in "$RUNNER_TEMP"/gerr-*; do
+            n=$((n + 1))
+            [ $n -le 8 ] || break
+            msg=$(sed -e 's/%/%25/g' "$c" | awk 'BEGIN{ORS="%0A"} {print}')
+            echo "::error title=Gradle ($n)::$msg"
+          done
+      - name: Ошибки — в пометки сборки (их видно без журнала)
+        if: failure()
+        run: bash tools/annotate-errors.sh "$RUNNER_TEMP/ci.log" "Android"

@@ -3518,3 +3518,106 @@ textarea.sites-add-input {
 .startup-feedback.field-error {
   border-left-color: var(--status-danger);
 }
+
+/* --- Блок «Телефон» в «Настройках» (M7) ----------------------------------------------- */
+
+.phone-url {
+  margin-top: var(--space-4);
+}
+
+.phone-url .form-actions {
+  margin-top: 0;
+}
+
+.phone-state {
+  margin: var(--space-4) 0 0;
+}
+
+.phone-state-label {
+  color: var(--text-muted);
+}
+
+.phone-state-value {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Причина под строкой состояния - тем же цветом статуса (.status-*), обычным начертанием и без
+   живой области: это состояние, а не ответ на действие. Красный (.field-error) - только ошибкам действий. */
+.phone-conn-error {
+  margin: var(--space-1) 0 0;
+  font-size: 14px;
+}
+
+.phone-pair {
+  margin-top: var(--space-4);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--line);
+}
+
+/* Имя телефона присылает телефон: длинное без пробелов переносится, а не распирает блок. */
+.phone-paired-line,
+.phone-pair .subsection-title {
+  overflow-wrap: anywhere;
+}
+
+.phone-paired-line {
+  margin-bottom: 0;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Код привязки и число сверки: крупно, цифры одной ширины, группы не разрываются. */
+.phone-code {
+  margin: var(--space-2) 0;
+  font-family: var(--font-display);
+  font-size: 40px;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: 0.06em;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.phone-code-ttl {
+  margin-bottom: 0;
+}
+
+.phone-countdown {
+  font-variant-numeric: tabular-nums;
+}
+
+.phone-paired-line + .form-actions {
+  margin-top: var(--space-3);
+}
+
+/* «Подключить другой телефон» и «Отвязать» заполняют ряд: в узкой карточке обе в ряд не входят и
+   встают одна под другой одной ширины, во всю ширину ряда; в широкой делят ряд без пустого хвоста. */
+.phone-pair-actions > .btn {
+  flex: 1 1 auto;
+}
+
+/* Недоступная кнопка подключения - серая, как .btn:disabled в остальном окне, но остаётся в Tab-порядке:
+   пояснение под ней (.field-hint) зачитывается по фокусу через aria-describedby. */
+.phone .btn[aria-disabled="true"],
+.phone .btn[aria-disabled="true"]:hover {
+  border-style: solid;
+  background: var(--surface);
+  color: var(--text);
+  opacity: 0.55;
+}
+
+.phone .btn-primary[aria-disabled="true"],
+.phone .btn-primary[aria-disabled="true"]:hover {
+  background: var(--primary);
+  color: var(--primary-text);
+}
+
+/* Постоянная область статуса (PL-44): пустая не занимает места. */
+.phone-message {
+  margin: var(--space-4) 0 0;
+}
+
+.phone-message:empty {
+  margin: 0;
+}

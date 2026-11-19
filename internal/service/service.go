@@ -256,6 +256,9 @@ type Service struct {
 	startupDone map[int64]time.Time
 	startupAt   time.Time
 	startupWG   sync.WaitGroup
+
+	// Связь с телефоном (M7, remote.go): запись remote.state и идущая связь.
+	rem remoteState
 }
 
 // New собирает службу. Ничего не запускает: Start читает базу и поднимает сеансные части.
@@ -386,6 +389,7 @@ func (s *Service) Start(real time.Time) error {
 			s.checkStartup(s.children[id], false) // невошедшие: только общие, профиль не трогается
 		}
 	}
+	s.startRemote() // связь с телефоном — только если родитель её включил (S56)
 	return nil
 }
 
@@ -410,6 +414,10 @@ func (s *Service) Shutdown(real time.Time) {
 	if !s.waitStartupFor(startupStopWait) {
 		s.cfg.Logf("проверка автозагрузки не закончилась за %s при остановке службы", startupStopWait)
 	}
+	// Горутины связи с телефоном ждут s.mu в методах remote.Host: ждём их только вне блокировки.
+	if !s.waitRemote(remoteStopWait) {
+		s.cfg.Logf("связь с телефоном не остановилась за %s при остановке службы", remoteStopWait)
+	}
 }
 
 func (s *Service) shutdown(real time.Time) {
@@ -420,6 +428,7 @@ func (s *Service) shutdown(real time.Time) {
 		return
 	}
 	s.stopping = true
+	s.stopLink()
 	// Остановка службы это выключение или перезагрузка компьютера: то, что успело погибнуть
 	// перед ней, не обход (FB-1).
 	s.cancelAllBypass("остановка службы")

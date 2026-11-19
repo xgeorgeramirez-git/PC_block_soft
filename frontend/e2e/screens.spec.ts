@@ -392,7 +392,7 @@ test("s07 что нового", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("navigation", { name: "Разделы" }).getByRole("button", { name: "Что нового" }).click();
   await expect(page.getByRole("heading", { name: "Что нового", level: 2 })).toBeVisible();
-  await expect(page.getByRole("heading", { level: 3 }).first()).toHaveText("Версия 0.7.1. Мелкие улучшения");
+  await expect(page.getByRole("heading", { level: 3 }).first()).toHaveText("Версия 0.8.0. Связь с телефоном");
   await expect(page.locator("main.content").getByRole("button")).toHaveCount(0);
   await noHorizontalScroll(page);
   await wholePage(page);
@@ -3470,5 +3470,127 @@ test.describe("s50 автозагрузка: окно 960 при масштаб�
     await startupRowsInside(page);
     await noHorizontalScroll(page);
     await page.screenshot({ path: `${SCREENS}/s50-startup-narrow.png` });
+  });
+});
+
+// settings-phone-* — блок «Телефон» в «Настройках» (M7, FR-40, UX-сценарий плана M7): выключено, на
+// связи, код привязки, сверка числа, телефон подключён, нет связи. Часы и пояс заданы: «Осталось 9:41»,
+// «Нет связи с 19:05» и «с 18.11 21:40» не зависят от времени сборки.
+test.describe("settings-phone: блок «Телефон»", () => {
+  test.use({ timezoneId: "Europe/Moscow" });
+
+  const PHONE_NOW = new Date("2026-11-18T22:10:00+03:00");
+  const at = (hhmm: string) => new Date(`2026-11-18T${hhmm}:00+03:00`).getTime();
+  const idlePair = { stage: "idle" as const, code: "", expiresMs: 0, sas: "", phoneName: "", error: "" as const };
+  const online = { enabled: true, state: "online" as const, lastOkMs: PHONE_NOW.getTime(), error: "" as const, pair: idlePair };
+  const phone = { name: "Pixel 7", pairedAtMs: at("21:40") };
+
+  async function openPhone(page: Page, remote: MockOptions["remote"]) {
+    // Блок с кодом выше окна 640: окно выше, чтобы блок был в кадре целиком.
+    await tallWindow(page, 1000);
+    await page.clock.setFixedTime(PHONE_NOW);
+    await mockProgram(page, { mode: "parent", sessionActive: true, children: [child({})], remote });
+    await page.goto("/");
+    await page.getByRole("button", { name: "Настройки" }).click();
+    const box = page.getByRole("region", { name: "Телефон" });
+    await expect(box.getByRole("switch", { name: "Связь с телефоном" })).toBeEnabled();
+    // Блок сразу после «Пауза для всех детей».
+    await expect(page.locator(".settings > section > h3").nth(3)).toHaveText("Телефон");
+    await expect(page.locator(".settings > section > h3").nth(2)).toHaveText("Пауза для всех детей");
+    return box;
+  }
+
+  async function shot(page: Page, box: ReturnType<Page["locator"]>, name: string) {
+    await noHorizontalScroll(page);
+    await box.scrollIntoViewIfNeeded();
+    await inFrame(page, box);
+    await box.screenshot({ path: `${SCREENS}/${name}.png` });
+  }
+
+  test("settings-phone-off", async ({ page }) => {
+    const box = await openPhone(page, undefined);
+    await expect(box.getByRole("switch", { name: "Связь с телефоном" })).not.toBeChecked();
+    await expect(box.getByText("Программа будет связываться только с вашим сервером. Выключено: программа совсем без интернета")).toBeVisible();
+    await expect(box.getByLabel("Адрес сервера")).toHaveCount(0);
+    await expect(box.getByRole("button", { name: /Подключить/ })).toHaveCount(0);
+    await shot(page, box, "settings-phone-off");
+  });
+
+  test("settings-phone-online", async ({ page }) => {
+    const box = await openPhone(page, online);
+    await expect(box.getByLabel("Адрес сервера")).toHaveValue("https://pcblock.atlas404.ru");
+    await expect(box.locator(".phone-state-value")).toHaveText("На связи");
+    await expect(box.getByRole("button", { name: "Подключить телефон" })).toBeEnabled();
+    await expect(box.locator(".phone-why")).toHaveCount(0);
+    await shot(page, box, "settings-phone-online");
+  });
+
+  test("settings-phone-code", async ({ page }) => {
+    const box = await openPhone(page, {
+      ...online,
+      pair: { ...idlePair, stage: "code", code: "482913", expiresMs: PHONE_NOW.getTime() + 9 * 60_000 + 41_000 },
+    });
+    const code = box.locator(".phone-code");
+    await expect(code).toHaveText("482 913");
+    expect(await code.evaluate((el) => getComputedStyle(el).fontVariantNumeric)).toContain("tabular-nums");
+    expect(await code.evaluate((el) => parseFloat(getComputedStyle(el).fontSize))).toBeGreaterThanOrEqual(32);
+    // Код одной строкой: группы цифр не разорваны.
+    expect(await code.evaluate((el) => el.getBoundingClientRect().height)).toBeLessThan(60);
+    await expect(box.getByText("Действует 10 минут")).toBeVisible();
+    await expect(box.getByText("Осталось 9:41")).toBeVisible();
+    await expect(box.getByRole("button", { name: "Отмена" })).toBeVisible();
+    await shot(page, box, "settings-phone-code");
+  });
+
+  test("settings-phone-compare", async ({ page }) => {
+    const box = await openPhone(page, {
+      ...online,
+      pair: { ...idlePair, stage: "compare", sas: "731004", phoneName: "Pixel 7", expiresMs: PHONE_NOW.getTime() + 8 * 60_000 },
+    });
+    await expect(box.getByText("На телефоне должно быть число")).toBeVisible();
+    await expect(box.locator(".phone-code")).toHaveText("731 004");
+    await expect(box.getByRole("button", { name: "Совпадает", exact: true })).toBeVisible();
+    await expect(box.getByRole("button", { name: "Не совпадает" })).toBeVisible();
+    await expect(box.getByText("Если число совпало, нажмите «Совпадает» здесь и на телефоне")).toBeVisible();
+    await shot(page, box, "settings-phone-compare");
+  });
+
+  test("settings-phone-paired", async ({ page }) => {
+    const box = await openPhone(page, { ...online, phone });
+    await expect(box.getByText("Телефон подключён: Pixel 7, с 18.11 21:40")).toBeVisible();
+    await expect(box.getByRole("button", { name: "Отвязать" })).toBeVisible();
+    await expect(box.getByRole("button", { name: "Подключить другой телефон" })).toBeVisible();
+    await expect(box.getByText("Прежний телефон будет отвязан, когда вы подключите новый")).toBeVisible();
+    // Дата и время привязки - одной строкой. Кнопки одной ширины: в узкой карточке (340 px) обе в ряд
+    // не входят и встают одна под другой во всю ширину ряда.
+    const line = box.locator(".phone-paired-line");
+    expect(await line.evaluate((el) => el.textContent)).toContain("18.11\u00a021:40");
+    const rect = async (name: string) => (await box.getByRole("button", { name }).boundingBox())!;
+    const [unpairBtn, otherBtn] = [await rect("Отвязать"), await rect("Подключить другой телефон")];
+    expect(Math.abs(unpairBtn.width - otherBtn.width)).toBeLessThan(1);
+    expect(Math.abs(unpairBtn.x - otherBtn.x)).toBeLessThan(1);
+    await shot(page, box, "settings-phone-paired");
+    // «Отвязать» спрашивает подтверждение.
+    await box.getByRole("button", { name: "Отвязать" }).click();
+    const dialog = page.getByRole("dialog", { name: "Отвязать телефон?" });
+    await expect(dialog.getByText("С него больше нельзя будет менять время")).toBeVisible();
+    await expect(dialog.getByRole("button", { name: "Отмена" })).toBeFocused();
+    await page.keyboard.press("Escape");
+    await expect(dialog).toHaveCount(0);
+  });
+
+  test("settings-phone-offline", async ({ page }) => {
+    const box = await openPhone(page, { ...online, phone, state: "offline", lastOkMs: at("19:05"), error: "no_server" });
+    await expect(box.locator(".phone-state-value")).toHaveText("Нет связи с 19:05");
+    await expect(box.getByText("Не удаётся связаться с сервером. Проверьте адрес и интернет")).toBeVisible();
+    await expect(box.getByText("Телефон подключён: Pixel 7, с 18.11 21:40")).toBeVisible();
+    await expect(box.getByRole("button", { name: "Подключить другой телефон" })).toHaveAttribute("aria-disabled", "true");
+    const other = box.getByRole("button", { name: "Подключить другой телефон" });
+    await expect(box.locator(".phone-why")).toHaveText("Подключить другой телефон можно, когда связь с сервером восстановится");
+    await expect(other).toHaveAccessibleDescription("Подключить другой телефон можно, когда связь с сервером восстановится");
+    // Недоступная кнопка - серая сплошной рамкой, как недоступные кнопки окна, а не пунктиром.
+    expect(await other.evaluate((el) => getComputedStyle(el).borderStyle)).toBe("solid");
+    expect(await other.evaluate((el) => getComputedStyle(el).opacity)).toBe("0.55");
+    await shot(page, box, "settings-phone-offline");
   });
 });
