@@ -2984,6 +2984,10 @@ textarea.sites-add-input {
 }
 
 .pause-toggle[aria-pressed="true"] {
+  /* Нажатый значок шире: в нём подпись «Закончить паузу». */
+  width: auto;
+  padding: 0 var(--space-3) 0 var(--space-2);
+  white-space: nowrap;
   background: var(--primary);
   border-color: var(--primary);
   color: var(--primary-text);
