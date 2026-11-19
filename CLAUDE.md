@@ -41,6 +41,7 @@
 - Среда: в песочнице есть системный Chrome — e2e Playwright можно гонять локально временным конфигом с `launchOptions.executablePath: "/usr/bin/google-chrome"` (не коммитить). Android SDK и Maven закрыты: Android собирается только в CI; чистый Kotlin — компилятором из `/opt/gradle/lib`. Секреты GitHub из песочницы не ставятся (403) — заказчик через интерфейс.
 - Следующее: заказчик ставит 0.8.0 и проверяет с телефона «+15»/«−15»; затем M9 «Финал» (`plans/PROMPTS.md`).
 - Локальные тесты Go без сети: `sed 's/^go 1.27.*/go 1.24/; /^toolchain/d' go.mod > /tmp/local.mod && cp go.sum /tmp/local.sum && GOTOOLCHAIN=local GOFLAGS=-mod=mod GOPROXY=off go test -race -count=1 -modfile=/tmp/local.mod ./internal/core/... ./internal/service/ ./internal/ipc/... ./internal/programs/...` (хранилище и фронт — только CI; `TestAdultNoCopy` локально не считать).
+- **Уборка GitHub** (19.11.2026, по просьбе заказчика): все слитые рабочие ветки и предварительный выпуск v0.8.0-beta.1 удалены; остались `main` и `screenshots` (снимки CI), выпуски v0.0.1…v0.8.0. Сессия ветки и выпуски напрямую не удаляет (403) — сборка `repo-cleanup.yml` (`gh api -X POST …/actions/workflows/repo-cleanup.yml/dispatches -f ref=main -f 'inputs[branches]=…' -f 'inputs[releases]=…'`). Правило: после слияния PR удалять его ветку этой сборкой; предварительные выпуски — после окончательного.
 - Сквозной бэклог миноров: `plans/BACKLOG.md` (B-2 → M9; B-8 — проверка заказчиком на реальном экране; B-9, B-18 — вопросы заказчику; B-11 закрыт решением D-41).
 
 ## Документы (порядок чтения)
