@@ -1,4 +1,4 @@
-// Команда remote-phone — тестовый телефон приёмки S55, S56 (M7, FR-40, docs/07_Протокол_связи.md).
+// Команда remote-phone — тестовый телефон приёмки S55…S58 (M7, FR-40, docs/07_Протокол_связи.md).
 // Делает то же, что Android-приложение, но из командной строки: привязка кодом со сверкой числа,
 // команды доп. времени, проверенный отчёт компьютера. Криптография — только функции
 // internal/remote (подпись, обязательство, число сверки), своей здесь нет. В установщик не входит.
@@ -12,6 +12,8 @@
 //	remote-phone note    -state f.json -child 3 -text "Иди ужинать" -show 0   (сообщение, FR-41)
 //	remote-phone forge-note -state f.json -child 3 -text "…" -show 0       (подпись чужим ключом)
 //	remote-phone notes   -state f.json                        (состояния сообщений из отчёта)
+//	remote-phone forbid-off -state f.json -child 3            (снять запрет на сегодня, FR-42)
+//	remote-phone forge-forbid-off -state f.json -child 3      (подпись чужим ключом)
 //
 // Вывод — одна строка JSON. Код выхода: 0 — удалось, 2 — компьютер ответил отказом (ответ
 // проверен подписью), 1 — любая другая ошибка ({"error":"<код>"}).
@@ -91,7 +93,7 @@ func main() {
 
 func (a *app) run(args []string) int {
 	if len(args) == 0 {
-		return a.emitErr(fail(errUsage, "нужна подкоманда: pair, confirm, cmd, status, forge-cmd, replay, note, forge-note, notes"))
+		return a.emitErr(fail(errUsage, "нужна подкоманда: pair, confirm, cmd, status, forge-cmd, replay, note, forge-note, notes, forbid-off, forge-forbid-off"))
 	}
 	sub, rest := args[0], args[1:]
 	fs := flag.NewFlagSet(sub, flag.ContinueOnError)
@@ -115,7 +117,7 @@ func (a *app) run(args []string) int {
 		res, err = a.pair(*statePath, *rawURL, *code, *name)
 	case "confirm":
 		res, err = a.confirm(*statePath)
-	case "cmd", "forge-cmd", "replay":
+	case "cmd", "forge-cmd", "replay", "forbid-off", "forge-forbid-off":
 		var r cmdOut
 		r, err = a.command(*statePath, sub, *child, *delta)
 		res, rejected = r, err == nil && !r.OK
@@ -368,12 +370,16 @@ type cmdOut struct {
 	Ms      int64  `json:"ms"`
 	Seq     int64  `json:"seq"`
 	LastSeq *int64 `json:"lastSeq,omitempty"`
+	// Forbid, ForbidUntilMs — запретные часы ребёнка из отчёта в ответе (раздел 6).
+	Forbid        string `json:"forbid,omitempty"`
+	ForbidUntilMs int64  `json:"forbidUntilMs,omitempty"`
 }
 
 // command — cmd: новая команда со следующим seq, подписанная ключом телефона; forge-cmd — та же
 // команда, но подписанная только что созданным чужим ключом (seq не тратится); replay — последняя
-// отправленная команда байт в байт (тот же seq). Ответ cmdr принимается, только если подпись
-// компьютера верна и cmd — хэш нашей команды.
+// отправленная команда байт в байт (тот же seq); forbid-off — «снять запрет на сегодня» (op
+// noForbidden, без delta, протокол 5б), forge-forbid-off — она же чужим ключом. Ответ cmdr
+// принимается, только если подпись компьютера верна и cmd — хэш нашей команды.
 func (a *app) command(statePath, sub string, child int64, delta int) (cmdOut, error) {
 	st, err := loadState(statePath)
 	if err != nil {
@@ -390,11 +396,18 @@ func (a *app) command(statePath, sub string, child int64, delta int) (cmdOut, er
 		}
 		signed = *st.LastCmd
 	default:
-		if child <= 0 || delta == 0 {
+		forbid := sub == "forbid-off" || sub == "forge-forbid-off"
+		switch {
+		case forbid && child <= 0:
+			return cmdOut{}, fail(errUsage, "%s: нужен -child", sub)
+		case !forbid && (child <= 0 || delta == 0):
 			return cmdOut{}, fail(errUsage, "%s: нужны -child и -delta", sub)
 		}
 		c := remote.Command{V: remote.ProtoVersion, T: remote.TypeCmd, PC: st.PCID, Phone: st.PhoneID,
 			Seq: st.Seq + 1, TS: a.now().UnixMilli(), Child: child, Delta: delta}
+		if forbid {
+			c.Delta, c.Op = 0, remote.OpNoForbidden
+		}
 		data, err := json.Marshal(c)
 		if err != nil {
 			return cmdOut{}, err
@@ -403,7 +416,7 @@ func (a *app) command(statePath, sub string, child int64, delta int) (cmdOut, er
 		if err != nil {
 			return cmdOut{}, err
 		}
-		if sub == "forge-cmd" {
+		if sub == "forge-cmd" || sub == "forge-forbid-off" {
 			if key, err = remote.NewKey(); err != nil {
 				return cmdOut{}, err
 			}
@@ -411,7 +424,7 @@ func (a *app) command(statePath, sub string, child int64, delta int) (cmdOut, er
 		if signed, err = remote.Sign(key, data); err != nil {
 			return cmdOut{}, err
 		}
-		if sub == "cmd" {
+		if sub == "cmd" || sub == "forbid-off" {
 			// seq записан до отправки: повтор (replay) берёт ровно эту команду.
 			st.Seq, st.LastCmd = c.Seq, &signed
 			if err := saveState(statePath, st); err != nil {
@@ -463,10 +476,11 @@ func (a *app) command(statePath, sub string, child int64, delta int) (cmdOut, er
 			if ch.ID == sent.Child {
 				left := ch.LeftSec
 				out.LeftSec = &left
+				out.Forbid, out.ForbidUntilMs = ch.Forbid, ch.ForbidUntilMs
 			}
 		}
 	}
-	if !res.OK && res.LastSeq != nil && *res.LastSeq > st.Seq && sub == "cmd" {
+	if !res.OK && res.LastSeq != nil && *res.LastSeq > st.Seq && (sub == "cmd" || sub == "forbid-off") {
 		// Компьютер помнит больший номер (например, после перезапуска телефона): догоняем.
 		st.Seq = *res.LastSeq
 		_ = saveState(statePath, st)

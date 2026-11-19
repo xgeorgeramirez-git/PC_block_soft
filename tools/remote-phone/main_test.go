@@ -34,6 +34,8 @@ type fakePC struct {
 	srv        *httptest.Server
 	cmdApplied int
 	notes      []remote.NoteReport
+	forbid     string // запретные часы в отчёте (раздел 6)
+	forbidEnd  int64
 }
 
 func newFakePC(t *testing.T) *fakePC {
@@ -100,7 +102,7 @@ func (f *fakePC) signed(v any) json.RawMessage {
 
 func (f *fakePC) report() remote.Report {
 	return remote.Report{V: 1, T: remote.TypeReport, PC: "pc1", Phone: "ph1", TS: time.Now().UnixMilli(),
-		Children: []remote.ChildReport{{ID: 3, Name: "Миша", UsedSec: 60, LeftSec: int64(1800 + f.extra*60), ExtraMin: f.extra}},
+		Children: []remote.ChildReport{{ID: 3, Name: "Миша", UsedSec: 60, LeftSec: int64(1800 + f.extra*60), ExtraMin: f.extra, Forbid: f.forbid, ForbidUntilMs: f.forbidEnd}},
 		Notes:    append([]remote.NoteReport(nil), f.notes...)}
 }
 
@@ -136,8 +138,12 @@ func (f *fakePC) hSend(w http.ResponseWriter, r *http.Request) {
 		}
 		if code == "" {
 			f.lastSeq, f.extra, f.cmdApplied = c.Seq, f.extra+c.Delta, f.cmdApplied+1
+			msg := "Добавлено"
+			if c.Op == remote.OpNoForbidden {
+				f.forbid, f.forbidEnd, msg = remote.ForbidCleared, 0, "Запрет на сегодня снят"
+			}
 			rep := f.report()
-			res.OK, res.Message, res.Report = true, "Добавлено", &rep
+			res.OK, res.Message, res.Report = true, msg, &rep
 		} else {
 			last := f.lastSeq
 			res.Error, res.LastSeq = code, &last
@@ -308,5 +314,50 @@ func TestPhoneNotes(t *testing.T) {
 	}
 	if code, out := runJSON(t, "note", "-state", state, "-child", "3"); code != 1 || out["error"] != errUsage {
 		t.Fatalf("без текста: %d %v", code, out)
+	}
+}
+
+// Ловит: «снять запрет» (протокол 5б) уходит без op или с delta, не в общей нумерации seq, подделка
+// тратит номер; статус запретных часов из отчёта не печатается (S58).
+func TestPhoneForbidOff(t *testing.T) {
+	f := newFakePC(t)
+	f.forbid, f.forbidEnd = remote.ForbidActive, 1763496000000
+	state := filepath.Join(t.TempDir(), "phone.json")
+	if code, out := runJSON(t, "pair", "-state", state, "-url", f.srv.URL, "-code", "123456"); code != 0 {
+		t.Fatalf("pair: %v", out)
+	}
+	runJSON(t, "confirm", "-state", state)
+	code, out := runJSON(t, "status", "-state", state)
+	ch, _ := out["children"].([]any)
+	if code != 0 || len(ch) != 1 || ch[0].(map[string]any)["forbid"] != remote.ForbidActive || ch[0].(map[string]any)["forbidUntilMs"] != float64(1763496000000) {
+		t.Fatalf("status до снятия: %d %v", code, out)
+	}
+	runJSON(t, "cmd", "-state", state, "-child", "3", "-delta", "30")
+	if code, out := runJSON(t, "forge-forbid-off", "-state", state, "-child", "3"); code != 2 || out["error"] != remote.ErrCodeBadSig {
+		t.Fatalf("forge-forbid-off: %d %v", code, out)
+	}
+	if code, out := runJSON(t, "forbid-off", "-state", state); code != 1 || out["error"] != errUsage {
+		t.Fatalf("forbid-off без -child: %d %v", code, out)
+	}
+	code, out = runJSON(t, "forbid-off", "-state", state, "-child", "3")
+	if code != 0 || out["ok"] != true || out["seq"] != float64(2) || out["message"] != "Запрет на сегодня снят" || out["forbid"] != remote.ForbidCleared {
+		t.Fatalf("forbid-off: %d %v", code, out)
+	}
+	if _, ok := out["forbidUntilMs"]; ok {
+		t.Fatalf("forbid-off: конец интервала у снятого запрета: %v", out)
+	}
+	if code, out := runJSON(t, "replay", "-state", state); code != 2 || out["error"] != remote.ErrCodeReplay || out["seq"] != float64(2) {
+		t.Fatalf("replay «снять запрет»: %d %v", code, out)
+	}
+	f.mu.Lock()
+	applied, extra := f.cmdApplied, f.extra
+	f.mu.Unlock()
+	if applied != 2 || extra != 30 {
+		t.Fatalf("применено %d, доп. время %d; ждали 2 и 30", applied, extra)
+	}
+	code, out = runJSON(t, "status", "-state", state)
+	ch, _ = out["children"].([]any)
+	if code != 0 || ch[0].(map[string]any)["forbid"] != remote.ForbidCleared {
+		t.Fatalf("status после снятия: %d %v", code, out)
 	}
 }
