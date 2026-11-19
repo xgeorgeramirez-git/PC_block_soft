@@ -134,6 +134,25 @@ func (h *fakeHost) ApplyCommand(gen, seq, childID int64, delta int) (string, str
 	return fmt.Sprintf("Добавлено %d минут", delta), "", seq
 }
 
+func (h *fakeHost) ApplyNoForbidden(gen, seq, childID int64) (string, string, int64) {
+	h.applyEnter.Add(1)
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if gen != h.link.Gen() {
+		return "", ErrCodeStale, h.st.LastSeq
+	}
+	if seq <= h.st.LastSeq {
+		return "", ErrCodeReplay, h.st.LastSeq
+	}
+	h.st.LastSeq = seq
+	if childID != 3 {
+		return "", ErrCodeNoChild, seq
+	}
+	h.applied = append(h.applied, fmt.Sprintf("%d:noForbidden", seq))
+	h.children[0].Forbid = ForbidCleared
+	return "Запрет на сегодня снят", "", seq
+}
+
 func (h *fakeHost) ApplyNote(gen int64, n Note) (string, int64) {
 	h.applyEnter.Add(1)
 	h.mu.Lock()
@@ -1258,5 +1277,74 @@ func TestPairErrorByStage(t *testing.T) {
 	g.l.StartPairing()
 	if pi := g.waitStage(StageFailed); pi.Error != PairErrNoCode {
 		t.Fatalf("код не получен: %+v", pi)
+	}
+}
+
+// «Снять запрет на сегодня» (протокол 5б): та же проверка и та же нумерация seq, что у команды
+// и сообщения; ответ cmdr с отчётом, где запрет снят; неизвестный op и delta у «снять запрет» —
+// range до Host (номер не тратится); старая команда без op — доп. время, как раньше.
+func TestLinkNoForbidden(t *testing.T) {
+	phone, stranger := mustKey(t), mustKey(t)
+	var pcKey *ecdsa.PrivateKey
+	g := newRig(t, func(g *rig) { g.h.st, pcKey = pairedState(t, g.r, phone, 4) })
+	g.start()
+	now := g.clock.Ms()
+	nf := Command{V: 1, T: TypeCmd, PC: "pc-x", Phone: "ph1", Seq: 5, TS: now, Child: 3, Op: OpNoForbidden}
+	with := func(c Command, f func(*Command)) Command { f(&c); return c }
+	note := Note{V: 1, T: TypeNote, PC: "pc-x", Phone: "ph1", Seq: 7, TS: now, Child: 3, ID: "n-1", Text: "Привет"}
+	cases := []struct {
+		name    string
+		kind    string
+		key     *ecdsa.PrivateKey
+		data    any
+		code    string
+		lastSeq int64
+		msg     string
+	}{
+		{"снять запрет", KindCmd, phone, nf, "", 5, "Запрет на сегодня снят"},
+		{"повтор seq", KindCmd, phone, nf, ErrCodeReplay, 5, ""},
+		{"чужая подпись", KindCmd, stranger, with(nf, func(c *Command) { c.Seq = 6 }), ErrCodeBadSig, 5, ""},
+		{"с delta", KindCmd, phone, with(nf, func(c *Command) { c.Seq = 6; c.Delta = 15 }), ErrCodeRange, 5, ""},
+		{"неизвестный op", KindCmd, phone, with(nf, func(c *Command) { c.Seq = 6; c.Op = "pause" }), ErrCodeRange, 5, ""},
+		{"старый телефон без op", KindCmd, phone, with(nf, func(c *Command) { c.Seq = 6; c.Op = ""; c.Delta = 15 }), "", 6, "Добавлено 15 минут"},
+		{"сообщение", KindNote, phone, note, "", 7, ""},
+		{"снять запрет с seq сообщения", KindCmd, phone, with(nf, func(c *Command) { c.Seq = 7 }), ErrCodeReplay, 7, ""},
+		{"нет ребёнка", KindCmd, phone, with(nf, func(c *Command) { c.Seq = 8; c.Child = 99 }), ErrCodeNoChild, 8, ""},
+	}
+	for _, c := range cases {
+		raw, _ := json.Marshal(c.data)
+		s, _ := Sign(c.key, raw)
+		rep, ok := g.r.sendFrom("ph1", c.kind, s, 2*time.Second)
+		if !ok {
+			t.Fatalf("%s: нет ответа", c.name)
+		}
+		var sr Signed
+		json.Unmarshal(rep.Body, &sr)
+		data, err := Verify(&pcKey.PublicKey, sr)
+		if err != nil {
+			t.Fatalf("%s: ответ без подписи компьютера", c.name)
+		}
+		var res CmdResult
+		json.Unmarshal(data, &res)
+		if res.Cmd != HashData(raw) || res.OK != (c.code == "") || res.Error != c.code {
+			t.Fatalf("%s: ответ %+v, нужно %q", c.name, res, c.code)
+		}
+		if !res.OK && (res.LastSeq == nil || *res.LastSeq != c.lastSeq) {
+			t.Fatalf("%s: lastSeq %v, нужно %d", c.name, res.LastSeq, c.lastSeq)
+		}
+		if res.OK && c.kind == KindCmd && (res.Message != c.msg || res.Report == nil) {
+			t.Fatalf("%s: удачный ответ %+v", c.name, res)
+		}
+		if c.name == "снять запрет" && res.Report.Children[0].Forbid != ForbidCleared {
+			t.Fatalf("отчёт после снятия запрета: %+v", res.Report.Children)
+		}
+	}
+	if _, applied, _, _ := g.h.get(); strings.Join(applied, " ") != "5:noForbidden 6:+15 7:note:n-1:Привет:0" {
+		t.Fatalf("применены %v", applied)
+	}
+	// До Host дошли: снять запрет, старая команда, сообщение, нет ребёнка (повторы, подпись и range
+	// отсекает проверка).
+	if n := g.h.applyEnter.Load(); n != 4 {
+		t.Fatalf("Host вызван %d раз", n)
 	}
 }

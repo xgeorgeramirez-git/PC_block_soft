@@ -27,14 +27,39 @@ func (s *Service) hSetNoForbidden(c *callCtx) ipc.Reply {
 	if cs == nil {
 		return ipc.Fail(textNoSuchChild)
 	}
-	d := cs.eng.SetNoForbiddenToday(req.On)
-	s.afterDecision(cs, d, nil)
-	s.saveDay(cs)
+	s.setNoForbidden(cs, req.On, extraFromWindow)
 	msg := "Сегодня запретные часы не действуют"
 	if !req.On {
 		msg = "Запретные часы снова действуют сегодня"
 	}
 	return ipc.OK(ipc.SetNoForbiddenReply{Card: s.cardOf(cs), Message: msg})
+}
+
+// textNoForbiddenNotice — плашка ребёнку, когда родитель снял запретные часы на сегодня (окно или
+// телефон, FR-42).
+const textNoForbiddenNotice = "Сегодня запретные часы не действуют"
+
+// setNoForbidden — общий путь кнопки «Снять запрет на сегодня» окна родителя и команды телефона
+// (R24, FR-42, протокол 5б): ядро, журнал (с телефона — подробность source: "phone"), сохранение
+// дня; при снятии — плашка ребёнку; телефон узнаёт о смене из окна внеочередным отчётом (команда
+// телефона отчёт отправляет сама). Возвращает false, если флаг уже был таким (журнал не пишется).
+func (s *Service) setNoForbidden(cs *childState, on bool, src extraSource) bool {
+	before, _ := cs.eng.State()
+	var extra map[string]any
+	if src == extraFromPhone {
+		extra = map[string]any{"source": extraSourcePhone}
+	}
+	d := cs.eng.SetNoForbiddenToday(on)
+	s.afterDecision(cs, d, extra)
+	s.saveDay(cs)
+	changed := before.NoForbidden != on
+	if changed && on {
+		s.noticeGuards(cs, textNoForbiddenNotice)
+	}
+	if src != extraFromPhone {
+		s.remoteChanged()
+	}
+	return changed
 }
 
 // --- FB-2: копилку обнулить и убавить (FR-22, D-46) ------------------------------------

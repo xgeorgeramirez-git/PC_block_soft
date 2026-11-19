@@ -69,6 +69,11 @@ type Host interface {
 	// replay; иначе записать LastSeq = seq, затем доп. время (общий путь с окном родителя).
 	// code: "" | replay | no_child | range | stale; lastSeq — после вызова.
 	ApplyCommand(gen int64, seq int64, childID int64, delta int) (msg string, code string, lastSeq int64)
+	// ApplyNoForbidden — «снять запрет на сегодня» (раздел 5б) под той же блокировкой и в той же
+	// нумерации seq: gen → seq → запись LastSeq = seq → снятие тем же путём, что кнопка окна.
+	// Уже снят или сегодня запретных часов нет — code "" с сообщением, журнал не пишется.
+	// code: "" | replay | no_child | stale | not_paired.
+	ApplyNoForbidden(gen int64, seq int64, childID int64) (msg string, code string, lastSeq int64)
 	// ApplyNote — сообщение ребёнку (раздел 5а) под той же блокировкой и в той же нумерации seq,
 	// что ApplyCommand: gen не текущий — отказ; seq ≤ LastSeq — replay; иначе записать LastSeq = seq,
 	// затем поставить сообщение в очередь показа. code: "" | replay | no_child | stale | not_paired.
@@ -1015,7 +1020,11 @@ func (w *worker) onCmd(m Msg, v any, perr error) {
 	}
 	lastSeq := st.LastSeq
 	var msg string
-	if code == "" {
+	switch {
+	case code != "":
+	case cmd.Op == OpNoForbidden:
+		msg, code, lastSeq = w.h.ApplyNoForbidden(w.r.gen, cmd.Seq, cmd.Child)
+	default:
 		msg, code, lastSeq = w.h.ApplyCommand(w.r.gen, cmd.Seq, cmd.Child, cmd.Delta)
 	}
 	w.reply(m, st, s, now, answer{kind: KindCmdR, typ: TypeCmdR, seq: cmd.Seq, code: code, msg: msg, lastSeq: lastSeq})

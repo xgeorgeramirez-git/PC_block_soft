@@ -251,3 +251,67 @@ func TestCheckNote(t *testing.T) {
 		t.Fatalf("равный seq: %q", code)
 	}
 }
+
+// Ловит (протокол 5б): неизвестный op применяется как доп. время; «снять запрет» с delta проходит;
+// старая команда без op перестала проходить; поле op попадает в данные старой команды (байты
+// векторов Android меняются) или delta 0 уходит у «снять запрет».
+func TestCheckCommandOp(t *testing.T) {
+	phone := mustKey(t)
+	now := time.UnixMilli(1763490000000)
+	st := State{PCID: "pc1", Phone: &Phone{ID: "ph1", Pub: MarshalPub(&phone.PublicKey)}, LastSeq: 16}
+	base := Command{V: 1, T: TypeCmd, PC: "pc1", Phone: "ph1", Seq: 17, TS: now.UnixMilli(), Child: 3}
+	sign := func(c Command) Signed {
+		raw, _ := json.Marshal(c)
+		s, err := Sign(phone, raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return s
+	}
+	with := func(f func(*Command)) Command { c := base; f(&c); return c }
+	cases := []struct {
+		name string
+		cmd  Command
+		code string
+		op   string
+	}{
+		{"без op (старый телефон)", with(func(c *Command) { c.Delta = 15 }), "", ""},
+		{"op extra", with(func(c *Command) { c.Op = OpExtra; c.Delta = -30 }), "", OpExtra},
+		{"снять запрет", with(func(c *Command) { c.Op = OpNoForbidden }), "", OpNoForbidden},
+		{"снять запрет с delta", with(func(c *Command) { c.Op = OpNoForbidden; c.Delta = 15 }), ErrCodeRange, ""},
+		{"неизвестный op", with(func(c *Command) { c.Op = "pause"; c.Delta = 15 }), ErrCodeRange, ""},
+		{"неизвестный op, старый seq", with(func(c *Command) { c.Op = "pause"; c.Seq = 3 }), ErrCodeRange, ""},
+		{"снять запрет, старый seq", with(func(c *Command) { c.Op = OpNoForbidden; c.Seq = 16 }), ErrCodeReplay, ""},
+		{"снять запрет, чужой pc", with(func(c *Command) { c.Op = OpNoForbidden; c.PC = "pc2" }), ErrCodeNotPaired, ""},
+	}
+	for _, c := range cases {
+		cmd, _, code := CheckCommand(st, sign(c.cmd), "ph1", now)
+		if code != c.code {
+			t.Errorf("%s: код %q, нужно %q", c.name, code, c.code)
+			continue
+		}
+		if code == "" && cmd.Op != c.op {
+			t.Errorf("%s: op %q, нужно %q", c.name, cmd.Op, c.op)
+		}
+	}
+	old, _ := json.Marshal(with(func(c *Command) { c.Delta = 15 }))
+	if strings.Contains(string(old), `"op"`) || !strings.Contains(string(old), `"delta":15`) {
+		t.Fatalf("команда без op: %s", old)
+	}
+	nf, _ := json.Marshal(with(func(c *Command) { c.Op = OpNoForbidden }))
+	if !strings.HasSuffix(string(nf), `"child":3,"op":"noForbidden"}`) {
+		t.Fatalf("команда «снять запрет»: %s", nf)
+	}
+}
+
+// Ловит: поля запрета в отчёте ломают отчёт старого вида (пустой статус уходит строкой "").
+func TestChildReportForbidJSON(t *testing.T) {
+	old, _ := json.Marshal(ChildReport{ID: 3, Name: "Миша"})
+	if strings.Contains(string(old), "forbid") {
+		t.Fatalf("пустой статус запрета в отчёте: %s", old)
+	}
+	act, _ := json.Marshal(ChildReport{ID: 3, Name: "Миша", Forbid: ForbidActive, ForbidUntilMs: 1763496000000})
+	if !strings.HasSuffix(string(act), `"blocked":false,"forbid":"active","forbidUntilMs":1763496000000}`) {
+		t.Fatalf("отчёт с запретом: %s", act)
+	}
+}

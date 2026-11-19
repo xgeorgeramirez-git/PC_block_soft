@@ -284,10 +284,25 @@ func (p *testPhone) pair() string {
 
 // command шлёт подписанную команду и разбирает подписанный ответ компьютера.
 func (p *testPhone) command(seq, child int64, delta int, ts time.Time) remote.CmdResult {
+	p.t.Helper()
+	return p.sendCmd(p.key, remote.Command{V: remote.ProtoVersion, T: remote.TypeCmd, PC: p.pcID, Phone: p.id, Seq: seq, TS: ts.UnixMilli(), Child: child, Delta: delta})
+}
+
+// noForbidden — «снять запрет на сегодня» (протокол 5б), подписанная ключом key (nil — ключ телефона).
+func (p *testPhone) noForbidden(key *ecdsa.PrivateKey, seq, child int64, ts time.Time) remote.CmdResult {
+	p.t.Helper()
+	if key == nil {
+		key = p.key
+	}
+	return p.sendCmd(key, remote.Command{V: remote.ProtoVersion, T: remote.TypeCmd, PC: p.pcID, Phone: p.id, Seq: seq, TS: ts.UnixMilli(), Child: child, Op: remote.OpNoForbidden})
+}
+
+// sendCmd подписывает команду key, отправляет и возвращает проверенный подписью компьютера ответ.
+func (p *testPhone) sendCmd(key *ecdsa.PrivateKey, c remote.Command) remote.CmdResult {
 	t := p.t
 	t.Helper()
-	raw, _ := json.Marshal(remote.Command{V: remote.ProtoVersion, T: remote.TypeCmd, PC: p.pcID, Phone: p.id, Seq: seq, TS: ts.UnixMilli(), Child: child, Delta: delta})
-	s, err := remote.Sign(p.key, raw)
+	raw, _ := json.Marshal(c)
+	s, err := remote.Sign(key, raw)
 	if err != nil {
 		t.Fatal(err)
 	}

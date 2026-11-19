@@ -46,6 +46,16 @@ type vectors struct {
 	Noter           Signed `json:"noter"`
 	ReportNotesJSON string `json:"reportNotesJson"`
 	ReportNotes     Signed `json:"reportNotes"`
+
+	// «Снять запрет на сегодня» (раздел 5б): data команды с op и без delta, подпись ключом телефона,
+	// хэш и ответ cmdr с отчётом, где у ребёнка forbid (подпись ключом компьютера).
+	CmdNoForbiddenJSON  string `json:"cmdNoForbiddenJson"`
+	CmdNoForbidden      Signed `json:"cmdNoForbidden"`
+	CmdNoForbiddenHash  string `json:"cmdNoForbiddenHash"`
+	CmdrNoForbiddenJSON string `json:"cmdrNoForbiddenJson"`
+	CmdrNoForbidden     Signed `json:"cmdrNoForbidden"`
+	ReportForbidJSON    string `json:"reportForbidJson"`
+	ReportForbid        Signed `json:"reportForbid"`
 }
 
 func vectorCommand() Command {
@@ -67,6 +77,22 @@ func vectorReportNotes() Report {
 	r.TS = 1763490003000
 	r.Notes = []NoteReport{{ID: "AAECAwQFBgcICQoLDA0ODw", Child: 3, State: NoteShown, AtMs: 1763490002500}}
 	return r
+}
+
+func vectorNoForbidden() Command {
+	return Command{V: 1, T: TypeCmd, PC: "pc-vector", Phone: "phone-vector", Seq: 19, TS: 1763490004000, Child: 3, Op: OpNoForbidden}
+}
+
+// vectorReportForbid — отчёт со всеми состояниями запрета: Миша — снят, Коля — идёт до 21:00 МСК
+// (forbidUntilMs), Даша — будет сегодня, Петя — сегодня нет.
+func vectorReportForbid() Report {
+	return Report{V: 1, T: TypeReport, PC: "pc-vector", Phone: "phone-vector", TS: 1763490005000,
+		Children: []ChildReport{
+			{ID: 3, Name: "Миша", UsedSec: 3600, LeftSec: 1800, ExtraMin: 15, Forbid: ForbidCleared},
+			{ID: 4, Name: "Коля", UsedSec: 600, LeftSec: 3000, Blocked: true, Forbid: ForbidActive, ForbidUntilMs: 1763496000000},
+			{ID: 5, Name: "Даша", LeftSec: -1, Forbid: ForbidAhead},
+			{ID: 6, Name: "Петя", LeftSec: 0, Blocked: true, Forbid: ForbidNone},
+		}}
 }
 
 func vectorNonces() ([]byte, []byte) {
@@ -119,6 +145,12 @@ func writeVectors(t *testing.T) {
 	n := vectorNote()
 	noter := CmdResult{V: 1, T: TypeNoteR, PC: n.PC, Phone: n.Phone, Seq: n.Seq, Cmd: HashData(noteJSON), TS: repN.TS, OK: true, Report: &repN}
 	noterJSON, _ := json.Marshal(noter)
+	nfJSON, _ := json.Marshal(vectorNoForbidden())
+	repF := vectorReportForbid()
+	repFJSON, _ := json.Marshal(repF)
+	nf := vectorNoForbidden()
+	cmdrNF := CmdResult{V: 1, T: TypeCmdR, PC: nf.PC, Phone: nf.Phone, Seq: nf.Seq, Cmd: HashData(nfJSON), TS: repF.TS, OK: true, Message: "Запрет на сегодня снят", Report: &repF}
+	cmdrNFJSON, _ := json.Marshal(cmdrNF)
 	out := vectors{
 		Comment:   "Векторы протокола связи (docs/07_Протокол_связи.md). Генерирует go test ./internal/remote -run TestVectors -update. Все base64: base64url без '='.",
 		PCPriv:    pcPriv,
@@ -133,6 +165,10 @@ func writeVectors(t *testing.T) {
 		NoteJSON: string(noteJSON), Note: sign(phone, noteJSON, v.NoteJSON, v.Note), NoteHash: HashData(noteJSON),
 		NoterJSON: string(noterJSON), Noter: sign(pc, noterJSON, v.NoterJSON, v.Noter),
 		ReportNotesJSON: string(repNJSON), ReportNotes: sign(pc, repNJSON, v.ReportNotesJSON, v.ReportNotes),
+		CmdNoForbiddenJSON: string(nfJSON), CmdNoForbidden: sign(phone, nfJSON, v.CmdNoForbiddenJSON, v.CmdNoForbidden),
+		CmdNoForbiddenHash:  HashData(nfJSON),
+		CmdrNoForbiddenJSON: string(cmdrNFJSON), CmdrNoForbidden: sign(pc, cmdrNFJSON, v.CmdrNoForbiddenJSON, v.CmdrNoForbidden),
+		ReportForbidJSON: string(repFJSON), ReportForbid: sign(pc, repFJSON, v.ReportForbidJSON, v.ReportForbid),
 	}
 	raw, _ := json.MarshalIndent(out, "", "  ")
 	if err := os.MkdirAll(filepath.Dir(vectorsPath), 0o755); err != nil {
@@ -217,6 +253,25 @@ func TestVectors(t *testing.T) {
 	stN := State{PCID: "pc-vector", Phone: &Phone{ID: "phone-vector", Pub: v.PhonePub}, LastSeq: 17}
 	if n, _, code := CheckNote(stN, v.Note, "phone-vector", time.UnixMilli(vectorNote().TS)); code != "" || n.Text != "Иди ужинать\nПотом уроки" {
 		t.Fatalf("сообщение векторов отклонено: %q %+v", code, n)
+	}
+	// «Снять запрет» (раздел 5б): data байт в байт, подписи, хэш, ответ с отчётом всех состояний.
+	nfJSON, _ := json.Marshal(vectorNoForbidden())
+	if string(nfJSON) != v.CmdNoForbiddenJSON || v.CmdNoForbiddenJSON != `{"v":1,"t":"cmd","pc":"pc-vector","phone":"phone-vector","seq":19,"ts":1763490004000,"child":3,"op":"noForbidden"}` {
+		t.Fatalf("сборка data «снять запрет» изменилась:\n%s\n%s", nfJSON, v.CmdNoForbiddenJSON)
+	}
+	check("cmdNoForbidden", &v.CmdNoForbidden, &phone.PublicKey, v.CmdNoForbiddenJSON)
+	check("cmdrNoForbidden", &v.CmdrNoForbidden, &pc.PublicKey, v.CmdrNoForbiddenJSON)
+	check("reportForbid", &v.ReportForbid, &pc.PublicKey, v.ReportForbidJSON)
+	if HashData([]byte(v.CmdNoForbiddenJSON)) != v.CmdNoForbiddenHash {
+		t.Fatal("хэш «снять запрет» не сошёлся")
+	}
+	var nfr CmdResult
+	if err := json.Unmarshal([]byte(v.CmdrNoForbiddenJSON), &nfr); err != nil || nfr.Cmd != v.CmdNoForbiddenHash || nfr.Report == nil || len(nfr.Report.Children) != 4 || nfr.Report.Children[1].ForbidUntilMs == 0 {
+		t.Fatalf("cmdr «снять запрет»: %+v %v", nfr, err)
+	}
+	stF := State{PCID: "pc-vector", Phone: &Phone{ID: "phone-vector", Pub: v.PhonePub}, LastSeq: 18}
+	if c, _, code := CheckCommand(stF, v.CmdNoForbidden, "phone-vector", time.UnixMilli(vectorNoForbidden().TS)); code != "" || c.Op != OpNoForbidden {
+		t.Fatalf("«снять запрет» векторов отклонено: %q %+v", code, c)
 	}
 	// Команда векторов проходит проверку компьютера.
 	st := State{PCID: "pc-vector", Phone: &Phone{ID: "phone-vector", Pub: v.PhonePub}, LastSeq: 16}

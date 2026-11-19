@@ -39,6 +39,20 @@ const (
 	NoteExpired = "expired" // 10 минут ждало ребёнка и погасло
 )
 
+// Действия команды (поле "op", раздел 5б). Пустое — доп. время (телефон 0.8.0/0.8.1).
+const (
+	OpExtra       = "extra"       // доп. время на delta минут
+	OpNoForbidden = "noForbidden" // снять запретные часы на сегодня (FR-42), delta нет
+)
+
+// Запретные часы ребёнка сегодня в отчёте (ChildReport.Forbid, раздел 6).
+const (
+	ForbidNone    = "none"    // сегодня запретных часов нет
+	ForbidAhead   = "ahead"   // будут сегодня
+	ForbidActive  = "active"  // идут сейчас (ForbidUntilMs — конец интервала)
+	ForbidCleared = "cleared" // сняты на сегодня
+)
+
 // Пределы сообщения (раздел 5а).
 const (
 	MaxNoteRunes = 300 // знаков Unicode после обрезки пробелов по краям
@@ -110,7 +124,9 @@ type Pair2R struct {
 	NPc string `json:"nPc"`
 }
 
-// Command — данные команды телефона (data в Signed).
+// Command — данные команды телефона (data в Signed). Op пусто или OpExtra — доп. время на Delta
+// минут (раздел 5); OpNoForbidden — снять запрет на сегодня, Delta нет (раздел 5б). Пустые поля в
+// JSON не пишутся: байты команды без op — те же, что у телефона 0.8.0.
 type Command struct {
 	V     int    `json:"v"`
 	T     string `json:"t"`
@@ -119,7 +135,8 @@ type Command struct {
 	Seq   int64  `json:"seq"`
 	TS    int64  `json:"ts"`
 	Child int64  `json:"child"`
-	Delta int    `json:"delta"`
+	Delta int    `json:"delta,omitempty"`
+	Op    string `json:"op,omitempty"`
 }
 
 // CmdResult — данные ответа cmdr. LastSeq — только в отказе.
@@ -158,6 +175,10 @@ type ChildReport struct {
 	LeftSec  int64  `json:"leftSec"`
 	ExtraMin int    `json:"extraMin"`
 	Blocked  bool   `json:"blocked"`
+	// Forbid — запретные часы сегодня (Forbid*, раздел 6); пусто — компьютер старой версии.
+	Forbid string `json:"forbid,omitempty"`
+	// ForbidUntilMs — конец идущего запретного интервала при ForbidActive (часы компьютера).
+	ForbidUntilMs int64 `json:"forbidUntilMs,omitempty"`
 }
 
 // Note — данные сообщения телефона ребёнку (data в Signed, раздел 5а).
@@ -315,9 +336,10 @@ func checkSigned(st State, s Signed, from string, now time.Time, typ string, int
 	return h, data, ""
 }
 
-// CheckCommand — проверка команды (протокол, раздел 5) до применения: подпись ключом
-// привязанного телефона → тип и версия → pc/phone/отправитель → ts ±5 мин → seq больше
-// последнего. Подпись — первой: JSON разбирается только из проверенных байтов (раздел 2).
+// CheckCommand — проверка команды (протокол, разделы 5, 5б) до применения: подпись ключом
+// привязанного телефона → тип и версия → pc/phone/отправитель → ts ±5 мин → op (неизвестный или
+// delta у «снять запрет» — range, номер не тратится) → seq больше последнего. Подпись — первой:
+// JSON разбирается только из проверенных байтов (раздел 2).
 // Пустой код — команду можно отдать Host.ApplyCommand (он проверит seq ещё раз под своей
 // блокировкой). data — подписанные байты (их хэш идёт в ответ cmdr).
 func CheckCommand(st State, s Signed, from string, now time.Time) (Command, []byte, string) {
@@ -328,6 +350,15 @@ func CheckCommand(st State, s Signed, from string, now time.Time) (Command, []by
 	}
 	if code != "" {
 		return c, data, code
+	}
+	switch c.Op {
+	case "", OpExtra: // предел delta проверяет Host.ApplyCommand (общий путь с окном, R10)
+	case OpNoForbidden:
+		if c.Delta != 0 {
+			return c, data, ErrCodeRange
+		}
+	default:
+		return c, data, ErrCodeRange
 	}
 	if h.Seq <= st.LastSeq {
 		return c, data, ErrCodeReplay
