@@ -632,3 +632,66 @@ func TestUnpairAbandonedPhone(t *testing.T) {
 	expect(t, e.get("/v1/phone/status", toks[0]), 401, "unauthorized")
 	expect(t, e.get("/v1/phone/status", toks[1]), 200, "")
 }
+
+// Ловит: json.Marshal экранировал < > & шестью байтами, и опрос с телом из «<» выходил за
+// 64 КБ клиента, хотя сообщения уже сняты с очереди (R2). Бюджет — по закодированным байтам.
+func TestPollBudgetCountsEncodedBytes(t *testing.T) {
+	for _, fill := range []string{"<", "&", " "} {
+		e := newEnv(t, tcfg{ReplyWait: 2 * time.Second})
+		p := e.pair()
+		ctx, cancel := context.WithCancel(context.Background())
+		n := 15 * 1024 / len(fill)
+		body := `{"kind":"cmd","body":"` + strings.Repeat(fill, n) + `"}`
+		var wg sync.WaitGroup
+		for i := 0; i < 4; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				e.do(req{method: "POST", path: "/v1/phone/send", token: p.phoneToken, body: body, ctx: ctx})
+			}()
+		}
+		waitFor(t, 2*time.Second, func() bool { return e.s.queueLen(p.pcID) == 4 })
+		total := 0
+		for i := 0; i < 8 && total < 4; i++ {
+			r := e.get("/v1/pc/poll?wait=0", p.pcToken)
+			if len(r.Raw) > 64*1024 {
+				t.Fatalf("%q: ответ опроса %d байт больше 64 КБ", fill, len(r.Raw))
+			}
+			for _, m := range msgs(t, r) {
+				if b, _ := m["body"].(string); b != strings.Repeat(fill, n) {
+					t.Fatalf("%q: тело искажено", fill)
+				}
+				total++
+			}
+		}
+		if total != 4 {
+			t.Fatalf("%q: выдано %d из 4", fill, total)
+		}
+		if strings.Contains(e.get("/v1/phone/status", p.phoneToken).Raw, `<`) {
+			t.Fatal("ответ экранирует HTML")
+		}
+		cancel()
+		wg.Wait()
+	}
+}
+
+// Ловит: 20 мест на сервере занимались регистрациями без единого запроса компьютера на 30 дней
+// (R3). Зарегистрированный и ни разу не вышедший на связь компьютер удаляется через 24 ч; тот,
+// что выходил на связь, остаётся.
+func TestUnseenPCPurgedAfterDay(t *testing.T) {
+	e := newEnv(t, tcfg{})
+	_, aliveTok := e.register()
+	expect(t, e.get("/v1/pc/poll?wait=0", aliveTok), 200, "")
+	for i := 1; i < maxPCs; i++ {
+		expect(t, e.do(req{method: "POST", path: "/v1/pc/register", remote: fmt.Sprintf("7.7.%d.1:1", i), body: `{}`}), 200, "")
+	}
+	expect(t, e.do(req{method: "POST", path: "/v1/pc/register", remote: "8.8.8.8:1", body: `{}`}), 429, "too_many")
+	e.clock.Add(23 * time.Hour)
+	expect(t, e.do(req{method: "POST", path: "/v1/pc/register", remote: "8.8.8.8:1", body: `{}`}), 429, "too_many")
+	e.clock.Add(time.Hour + time.Minute)
+	expect(t, e.do(req{method: "POST", path: "/v1/pc/register", remote: "8.8.8.8:1", body: `{}`}), 200, "")
+	if n := e.s.pcCount(); n != 2 {
+		t.Fatalf("компьютеров %d, ждали 2 (вышедший на связь и новый)", n)
+	}
+	expect(t, e.get("/v1/pc/poll?wait=0", aliveTok), 200, "")
+}

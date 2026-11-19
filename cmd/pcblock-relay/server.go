@@ -34,6 +34,10 @@ const (
 	// staleAfter — компьютер без единого запроса дольше этого удаляется с телефонами;
 	// проверка при регистрации, при старте и не чаще раза в час на любом запросе.
 	staleAfter = 30 * 24 * time.Hour
+	// unseenAfter — компьютер, зарегистрированный и ни разу не вышедший на связь (ни опроса, ни
+	// отчёта), удаляется через столько: регистрации не занимают 20 мест на 30 дней. Знает об этом
+	// только память сервера: записи из файла после перезапуска живут по правилу staleAfter.
+	unseenAfter = 24 * time.Hour
 	// seenWriteEvery — «на связи» пишется в relay.json не чаще этого (не на каждый опрос).
 	seenWriteEvery = time.Hour
 	purgeEvery     = time.Hour
@@ -70,6 +74,7 @@ type Server struct {
 	pairPC   *limiter
 	register *limiter
 	purgedAt time.Time
+	unseen   map[string]bool // зарегистрированы в этом запуске и ещё ни разу не вышли на связь
 }
 
 // New открывает хранилище в cfg.DataDir и готовит сервер.
@@ -104,6 +109,7 @@ func New(cfg Config) (*Server, error) {
 		store:    st,
 		boxes:    map[string]*pcBox{},
 		waiters:  map[string]*waiter{},
+		unseen:   map[string]bool{},
 		pairIP:   newLimiter(pairFailMax, pairWindow),
 		pairPC:   newLimiter(pairFailMax, pairWindow),
 		register: newLimiter(registerMax, registerWindow),
@@ -120,19 +126,20 @@ func New(cfg Config) (*Server, error) {
 // purge удаляет брошенные компьютеры (под s.mu). Очереди и ожидатели удалённых — тоже.
 func (s *Server) purge(now time.Time) error {
 	s.purgedAt = now
-	gone := s.store.dropStale(now.UnixMilli(), staleAfter.Milliseconds())
+	gone := s.store.dropStale(now.UnixMilli(), staleAfter.Milliseconds(), s.unseen, unseenAfter.Milliseconds())
 	if len(gone) == 0 {
 		return nil
 	}
 	for _, id := range gone {
 		delete(s.boxes, id)
+		delete(s.unseen, id)
 		for mid, wt := range s.waiters {
 			if wt.pcID == id {
 				delete(s.waiters, mid)
 			}
 		}
 	}
-	s.cfg.Log.Printf("удалено компьютеров без связи 30 дней: %d", len(gone))
+	s.cfg.Log.Printf("удалено компьютеров без связи (30 дней или сутки после регистрации): %d", len(gone))
 	return s.store.save()
 }
 
@@ -197,7 +204,7 @@ func (s *Server) send(w http.ResponseWriter, code int, v map[string]any) {
 		v = map[string]any{}
 	}
 	v["serverNowMs"] = s.now().UnixMilli()
-	raw, err := json.Marshal(v)
+	raw, err := encodeJSON(v)
 	if err != nil {
 		code, raw = http.StatusInternalServerError, []byte(`{"error":"internal"}`)
 	}
@@ -324,6 +331,7 @@ func (s *Server) authPC(w http.ResponseWriter, r *http.Request) (pcRec, bool) {
 		if i := s.store.pcByToken(tok); i >= 0 {
 			pc := &s.store.data.PCs[i]
 			s.box(pc.ID).lastSeen = now
+			delete(s.unseen, pc.ID)
 			if now.UnixMilli()-pc.LastSeenMs >= seenWriteEvery.Milliseconds() {
 				pc.LastSeenMs = now.UnixMilli()
 				if err := s.store.save(); err != nil {
@@ -393,6 +401,7 @@ func (s *Server) hRegister(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, http.StatusInternalServerError, "internal")
 		return
 	}
+	s.unseen[id] = true
 	s.ok(w, map[string]any{"pcId": id, "pcToken": tok})
 }
 

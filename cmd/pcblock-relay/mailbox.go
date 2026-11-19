@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"time"
 )
@@ -21,9 +22,26 @@ type Msg struct {
 	Body json.RawMessage `json:"body"`
 }
 
-// msgSize — оценка размера сообщения в ответе опроса.
+// msgSize — байтов сообщения в ответе опроса: ровно так, как его закодирует send (с запятой
+// между сообщениями). Счёт по длине тела занижал бы размер: кодировщик меняет U+2028 на \u2028.
 func msgSize(m Msg) int {
-	return len(m.ID) + len(m.From) + len(m.Kind) + len(m.Body) + 40
+	raw, err := encodeJSON(m)
+	if err != nil {
+		return pollBudget + 1
+	}
+	return len(raw) + 1
+}
+
+// encodeJSON — JSON без экранирования < > & (json.Marshal писал бы их шестью байтами \u003c):
+// ответы сервера читает программа, а не браузер.
+func encodeJSON(v any) ([]byte, error) {
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(v); err != nil {
+		return nil, err
+	}
+	return bytes.TrimSuffix(buf.Bytes(), []byte("\n")), nil
 }
 
 type queued struct {

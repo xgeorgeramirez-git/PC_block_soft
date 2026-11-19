@@ -128,9 +128,10 @@ func (st *Store) pcByToken(tok string) int {
 	return found
 }
 
-// dropStale удаляет компьютеры, которых не было дольше maxAge, вместе с их телефонами.
+// dropStale удаляет компьютеры, которых не было дольше maxAge, а ни разу не вышедшие на связь
+// после регистрации (unseen) — дольше unseenAge с регистрации; вместе с их телефонами.
 // Возвращает id удалённых.
-func (st *Store) dropStale(nowMs, maxAgeMs int64) []string {
+func (st *Store) dropStale(nowMs, maxAgeMs int64, unseen map[string]bool, unseenAgeMs int64) []string {
 	var gone []string
 	keep := []pcRec{}
 	for _, pc := range st.data.PCs {
@@ -138,7 +139,7 @@ func (st *Store) dropStale(nowMs, maxAgeMs int64) []string {
 		if seen == 0 {
 			seen = pc.CreatedMs
 		}
-		if nowMs-seen > maxAgeMs {
+		if nowMs-seen > maxAgeMs || (unseen[pc.ID] && nowMs-pc.CreatedMs > unseenAgeMs) {
 			gone = append(gone, pc.ID)
 			continue
 		}
