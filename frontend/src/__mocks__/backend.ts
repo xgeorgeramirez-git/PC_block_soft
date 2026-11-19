@@ -1373,7 +1373,9 @@ export function createBackend(opts: MockOptions = {}): MockBackend {
       if (!child) return fail("Ребёнок не найден");
       child.pauseUntil = "18:30";
       addEvent(now, child, "pause", `${child.name}: пауза`);
-      return okReply({ card: card(child, now), message: "Пауза до 18:30" });
+      // Сообщение как у hPause службы: «Пауза 1 ч» по сроку; конец - на карточке рядом со значком.
+      const label: Record<string, string> = { min15: "15 мин", hour1: "1 ч", hour2: "2 ч", endOfDay: "до конца дня" };
+      return okReply({ card: card(child, now), message: `Пауза ${label[req.preset] ?? "1 ч"}` });
     },
 
     // Как hEndPause службы (D-96): паузы нет - отказ; есть - снята, запись журнала, плашка ребёнку.

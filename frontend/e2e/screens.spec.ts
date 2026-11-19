@@ -143,12 +143,12 @@ test("s02 сегодня", async ({ page }) => {
   await expect(dasha.getByText("Время вышло")).toBeVisible();
   await expect(dasha.getByRole("button", { name: "+15" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Снять блокировку" })).toHaveCount(0);
-  // Кнопки «Сегодня» сгруппированы: у Миши есть группа «Доп. время», «Пауза», «Статистика» (FB-5).
+  // Кнопки «Сегодня» сгруппированы: у Миши есть группа «Доп. время», значок паузы, «Статистика» (FB-5, D-96).
   const misha = page.getByRole("article", { name: "Миша" });
   await expect(misha.getByText("Доп. время")).toBeVisible();
   await expect(misha.getByRole("button", { name: "−30" })).toBeVisible();
   await expect(misha.getByRole("button", { name: "Своё время…" })).toBeVisible();
-  await expect(misha.getByRole("button", { name: "Пауза" })).toBeVisible();
+  await expect(misha.getByRole("button", { name: "Поставить на паузу: ограничения не действуют, время считается" })).toBeVisible();
   await expect(misha.getByRole("button", { name: "Статистика" })).toBeVisible();
   await noHorizontalScroll(page);
   await page.screenshot({ path: `${SCREENS}/s02-today.png`, fullPage: true });
@@ -161,6 +161,40 @@ test("s02 сегодня, тёмная тема", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByRole("article", { name: "Даша" })).toBeVisible();
   await page.screenshot({ path: `${SCREENS}/s02-today-dark.png`, fullPage: true });
+});
+
+// Значок-переключатель паузы (R11, D-96): выключен → выбор срока → включён, «Пауза до 18:30»;
+// нажатие на включённый сразу заканчивает паузу. Даша: время вышло, после конца паузы снова «Время вышло».
+test("s02 сегодня, значок паузы", async ({ page }) => {
+  await tallWindow(page, 900);
+  await mockProgram(page, { mode: "parent", sessionActive: true, children: family() });
+  await page.goto("/");
+  const dasha = page.getByRole("article", { name: "Даша" });
+  const off = dasha.getByRole("button", { name: "Поставить на паузу: ограничения не действуют, время считается" });
+  await expect(off).toHaveAttribute("aria-pressed", "false");
+  await off.hover();
+  await noHorizontalScroll(page);
+  await page.screenshot({ path: `${SCREENS}/today-pause-off.png`, fullPage: true });
+
+  await off.click();
+  const picker = dasha.getByRole("group", { name: "На сколько поставить паузу" });
+  await expect(picker.getByRole("button")).toHaveText(["15 минут", "1 час", "2 часа", "До конца дня"]);
+  await noHorizontalScroll(page);
+  await page.screenshot({ path: `${SCREENS}/today-pause-picker.png`, fullPage: true });
+
+  await picker.getByRole("button", { name: "1 час" }).click();
+  const on = dasha.getByRole("button", { name: "Закончить паузу" });
+  await expect(on).toHaveAttribute("aria-pressed", "true");
+  await expect(on).toBeFocused();
+  await expect(dasha.locator(".pause-toggle-until")).toHaveText("Пауза до 18:30");
+  await expect(dasha.locator(".status")).toHaveText("Пауза");
+  await noHorizontalScroll(page);
+  await page.screenshot({ path: `${SCREENS}/today-pause-on.png`, fullPage: true });
+
+  await on.click();
+  await expect(dasha.getByText("Пауза закончилась")).toBeVisible();
+  await expect(dasha.locator(".status")).toHaveText("Время вышло");
+  await expect(off).toHaveAttribute("aria-pressed", "false");
 });
 
 // s02 — предупреждение о нечитаемых правилах (R18): человеческими словами и с кнопкой в «Дети».

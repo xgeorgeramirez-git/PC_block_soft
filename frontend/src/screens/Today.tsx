@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { addExtra, clearExtra, getToday, grantBonus, listEvents, pause, reduceExtra, setNoForbidden, undoExtra } from "../api";
+import { addExtra, clearExtra, endPause, getToday, grantBonus, listEvents, pause, reduceExtra, setNoForbidden, undoExtra } from "../api";
 import Notice from "../components/Notice";
-import PausePicker from "../components/PausePicker";
+import PauseToggle from "../components/PauseToggle";
 import ServiceNotices from "../components/ServiceNotices";
 import UndoLine from "../components/UndoLine";
 import { errorText } from "../lib/errors";
@@ -136,6 +136,14 @@ export default function Today({ onOpenJournal, onOpenSettings, onOpenChildren, o
       say(card.childId, reply.message);
     });
 
+  // Закончить паузу раньше срока (D-96): правила действуют сразу, карточка - из ответа службы.
+  const endChildPause = (card: TodayCard) =>
+    run(card.childId, async () => {
+      const reply = await endPause(card.childId);
+      replaceCard(reply.card);
+      say(card.childId, reply.message);
+    });
+
   const grant = (card: TodayCard, minutes: number) =>
     run(card.childId, async () => {
       const reply = await grantBonus(card.childId, minutes, "за дела по дому");
@@ -212,6 +220,7 @@ export default function Today({ onOpenJournal, onOpenSettings, onOpenChildren, o
                   onClear={() => void clear(card)}
                   onUndo={(id) => void undo(card, id)}
                   onPause={(p) => void pauseChild(card, p)}
+                  onEndPause={() => void endChildPause(card)}
                   onGrant={(m) => void grant(card, m)}
                   onNoForbidden={(on) => void noForbidden(card, on)}
                   onStats={onOpenStats ? () => onOpenStats(card.childId) : undefined}
@@ -234,6 +243,7 @@ interface CardProps {
   onClear: () => void;
   onUndo: (extraId: string) => void;
   onPause: (preset: PausePreset) => void;
+  onEndPause: () => void;
   onGrant: (minutes: number) => void;
   onNoForbidden: (on: boolean) => void;
   onStats?: () => void;
@@ -244,7 +254,7 @@ function hasForbiddenToday(card: TodayCard): boolean {
   return card.status.lock === "forbidden" || card.status.forbiddenNote !== "";
 }
 
-function ChildCard({ card, feedback, busy, onAdd, onReduce, onClear, onUndo, onPause, onGrant, onNoForbidden, onStats }: CardProps) {
+function ChildCard({ card, feedback, busy, onAdd, onReduce, onClear, onUndo, onPause, onEndPause, onGrant, onNoForbidden, onStats }: CardProps) {
   const s = card.status;
   const tone = statusTone(s.status);
   const limited = hasTimeLimits(s.status);
@@ -272,7 +282,6 @@ function ChildCard({ card, feedback, busy, onAdd, onReduce, onClear, onUndo, onP
       {card.extraMin > 0 ? <p className="child-meta">{`Добавлено сегодня: ${card.extraMin} мин`}</p> : null}
       {card.extraMin < 0 ? <p className="child-meta">{`Убрано сегодня: ${-card.extraMin} мин`}</p> : null}
       {card.bonusBalance > 0 ? <p className="child-meta">{`Копилка: ${formatLimit(card.bonusBalance)}`}</p> : null}
-      {s.status === "paused" && s.pauseUntil ? <p className="child-meta">{`Пауза до ${s.pauseUntil}`}</p> : null}
       {s.lock !== "none" && s.until ? <p className="child-meta">{s.until}</p> : null}
 
       <div className="child-actions">
@@ -326,7 +335,7 @@ function ChildCard({ card, feedback, busy, onAdd, onReduce, onClear, onUndo, onP
         ) : null}
 
         <div className="action-row action-row-foot">
-          <PausePicker disabled={busy} onPick={onPause} />
+          <PauseToggle paused={s.status === "paused"} until={s.pauseUntil} busy={busy} onPick={onPause} onEnd={onEndPause} />
           <button type="button" className="btn" disabled={busy} onClick={() => onGrant(30)}>
             В копилку +30
           </button>

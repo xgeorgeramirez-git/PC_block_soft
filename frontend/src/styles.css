@@ -2962,12 +2962,44 @@ textarea.sites-add-input {
   padding-bottom: 0.3rem;
 }
 
-.pause-picker-wrap {
+/* Значок-переключатель паузы (D-96): квадратная кнопка с ⏸, нажатая — в цвет основной кнопки. */
+.pause-toggle-wrap {
   position: relative;
   display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
 }
 
-/* Выбор срока паузы — всплывает над кнопкой, а не раздвигает ряд действий (FB-5). */
+.pause-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+}
+
+.pause-toggle svg {
+  fill: currentColor;
+}
+
+.pause-toggle[aria-pressed="true"] {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: var(--primary-text);
+}
+
+.pause-toggle[aria-pressed="true"]:hover:not(:disabled) {
+  background: var(--primary);
+  opacity: 0.88;
+}
+
+.pause-toggle-until {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* Выбор срока паузы — всплывает над значком, а не раздвигает ряд действий (FB-5). */
 .pause-picker {
   position: absolute;
   bottom: calc(100% + var(--space-1));
@@ -2977,12 +3009,18 @@ textarea.sites-add-input {
   flex-direction: column;
   align-items: stretch;
   gap: var(--space-1);
-  min-width: 160px;
+  min-width: 220px;
   padding: var(--space-2);
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: 8px;
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.12);
+}
+
+.pause-picker-hint {
+  margin: 0 0 var(--space-1);
+  font-size: 14px;
+  color: var(--text-muted);
 }
 
 .pause-picker .btn {

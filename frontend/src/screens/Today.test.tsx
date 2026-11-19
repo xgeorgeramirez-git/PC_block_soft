@@ -473,3 +473,107 @@ describe("Today: снять запрет на сегодня (R24, D-51)", () =>
     expect(within(misha).queryByRole("button", { name: "Снять запрет на сегодня" })).toBeNull();
   });
 });
+
+describe("Today: значок-переключатель паузы (R11, D-96)", () => {
+  const ON_HINT = "Поставить на паузу: ограничения не действуют, время считается";
+  const OFF_HINT = "Закончить паузу";
+
+  // Ловит: «Пауза» без объяснения (FB-25): у значка нет подписи для диктора и подсказки.
+  it("выключен: значок не нажат, подсказка объясняет паузу", async () => {
+    setup();
+    const misha = await screen.findByRole("article", { name: "Миша" });
+    const toggle = within(misha).getByRole("button", { name: ON_HINT });
+    expect(toggle.getAttribute("aria-pressed")).toBe("false");
+    expect(toggle.getAttribute("title")).toBe(ON_HINT);
+    expect(toggle.querySelector("svg")).toBeTruthy();
+    expect(within(misha).queryByText(/Пауза до/)).toBeNull();
+  });
+
+  // Ловит: срок не спрашивается или пауза ставится не тому ребёнку/не на тот срок.
+  it("нажатие открывает выбор срока; «1 час» ставит паузу, значок нажат, рядом «Пауза до 18:30»", async () => {
+    const user = setup({ children: [mockChild({ usedS: 7200 })] });
+    const misha = await screen.findByRole("article", { name: "Миша" });
+    const toggle = within(misha).getByRole("button", { name: ON_HINT });
+    await user.click(toggle);
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    const group = within(misha).getByRole("group", { name: "На сколько поставить паузу" });
+    expect(within(group).getAllByRole("button").map((b) => b.textContent)).toEqual(["15 минут", "1 час", "2 часа", "До конца дня"]);
+    await user.click(within(group).getByRole("button", { name: "1 час" }));
+    expect(mock.calls.find((c) => c.command === "Pause")?.payload).toEqual({ childId: 1, preset: "hour1" });
+    const on = await within(misha).findByRole("button", { name: OFF_HINT });
+    expect(on.getAttribute("aria-pressed")).toBe("true");
+    expect(on.getAttribute("title")).toBe(OFF_HINT);
+    // «Пауза до 18:30» — рядом со значком; ниже ответ службы «Пауза 1 ч».
+    expect(within(on.parentElement!).getByText("Пауза до 18:30")).toBeTruthy();
+    expect(within(misha).getByRole("status").textContent).toBe("Пауза 1 ч");
+    expect(within(misha).queryByRole("group", { name: "На сколько поставить паузу" })).toBeNull();
+  });
+
+  // Ловит: паузу нельзя закончить (FB-25) или нужно подтверждение; значок держится локальным флагом.
+  it("включён: нажатие сразу заканчивает паузу, карточка из ответа службы", async () => {
+    const user = setup({ children: [mockChild({ usedS: 7200, pauseUntil: "18:30" })] });
+    const misha = await screen.findByRole("article", { name: "Миша" });
+    const on = within(misha).getByRole("button", { name: OFF_HINT });
+    expect(within(on.parentElement!).getByText("Пауза до 18:30")).toBeTruthy();
+    await user.click(on);
+    expect(mock.calls.find((c) => c.command === "EndPause")?.payload).toEqual({ childId: 1 });
+    expect(await within(misha).findByText("Пауза закончилась")).toBeTruthy();
+    expect(within(misha).getByText("Время вышло")).toBeTruthy();
+    const off = within(misha).getByRole("button", { name: ON_HINT });
+    expect(off.getAttribute("aria-pressed")).toBe("false");
+    expect(within(misha).queryByText("Пауза до 18:30")).toBeNull();
+    expect(within(misha).queryByRole("group", { name: "На сколько поставить паузу" })).toBeNull();
+  });
+
+  // Ловит: после ответа фокус теряется на отключённом значке (PL-68).
+  it("после ответа фокус на значке", async () => {
+    const user = setup({ children: [mockChild({ pauseUntil: "18:30" })] });
+    const misha = await screen.findByRole("article", { name: "Миша" });
+    await user.click(within(misha).getByRole("button", { name: OFF_HINT }));
+    const off = await within(misha).findByRole("button", { name: ON_HINT });
+    await vi.waitFor(() => expect(document.activeElement).toBe(off));
+    await user.click(off);
+    await user.click(within(misha).getByRole("button", { name: "15 минут" }));
+    const on = await within(misha).findByRole("button", { name: OFF_HINT });
+    await vi.waitFor(() => expect(document.activeElement).toBe(on));
+  });
+
+  // Ловит: во время запроса значок можно нажать второй раз.
+  it("во время запроса значок недоступен", async () => {
+    const user = setup({ children: [mockChild({ pauseUntil: "18:30" })] });
+    const misha = await screen.findByRole("article", { name: "Миша" });
+    let release: () => void = () => undefined;
+    mock.override("EndPause", (req) => new Promise((resolve) => {
+      release = () => resolve(mock.handler("EndPause")(req));
+    }), 1);
+    await user.click(within(misha).getByRole("button", { name: OFF_HINT }));
+    expect((within(misha).getByRole("button", { name: OFF_HINT }) as HTMLButtonElement).disabled).toBe(true);
+    await act(async () => release());
+    expect(await within(misha).findByRole("button", { name: ON_HINT })).toBeTruthy();
+  });
+
+  // Ловит: ошибка конца паузы теряется или попадает внутрь области «статус» (PL-75).
+  it("паузы уже нет: «Паузы сейчас нет» предупреждением рядом со статусом", async () => {
+    const user = setup({ children: [mockChild({ pauseUntil: "18:30" })] });
+    const misha = await screen.findByRole("article", { name: "Миша" });
+    mock.override("EndPause", { ok: false, error: "Паузы сейчас нет" }, 1);
+    await user.click(within(misha).getByRole("button", { name: OFF_HINT }));
+    const alert = await within(misha).findByRole("alert");
+    expect(alert.textContent).toBe("Паузы сейчас нет");
+    expect(alert.closest('[role="status"]')).toBeNull();
+    expect(within(misha).getByRole("status")).toBeTruthy();
+  });
+
+  // Ловит: Escape не закрывает выбор срока или фокус не возвращается на значок.
+  it("Escape закрывает выбор срока, фокус на значке", async () => {
+    const user = setup();
+    const misha = await screen.findByRole("article", { name: "Миша" });
+    const toggle = within(misha).getByRole("button", { name: ON_HINT });
+    await user.click(toggle);
+    expect(within(misha).getByRole("group", { name: "На сколько поставить паузу" })).toBeTruthy();
+    await user.keyboard("{Escape}");
+    expect(within(misha).queryByRole("group", { name: "На сколько поставить паузу" })).toBeNull();
+    expect(document.activeElement).toBe(toggle);
+    expect(mock.count("Pause")).toBe(0);
+  });
+});
