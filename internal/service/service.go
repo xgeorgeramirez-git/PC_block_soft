@@ -259,6 +259,8 @@ type Service struct {
 
 	// Связь с телефоном (M7, remote.go): запись remote.state и идущая связь.
 	rem remoteState
+	// notes — сообщения ребёнку с телефона (FR-41): очередь показа.
+	notes notesState
 }
 
 // New собирает службу. Ничего не запускает: Start читает базу и поднимает сеансные части.

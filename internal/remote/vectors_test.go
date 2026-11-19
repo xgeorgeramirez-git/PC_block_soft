@@ -36,6 +36,16 @@ type vectors struct {
 	Cmdr       Signed `json:"cmdr"` // подпись ключом компьютера
 	ReportJSON string `json:"reportJson"`
 	Report     Signed `json:"report"` // подпись ключом компьютера
+
+	// Сообщение ребёнку (раздел 5а): data, подпись ключом телефона, хэш для noter, ответ noter и
+	// отчёт с состояниями сообщений (подписи ключом компьютера).
+	NoteJSON        string `json:"noteJson"`
+	Note            Signed `json:"note"`
+	NoteHash        string `json:"noteHash"`
+	NoterJSON       string `json:"noterJson"`
+	Noter           Signed `json:"noter"`
+	ReportNotesJSON string `json:"reportNotesJson"`
+	ReportNotes     Signed `json:"reportNotes"`
 }
 
 func vectorCommand() Command {
@@ -47,6 +57,18 @@ func vectorReport() Report {
 		Children: []ChildReport{{ID: 3, Name: "Миша", UsedSec: 3600, LeftSec: 1800, ExtraMin: 15}}}
 }
 
+func vectorNote() Note {
+	return Note{V: 1, T: TypeNote, PC: "pc-vector", Phone: "phone-vector", Seq: 18, TS: 1763490002000, Child: 3,
+		ID: "AAECAwQFBgcICQoLDA0ODw", Text: "Иди ужинать\nПотом уроки", ShowSec: 0}
+}
+
+func vectorReportNotes() Report {
+	r := vectorReport()
+	r.TS = 1763490003000
+	r.Notes = []NoteReport{{ID: "AAECAwQFBgcICQoLDA0ODw", Child: 3, State: NoteShown, AtMs: 1763490002500}}
+	return r
+}
+
 func vectorNonces() ([]byte, []byte) {
 	nPc, nPhone := make([]byte, NonceLen), make([]byte, NonceLen)
 	for i := range nPc {
@@ -56,26 +78,48 @@ func vectorNonces() ([]byte, []byte) {
 	return nPc, nPhone
 }
 
+// writeVectors пишет векторы. Ключи и подписи, которые уже есть в файле и не изменились по данным,
+// остаются прежними: Android-тесты сверяют те же значения (ECDSA-подпись каждый раз другая).
 func writeVectors(t *testing.T) {
-	pc, phone := mustKey(t), mustKey(t)
+	var v vectors
+	if raw, err := os.ReadFile(vectorsPath); err == nil {
+		_ = json.Unmarshal(raw, &v)
+	}
+	pc, err1 := ParsePriv(v.PCPriv)
+	phone, err2 := ParsePriv(v.PhonePriv)
+	if err1 != nil || err2 != nil {
+		pc, phone = mustKey(t), mustKey(t)
+		v = vectors{}
+	}
 	nPc, nPhone := vectorNonces()
 	pcPriv, _ := MarshalPriv(pc)
 	phonePriv, _ := MarshalPriv(phone)
 	pcDER, _ := unb64(MarshalPub(&pc.PublicKey))
 	phDER, _ := unb64(MarshalPub(&phone.PublicKey))
-	cmdJSON, _ := json.Marshal(vectorCommand())
-	cmdSig, err := Sign(phone, cmdJSON)
-	if err != nil {
-		t.Fatal(err)
+	// sign — подпись data ключом k; прежняя подпись остаётся, если данные те же.
+	sign := func(k *ecdsa.PrivateKey, data []byte, oldJSON string, old Signed) Signed {
+		if oldJSON == string(data) && old.Data != "" {
+			return old
+		}
+		s, err := Sign(k, data)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return s
 	}
+	cmdJSON, _ := json.Marshal(vectorCommand())
 	rep := vectorReport()
 	repJSON, _ := json.Marshal(rep)
-	repSig, _ := Sign(pc, repJSON)
 	c := vectorCommand()
 	cmdr := CmdResult{V: 1, T: TypeCmdR, PC: c.PC, Phone: c.Phone, Seq: c.Seq, Cmd: HashData(cmdJSON), TS: rep.TS, OK: true, Message: "Добавлено 15 минут", Report: &rep}
 	cmdrJSON, _ := json.Marshal(cmdr)
-	cmdrSig, _ := Sign(pc, cmdrJSON)
-	v := vectors{
+	noteJSON, _ := json.Marshal(vectorNote())
+	repN := vectorReportNotes()
+	repNJSON, _ := json.Marshal(repN)
+	n := vectorNote()
+	noter := CmdResult{V: 1, T: TypeNoteR, PC: n.PC, Phone: n.Phone, Seq: n.Seq, Cmd: HashData(noteJSON), TS: repN.TS, OK: true, Report: &repN}
+	noterJSON, _ := json.Marshal(noter)
+	out := vectors{
 		Comment:   "Векторы протокола связи (docs/07_Протокол_связи.md). Генерирует go test ./internal/remote -run TestVectors -update. Все base64: base64url без '='.",
 		PCPriv:    pcPriv,
 		PCPub:     MarshalPub(&pc.PublicKey),
@@ -83,11 +127,14 @@ func writeVectors(t *testing.T) {
 		PhonePub:  MarshalPub(&phone.PublicKey),
 		NPc:       b64(nPc), NPhone: b64(nPhone),
 		Commit: b64(Commit(pcDER, phDER, nPc)), SAS: SAS(pcDER, phDER, nPc, nPhone),
-		CmdJSON: string(cmdJSON), Cmd: cmdSig, CmdHash: HashData(cmdJSON),
-		CmdrJSON: string(cmdrJSON), Cmdr: cmdrSig,
-		ReportJSON: string(repJSON), Report: repSig,
+		CmdJSON: string(cmdJSON), Cmd: sign(phone, cmdJSON, v.CmdJSON, v.Cmd), CmdHash: HashData(cmdJSON),
+		CmdrJSON: string(cmdrJSON), Cmdr: sign(pc, cmdrJSON, v.CmdrJSON, v.Cmdr),
+		ReportJSON: string(repJSON), Report: sign(pc, repJSON, v.ReportJSON, v.Report),
+		NoteJSON: string(noteJSON), Note: sign(phone, noteJSON, v.NoteJSON, v.Note), NoteHash: HashData(noteJSON),
+		NoterJSON: string(noterJSON), Noter: sign(pc, noterJSON, v.NoterJSON, v.Noter),
+		ReportNotesJSON: string(repNJSON), ReportNotes: sign(pc, repNJSON, v.ReportNotesJSON, v.ReportNotes),
 	}
-	raw, _ := json.MarshalIndent(v, "", "  ")
+	raw, _ := json.MarshalIndent(out, "", "  ")
 	if err := os.MkdirAll(filepath.Dir(vectorsPath), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -151,6 +198,25 @@ func TestVectors(t *testing.T) {
 	var cr CmdResult
 	if err := json.Unmarshal([]byte(v.CmdrJSON), &cr); err != nil || cr.Cmd != v.CmdHash || cr.Report == nil {
 		t.Fatalf("cmdr: %+v %v", cr, err)
+	}
+	// Сообщение (раздел 5а): data байт в байт, подпись телефона, хэш, ответ noter и отчёт с сообщениями.
+	noteJSON, _ := json.Marshal(vectorNote())
+	if string(noteJSON) != v.NoteJSON {
+		t.Fatalf("сборка data сообщения изменилась:\n%s\n%s", noteJSON, v.NoteJSON)
+	}
+	check("note", &v.Note, &phone.PublicKey, v.NoteJSON)
+	check("noter", &v.Noter, &pc.PublicKey, v.NoterJSON)
+	check("reportNotes", &v.ReportNotes, &pc.PublicKey, v.ReportNotesJSON)
+	if HashData([]byte(v.NoteJSON)) != v.NoteHash {
+		t.Fatal("хэш сообщения не сошёлся")
+	}
+	var nr CmdResult
+	if err := json.Unmarshal([]byte(v.NoterJSON), &nr); err != nil || nr.T != TypeNoteR || nr.Cmd != v.NoteHash || nr.Report == nil || len(nr.Report.Notes) != 1 {
+		t.Fatalf("noter: %+v %v", nr, err)
+	}
+	stN := State{PCID: "pc-vector", Phone: &Phone{ID: "phone-vector", Pub: v.PhonePub}, LastSeq: 17}
+	if n, _, code := CheckNote(stN, v.Note, "phone-vector", time.UnixMilli(vectorNote().TS)); code != "" || n.Text != "Иди ужинать\nПотом уроки" {
+		t.Fatalf("сообщение векторов отклонено: %q %+v", code, n)
 	}
 	// Команда векторов проходит проверку компьютера.
 	st := State{PCID: "pc-vector", Phone: &Phone{ID: "phone-vector", Pub: v.PhonePub}, LastSeq: 16}

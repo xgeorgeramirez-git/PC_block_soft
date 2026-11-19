@@ -67,6 +67,8 @@ func eventText(kind, name string, d map[string]any) string {
 		}
 	case evRemote:
 		body = remoteEventText(detStr(d, "action"), detStr(d, "phone"))
+	case evRemoteNote:
+		body = noteJournalText(detStr(d, "text"))
 	case evExtraUndone:
 		body = "изменение доп. времени отменено"
 	case core.EvBypass:

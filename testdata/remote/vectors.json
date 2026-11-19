@@ -23,5 +23,21 @@
   "report": {
     "data": "eyJ2IjoxLCJ0IjoicmVwb3J0IiwicGMiOiJwYy12ZWN0b3IiLCJwaG9uZSI6InBob25lLXZlY3RvciIsInRzIjoxNzYzNDkwMDAxMDAwLCJjaGlsZHJlbiI6W3siaWQiOjMsIm5hbWUiOiLQnNC40YjQsCIsInVzZWRTZWMiOjM2MDAsImxlZnRTZWMiOjE4MDAsImV4dHJhTWluIjoxNSwiYmxvY2tlZCI6ZmFsc2V9XX0",
     "sig": "MEQCICoE3abKvKrpNdyoWAqc9vXlzwWs4FpRoUI8Hy-68L6lAiBcKYq7JKSz62r49p4ptrlQ5Lnye0gUfKIgy2aByDO2EA"
+  },
+  "noteJson": "{\"v\":1,\"t\":\"note\",\"pc\":\"pc-vector\",\"phone\":\"phone-vector\",\"seq\":18,\"ts\":1763490002000,\"child\":3,\"id\":\"AAECAwQFBgcICQoLDA0ODw\",\"text\":\"Иди ужинать\\nПотом уроки\",\"showSec\":0}",
+  "note": {
+    "data": "eyJ2IjoxLCJ0Ijoibm90ZSIsInBjIjoicGMtdmVjdG9yIiwicGhvbmUiOiJwaG9uZS12ZWN0b3IiLCJzZXEiOjE4LCJ0cyI6MTc2MzQ5MDAwMjAwMCwiY2hpbGQiOjMsImlkIjoiQUFFQ0F3UUZCZ2NJQ1FvTERBME9EdyIsInRleHQiOiLQmNC00Lgg0YPQttC40L3QsNGC0YxcbtCf0L7RgtC-0Lwg0YPRgNC-0LrQuCIsInNob3dTZWMiOjB9",
+    "sig": "MEUCIGGTXc4EmXoVcVCaVYB1TfZQaAAAo0D1jj4VwV3htDXbAiEA6FvUQDgMfu44-fn19loiZLa3PXszqx3Y_1vz5FdAE0M"
+  },
+  "noteHash": "pn3aVlHf0qewFdQsadQ0Dc1HWJxevab0uCd8pL-wskc",
+  "noterJson": "{\"v\":1,\"t\":\"noter\",\"pc\":\"pc-vector\",\"phone\":\"phone-vector\",\"seq\":18,\"cmd\":\"pn3aVlHf0qewFdQsadQ0Dc1HWJxevab0uCd8pL-wskc\",\"ts\":1763490003000,\"ok\":true,\"report\":{\"v\":1,\"t\":\"report\",\"pc\":\"pc-vector\",\"phone\":\"phone-vector\",\"ts\":1763490003000,\"children\":[{\"id\":3,\"name\":\"Миша\",\"usedSec\":3600,\"leftSec\":1800,\"extraMin\":15,\"blocked\":false}],\"notes\":[{\"id\":\"AAECAwQFBgcICQoLDA0ODw\",\"child\":3,\"state\":\"shown\",\"atMs\":1763490002500}]}}",
+  "noter": {
+    "data": "eyJ2IjoxLCJ0Ijoibm90ZXIiLCJwYyI6InBjLXZlY3RvciIsInBob25lIjoicGhvbmUtdmVjdG9yIiwic2VxIjoxOCwiY21kIjoicG4zYVZsSGYwcWV3RmRRc2FkUTBEYzFIV0p4ZXZhYjB1Q2Q4cEwtd3NrYyIsInRzIjoxNzYzNDkwMDAzMDAwLCJvayI6dHJ1ZSwicmVwb3J0Ijp7InYiOjEsInQiOiJyZXBvcnQiLCJwYyI6InBjLXZlY3RvciIsInBob25lIjoicGhvbmUtdmVjdG9yIiwidHMiOjE3NjM0OTAwMDMwMDAsImNoaWxkcmVuIjpbeyJpZCI6MywibmFtZSI6ItCc0LjRiNCwIiwidXNlZFNlYyI6MzYwMCwibGVmdFNlYyI6MTgwMCwiZXh0cmFNaW4iOjE1LCJibG9ja2VkIjpmYWxzZX1dLCJub3RlcyI6W3siaWQiOiJBQUVDQXdRRkJnY0lDUW9MREEwT0R3IiwiY2hpbGQiOjMsInN0YXRlIjoic2hvd24iLCJhdE1zIjoxNzYzNDkwMDAyNTAwfV19fQ",
+    "sig": "MEYCIQCXNC8nN_EODFMSPkSbJ4ypmEqBy4_fI1-9qNro-6_QOwIhAMcfwGTYKRWex83IHOt9rAp3MVRH4RM22lRQoU_MOxXQ"
+  },
+  "reportNotesJson": "{\"v\":1,\"t\":\"report\",\"pc\":\"pc-vector\",\"phone\":\"phone-vector\",\"ts\":1763490003000,\"children\":[{\"id\":3,\"name\":\"Миша\",\"usedSec\":3600,\"leftSec\":1800,\"extraMin\":15,\"blocked\":false}],\"notes\":[{\"id\":\"AAECAwQFBgcICQoLDA0ODw\",\"child\":3,\"state\":\"shown\",\"atMs\":1763490002500}]}",
+  "reportNotes": {
+    "data": "eyJ2IjoxLCJ0IjoicmVwb3J0IiwicGMiOiJwYy12ZWN0b3IiLCJwaG9uZSI6InBob25lLXZlY3RvciIsInRzIjoxNzYzNDkwMDAzMDAwLCJjaGlsZHJlbiI6W3siaWQiOjMsIm5hbWUiOiLQnNC40YjQsCIsInVzZWRTZWMiOjM2MDAsImxlZnRTZWMiOjE4MDAsImV4dHJhTWluIjoxNSwiYmxvY2tlZCI6ZmFsc2V9XSwibm90ZXMiOlt7ImlkIjoiQUFFQ0F3UUZCZ2NJQ1FvTERBME9EdyIsImNoaWxkIjozLCJzdGF0ZSI6InNob3duIiwiYXRNcyI6MTc2MzQ5MDAwMjUwMH1dfQ",
+    "sig": "MEUCIAWF3el769croeJaVYj3p66N-Hmj6nsqzFin1UHuOsqiAiEA0JO6raewHo4FOMdUOLyFqrHPp7eUlbW9fX27Jf6Y8Og"
   }
 }

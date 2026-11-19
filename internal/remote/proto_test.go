@@ -169,3 +169,81 @@ func FuzzParseMsg(f *testing.F) {
 		}
 	})
 }
+
+func TestNoteText(t *testing.T) {
+	cases := []struct {
+		in, out string
+		ok      bool
+	}{
+		{"  Иди ужинать  ", "Иди ужинать", true},
+		{"a\r\nb\rc", "a\nb\nc", true},
+		{"a\tb\x00c​d", "a bcd", true},
+		{"👨‍👩‍👧 ужин", "👨‍👩‍👧 ужин", true},
+		{" \n\t ", "", false},
+		{"", "", false},
+		{strings.Repeat("я", 300), strings.Repeat("я", 300), true},
+		{strings.Repeat("я", 301), strings.Repeat("я", 301), false},
+		{"1\n2\n3\n4\n5\n6", "1\n2\n3\n4\n5\n6", true},
+		{"1\n2\n3\n4\n5\n6\n7", "1\n2\n3\n4\n5\n6\n7", false},
+		{"\n\n\n\n\n\nтекст\n", "текст", true}, // переводы по краям обрезаны
+	}
+	for _, c := range cases {
+		got, ok := NoteText(c.in)
+		if got != c.out || ok != c.ok {
+			t.Errorf("NoteText(%q) = %q, %v; нужно %q, %v", c.in, got, ok, c.out, c.ok)
+		}
+	}
+}
+
+func TestCheckNote(t *testing.T) {
+	phone := mustKey(t)
+	st := State{PCID: "pc", Phone: &Phone{ID: "ph", Pub: MarshalPub(&phone.PublicKey)}, LastSeq: 3}
+	now := time.UnixMilli(1763490000000)
+	base := Note{V: 1, T: TypeNote, PC: "pc", Phone: "ph", Seq: 4, TS: now.UnixMilli(), Child: 3, ID: "AbC-_9", Text: " Иди\r\nужинать ", ShowSec: 10}
+	sign := func(n Note) Signed {
+		raw, _ := json.Marshal(n)
+		s, _ := Sign(phone, raw)
+		return s
+	}
+	n, data, code := CheckNote(st, sign(base), "ph", now)
+	if code != "" || n.Text != "Иди\nужинать" || n.ShowSec != 10 || n.ID != "AbC-_9" || len(data) == 0 {
+		t.Fatalf("верное сообщение: %+v %q", n, code)
+	}
+	for _, sec := range []int{0, 30, 60} {
+		b := base
+		b.ShowSec = sec
+		if _, _, code := CheckNote(st, sign(b), "ph", now); code != "" {
+			t.Errorf("showSec %d: %s", sec, code)
+		}
+	}
+	bad := map[string]func(*Note){
+		"showSec -1":  func(n *Note) { n.ShowSec = -1 },
+		"showSec 20":  func(n *Note) { n.ShowSec = 20 },
+		"id с точкой": func(n *Note) { n.ID = "a.b" },
+		"id 65":       func(n *Note) { n.ID = strings.Repeat("a", 65) },
+		"v 2":         func(n *Note) { n.V = 2 },
+	}
+	for name, f := range bad {
+		b := base
+		f(&b)
+		_, _, code := CheckNote(st, sign(b), "ph", now)
+		want := ErrCodeRange
+		if name == "v 2" {
+			want = ErrCodeBadSig
+		}
+		if code != want {
+			t.Errorf("%s: %q, нужно %q", name, code, want)
+		}
+	}
+	// Неверный текст отклоняется раньше seq: номер не тратится, ответ range, а не replay.
+	b := base
+	b.Seq, b.Text = 2, ""
+	if _, _, code := CheckNote(st, sign(b), "ph", now); code != ErrCodeRange {
+		t.Fatalf("пустой текст со старым seq: %q", code)
+	}
+	b = base
+	b.Seq = 3
+	if _, _, code := CheckNote(st, sign(b), "ph", now); code != ErrCodeReplay {
+		t.Fatalf("равный seq: %q", code)
+	}
+}

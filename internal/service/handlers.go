@@ -1172,8 +1172,11 @@ func (s *Service) hGuardPoll(c *callCtx) ipc.Reply {
 	// Вкладки Brave решаются в этом же ответе (S-1): команды встают в очередь перед её сливом.
 	s.siteGuard(cs, ss, session, req.Sample, c.real)
 	for _, ev := range req.Events {
-		if ev.Kind == ipc.GuardEvBypass && !cs.admin {
+		switch {
+		case ev.Kind == ipc.GuardEvBypass && !cs.admin:
 			s.markBypass(cs, ev.Detail, "guard", c.real)
+		case ev.Kind == ipc.GuardEvNoteShown || ev.Kind == ipc.GuardEvNoteDone:
+			s.noteEvent(cs, ev, c.real)
 		}
 	}
 	rep := ipc.GuardPollReply{Status: s.statusOf(cs), Warnings: []ipc.GuardWarning{}, Commands: []ipc.GuardCommand{}}
@@ -1184,6 +1187,7 @@ func (s *Service) hGuardPoll(c *callCtx) ipc.Reply {
 	cs.warns = nil
 	rep.Commands = append(rep.Commands, s.guardCmd[session]...)
 	delete(s.guardCmd, session)
+	rep.Commands = append(rep.Commands, s.deliverNotes(cs, ss, session, c.real)...)
 	if s.parentOpenIn(session, c.real) {
 		rep.Commands = append(rep.Commands, ipc.GuardCommand{Kind: ipc.GuardCmdHideLock})
 	}

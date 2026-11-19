@@ -232,6 +232,7 @@ func (s *Service) Housekeep(real time.Time) {
 	s.guard("startup", nil, func() { s.housekeepStartup(real) })
 	s.guard("parents", nil, func() { s.expireParents(real) })
 	s.guard("binds", nil, func() { s.expireBinds(real) })
+	s.guard("notes", nil, func() { s.expireNotes(real) })
 	s.guard("sessions", nil, func() { s.syncSessions(real) })
 }
 

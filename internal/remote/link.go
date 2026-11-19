@@ -69,7 +69,13 @@ type Host interface {
 	// replay; иначе записать LastSeq = seq, затем доп. время (общий путь с окном родителя).
 	// code: "" | replay | no_child | range | stale; lastSeq — после вызова.
 	ApplyCommand(gen int64, seq int64, childID int64, delta int) (msg string, code string, lastSeq int64)
+	// ApplyNote — сообщение ребёнку (раздел 5а) под той же блокировкой и в той же нумерации seq,
+	// что ApplyCommand: gen не текущий — отказ; seq ≤ LastSeq — replay; иначе записать LastSeq = seq,
+	// затем поставить сообщение в очередь показа. code: "" | replay | no_child | stale | not_paired.
+	ApplyNote(gen int64, n Note) (code string, lastSeq int64)
 	Children() []ChildReport
+	// Notes — состояния последних сообщений для отчёта (не больше 10, не старше суток).
+	Notes() []NoteReport
 	Event(kind, detail string)
 	Logf(format string, args ...any)
 }
@@ -986,6 +992,8 @@ func (w *worker) handle(m Msg) {
 		w.onPair2(m, v, err)
 	case KindCmd:
 		w.onCmd(m, v, err)
+	case KindNote:
+		w.onNote(m, v, err)
 	default:
 		w.l.logRate("kind", "связь с телефоном: неизвестное сообщение отброшено")
 	}
@@ -1010,6 +1018,44 @@ func (w *worker) onCmd(m Msg, v any, perr error) {
 	if code == "" {
 		msg, code, lastSeq = w.h.ApplyCommand(w.r.gen, cmd.Seq, cmd.Child, cmd.Delta)
 	}
+	w.reply(m, st, s, now, answer{kind: KindCmdR, typ: TypeCmdR, seq: cmd.Seq, code: code, msg: msg, lastSeq: lastSeq})
+}
+
+// onNote — сообщение ребёнку (раздел 5а): проверка как у команды, затем Host.ApplyNote; ответ noter.
+// ok — «принято», показ идёт своим чередом (состояние — в отчёте).
+func (w *worker) onNote(m Msg, v any, perr error) {
+	if m.ID == "" || m.From == "" {
+		return
+	}
+	st := w.h.LoadState()
+	now := w.now()
+	var s Signed
+	if perr == nil {
+		s = *v.(*Signed)
+	}
+	note, code := Note{}, ErrCodeBadSig
+	if perr == nil {
+		note, _, code = CheckNote(st, s, m.From, now)
+	}
+	lastSeq := st.LastSeq
+	if code == "" {
+		code, lastSeq = w.h.ApplyNote(w.r.gen, note)
+	}
+	w.reply(m, st, s, now, answer{kind: KindNoteR, typ: TypeNoteR, seq: note.Seq, code: code, lastSeq: lastSeq})
+}
+
+// answer — что сказать телефону на команду или сообщение.
+type answer struct {
+	kind, typ string
+	seq       int64
+	code      string
+	msg       string
+	lastSeq   int64
+}
+
+// reply подписывает и отправляет ответ cmdr или noter: cmd — хэш подписанных данных телефона;
+// удачный — с отчётом, отказ — с lastSeq (в журнал работы без подробностей).
+func (w *worker) reply(m Msg, st State, s Signed, now time.Time, a answer) {
 	if w.stopped() {
 		return // старое поколение: не отвечаем
 	}
@@ -1017,17 +1063,17 @@ func (w *worker) onCmd(m Msg, v any, perr error) {
 	if data, err := unb64(s.Data); err == nil && s.Data != "" {
 		hash = HashData(data)
 	}
-	res := CmdResult{V: ProtoVersion, T: TypeCmdR, PC: st.PCID, Phone: m.From, Seq: cmd.Seq, Cmd: hash, TS: now.UnixMilli(), OK: code == ""}
+	res := CmdResult{V: ProtoVersion, T: a.typ, PC: st.PCID, Phone: m.From, Seq: a.seq, Cmd: hash, TS: now.UnixMilli(), OK: a.code == ""}
 	if res.OK {
-		res.Message = msg
+		res.Message = a.msg
 		if rep, ok := w.buildReport(); ok {
 			res.Report = &rep
 		}
 		w.reportDue = true
 	} else {
-		res.Error = code
-		res.LastSeq = &lastSeq
-		w.l.logRate("cmd-"+code, "связь с телефоном: команда отклонена (%s)", code)
+		res.Error = a.code
+		res.LastSeq = &a.lastSeq
+		w.l.logRate(a.kind+"-"+a.code, "связь с телефоном: %s (%s)", rejected(a.kind), a.code)
 	}
 	raw, err := json.Marshal(res)
 	if err != nil {
@@ -1037,9 +1083,23 @@ func (w *worker) onCmd(m Msg, v any, perr error) {
 	if err != nil {
 		return
 	}
-	if err := w.call(func(ctx context.Context, c *Client) error { return c.Reply(ctx, m.From, m.ID, KindCmdR, signed) }); err != nil {
-		w.l.logRate("cmdr", "связь с телефоном: ответ на команду не отправлен: %v", err)
+	if err := w.call(func(ctx context.Context, c *Client) error { return c.Reply(ctx, m.From, m.ID, a.kind, signed) }); err != nil {
+		w.l.logRate(a.kind, "связь с телефоном: ответ (%s) не отправлен: %v", what(a.kind), err)
 	}
+}
+
+func what(kind string) string {
+	if kind == KindNoteR {
+		return "сообщение"
+	}
+	return "команда"
+}
+
+func rejected(kind string) string {
+	if kind == KindNoteR {
+		return "сообщение отклонено"
+	}
+	return "команда отклонена"
 }
 
 // ---------- отчёт (протокол, раздел 6) ----------
@@ -1053,7 +1113,7 @@ func (w *worker) buildReport() (Report, bool) {
 	if ch == nil {
 		ch = []ChildReport{}
 	}
-	return Report{V: ProtoVersion, T: TypeReport, PC: st.PCID, Phone: st.Phone.ID, TS: w.now().UnixMilli(), Children: ch}, true
+	return Report{V: ProtoVersion, T: TypeReport, PC: st.PCID, Phone: st.Phone.ID, TS: w.now().UnixMilli(), Children: ch, Notes: w.h.Notes()}, true
 }
 
 func (w *worker) sendReport() {
