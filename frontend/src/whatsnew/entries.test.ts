@@ -36,7 +36,10 @@ describe("каталог «Что нового»", () => {
   it("0.8.2: сообщение ребёнку с телефона", () => {
     const e = byVersion("0.8.2");
     expect(e?.title).toBe("Сообщение ребёнку с телефона");
-    expect(e?.items.length).toBe(4);
+    expect(e?.items.length).toBe(8);
+    // FR-42, FR-43 (D-98, D-99): кнопки времени и запрета, статистика за сегодня.
+    expect(e?.items.some((t) => t.includes("«Снять запрет на сегодня»") && t.includes("с телефона"))).toBe(true);
+    expect(e?.items.some((t) => t.includes("«Статистика за сегодня»") && t.includes("«Во что играл»"))).toBe(true);
     expect(e?.items.some((t) => t.includes("«Сообщение от родителя»") && t.includes("поверх экрана блокировки"))).toBe(true);
     expect(e?.items.some((t) => t.includes("10 минут") && t.includes("«Прочитано»"))).toBe(true);
   });
