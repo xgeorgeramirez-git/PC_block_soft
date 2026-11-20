@@ -81,14 +81,14 @@
     <string name="stats_at_pc_since">За компьютером с %1$s</string>
     <string name="stats_away_since">Не за компьютером с %1$s</string>
     <string name="stats_away">Не за компьютером</string>
-    <string name="stats_first">Сегодня впервые сел в %1$s</string>
-    <string name="stats_first_none">Сегодня ещё не садился</string>
+    <string name="stats_first">Первый вход сегодня в %1$s</string>
+    <string name="stats_first_none">Сегодня входа ещё не было</string>
     <string name="stats_used">Всего за сегодня: %1$s</string>
     <string name="stats_left">Осталось: %1$s</string>
     <string name="stats_unlimited">Осталось: без лимита</string>
     <string name="stats_games">Во что играл</string>
     <string name="stats_games_total">Игры всего: %1$s</string>
-    <string name="stats_no_games">Сегодня не играл</string>
+    <string name="stats_no_games">Сегодня игр не было</string>
     <string name="stats_study">Учёба: %1$s</string>
     <string name="stats_video">Видео и соцсети: %1$s</string>
     <string name="stats_programs">Программы</string>
