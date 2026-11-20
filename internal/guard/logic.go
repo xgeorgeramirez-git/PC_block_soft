@@ -70,6 +70,7 @@ const (
 	ButtonPlateSpendBonus        // «Взять из копилки» на плашке 1 мин (RM3-5, FR-11): без пароля
 	ButtonPlateAskMore           // «Попросить ещё» на плашке 1 мин (RM3-5): открывает «Мою статистику»
 	ButtonEndBreak               // «Закончить перерыв» после пароля на экране перерыва (R27)
+	ButtonNoteOK                 // «Понял» на плашке «Сообщение от родителя» (FR-41)
 )
 
 // Panel — панель поверх экрана блокировки; одновременно открыта одна.
@@ -250,6 +251,9 @@ type View struct {
 
 	// Promo — стикер и надпись ответа на промокод (R26); nil — ответа нет.
 	Promo *PromoStickerView
+
+	// Note — плашка «Сообщение от родителя» (FR-41): и без экрана блокировки, и поверх него; nil — нет.
+	Note *NoteView
 
 	// SuppressKeys: глушить Win, Alt+Tab, Alt+Esc, Esc, Alt+F4, Ctrl+Esc, Ctrl+Shift+Esc;
 	// истина только пока показан экран блокировки. Нажатия не записываются (R23).
@@ -445,6 +449,13 @@ type Model struct {
 	still      bool          // анимации Windows выключены: стикер стоит на последнем кадре
 	lockDec    core.Decision // последнее решение с экраном блокировки
 
+	// Сообщения с телефона (FR-41, note.go): очередь, показанное, помнящиеся id и события службе.
+	noteQ      []*noteItem
+	note       *noteItem
+	noteSeen   []string
+	noteSeq    int
+	noteEvents []ipc.GuardEvent
+
 	events []Event
 }
 
@@ -575,6 +586,7 @@ func (m *Model) SetAutoSwitchAfter(d time.Duration) {
 // advance приводит состояние к моменту now: обрыв связи, срок плашки, конец паузы.
 // Вызывается каждым изменяющим методом; View его не вызывает и состояния не меняет.
 func (m *Model) advance(now time.Time) {
+	m.noteClock(now) // до обрыва: время на экране считается по связи на этом отрезке
 	if m.offlineAt(now) {
 		m.resetUI()
 		return
@@ -595,6 +607,7 @@ func (m *Model) advance(now time.Time) {
 	if m.promoIdle(now) {
 		m.closePromo()
 	}
+	m.advanceNotes(now)
 }
 
 // OnDecision принимает успешный ответ службы: решение, признак родительской сессии
@@ -613,6 +626,7 @@ func (m *Model) OnWarnings(now time.Time, d core.Decision, hideForParent bool, n
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.advance(now)
+	defer m.advanceNotes(now) // по свежему решению: плашка 1 мин или родительская сессия задержат сообщение
 	if m.hasDec && now.Sub(m.lastOK) > offlineAfter {
 		secs := int((now.Sub(m.lastOK) + time.Second/2) / time.Second)
 		m.events = append(m.events, Event{Kind: EvGuardOffline, Details: map[string]any{
@@ -1015,6 +1029,10 @@ func (m *Model) Press(now time.Time, b Button, password string) Action {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.advance(now)
+	if b == ButtonNoteOK {
+		m.pressNote(now) // плашка сообщения своя: не трогает панели экрана блокировки и другие плашки
+		return Action{}
+	}
 	if b == ButtonWarningClose {
 		// Крестик есть только у табло 30/15/5; плашку 1 мин кнопкой не закрыть (FR-9).
 		if p := m.shownPlate(now); p != nil && p == m.warn && (p.kind == plateRest || p.kind == plateThreshold && p.threshold != 1) {
@@ -1257,6 +1275,7 @@ func (m *Model) View(now time.Time) View {
 	if !m.hasDec || m.hidden || m.offlineAt(now) {
 		return v
 	}
+	v.Note = m.noteView(now)
 	held := m.promoHeld(now)
 	if m.dec.Lock == core.LockNone && !held {
 		if p := m.shownPlate(now); p != nil {

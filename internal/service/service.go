@@ -169,6 +169,8 @@ type childState struct {
 	startupOff map[string]startupHit
 	// startupFullAt — когда набор собран последней удачной полной проверкой (startupReady).
 	startupFullAt time.Time
+	// presence — «за компьютером» и первый вход за день для телефона (FR-43, presence.go).
+	presence presence
 }
 
 // Service — служба PCBlock без привязки к Windows: логика на портах (doc.go).
@@ -259,6 +261,8 @@ type Service struct {
 
 	// Связь с телефоном (M7, remote.go): запись remote.state и идущая связь.
 	rem remoteState
+	// notes — сообщения ребёнку с телефона (FR-41): очередь показа.
+	notes notesState
 }
 
 // New собирает службу. Ничего не запускает: Start читает базу и поднимает сеансные части.

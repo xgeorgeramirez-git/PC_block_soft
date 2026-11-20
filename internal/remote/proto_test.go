@@ -169,3 +169,149 @@ func FuzzParseMsg(f *testing.F) {
 		}
 	})
 }
+
+func TestNoteText(t *testing.T) {
+	cases := []struct {
+		in, out string
+		ok      bool
+	}{
+		{"  Иди ужинать  ", "Иди ужинать", true},
+		{"a\r\nb\rc", "a\nb\nc", true},
+		{"a\tb\x00c​d", "a bcd", true},
+		{"👨‍👩‍👧 ужин", "👨‍👩‍👧 ужин", true},
+		{" \n\t ", "", false},
+		{"", "", false},
+		{strings.Repeat("я", 300), strings.Repeat("я", 300), true},
+		{strings.Repeat("я", 301), strings.Repeat("я", 301), false},
+		{"1\n2\n3\n4\n5\n6", "1\n2\n3\n4\n5\n6", true},
+		{"1\n2\n3\n4\n5\n6\n7", "1\n2\n3\n4\n5\n6\n7", false},
+		{"\n\n\n\n\n\nтекст\n", "текст", true}, // переводы по краям обрезаны
+		// Только невидимые знаки — пусто (тот же набор, что NoteTest.invisibleCharsRemovedLikeGo телефона).
+		{"\u200b\u200e\u200f\ufeff\u2060\u00ad\u202e\U000E0001\ufffd \n", "", false},
+		{"\u200bИди\u2060 ужинать\ufeff", "Иди ужинать", true},
+		{"\u200e👨\u200d👩", "👨\u200d👩", true},
+	}
+	for _, c := range cases {
+		got, ok := NoteText(c.in)
+		if got != c.out || ok != c.ok {
+			t.Errorf("NoteText(%q) = %q, %v; нужно %q, %v", c.in, got, ok, c.out, c.ok)
+		}
+	}
+}
+
+func TestCheckNote(t *testing.T) {
+	phone := mustKey(t)
+	st := State{PCID: "pc", Phone: &Phone{ID: "ph", Pub: MarshalPub(&phone.PublicKey)}, LastSeq: 3}
+	now := time.UnixMilli(1763490000000)
+	base := Note{V: 1, T: TypeNote, PC: "pc", Phone: "ph", Seq: 4, TS: now.UnixMilli(), Child: 3, ID: "AbC-_9", Text: " Иди\r\nужинать ", ShowSec: 10}
+	sign := func(n Note) Signed {
+		raw, _ := json.Marshal(n)
+		s, _ := Sign(phone, raw)
+		return s
+	}
+	n, data, code := CheckNote(st, sign(base), "ph", now)
+	if code != "" || n.Text != "Иди\nужинать" || n.ShowSec != 10 || n.ID != "AbC-_9" || len(data) == 0 {
+		t.Fatalf("верное сообщение: %+v %q", n, code)
+	}
+	for _, sec := range []int{0, 30, 60} {
+		b := base
+		b.ShowSec = sec
+		if _, _, code := CheckNote(st, sign(b), "ph", now); code != "" {
+			t.Errorf("showSec %d: %s", sec, code)
+		}
+	}
+	bad := map[string]func(*Note){
+		"showSec -1":  func(n *Note) { n.ShowSec = -1 },
+		"showSec 20":  func(n *Note) { n.ShowSec = 20 },
+		"id с точкой": func(n *Note) { n.ID = "a.b" },
+		"id 65":       func(n *Note) { n.ID = strings.Repeat("a", 65) },
+		"v 2":         func(n *Note) { n.V = 2 },
+	}
+	for name, f := range bad {
+		b := base
+		f(&b)
+		_, _, code := CheckNote(st, sign(b), "ph", now)
+		want := ErrCodeRange
+		if name == "v 2" {
+			want = ErrCodeBadSig
+		}
+		if code != want {
+			t.Errorf("%s: %q, нужно %q", name, code, want)
+		}
+	}
+	// Неверный текст отклоняется раньше seq: номер не тратится, ответ range, а не replay.
+	b := base
+	b.Seq, b.Text = 2, ""
+	if _, _, code := CheckNote(st, sign(b), "ph", now); code != ErrCodeRange {
+		t.Fatalf("пустой текст со старым seq: %q", code)
+	}
+	b = base
+	b.Seq = 3
+	if _, _, code := CheckNote(st, sign(b), "ph", now); code != ErrCodeReplay {
+		t.Fatalf("равный seq: %q", code)
+	}
+}
+
+// Ловит (протокол 5б): неизвестный op применяется как доп. время; «снять запрет» с delta проходит;
+// старая команда без op перестала проходить; поле op попадает в данные старой команды (байты
+// векторов Android меняются) или delta 0 уходит у «снять запрет».
+func TestCheckCommandOp(t *testing.T) {
+	phone := mustKey(t)
+	now := time.UnixMilli(1763490000000)
+	st := State{PCID: "pc1", Phone: &Phone{ID: "ph1", Pub: MarshalPub(&phone.PublicKey)}, LastSeq: 16}
+	base := Command{V: 1, T: TypeCmd, PC: "pc1", Phone: "ph1", Seq: 17, TS: now.UnixMilli(), Child: 3}
+	sign := func(c Command) Signed {
+		raw, _ := json.Marshal(c)
+		s, err := Sign(phone, raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return s
+	}
+	with := func(f func(*Command)) Command { c := base; f(&c); return c }
+	cases := []struct {
+		name string
+		cmd  Command
+		code string
+		op   string
+	}{
+		{"без op (старый телефон)", with(func(c *Command) { c.Delta = 15 }), "", ""},
+		{"op extra", with(func(c *Command) { c.Op = OpExtra; c.Delta = -30 }), "", OpExtra},
+		{"снять запрет", with(func(c *Command) { c.Op = OpNoForbidden }), "", OpNoForbidden},
+		{"снять запрет с delta", with(func(c *Command) { c.Op = OpNoForbidden; c.Delta = 15 }), ErrCodeRange, ""},
+		{"неизвестный op", with(func(c *Command) { c.Op = "pause"; c.Delta = 15 }), ErrCodeRange, ""},
+		{"неизвестный op, старый seq", with(func(c *Command) { c.Op = "pause"; c.Seq = 3 }), ErrCodeRange, ""},
+		{"снять запрет, старый seq", with(func(c *Command) { c.Op = OpNoForbidden; c.Seq = 16 }), ErrCodeReplay, ""},
+		{"снять запрет, чужой pc", with(func(c *Command) { c.Op = OpNoForbidden; c.PC = "pc2" }), ErrCodeNotPaired, ""},
+	}
+	for _, c := range cases {
+		cmd, _, code := CheckCommand(st, sign(c.cmd), "ph1", now)
+		if code != c.code {
+			t.Errorf("%s: код %q, нужно %q", c.name, code, c.code)
+			continue
+		}
+		if code == "" && cmd.Op != c.op {
+			t.Errorf("%s: op %q, нужно %q", c.name, cmd.Op, c.op)
+		}
+	}
+	old, _ := json.Marshal(with(func(c *Command) { c.Delta = 15 }))
+	if strings.Contains(string(old), `"op"`) || !strings.Contains(string(old), `"delta":15`) {
+		t.Fatalf("команда без op: %s", old)
+	}
+	nf, _ := json.Marshal(with(func(c *Command) { c.Op = OpNoForbidden }))
+	if !strings.HasSuffix(string(nf), `"child":3,"op":"noForbidden"}`) {
+		t.Fatalf("команда «снять запрет»: %s", nf)
+	}
+}
+
+// Ловит: поля запрета в отчёте ломают отчёт старого вида (пустой статус уходит строкой "").
+func TestChildReportForbidJSON(t *testing.T) {
+	old, _ := json.Marshal(ChildReport{ID: 3, Name: "Миша"})
+	if strings.Contains(string(old), "forbid") {
+		t.Fatalf("пустой статус запрета в отчёте: %s", old)
+	}
+	act, _ := json.Marshal(ChildReport{ID: 3, Name: "Миша", Forbid: ForbidActive, ForbidUntilMs: 1763496000000})
+	if !strings.HasSuffix(string(act), `"blocked":false,"forbid":"active","forbidUntilMs":1763496000000}`) {
+		t.Fatalf("отчёт с запретом: %s", act)
+	}
+}

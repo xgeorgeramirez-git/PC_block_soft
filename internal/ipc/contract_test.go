@@ -471,6 +471,13 @@ func examples() map[string]example {
 				{Kind: GuardCmdTest, Test: &TestGuardAction{Action: TestType, Target: "password", Text: "секрет-123"}},
 			},
 		}),
+		"GuardPoll#note": ok(GuardPollRequest{Sample: SensorSample{AtMs: t0, SessionActive: true}, Events: []GuardEvent{
+			{Kind: GuardEvNoteShown, AtMs: t0 - 3000, NoteID: "AAECAwQFBgcICQoLDA0ODw"},
+			{Kind: GuardEvNoteDone, AtMs: t0 - 100, NoteID: "AAECAwQFBgcICQoLDA0ODw"},
+		}}, GuardPollReply{
+			Status: okStatus(), Warnings: []GuardWarning{},
+			Commands: []GuardCommand{{Kind: GuardCmdNote, Note: &GuardNote{ID: "BAECAwQFBgcICQoLDA0ODw", Text: "Иди ужинать", ShowS: 0, WaitS: 597}}},
+		}),
 		"GuardPoll#empty": ok(GuardPollRequest{Sample: SampleFromCore(core.SessionSample{AtMs: t0})}, GuardPollReply{Status: okStatus()}),
 		"GuardPoll#blocked": ok(GuardPollRequest{Sample: SensorSample{AtMs: t0, SessionActive: true, Foreground: CatNameGames,
 			ForegroundPath: `c:\users\миша\downloads\supergame.exe`}}, GuardPollReply{

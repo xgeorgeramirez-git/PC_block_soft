@@ -4,6 +4,7 @@ package guard
 
 import (
 	"fmt"
+	"math"
 	"runtime"
 	"strings"
 	"testing"
@@ -532,5 +533,101 @@ func TestRestScreenDrawsCatTilesAndMessage(t *testing.T) {
 	}
 	if r.ui.buttonHandle(ButtonParentPassword) != h || r.ui.sig != sig || r.ui.view.Rest.Tiles != v2.Rest.Tiles {
 		t.Error("новая секунда таймера перестроила окно или не дошла до плиток")
+	}
+}
+
+// Ловит: слово без пробелов длиннее строки выходит за край плашки (DrawText без DT_EDITCONTROL не
+// переносит его), и расчёт высоты не совпадает с рисованием.
+func TestMeasureLongWordWraps(t *testing.T) {
+	hdc, _, _ := procGetDC.Call(0)
+	defer procReleaseDC.Call(0, hdc)
+	font := makeFont(Scaled(NoteFontPx, 96), 400)
+	defer procDeleteObject.Call(font)
+	word := strings.Repeat("ужинать", 12)
+	w, h := measureSize(hdc, font, word, 200)
+	_, one := measureSize(hdc, font, "у", 200)
+	if w > 200 || h < 3*one {
+		t.Fatalf("слово %d знаков в ширину 200: %d×%d (строка %d) — не перенесено по буквам", len([]rune(word)), w, h, one)
+	}
+	if got := measureHeight(hdc, font, word, 200); got != h {
+		t.Fatalf("measureHeight %d, measureSize %d", got, h)
+	}
+}
+
+// Ловит: настоящая плашка сообщения (мерка Windows) с длинным текстом над экраном блокировки
+// закрывает его заголовок или кнопки, выходит за рабочую область или выше 40 % её, текст обрезан.
+func TestNoteWindowOverLockFits(t *testing.T) {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	n, err := newNoteWindow(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer n.close()
+	wa := workArea()
+	text := strings.Repeat(strings.Repeat("Иди ужинать скорее ", 2)+"\n", 5) + strings.Repeat("ж", 110)
+	lock := &NoteLock{Title: Rect{Left: wa.left + 62, Top: wa.top + 65, Right: wa.left + 962, Bottom: wa.top + 115}, ControlsTop: wa.top + 272,
+		MaxUp: 65 - 16, MaxDown: 768 - 16 - 680}
+	for _, lk := range []*NoteLock{nil, lock} {
+		n.apply(&NoteView{Seq: 1, ID: "a", Title: textNoteTitle, Text: text,
+			Buttons: []ButtonView{{Button: ButtonNoteOK, Label: textNoteOK, Main: true, Enabled: true}}}, lk)
+		pump(50 * time.Millisecond)
+		g := n.geom
+		if g.top < wa.top || g.bottom > wa.bottom || g.left < wa.left || g.right > wa.right {
+			t.Fatalf("плашка %+v вне рабочей области %+v", g, wa)
+		}
+		if h := g.bottom - g.top; h > (wa.bottom-wa.top)*40/100 {
+			t.Fatalf("плашка %d px выше 40 %% области", h)
+		}
+		if lk != nil {
+			f := n.fit
+			up, down := f.ShiftUp, f.ShiftDown
+			if up > lk.MaxUp || down > lk.MaxDown || g.bottom > lk.ControlsTop+down || g.top < lk.Title.Bottom-up && g.bottom > lk.Title.Top-up {
+				t.Fatalf("плашка %+v закрывает заголовок %+v или кнопки (с %d), сдвиг %d/%d", g, lk.Title, lk.ControlsTop, up, down)
+			}
+		}
+		// Текст целиком (FR-41): без «…», все строки в раскладке (мерка Windows), шрифт не мельче 14 px.
+		hdc, _, _ := procGetDC.Call(n.hwnd)
+		tw := NoteTextWidth(n.dpi, n.fit.Layout.W, n.fit.Density)
+		need := measureHeight(hdc, n.font(n.fit.FontPx, 400), text, tw)
+		procReleaseDC.Call(n.hwnd, hdc)
+		if n.fit.Text != text || n.fit.FontPx < 14 || need > n.fit.Layout.Text.Bottom-n.fit.Layout.Text.Top {
+			t.Fatalf("текст не целиком: шрифт %d, нужно %d px, место %+v, %q", n.fit.FontPx, need, n.fit.Layout.Text, n.fit.Text)
+		}
+		n.hide()
+	}
+}
+
+// contrastRatio — отношение контраста двух цветов COLORREF по WCAG 2.
+func contrastRatio(a, b uintptr) float64 {
+	lum := func(c uintptr) float64 {
+		ch := func(v uintptr) float64 {
+			x := float64(v&0xFF) / 255
+			if x <= 0.03928 {
+				return x / 12.92
+			}
+			return math.Pow((x+0.055)/1.055, 2.4)
+		}
+		return 0.2126*ch(c) + 0.7152*ch(c>>8) + 0.0722*ch(c>>16)
+	}
+	la, lb := lum(a), lum(b)
+	if la < lb {
+		la, lb = lb, la
+	}
+	return (la + 0.05) / (lb + 0.05)
+}
+
+// Ловит: цветная (синяя) рамка плашки сообщения вместо нейтральной, как у остальных плашек (ТЗ 8.0:
+// цвет — только для статусов); тусклый заголовок (контраст с поверхностью ниже 4,5:1) и заголовок не
+// крупнее подписи 20 px.
+func TestNoteColorsNeutral(t *testing.T) {
+	if noteFrameColor != colorLine {
+		t.Fatalf("рамка %06x, want нейтральная colorLine %06x", noteFrameColor, colorLine)
+	}
+	if r := contrastRatio(noteTitleColor, colorSurface); r < 4.5 || noteTitleColor == colorSecondary {
+		t.Fatalf("заголовок: контраст %.2f, цвет %06x", r, noteTitleColor)
+	}
+	if NoteNormal.TitlePx <= 20 {
+		t.Fatalf("заголовок %d px, want крупнее 20", NoteNormal.TitlePx)
 	}
 }

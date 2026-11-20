@@ -21,11 +21,69 @@ object Proto {
     const val KIND_PAIR2R = "pair2r"
     const val KIND_CMD = "cmd"
     const val KIND_CMDR = "cmdr"
+    const val KIND_NOTE = "note"
+    const val KIND_NOTER = "noter"
+
+    /** Сообщение с телефона (раздел 5а): до 300 знаков, не больше 5 переводов строк. */
+    const val MAX_NOTE = 300
+    const val MAX_NOTE_LINES = 5
+
+    /** Сколько показывать: 0 — пока не нажмёт «Понял», иначе секунды. */
+    val SHOW_SEC = listOf(0, 10, 30, 60)
 
     /** Привязанный компьютер: чьи подписи и для какого телефона принимаем. */
     data class Peer(val pcId: String, val phoneId: String, val pcPub: PublicKey)
 
-    /** Строка ребёнка из отчёта. leftSec < 0 — лимита нет. */
+    /** Быстрые кнопки карточки ребёнка (FR-42): «+N» и «−N» минут. */
+    val QUICK_ADD = listOf(15, 30, 60)
+
+    const val OP_NO_FORBIDDEN = "noForbidden"
+
+    /** Запретные часы ребёнка сегодня (раздел 6, поле forbid). */
+    enum class Forbid(val wire: String) {
+        NONE("none"),
+        AHEAD("ahead"),
+        ACTIVE("active"),
+        CLEARED("cleared"),
+        ;
+
+        companion object {
+            fun of(s: String): Forbid? = values().firstOrNull { it.wire == s }
+        }
+    }
+
+    /** Что показать на карточке про запрет: ничего, кнопку «Снять запрет на сегодня» или «Запрет на сегодня снят». */
+    enum class ForbidView { HIDDEN, BUTTON, CLEARED }
+
+    /** Строка «Итогов» за сегодня: программа или сайт, вкладка cat (game/study/video/other), секунды. */
+    data class Item(val name: String, val cat: String, val sec: Long)
+
+    /**
+     * «Статистика за сегодня» (раздел 6, поле today; FR-43). asOfMs — время отчёта, в котором она
+     * пришла («данные на HH:MM»): отчёт из ответа на команду today не несёт, телефон держит прежний.
+     */
+    data class Today(
+        val firstMs: Long,
+        val nowAt: Boolean,
+        val sinceMs: Long,
+        val usedSec: Long,
+        val leftSec: Long,
+        val gamesSec: Long,
+        val studySec: Long,
+        val videoSec: Long,
+        val programs: List<Item>,
+        val sites: List<Item>,
+        val morePrograms: Int,
+        val moreSites: Int,
+        val violations: Int,
+        val bypass: Int,
+        val asOfMs: Long,
+    )
+
+    /**
+     * Строка ребёнка из отчёта. leftSec < 0 — лимита нет. forbid = null — компьютер старой версии
+     * (кнопки снятия запрета нет); today = null — статистики за сегодня нет (кнопки нет).
+     */
     data class Child(
         val id: Long,
         val name: String,
@@ -33,9 +91,41 @@ object Proto {
         val leftSec: Long,
         val extraMin: Int,
         val blocked: Boolean,
-    )
+        val forbid: Forbid? = null,
+        val forbidUntilMs: Long = 0,
+        val today: Today? = null,
+    ) {
+        val forbidView: ForbidView
+            get() = when (forbid) {
+                Forbid.AHEAD, Forbid.ACTIVE -> ForbidView.BUTTON
+                Forbid.CLEARED -> ForbidView.CLEARED
+                Forbid.NONE, null -> ForbidView.HIDDEN
+            }
 
-    data class Report(val ts: Long, val children: List<Child>)
+        /** Конец идущих запретных часов («Запретные часы до HH:MM»), null — не идут или конец неизвестен. */
+        val activeForbidUntilMs: Long?
+            get() = if (forbid == Forbid.ACTIVE && forbidUntilMs > 0) forbidUntilMs else null
+    }
+
+    /** Состояние сообщения из отчёта (раздел 5а). */
+    enum class NoteState(val wire: String) {
+        QUEUED("queued"),
+        SHOWN("shown"),
+        READ("read"),
+        EXPIRED("expired"),
+        ;
+
+        companion object {
+            fun of(s: String): NoteState? = values().firstOrNull { it.wire == s }
+        }
+    }
+
+    data class NoteStatus(val id: String, val child: Long, val state: NoteState, val atMs: Long)
+
+    data class Report(val ts: Long, val children: List<Child>, val notes: List<NoteStatus> = emptyList())
+
+    /** Проверенный ответ на сообщение: ok — компьютер принял (ещё не показал). */
+    data class NoteReply(val ok: Boolean, val error: String, val lastSeq: Long?)
 
     /** Проверенный ответ на команду. */
     data class CmdReply(
@@ -56,6 +146,16 @@ object Proto {
         require(delta != 0 && delta in -MAX_DELTA..MAX_DELTA) { "delta вне 1…240" }
         val json = "{\"v\":$VERSION,\"t\":\"cmd\",\"pc\":${JSONObject.quote(pc)},\"phone\":${JSONObject.quote(phone)}," +
             "\"seq\":$seq,\"ts\":$ts,\"child\":$child,\"delta\":$delta}"
+        return json.toByteArray(Charsets.UTF_8)
+    }
+
+    /**
+     * Байты data команды «Снять запрет на сегодня» (раздел 5б): поля как у команды доп. времени,
+     * вместо delta — op. Порядок фиксирован, чтобы совпадать с вектором Go байт в байт.
+     */
+    fun noForbiddenData(pc: String, phone: String, seq: Long, ts: Long, child: Long): ByteArray {
+        val json = "{\"v\":$VERSION,\"t\":\"cmd\",\"pc\":${JSONObject.quote(pc)},\"phone\":${JSONObject.quote(phone)}," +
+            "\"seq\":$seq,\"ts\":$ts,\"child\":$child,\"op\":\"$OP_NO_FORBIDDEN\"}"
         return json.toByteArray(Charsets.UTF_8)
     }
 
@@ -96,9 +196,73 @@ object Proto {
                 leftSec = c.optLong("leftSec", 0),
                 extraMin = c.optInt("extraMin", 0),
                 blocked = c.optBoolean("blocked", false),
+                forbid = Forbid.of(c.optString("forbid", "")),
+                forbidUntilMs = c.optLong("forbidUntilMs", 0),
+                today = parseToday(c.optJSONObject("today"), ts),
             )
         }
-        Report(ts, children)
+        Report(ts, children, parseNotes(o.optJSONArray("notes")))
+    }
+
+    /** Поле today: кривые строки списков пропускаются; не объект — статистики нет (сам отчёт принят). */
+    private fun parseToday(t: JSONObject?, ts: Long): Today? {
+        if (t == null) return null
+        val more = t.optJSONObject("more")
+        return Today(
+            firstMs = t.optLong("firstMs", 0),
+            nowAt = t.optBoolean("nowAt", false),
+            sinceMs = t.optLong("sinceMs", 0),
+            usedSec = t.optLong("usedSec", 0),
+            leftSec = t.optLong("leftSec", 0),
+            gamesSec = t.optLong("gamesSec", 0),
+            studySec = t.optLong("studySec", 0),
+            videoSec = t.optLong("videoSec", 0),
+            programs = parseItems(t.optJSONArray("programs")),
+            sites = parseItems(t.optJSONArray("sites")),
+            morePrograms = more?.optInt("programs", 0) ?: 0,
+            moreSites = more?.optInt("sites", 0) ?: 0,
+            violations = t.optInt("violations", 0),
+            bypass = t.optInt("bypass", 0),
+            asOfMs = ts,
+        )
+    }
+
+    private fun parseItems(arr: JSONArray?): List<Item> {
+        if (arr == null) return emptyList()
+        val out = ArrayList<Item>()
+        for (i in 0 until arr.length()) {
+            val it = arr.optJSONObject(i) ?: continue
+            val name = it.optString("name", "")
+            if (name.isEmpty()) continue
+            out.add(Item(name, it.optString("cat", "other"), maxOf(0L, it.optLong("sec", 0))))
+        }
+        return out
+    }
+
+    /**
+     * Отчёт из ответа на команду (cmdr) today не несёт (раздел 6): у детей без today берётся
+     * статистика из прежнего отчёта (со своим временем «данные на»). Остальное — из свежего.
+     */
+    fun keepToday(fresh: Report, prev: Report?): Report {
+        if (prev == null) return fresh
+        val old = prev.children.associate { it.id to it.today }
+        return fresh.copy(children = fresh.children.map { c -> if (c.today != null) c else c.copy(today = old[c.id]) })
+    }
+
+    /** Строки notes: непонятное состояние или кривая строка пропускаются, остальное показывается. */
+    private fun parseNotes(arr: JSONArray?): List<NoteStatus> {
+        if (arr == null) return emptyList()
+        val out = ArrayList<NoteStatus>()
+        for (i in 0 until arr.length()) {
+            val n = arr.optJSONObject(i) ?: continue
+            val id = n.optString("id", "")
+            val state = NoteState.of(n.optString("state", "")) ?: continue
+            if (id.isEmpty() || !n.has("child")) continue
+            val child = n.optLong("child", Long.MIN_VALUE)
+            if (child == Long.MIN_VALUE) continue
+            out.add(NoteStatus(id, child, state, n.optLong("atMs", 0)))
+        }
+        return out
     }
 
     // ---------- ответ на команду (раздел 5) ----------
@@ -127,6 +291,108 @@ object Proto {
                 error = if (ok) "" else o.optString("error", ""),
                 lastSeq = if (o.has("lastSeq") && !o.isNull("lastSeq")) o.getLong("lastSeq") else null,
                 report = report,
+            )
+        }
+    }
+
+    // ---------- сообщение (раздел 5а) ----------
+
+    /**
+     * Текст, который уйдёт на компьютер, — как NoteText в Go (internal/remote/proto.go): переводы
+     * строк \n, табуляция — пробел; управляющие знаки (Cc), невидимые знаки форматирования (Cf, кроме
+     * U+200D — склейки эмодзи), знак замены U+FFFD и одинокие половинки UTF-16 убраны; края обрезаны.
+     * Текст только из невидимых знаков — пустой: «Текст от 1 до 300 знаков» ещё на телефоне.
+     */
+    fun cleanNote(raw: String): String {
+        val sb = StringBuilder(raw.length)
+        val s = raw.replace("\r\n", "\n").replace('\r', '\n')
+        var i = 0
+        while (i < s.length) {
+            val cp = s.codePointAt(i)
+            i += Character.charCount(cp)
+            val type = Character.getType(cp)
+            when {
+                cp == '\n'.code -> sb.append('\n')
+                cp == '\t'.code -> sb.append(' ')
+                type == Character.CONTROL.toInt() || type == Character.SURROGATE.toInt() || cp == 0xFFFD -> {}
+                type == Character.FORMAT.toInt() && cp != 0x200D -> {}
+                else -> sb.appendCodePoint(cp)
+            }
+        }
+        return sb.toString().trim()
+    }
+
+    /** Ошибка текста для экрана: null — годится, иначе NOTE_RANGE («Текст от 1 до 300 знаков»). */
+    fun noteProblem(raw: String): Problem? = if (noteOk(raw)) null else Problem.NOTE_RANGE
+
+    /** Длина в знаках Unicode (как считает компьютер) после обрезки: для счётчика «12/300». */
+    fun noteLength(raw: String): Int = cleanNote(raw).let { it.codePointCount(0, it.length) }
+
+    /** Текст годится: 1…300 знаков после обрезки и не больше 5 переводов строк. */
+    fun noteOk(raw: String): Boolean {
+        val t = cleanNote(raw)
+        val n = t.codePointCount(0, t.length)
+        return n in 1..MAX_NOTE && t.count { it == '\n' } <= MAX_NOTE_LINES
+    }
+
+    /** Выбор показа из настроек: незнакомое значение — «Пока не нажмёт «Понял»». */
+    fun normalShowSec(v: Int): Int = if (v in SHOW_SEC) v else 0
+
+    /** Случайный id сообщения: 16 байт base64url. */
+    fun newNoteId(rnd: java.util.Random): String = B64.enc(ByteArray(NONCE_LEN).also { rnd.nextBytes(it) })
+
+    /**
+     * Байты data сообщения. Строки кодируются как json.Marshal в Go (экранирование <, >, &,
+     * U+2028/2029), порядок полей фиксирован: так байты совпадают с вектором Go.
+     */
+    fun noteData(pc: String, phone: String, seq: Long, ts: Long, child: Long, id: String, text: String, showSec: Int): ByteArray {
+        require(noteOk(text) && cleanNote(text) == text) { "текст вне 1…300 знаков" }
+        require(showSec in SHOW_SEC) { "showSec не из 0, 10, 30, 60" }
+        val json = "{\"v\":$VERSION,\"t\":\"note\",\"pc\":${goQuote(pc)},\"phone\":${goQuote(phone)}," +
+            "\"seq\":$seq,\"ts\":$ts,\"child\":$child,\"id\":${goQuote(id)},\"text\":${goQuote(text)},\"showSec\":$showSec}"
+        return json.toByteArray(Charsets.UTF_8)
+    }
+
+    /** Строка JSON так, как её пишет encoding/json Go. */
+    fun goQuote(s: String): String {
+        val sb = StringBuilder(s.length + 2).append('"')
+        var i = 0
+        while (i < s.length) {
+            val c = s[i]
+            when {
+                c == '"' -> sb.append("\\\"")
+                c == '\\' -> sb.append("\\\\")
+                c == '\n' -> sb.append("\\n")
+                c == '\r' -> sb.append("\\r")
+                c == '\t' -> sb.append("\\t")
+                c == '\b' -> sb.append("\\b")
+                c == '\u000c' -> sb.append("\\f")
+                c < ' ' || c == '<' || c == '>' || c == '&' || c == '\u2028' || c == '\u2029' ->
+                    sb.append(String.format(java.util.Locale.ROOT, "\\u%04x", c.code))
+                c.isHighSurrogate() && i + 1 < s.length && s[i + 1].isLowSurrogate() -> {
+                    sb.append(c).append(s[i + 1])
+                    i++
+                }
+                c.isSurrogate() -> sb.append("\\ufffd") // одиночная половинка: Go пишет U+FFFD
+                else -> sb.append(c)
+            }
+            i++
+        }
+        return sb.append('"').toString()
+    }
+
+    /** Ответ noter: подпись компьютера → t, v → pc, phone → cmd = хэш именно нашего сообщения. */
+    fun openNoteReply(peer: Peer, s: Signed, noteData: ByteArray): NoteReply {
+        val data = Crypto.open(peer.pcPub, s)
+        val o = parseObject(data)
+        return guard {
+            expectHeader(o, KIND_NOTER, peer)
+            if (o.optString("cmd", "") != Crypto.hashData(noteData)) throw ProtoException("ответ не на это сообщение")
+            val ok = o.optBoolean("ok", false)
+            NoteReply(
+                ok = ok,
+                error = if (ok) "" else o.optString("error", ""),
+                lastSeq = if (o.has("lastSeq") && !o.isNull("lastSeq")) o.getLong("lastSeq") else null,
             )
         }
     }
@@ -193,5 +459,32 @@ object Proto {
         block()
     } catch (e: JSONException) {
         throw ProtoException("неверные данные: ${e.message}")
+    }
+}
+
+/**
+ * Повтор сообщения после обрыва (протокол, раздел 5а): если на отправку не пришёл ответ компьютера
+ * (сеть оборвалась, сервер связи не дождался компьютера, ответ не разобран), сообщение могло дойти.
+ * Повтор того же текста тому же ребёнку с тем же показом идёт с тем же id: компьютер считает тот же id
+ * с новым seq одним сообщением. Ответ компьютера (принято или отказ) — повтор не нужен, следующее
+ * сообщение получает новый id.
+ */
+class NoteRetry {
+    private data class Pending(val child: Long, val text: String, val showSec: Int, val id: String)
+
+    private var pending: Pending? = null
+
+    /** id для отправки: тот же, что у неотвеченного такого же сообщения, иначе newId(). */
+    fun idFor(child: Long, text: String, showSec: Int, newId: () -> String): String {
+        val p = pending
+        if (p != null && p.child == child && p.text == text && p.showSec == showSec) return p.id
+        val id = newId()
+        pending = Pending(child, text, showSec, id)
+        return id
+    }
+
+    /** Компьютер ответил (принято или отказ): повторять не нужно. */
+    fun answered() {
+        pending = null
     }
 }

@@ -2,12 +2,14 @@ package service
 
 import (
 	"encoding/json"
+	"sort"
 	"strings"
 	"sync"
 	"time"
 
 	"pcblock/internal/core"
 	"pcblock/internal/ipc"
+	"pcblock/internal/programs"
 	"pcblock/internal/remote"
 )
 
@@ -262,22 +264,8 @@ func (h remoteHost) ApplyCommand(gen, seq, childID int64, delta int) (string, st
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	st := s.rem.st
-	if !s.remoteGen(gen) {
-		return "", remote.ErrCodeStale, st.LastSeq
-	}
-	if st.Phone == nil || st.Phone.ID == s.rem.unpairing {
-		return "", remote.ErrCodeNotPaired, st.LastSeq
-	}
-	if seq <= st.LastSeq {
-		return "", remote.ErrCodeReplay, st.LastSeq
-	}
-	next := st
-	next.LastSeq = seq
-	if err := s.writeRemote(next); err != nil {
-		// Номер не записан — команду не применяем: после перезапуска она прошла бы второй раз.
-		s.logRate("remote-seq", "связь с телефоном: номер команды не записан, команда не применена: %v", err)
-		return "", remote.ErrCodeStale, st.LastSeq
+	if code, last := s.takeRemoteSeq(gen, seq); code != "" {
+		return "", code, last
 	}
 	cs := s.children[childID]
 	if cs == nil {
@@ -294,8 +282,90 @@ func (h remoteHost) ApplyCommand(gen, seq, childID int64, delta int) (string, st
 	return rep.Message, "", seq
 }
 
-// Children — отчёт телефону: «осталось» и «за компьютером» той же карточкой, что окно родителя.
-func (h remoteHost) Children() []remote.ChildReport {
+// takeRemoteSeq — общая часть команд телефона (разделы 5, 5б) под s.mu: поколение → привязка →
+// seq больше последнего → запись LastSeq = seq до эффекта. code "" — номер записан, команду можно
+// применять; иначе отказ и последний принятый номер.
+func (s *Service) takeRemoteSeq(gen, seq int64) (string, int64) {
+	st := s.rem.st
+	if !s.remoteGen(gen) {
+		return remote.ErrCodeStale, st.LastSeq
+	}
+	if st.Phone == nil || st.Phone.ID == s.rem.unpairing {
+		return remote.ErrCodeNotPaired, st.LastSeq
+	}
+	if seq <= st.LastSeq {
+		return remote.ErrCodeReplay, st.LastSeq
+	}
+	next := st
+	next.LastSeq = seq
+	if err := s.writeRemote(next); err != nil {
+		// Номер не записан — команду не применяем: после перезапуска она прошла бы второй раз.
+		s.logRate("remote-seq", "связь с телефоном: номер команды не записан, команда не применена: %v", err)
+		return remote.ErrCodeStale, st.LastSeq
+	}
+	return "", seq
+}
+
+// ApplyNoForbidden — «снять запрет на сегодня» с телефона (протокол 5б) под одной s.mu: номер
+// записан до эффекта (takeRemoteSeq), снятие — тем же путём, что кнопка окна (setNoForbidden,
+// источник «телефон»). Уже снят или сегодня запретных часов нет — ok с сообщением, без журнала.
+func (h remoteHost) ApplyNoForbidden(gen, seq, childID int64) (string, string, int64) {
+	s := h.s
+	if s.rem.beforeApplyLock != nil {
+		s.rem.beforeApplyLock()
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if code, last := s.takeRemoteSeq(gen, seq); code != "" {
+		return "", code, last
+	}
+	cs := s.children[childID]
+	if cs == nil {
+		return "", remote.ErrCodeNoChild, seq
+	}
+	s.real = s.cfg.RealNow()
+	switch f, _ := s.forbidToday(cs); f {
+	case remote.ForbidCleared:
+		return textRemoteForbidAlready, "", seq
+	case remote.ForbidNone:
+		return textRemoteForbidNone, "", seq
+	}
+	s.setNoForbidden(cs, true, extraFromPhone)
+	return textRemoteForbidLifted, "", seq
+}
+
+// Ответы телефону на «снять запрет на сегодня» (протокол 5б).
+const (
+	textRemoteForbidLifted  = "Запрет на сегодня снят"
+	textRemoteForbidAlready = "Запрет на сегодня уже снят"
+	textRemoteForbidNone    = "Сегодня запретных часов нет"
+)
+
+// forbidToday — запретные часы ребёнка сегодня для отчёта телефону и команды «снять запрет»
+// (протокол, разделы 5б, 6): тот же источник, что карточка «Сегодня» (forbiddenNote, флаг дня
+// NoForbidden, ядро InForbidden/NextForbiddenStart по часам ядра). until — конец идущего интервала
+// при ForbidActive. «Будут» — начало до местной полуночи: снятие действует только на сегодня.
+func (s *Service) forbidToday(cs *childState) (string, time.Time) {
+	if cs.admin {
+		return remote.ForbidNone, time.Time{} // ограничения не действуют (R18)
+	}
+	now := s.cfg.Clock.Now().In(s.cfg.Loc)
+	today := now.Format(time.DateOnly)
+	if state, _ := cs.eng.State(); state.NoForbidden && state.Day == today {
+		return remote.ForbidCleared, time.Time{}
+	}
+	if in, end := core.InForbidden(cs.rules, now); in {
+		return remote.ForbidActive, end
+	}
+	if start, ok := core.NextForbiddenStart(cs.rules, now); ok && start.In(s.cfg.Loc).Format(time.DateOnly) == today {
+		return remote.ForbidAhead, time.Time{}
+	}
+	return remote.ForbidNone, time.Time{}
+}
+
+// Children — отчёт телефону: «осталось» и «за компьютером» той же карточкой, что окно родителя;
+// withToday — со «Статистикой за сегодня» (todayReport, только отчёт pc/report).
+func (h remoteHost) Children(withToday bool) []remote.ChildReport {
 	s := h.s
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -306,12 +376,81 @@ func (h remoteHost) Children() []remote.ChildReport {
 		if c.Status.Unlimited {
 			left = -1 // без лимита сегодня (протокол, раздел 6)
 		}
-		out = append(out, remote.ChildReport{
+		rep := remote.ChildReport{
 			ID: c.ChildID, Name: c.Name, UsedSec: int64(c.Status.UsedS), LeftSec: left,
 			ExtraMin: c.ExtraMin, Blocked: c.Status.Lock != "" && c.Status.Lock != ipc.LockNone,
-		})
+		}
+		var until time.Time
+		rep.Forbid, until = s.forbidToday(s.children[id])
+		if rep.Forbid == remote.ForbidActive {
+			rep.ForbidUntilMs = until.UnixMilli()
+		}
+		if withToday {
+			rep.Today = s.todayReport(s.children[id], left)
+		}
+		out = append(out, rep)
 	}
 	return out
+}
+
+// todayReport — «Статистика за сегодня» для телефона (FR-43): «Итоги» за сегодня тем же кодом, что
+// окно родителя (fillTotals), left — «осталось» строки ребёнка. Программы и сайты — строки вкладок
+// окна без «Остального времени» (скрытых и запрещённых там уже нет), с категорией вкладки (на
+// телефоне «Во что играл»). Урезание по размеру — remote (fitReport). Под s.mu.
+func (s *Service) todayReport(cs *childState, left int64) *remote.TodayReport {
+	var it ipc.MyTodayReply
+	s.fillTotals(cs, ipc.PeriodToday, &it)
+	t := &remote.TodayReport{
+		UsedSec: int64(it.UsedS), LeftSec: left, GamesSec: int64(it.GamesS), StudySec: int64(it.StudyS), VideoSec: int64(it.VideoS),
+		Programs: []remote.TimeItem{}, Sites: []remote.TimeItem{}, Violations: len(it.Violations),
+	}
+	t.FirstMs, t.NowAt, t.SinceMs = s.presenceToday(cs)
+	for _, v := range it.Violations {
+		if v.Kind == core.EvBypass {
+			t.Bypass++
+		}
+	}
+	t.Programs, t.Sites = todayItems(it.Programs)
+	return t
+}
+
+// todayItems — строки вкладок «Итогов» в два списка отчёта: программы и сайты с категорией вкладки,
+// по убыванию времени; «Остальное время» (без пути) не идёт.
+func todayItems(rows []ipc.ProgramTime) (progs, sites []remote.TimeItem) {
+	progs, sites = []remote.TimeItem{}, []remote.TimeItem{}
+	for _, r := range rows {
+		if r.Path == "" || r.Seconds <= 0 {
+			continue
+		}
+		it := remote.TimeItem{Name: r.Name, Cat: todayCat(r.Category), Sec: int64(r.Seconds)}
+		if r.Kind == usageKindSite {
+			sites = append(sites, it)
+		} else {
+			progs = append(progs, it)
+		}
+	}
+	for _, l := range [][]remote.TimeItem{progs, sites} {
+		sort.SliceStable(l, func(i, j int) bool {
+			if l[i].Sec != l[j].Sec {
+				return l[i].Sec > l[j].Sec
+			}
+			return l[i].Name < l[j].Name
+		})
+	}
+	return progs, sites
+}
+
+// todayCat — категория вкладки «Итогов» для телефона (remote.Item*).
+func todayCat(cat string) string {
+	switch cat {
+	case programs.CatGames:
+		return remote.ItemGame
+	case programs.CatStudy:
+		return remote.ItemStudy
+	case usageCatVideo:
+		return remote.ItemVideo
+	}
+	return remote.ItemOther
 }
 
 // Event — запись журнала родителя без ребёнка: телефон подключён, отвязан, потерян.

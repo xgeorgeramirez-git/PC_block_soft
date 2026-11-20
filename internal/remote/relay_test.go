@@ -3,6 +3,7 @@ package remote
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -33,12 +34,13 @@ type miniRelay struct {
 	pollMax   time.Duration
 
 	// Подмены для тестов (под mu).
-	pollHook  func(n int) (status int, body []byte, ok bool) // ok — ответ подменён
-	hangPoll  bool                                           // опрос висит до отмены запроса
-	codeFail  bool                                           // pair-code отвечает 503
-	toPC      func(*Msg)                                     // посредник: сообщение телефона → компьютеру
-	toPhone   func(*Msg)                                     // посредник: ответ компьютера → телефону
-	reqHeader []http.Header
+	pollHook    func(n int) (status int, body []byte, ok bool) // ok — ответ подменён
+	hangPoll    bool                                           // опрос висит до отмены запроса
+	codeFail    bool                                           // pair-code отвечает 503
+	toPC        func(*Msg)                                     // посредник: сообщение телефона → компьютеру
+	toPhone     func(*Msg)                                     // посредник: ответ компьютера → телефону
+	reqHeader   []http.Header
+	reportSizes []int // размеры тел запросов pc/report
 }
 
 func newMiniRelay(t testing.TB) *miniRelay {
@@ -189,12 +191,14 @@ func (r *miniRelay) hReply(w http.ResponseWriter, q *http.Request, pc string) {
 }
 
 func (r *miniRelay) hReport(w http.ResponseWriter, q *http.Request, _ string) {
+	raw, err := io.ReadAll(q.Body)
 	var in struct{ Body Signed }
-	if json.NewDecoder(q.Body).Decode(&in) != nil {
+	if err != nil || json.Unmarshal(raw, &in) != nil {
 		r.fail(w, 400, "bad_request")
 		return
 	}
 	r.mu.Lock()
+	r.reportSizes = append(r.reportSizes, len(raw))
 	r.reports = append(r.reports, in.Body)
 	r.mu.Unlock()
 	r.send(w, 200, nil)

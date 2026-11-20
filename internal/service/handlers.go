@@ -1019,32 +1019,14 @@ func (s *Service) myTodayOf(cs *childState, period string) ipc.MyTodayReply {
 	}
 	st := s.statusOf(cs)
 	out := ipc.MyTodayReply{Status: st, Today: []string{st.Summary, "Использовано " + core.FormatDuration(st.UsedS)}, Rules: []ipc.MyRule{}, Period: period}
-	// Сегодня — счётчики дня ядра; счётчики прошлого дня (сутки ещё не сменились в ядре)
-	// сегодняшними не считаются. Прошлые дни периода — из базы (RF13-1).
-	now := s.cfg.Clock.Now().In(s.cfg.Loc)
-	today := core.DayOf(now)
-	var live core.DayState
-	if day, _ := cs.eng.State(); day.Day == today {
-		live = day
+	it := s.fillTotals(cs, period, &out)
+	out.Bars, out.BarsBy = buildBars(period, it.from, it.today, it.pd.days, it.pd.live, s.cfg.Loc)
+	spentFrom := it.fromMs
+	if it.pd.resetOK {
+		spentFrom = max(spentFrom, it.pd.reset.ClearedAtMs)
 	}
-	from, _ := periodFrom(period, now)
-	// «Итоги» и столбики — из одного чтения ряда дней и одних счётчиков ядра (RM5-4).
-	pd := s.periodTotals(cs, from, today, live)
-	sum := pd.sum
-	out.UsedS, out.GamesS, out.StudyS, out.VideoS = sum.TotalS, sum.GamesS, sum.StudyS, sum.VideoS
-	out.OtherS = max(0, sum.TotalS-sum.GamesS-sum.VideoS)
-	out.AllS = sum.TotalS + sum.StudyS
-	out.ExtraMin = sum.ExtraMin
-	out.Bars, out.BarsBy = buildBars(period, from, today, pd.days, pd.live, s.cfg.Loc)
-	fromMs := s.dayStartMs(from)
-	spentFrom := fromMs
-	if pd.resetOK {
-		spentFrom = max(spentFrom, pd.reset.ClearedAtMs)
-	}
-	out.BonusSpentMin, out.Bonus = s.periodBonus(cs, fromMs, spentFrom)
-	out.Violations = s.periodViolations(cs, fromMs)
-	out.StatsSinceDay, out.StatsSinceText = s.statsSince(cs, today, pd.reset, pd.resetOK)
-	out.Programs = s.programTimes(cs, sum, pd.usage)
+	out.BonusSpentMin, out.Bonus = s.periodBonus(cs, it.fromMs, spentFrom)
+	out.StatsSinceDay, out.StatsSinceText = s.statsSince(cs, it.today, it.pd.reset, it.pd.resetOK)
 	// Строка «Можно снова…» нужна при любой блокировке: показываем, когда блокировка есть и
 	// ядро назвало срок (B-6).
 	if st.Lock != "" && st.Lock != ipc.LockNone && st.Until != "" {
@@ -1073,6 +1055,40 @@ func (s *Service) myTodayOf(cs *childState, period string) ipc.MyTodayReply {
 	}
 	out.Rules = append(out.Rules, ipc.MyRule{Text: endModeRuleText(cs.rules.EndMode)})
 	return out
+}
+
+// totalsRead — чтение «Итогов» за период для остальных частей «Моей статистики» (столбики,
+// копилка, «Статистика ведётся с»): те же дни и счётчики ядра (RM5-4).
+type totalsRead struct {
+	pd          periodData
+	from, today string
+	fromMs      int64
+}
+
+// fillTotals — «Итоги» за период period (уже проверен): время всего, игры, учёба, видео, прочее,
+// доп. время, список программ и сайтов и нарушения. Одна функция для окна (myTodayOf: ребёнок и
+// родитель) и для «Статистики за сегодня» на телефоне (todayReport, FR-43): одна истина (класс A).
+// Сегодня — счётчики дня ядра; счётчики прошлого дня (сутки ещё не сменились в ядре) сегодняшними
+// не считаются. Прошлые дни периода — из базы (RF13-1). Вызывается под s.mu.
+func (s *Service) fillTotals(cs *childState, period string, out *ipc.MyTodayReply) totalsRead {
+	now := s.cfg.Clock.Now().In(s.cfg.Loc)
+	today := core.DayOf(now)
+	var live core.DayState
+	if day, _ := cs.eng.State(); day.Day == today {
+		live = day
+	}
+	from, _ := periodFrom(period, now)
+	// «Итоги» и столбики — из одного чтения ряда дней и одних счётчиков ядра (RM5-4).
+	pd := s.periodTotals(cs, from, today, live)
+	sum := pd.sum
+	out.UsedS, out.GamesS, out.StudyS, out.VideoS = sum.TotalS, sum.GamesS, sum.StudyS, sum.VideoS
+	out.OtherS = max(0, sum.TotalS-sum.GamesS-sum.VideoS)
+	out.AllS = sum.TotalS + sum.StudyS
+	out.ExtraMin = sum.ExtraMin
+	fromMs := s.dayStartMs(from)
+	out.Violations = s.periodViolations(cs, fromMs)
+	out.Programs = s.programTimes(cs, sum, pd.usage)
+	return totalsRead{pd: pd, from: from, today: today, fromMs: fromMs}
 }
 
 // gamesRuleText — строка «Моих правил» о лимите игр (R5, R21): одинаковый каждый день — «Игры: до
@@ -1172,8 +1188,11 @@ func (s *Service) hGuardPoll(c *callCtx) ipc.Reply {
 	// Вкладки Brave решаются в этом же ответе (S-1): команды встают в очередь перед её сливом.
 	s.siteGuard(cs, ss, session, req.Sample, c.real)
 	for _, ev := range req.Events {
-		if ev.Kind == ipc.GuardEvBypass && !cs.admin {
+		switch {
+		case ev.Kind == ipc.GuardEvBypass && !cs.admin:
 			s.markBypass(cs, ev.Detail, "guard", c.real)
+		case ev.Kind == ipc.GuardEvNoteShown || ev.Kind == ipc.GuardEvNoteDone:
+			s.noteEvent(cs, ev, c.real)
 		}
 	}
 	rep := ipc.GuardPollReply{Status: s.statusOf(cs), Warnings: []ipc.GuardWarning{}, Commands: []ipc.GuardCommand{}}
@@ -1184,6 +1203,7 @@ func (s *Service) hGuardPoll(c *callCtx) ipc.Reply {
 	cs.warns = nil
 	rep.Commands = append(rep.Commands, s.guardCmd[session]...)
 	delete(s.guardCmd, session)
+	rep.Commands = append(rep.Commands, s.deliverNotes(cs, ss, session, c.real)...)
 	if s.parentOpenIn(session, c.real) {
 		rep.Commands = append(rep.Commands, ipc.GuardCommand{Kind: ipc.GuardCmdHideLock})
 	}

@@ -16,6 +16,7 @@ var journalGroups = map[string][]string{
 		core.EvBonusSpent, core.EvBonusGranted, evBonusGrant, evBonusUndo, evBonusClear, evBonusReduce,
 		core.EvPromoRedeem, evPromoCreate, evPromoGenerate, evPromoHistoryCleared,
 		core.EvRestBreak, core.EvRestEnded,
+		evRemoteNote, // сообщение ребёнку с телефона — рядом с доп. временем с телефона (FR-41)
 	},
 	ipc.JournalGroupPrograms: {
 		evProgramDecided, evProgramUndone, evProgramHidden, evProgramShown, evProgramRenamed, evProgramPending,

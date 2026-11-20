@@ -180,3 +180,218 @@ func (l PlateLayout) Hit(x, y int32) int {
 	}
 	return -2
 }
+
+// NoteLayout — раскладка плашки «Сообщение от родителя» (FR-41): заголовок, текст крупно с переносами,
+// большая кнопка «Понял» по центру внизу. Координаты клиентские, в пикселях экрана.
+type NoteLayout struct {
+	W, H   int32
+	Title  Rect
+	Text   Rect
+	Button Rect
+}
+
+// Размеры плашки сообщения при 96 dpi: ширина 560, поля 24, кнопка 200×56. Рамка нейтральная, как у
+// остальных плашек стража, без цветной полосы (ТЗ 8.0: цвет — только для статусов). Тесная плашка
+// (над экраном блокировки на низком экране) — поля 12, кнопка 160×44, заголовок мельче.
+const (
+	noteWidthPx    = 560
+	noteMaxWPct    = 80 // длинному тексту плашка шире, до 80 % ширины области
+	noteWidthStep  = 40 // шаг расширения при 96 dpi
+	noteMarginPx   = 24 // от верхнего края рабочей области
+	noteMinSidePx  = 16 // от боковых краёв на узком экране
+	noteLockGapPx  = 12 // от заголовка и столбца кнопок экрана блокировки
+	noteLockEdgePx = 16 // столбец экрана блокировки, раздвинутый ради плашки, не ближе к краю экрана
+	noteMaxPct     = 40 // плашка не выше 40 % рабочей области
+
+	// NoteFontPx — текст сообщения при 96 dpi; не помещается и в плашку шириной 80 % (над экраном
+	// блокировки — и раздвинув его) — мельче шагом noteFontStep, не меньше NoteFontMinPx. Текст не
+	// обрезается никогда (FR-41: до 300 знаков и 5 переводов строк видны целиком).
+	NoteFontPx    = 28
+	NoteFontMinPx = 14
+	noteFontStep  = 2
+)
+
+// NoteDensity — отступы и размеры плашки сообщения при 96 dpi.
+type NoteDensity struct {
+	Pad, Gap, BtnGap, BtnW, BtnH int
+	TitlePx                      int // заголовок «Сообщение от родителя»
+}
+
+var (
+	// NoteNormal — обычная плашка.
+	NoteNormal = NoteDensity{Pad: 24, Gap: 10, BtnGap: 20, BtnW: 200, BtnH: 56, TitlePx: 24}
+	// NoteCompact — тесная плашка: место между заголовком и кнопками экрана блокировки на низком экране.
+	NoteCompact = NoteDensity{Pad: 12, Gap: 4, BtnGap: 10, BtnW: 160, BtnH: 44, TitlePx: 18}
+)
+
+// NoteWidth — ширина плашки сообщения при dpi на экране шириной areaW (узкий экран — уже).
+func NoteWidth(dpi int, areaW int32) int32 {
+	w := Scaled(noteWidthPx, dpi)
+	if limit := areaW - 2*Scaled(noteMinSidePx, dpi); limit > 0 && w > limit {
+		w = limit
+	}
+	return w
+}
+
+// noteWidths — ширины плашки по возрастанию: от NoteWidth до 80 % ширины области шагом noteWidthStep.
+func noteWidths(dpi int, areaW int32) []int32 {
+	w0 := NoteWidth(dpi, areaW)
+	wMax := max(w0, min(areaW*noteMaxWPct/100, areaW-2*Scaled(noteMinSidePx, dpi)))
+	out := []int32{w0}
+	for w := w0 + Scaled(noteWidthStep, dpi); w < wMax; w += Scaled(noteWidthStep, dpi) {
+		out = append(out, w)
+	}
+	if wMax > w0 {
+		out = append(out, wMax)
+	}
+	return out
+}
+
+// NoteTextWidth — ширина области заголовка и текста плашки шириной w: окно знает её до измерения.
+func NoteTextWidth(dpi int, w int32, d NoteDensity) int32 {
+	return w - 2*Scaled(d.Pad, dpi)
+}
+
+// NewNoteLayout считает плашку ширины w для заголовка высотой titleH и текста высотой textH.
+func NewNoteLayout(dpi int, d NoteDensity, w, titleH, textH int32) NoteLayout {
+	s := func(px int) int32 { return Scaled(px, dpi) }
+	left, pad := s(d.Pad), s(d.Pad)
+	l := NoteLayout{W: w}
+	tw := NoteTextWidth(dpi, w, d)
+	l.Title = Rect{Left: left, Top: pad, Right: left + tw, Bottom: pad + titleH}
+	l.Text = Rect{Left: left, Top: l.Title.Bottom + s(d.Gap), Right: left + tw, Bottom: l.Title.Bottom + s(d.Gap) + textH}
+	bw := min(s(d.BtnW), tw)
+	bl := left + (tw-bw)/2
+	bt := l.Text.Bottom + s(d.BtnGap)
+	l.Button = Rect{Left: bl, Top: bt, Right: bl + bw, Bottom: bt + s(d.BtnH)}
+	l.H = l.Button.Bottom + pad
+	return l
+}
+
+// NoteLock — экран блокировки PC Block под плашкой сообщения, в тех же координатах, что рабочая
+// область: заголовок («Время вышло…») и верх столбца поля и кнопок (подпись поля, поле или первая
+// кнопка) — как стоят без плашки. Плашка не закрывает ни то, ни другое (NFR-10: «Пароль родителя» и
+// аварийный выход видны). Не хватает места между ними — экран блокировки раздвигается: столбец поля и
+// кнопок вниз не больше MaxDown (низ последней кнопки остаётся на экране), заголовок вверх не больше MaxUp.
+type NoteLock struct {
+	Title       Rect
+	ControlsTop int32
+	MaxUp       int32
+	MaxDown     int32
+}
+
+// NoteMeasure — высота текста s шрифтом fontPx (размер при 96 dpi) в ширину width; меряет Windows
+// тем же переносом, что рисует.
+type NoteMeasure func(fontPx int, width int32, s string) int32
+
+// NoteFit — плашка сообщения, разложенная под место: плотность, размер шрифта текста (при 96 dpi),
+// текст (всегда целиком), раскладка, окно в координатах области и сдвиг экрана блокировки под ней:
+// ShiftDown — столбец поля и кнопок вниз, ShiftUp — заголовок и всё над столбцом вверх.
+type NoteFit struct {
+	Density            NoteDensity
+	FontPx             int
+	Text               string
+	Layout             NoteLayout
+	Place              Rect
+	ShiftUp, ShiftDown int32
+}
+
+// noteSpot — место для плашки высотой h: верх и сдвиг экрана блокировки; ok — поместилась. Плашка не
+// выше noteMaxPct % рабочей области. На рабочем столе — сверху рабочей области. Над экраном блокировки —
+// выше его заголовка, если там помещается, иначе между заголовком и столбцом кнопок; spread — можно
+// раздвинуть экран: сначала столбец кнопок вниз, потом заголовок вверх, ровно на нехватку.
+func noteSpot(dpi int, area Rect, lock *NoteLock, h int32, spread bool) (top, up, down int32, ok bool) {
+	s := func(px int) int32 { return Scaled(px, dpi) }
+	if h > (area.Bottom-area.Top)*noteMaxPct/100 {
+		return 0, 0, 0, false
+	}
+	top = area.Top + s(noteMarginPx)
+	if lock == nil {
+		return top, 0, 0, top+h <= area.Bottom-s(noteMarginPx)
+	}
+	gap := s(noteLockGapPx)
+	if top+h <= lock.Title.Top-gap {
+		return top, 0, 0, true
+	}
+	midTop := lock.Title.Bottom + gap
+	need := h - (lock.ControlsTop - gap - midTop)
+	if need <= 0 {
+		return midTop, 0, 0, true
+	}
+	if !spread {
+		return 0, 0, 0, false
+	}
+	down = min(need, max(0, lock.MaxDown))
+	up = need - down
+	if up > max(0, lock.MaxUp) {
+		return 0, 0, 0, false
+	}
+	return midTop - up, up, down, true
+}
+
+// FitNote раскладывает плашку с заголовком title и текстом text в области area (рабочая область
+// монитора) над экраном блокировки lock (nil — рабочий стол). Шрифт текста от NoteFontPx вниз до
+// NoteFontMinPx; на каждом размере — обычная плашка, потом тесная, каждая от NoteWidth шире до 80 %
+// области; не поместилось — над экраном блокировки та же широкая плашка, раздвинув экран (начиная со
+// шрифта, которым встаёт одна строка без раздвижки: короткое сообщение экран не двигает, длинное не
+// мельче короткого); и только потом шрифт мельче. Текст не
+// обрезается. Не поместилось и мельчайшим шрифтом (крошечный экран) — тесная широкая плашка с
+// раздвинутым экраном прижимается к столбцу кнопок сверху: кнопки и поле пароля важнее заголовка.
+func FitNote(dpi int, area Rect, lock *NoteLock, title, text string, measure NoteMeasure) NoteFit {
+	widths := noteWidths(dpi, area.Right-area.Left)
+	wMax := widths[len(widths)-1]
+	build := func(d NoteDensity, font int, w int32) NoteLayout {
+		tw := NoteTextWidth(dpi, w, d)
+		return NewNoteLayout(dpi, d, w, measure(d.TitlePx, tw, title), measure(font, tw, text))
+	}
+	place := func(f NoteFit, top int32) NoteFit {
+		left := area.Left + (area.Right-area.Left-f.Layout.W)/2
+		f.Place = Rect{Left: left, Top: top, Right: left + f.Layout.W, Bottom: top + f.Layout.H}
+		return f
+	}
+	densities := []NoteDensity{NoteNormal, NoteCompact}
+	fits := func(d NoteDensity, font int, w int32, t string) (NoteLayout, int32, bool) {
+		tw := NoteTextWidth(dpi, w, d)
+		l := NewNoteLayout(dpi, d, w, measure(d.TitlePx, tw, title), measure(font, tw, t))
+		top, _, _, ok := noteSpot(dpi, area, lock, l.H, false)
+		return l, top, ok
+	}
+	// Шрифт короткого сообщения (одна строка) на этом месте: экран раздвигается только с него и мельче,
+	// так что длинный текст не мельче короткого, а короткий экран не двигает.
+	oneLine := NoteFontMinPx
+	for font := NoteFontPx; font > NoteFontMinPx && oneLine == NoteFontMinPx; font -= noteFontStep {
+		for _, d := range densities {
+			if _, _, ok := fits(d, font, widths[0], "Ж"); ok {
+				oneLine = font
+				break
+			}
+		}
+	}
+	for font := NoteFontPx; font >= NoteFontMinPx; font -= noteFontStep {
+		for _, d := range densities {
+			for _, w := range widths {
+				if l, top, ok := fits(d, font, w, text); ok {
+					return place(NoteFit{Density: d, FontPx: font, Text: text, Layout: l}, top)
+				}
+			}
+		}
+		if lock == nil || font > oneLine {
+			continue
+		}
+		for _, d := range densities {
+			l := build(d, font, wMax)
+			if top, up, down, ok := noteSpot(dpi, area, lock, l.H, true); ok {
+				return place(NoteFit{Density: d, FontPx: font, Text: text, Layout: l, ShiftUp: up, ShiftDown: down}, top)
+			}
+		}
+	}
+	f := NoteFit{Density: NoteCompact, FontPx: NoteFontMinPx, Text: text, Layout: build(NoteCompact, NoteFontMinPx, wMax)}
+	h := f.Layout.H
+	top := area.Top + Scaled(noteMarginPx, dpi)
+	if lock != nil {
+		f.ShiftUp, f.ShiftDown = max(0, lock.MaxUp), max(0, lock.MaxDown)
+		top = lock.ControlsTop + f.ShiftDown - Scaled(noteLockGapPx, dpi) - h
+	}
+	top = max(area.Top, min(top, area.Bottom-h))
+	return place(f, top)
+}

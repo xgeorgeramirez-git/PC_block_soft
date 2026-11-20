@@ -71,6 +71,8 @@ const (
 // Связь с телефоном (M7, FR-40): подробности action (remoteAct*) и phone (имя телефона).
 const (
 	evRemote = "remote" // связь включена или выключена, телефон подключён или отвязан
+	// evRemoteNote — сообщение ребёнку с телефона принято (FR-41): подробность text.
+	evRemoteNote = "remote_note"
 )
 
 // Работа программы.
@@ -87,7 +89,7 @@ var allEventKinds = []string{
 	// Пароль и настройки.
 	evSetupDone, evPasswordFailed, evPasswordChanged, evPasswordReset, evUninstallForgot,
 	evSettingsChanged, evChildrenChanged, evChildAdmin, evChildAdminOff, evStatsCleared, evJournalCleared,
-	core.EvBlockCleared, evRemote,
+	core.EvBlockCleared, evRemote, evRemoteNote,
 	// Время и копилка.
 	core.EvExtraTime, evExtraUndone, core.EvPause, core.EvPauseEnd, core.EvNoForbidden, core.EvDayClosed,
 	core.EvBonusSpent, core.EvBonusGranted, evBonusGrant, evBonusUndo, evBonusClear, evBonusReduce,

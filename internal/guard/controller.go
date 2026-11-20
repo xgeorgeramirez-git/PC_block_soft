@@ -50,6 +50,7 @@ type Controller struct {
 	shown     []ipc.ShownWarning
 	sounds    []ipc.ShownSound // сыгранные звуки (журнал для GuardState, только тестовый режим)
 	soundID   int              // ID плашки, для которой звук уже сыгран
+	noteSound int              // номер показа сообщения с телефона, для которого звук уже сыгран (FR-41)
 	play      func() bool      // проиграть звук предупреждения; true — Windows принял звук
 	warm      func(string)     // заранее разобрать кадры стикера промокода (не в потоке окон)
 	soundQ    chan int         // номера записей журнала звуков для исполнителя звука; nil — исполнитель не запущен
@@ -200,6 +201,7 @@ type Commands struct {
 	Tests         []ipc.TestGuardAction // действия TestGuard (только тестовый режим)
 	CloseTab      string                // домен последней команды closeTab (RM4-2); «» — нет
 	CloseWindow   bool                  // команда closeBraveWindow: окно Brave без адреса (RM4-1)
+	PhoneNotes    []ipc.GuardNote       // сообщения с телефона (FR-41): своя плашка, не notice (PL-81)
 }
 
 // ClassifyCommands раскладывает команды службы; незнакомые виды пропускаются.
@@ -231,6 +233,10 @@ func ClassifyCommands(cmds []ipc.GuardCommand) Commands {
 			}
 		case ipc.GuardCmdCloseBraveWindow:
 			out.CloseWindow = true
+		case ipc.GuardCmdNote:
+			if c.Note != nil {
+				out.PhoneNotes = append(out.PhoneNotes, *c.Note)
+			}
 		}
 	}
 	return out
@@ -397,13 +403,21 @@ func (c *Controller) PollOnce() PollResult {
 	for _, pl := range cmds.Blocked {
 		c.model.OnBlocked(now, pl)
 	}
+	for _, n := range cmds.PhoneNotes {
+		c.model.OnNote(now, n)
+	}
 	v := c.model.View(now)
 	// Журнал показанного, звук и вид для GuardState берутся из одного кадра: горутина опроса
 	// отправляет GuardState сразу после PollOnce, раньше, чем поток окон перерисуется по wake.
 	// Иначе снимок несогласован: порог 1 уже в журнале, а кнопки и звуки от табло «5» (CI S2, S35).
 	c.playDue(now, v.Warning)
+	c.playNote(now, v.Note)
+	noteEvs := c.model.TakeNoteEvents()
 
 	c.mu.Lock()
+	for _, e := range noteEvs {
+		c.addEventLocked(e)
+	}
 	c.lastLock = rep.Status.Lock
 	c.last = v
 	if v.Warning != nil && v.Warning.ID > c.seenPlate {
@@ -547,8 +561,16 @@ func (c *Controller) View() View {
 	c.model.Tick(now)
 	v := c.model.View(now)
 	c.playDue(now, v.Warning)
+	c.playNote(now, v.Note)
+	noteEvs := c.model.TakeNoteEvents()
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	for _, e := range noteEvs {
+		c.addEventLocked(e)
+	}
+	if len(noteEvs) > 0 {
+		c.Kick() // «показано» и «Понял» — службе сразу, телефон ждёт отметку
+	}
 	if v.LockShown != c.lockWas {
 		kind := ipc.GuardEvLockHidden
 		if v.LockShown {
@@ -573,12 +595,29 @@ func (c *Controller) playDue(now time.Time, w *WarningView) {
 		return
 	}
 	c.soundID = w.ID
+	c.enqueueSoundLocked(ipc.ShownSound{AtMs: now.UnixMilli(), Threshold: w.Threshold})
+}
+
+// playNote играет звук заказчика один раз на каждый показ плашки сообщения с телефона (FR-41): тем же
+// исполнителем, что звук предупреждений.
+func (c *Controller) playNote(now time.Time, n *NoteView) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if !NoteSoundDue(c.noteSound, n) {
+		return
+	}
+	c.noteSound = n.Seq
+	c.enqueueSoundLocked(ipc.ShownSound{AtMs: now.UnixMilli(), Note: true})
+}
+
+// enqueueSoundLocked отдаёт звук исполнителю (под c.mu); в тестовом режиме пишет его в журнал звуков.
+func (c *Controller) enqueueSoundLocked(rec ipc.ShownSound) {
 	if c.play == nil {
 		return
 	}
 	idx := -1
 	if c.testMode {
-		c.sounds = append(c.sounds, ipc.ShownSound{AtMs: now.UnixMilli(), Threshold: w.Threshold})
+		c.sounds = append(c.sounds, rec)
 		if len(c.sounds) > maxSoundLog {
 			c.sounds = c.sounds[len(c.sounds)-maxSoundLog:]
 		}
@@ -920,6 +959,10 @@ func StateFromView(v View, lockKind string, shown []ipc.ShownWarning, sounds []i
 	}
 	if v.Promo != nil {
 		st.PromoSticker, st.PromoText = v.Promo.Sticker, v.Promo.Text
+	}
+	if v.Note != nil {
+		add(v.Note.Buttons)
+		st.Note, st.NoteID = v.Note.Text, v.Note.ID
 	}
 	switch v.Panel {
 	case PanelPassword:

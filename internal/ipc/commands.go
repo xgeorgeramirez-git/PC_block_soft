@@ -732,11 +732,12 @@ const (
 
 // GuardEvent — событие, которое страж сообщает службе.
 type GuardEvent struct {
-	Kind      string `json:"kind"`      // GuardEv*
-	AtMs      int64  `json:"atMs"`      // UTC мс
-	Threshold int    `json:"threshold"` // для warningShown и warningAck: 30, 15, 5 или 1
-	Button    string `json:"button"`    // для button: Button*
-	Detail    string `json:"detail"`    // для bypass: что произошло, без заголовков окон (R23)
+	Kind      string `json:"kind"`             // GuardEv*
+	AtMs      int64  `json:"atMs"`             // UTC мс
+	Threshold int    `json:"threshold"`        // для warningShown и warningAck: 30, 15, 5 или 1
+	Button    string `json:"button"`           // для button: Button*
+	Detail    string `json:"detail"`           // для bypass: что произошло, без заголовков окон (R23)
+	NoteID    string `json:"noteId,omitempty"` // для noteShown и noteDone: id сообщения с телефона (FR-41)
 }
 
 // GuardPollRequest — раз в реальную секунду: снимок датчиков и накопленные события.
@@ -807,6 +808,8 @@ type GuardCommand struct {
 	Plate *BlockedPlate `json:"plate,omitempty"`
 	// Domain — домен вкладки для GuardCmdCloseTab (M4, RM4-2).
 	Domain string `json:"domain,omitempty"`
+	// Note — сообщение с телефона для GuardCmdNote (FR-41).
+	Note *GuardNote `json:"note,omitempty"`
 }
 
 // GuardPollReply — ответ GuardPoll: решение для экрана, новые предупреждения, команды стражу.
@@ -899,6 +902,7 @@ type ShownSound struct {
 	AtMs      int64 `json:"atMs"`
 	Threshold int   `json:"threshold"`
 	OK        bool  `json:"ok"`
+	Note      bool  `json:"note,omitempty"` // звук плашки «Сообщение от родителя» (FR-41), не порога
 }
 
 // GuardUI — жив ли поток окон стража: момент и число его кадров, последняя паника, пойманная в
@@ -948,6 +952,10 @@ type GuardStateReply struct {
 	// надпись; пусто — ответа нет (R26, D-83, приёмка S52).
 	PromoSticker string `json:"promoSticker"`
 	PromoText    string `json:"promoText"`
+	// Note — текст видимой плашки «Сообщение от родителя» (FR-41), NoteID — её id; пусто — плашки нет.
+	// Кнопка «Понял» — в Buttons (noteOk).
+	Note   string `json:"note"`
+	NoteID string `json:"noteId"`
 }
 
 // Виды плашек стража для GuardStateReply.PlateKind, кроме плашек о закрытых программах (их вид —

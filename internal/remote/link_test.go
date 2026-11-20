@@ -67,6 +67,7 @@ type fakeHost struct {
 	events     []string
 	logs       []string
 	children   []ChildReport
+	notes      []NoteReport
 	onApply    func()
 	beforeLock func() // ApplyCommand до блокировки
 	forceStale atomic.Bool
@@ -133,13 +134,66 @@ func (h *fakeHost) ApplyCommand(gen, seq, childID int64, delta int) (string, str
 	return fmt.Sprintf("Добавлено %d минут", delta), "", seq
 }
 
-func (h *fakeHost) Children() []ChildReport {
+func (h *fakeHost) ApplyNoForbidden(gen, seq, childID int64) (string, string, int64) {
+	h.applyEnter.Add(1)
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if gen != h.link.Gen() {
+		return "", ErrCodeStale, h.st.LastSeq
+	}
+	if seq <= h.st.LastSeq {
+		return "", ErrCodeReplay, h.st.LastSeq
+	}
+	h.st.LastSeq = seq
+	if childID != 3 {
+		return "", ErrCodeNoChild, seq
+	}
+	h.applied = append(h.applied, fmt.Sprintf("%d:noForbidden", seq))
+	h.children[0].Forbid = ForbidCleared
+	return "Запрет на сегодня снят", "", seq
+}
+
+func (h *fakeHost) ApplyNote(gen int64, n Note) (string, int64) {
+	h.applyEnter.Add(1)
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if gen != h.link.Gen() {
+		return ErrCodeStale, h.st.LastSeq
+	}
+	if h.st.Phone == nil {
+		return ErrCodeNotPaired, h.st.LastSeq
+	}
+	if n.Seq <= h.st.LastSeq {
+		return ErrCodeReplay, h.st.LastSeq
+	}
+	h.st.LastSeq = n.Seq
+	if n.Child != 3 {
+		return ErrCodeNoChild, n.Seq
+	}
+	h.applied = append(h.applied, fmt.Sprintf("%d:note:%s:%s:%d", n.Seq, n.ID, n.Text, n.ShowSec))
+	h.notes = append(h.notes, NoteReport{ID: n.ID, Child: n.Child, State: NoteQueued, AtMs: 1})
+	return "", n.Seq
+}
+
+func (h *fakeHost) Notes() []NoteReport {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return append([]NoteReport(nil), h.notes...)
+}
+
+func (h *fakeHost) Children(withToday bool) []ChildReport {
 	if h.panicOnce.CompareAndSwap(true, false) {
 		panic("сбой в Children")
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	return append([]ChildReport(nil), h.children...)
+	out := append([]ChildReport(nil), h.children...)
+	if !withToday {
+		for i := range out {
+			out[i].Today = nil
+		}
+	}
+	return out
 }
 
 func (h *fakeHost) Event(kind, detail string) {
@@ -648,6 +702,96 @@ func TestLinkCommandTable(t *testing.T) {
 	}
 }
 
+// Сообщение ребёнку (раздел 5а): проверки как у команды, плюс текст и showSec; seq общий с командами;
+// ответ noter подписан компьютером, cmd — хэш данных; удачный — с отчётом, где сообщение в очереди.
+func TestLinkNoteTable(t *testing.T) {
+	phone, stranger := mustKey(t), mustKey(t)
+	var pcKey *ecdsa.PrivateKey
+	g := newRig(t, func(g *rig) { g.h.st, pcKey = pairedState(t, g.r, phone, 4) })
+	g.start()
+	now := g.clock.Ms()
+	base := Note{V: 1, T: TypeNote, PC: "pc-x", Phone: "ph1", Seq: 5, TS: now, Child: 3, ID: "n-1", Text: "  Иди ужинать ", ShowSec: 0}
+	with := func(f func(*Note)) Note { n := base; f(&n); return n }
+	type tc struct {
+		name    string
+		kind    string
+		key     *ecdsa.PrivateKey
+		data    any
+		code    string
+		lastSeq int64
+		applied string
+	}
+	cmd := Command{V: 1, T: TypeCmd, PC: "pc-x", Phone: "ph1", Seq: 7, TS: now, Child: 3, Delta: 15}
+	cases := []tc{
+		{"верное", KindNote, phone, base, "", 5, "5:note:n-1:Иди ужинать:0"},
+		{"повтор seq", KindNote, phone, with(func(n *Note) { n.ID = "n-2" }), ErrCodeReplay, 5, ""},
+		{"чужой ключ", KindNote, stranger, with(func(n *Note) { n.Seq = 6 }), ErrCodeBadSig, 5, ""},
+		{"команда как сообщение", KindNote, phone, cmd, ErrCodeBadSig, 5, ""},
+		{"сообщение как команда", KindCmd, phone, with(func(n *Note) { n.Seq = 6 }), ErrCodeBadSig, 5, ""},
+		{"пустой текст", KindNote, phone, with(func(n *Note) { n.Seq = 6; n.Text = "  \n " }), ErrCodeRange, 5, ""},
+		{"301 знак", KindNote, phone, with(func(n *Note) { n.Seq = 6; n.Text = strings.Repeat("я", 301) }), ErrCodeRange, 5, ""},
+		{"6 переводов строк", KindNote, phone, with(func(n *Note) { n.Seq = 6; n.Text = "a\nb\nc\nd\ne\nf\ng" }), ErrCodeRange, 5, ""},
+		{"showSec 15", KindNote, phone, with(func(n *Note) { n.Seq = 6; n.ShowSec = 15 }), ErrCodeRange, 5, ""},
+		{"пустой id", KindNote, phone, with(func(n *Note) { n.Seq = 6; n.ID = "" }), ErrCodeRange, 5, ""},
+		{"ts −6 мин", KindNote, phone, with(func(n *Note) { n.Seq = 6; n.TS = now - 6*60000 }), ErrCodeStale, 5, ""},
+		{"чужой pc", KindNote, phone, with(func(n *Note) { n.Seq = 6; n.PC = "pc-y" }), ErrCodeNotPaired, 5, ""},
+		{"команда после сообщения", KindCmd, phone, cmd, "", 7, "7:+15"},
+		{"сообщение после команды, seq команды", KindNote, phone, with(func(n *Note) { n.Seq = 7; n.ID = "n-3" }), ErrCodeReplay, 7, ""},
+		{"нет ребёнка", KindNote, phone, with(func(n *Note) { n.Seq = 8; n.Child = 99 }), ErrCodeNoChild, 8, ""},
+		{"на 300 знаков, 5 строк, 60 с", KindNote, phone, with(func(n *Note) {
+			n.Seq, n.ID, n.ShowSec = 9, "n_4", 60
+			n.Text = "1\n2\n3\n4\n5\n" + strings.Repeat("ж", 290)
+		}), "", 9, "9:note:n_4:1\n2\n3\n4\n5\n" + strings.Repeat("ж", 290) + ":60"},
+	}
+	for _, c := range cases {
+		raw, _ := json.Marshal(c.data)
+		s, _ := Sign(c.key, raw)
+		_, before, _, _ := g.h.get()
+		rep, ok := g.r.sendFrom("ph1", c.kind, s, 2*time.Second)
+		wantKind := KindNoteR
+		if c.kind == KindCmd {
+			wantKind = KindCmdR
+		}
+		if !ok || rep.Kind != wantKind {
+			t.Fatalf("%s: нет ответа %s (%+v)", c.name, wantKind, rep)
+		}
+		var sr Signed
+		json.Unmarshal(rep.Body, &sr)
+		data, err := Verify(&pcKey.PublicKey, sr)
+		if err != nil {
+			t.Fatalf("%s: ответ без подписи компьютера", c.name)
+		}
+		var res CmdResult
+		json.Unmarshal(data, &res)
+		wantT := TypeNoteR
+		if c.kind == KindCmd {
+			wantT = TypeCmdR
+		}
+		if res.T != wantT || res.Cmd != HashData(raw) || res.PC != "pc-x" || res.Phone != "ph1" {
+			t.Fatalf("%s: поля ответа %+v", c.name, res)
+		}
+		if res.OK != (c.code == "") || res.Error != c.code {
+			t.Fatalf("%s: ok=%v error=%q, нужно %q", c.name, res.OK, res.Error, c.code)
+		}
+		if !res.OK && (res.LastSeq == nil || *res.LastSeq != c.lastSeq) {
+			t.Fatalf("%s: lastSeq %v, нужно %d", c.name, res.LastSeq, c.lastSeq)
+		}
+		if res.OK && (res.Report == nil || res.LastSeq != nil) {
+			t.Fatalf("%s: удачный ответ без отчёта: %+v", c.name, res)
+		}
+		if c.kind == KindNote && res.OK && (len(res.Report.Notes) == 0 || res.Report.Notes[len(res.Report.Notes)-1].State != NoteQueued) {
+			t.Fatalf("%s: в отчёте нет сообщения в очереди: %+v", c.name, res.Report.Notes)
+		}
+		_, after, _, _ := g.h.get()
+		if c.applied == "" && len(after) != len(before) || c.applied != "" && (len(after) != len(before)+1 || after[len(after)-1] != c.applied) {
+			t.Fatalf("%s: применено %q, нужно %q", c.name, after, c.applied)
+		}
+	}
+	if st, _, _, _ := g.h.get(); st.LastSeq != 9 {
+		t.Fatalf("LastSeq %d", st.LastSeq)
+	}
+}
+
 // Host вызывается без мьютекса Link: ApplyCommand зовёт методы Link — не зависает.
 func TestLinkHostCallsWithoutLinkLock(t *testing.T) {
 	phone := mustKey(t)
@@ -1139,5 +1283,74 @@ func TestPairErrorByStage(t *testing.T) {
 	g.l.StartPairing()
 	if pi := g.waitStage(StageFailed); pi.Error != PairErrNoCode {
 		t.Fatalf("код не получен: %+v", pi)
+	}
+}
+
+// «Снять запрет на сегодня» (протокол 5б): та же проверка и та же нумерация seq, что у команды
+// и сообщения; ответ cmdr с отчётом, где запрет снят; неизвестный op и delta у «снять запрет» —
+// range до Host (номер не тратится); старая команда без op — доп. время, как раньше.
+func TestLinkNoForbidden(t *testing.T) {
+	phone, stranger := mustKey(t), mustKey(t)
+	var pcKey *ecdsa.PrivateKey
+	g := newRig(t, func(g *rig) { g.h.st, pcKey = pairedState(t, g.r, phone, 4) })
+	g.start()
+	now := g.clock.Ms()
+	nf := Command{V: 1, T: TypeCmd, PC: "pc-x", Phone: "ph1", Seq: 5, TS: now, Child: 3, Op: OpNoForbidden}
+	with := func(c Command, f func(*Command)) Command { f(&c); return c }
+	note := Note{V: 1, T: TypeNote, PC: "pc-x", Phone: "ph1", Seq: 7, TS: now, Child: 3, ID: "n-1", Text: "Привет"}
+	cases := []struct {
+		name    string
+		kind    string
+		key     *ecdsa.PrivateKey
+		data    any
+		code    string
+		lastSeq int64
+		msg     string
+	}{
+		{"снять запрет", KindCmd, phone, nf, "", 5, "Запрет на сегодня снят"},
+		{"повтор seq", KindCmd, phone, nf, ErrCodeReplay, 5, ""},
+		{"чужая подпись", KindCmd, stranger, with(nf, func(c *Command) { c.Seq = 6 }), ErrCodeBadSig, 5, ""},
+		{"с delta", KindCmd, phone, with(nf, func(c *Command) { c.Seq = 6; c.Delta = 15 }), ErrCodeRange, 5, ""},
+		{"неизвестный op", KindCmd, phone, with(nf, func(c *Command) { c.Seq = 6; c.Op = "pause" }), ErrCodeRange, 5, ""},
+		{"старый телефон без op", KindCmd, phone, with(nf, func(c *Command) { c.Seq = 6; c.Op = ""; c.Delta = 15 }), "", 6, "Добавлено 15 минут"},
+		{"сообщение", KindNote, phone, note, "", 7, ""},
+		{"снять запрет с seq сообщения", KindCmd, phone, with(nf, func(c *Command) { c.Seq = 7 }), ErrCodeReplay, 7, ""},
+		{"нет ребёнка", KindCmd, phone, with(nf, func(c *Command) { c.Seq = 8; c.Child = 99 }), ErrCodeNoChild, 8, ""},
+	}
+	for _, c := range cases {
+		raw, _ := json.Marshal(c.data)
+		s, _ := Sign(c.key, raw)
+		rep, ok := g.r.sendFrom("ph1", c.kind, s, 2*time.Second)
+		if !ok {
+			t.Fatalf("%s: нет ответа", c.name)
+		}
+		var sr Signed
+		json.Unmarshal(rep.Body, &sr)
+		data, err := Verify(&pcKey.PublicKey, sr)
+		if err != nil {
+			t.Fatalf("%s: ответ без подписи компьютера", c.name)
+		}
+		var res CmdResult
+		json.Unmarshal(data, &res)
+		if res.Cmd != HashData(raw) || res.OK != (c.code == "") || res.Error != c.code {
+			t.Fatalf("%s: ответ %+v, нужно %q", c.name, res, c.code)
+		}
+		if !res.OK && (res.LastSeq == nil || *res.LastSeq != c.lastSeq) {
+			t.Fatalf("%s: lastSeq %v, нужно %d", c.name, res.LastSeq, c.lastSeq)
+		}
+		if res.OK && c.kind == KindCmd && (res.Message != c.msg || res.Report == nil) {
+			t.Fatalf("%s: удачный ответ %+v", c.name, res)
+		}
+		if c.name == "снять запрет" && res.Report.Children[0].Forbid != ForbidCleared {
+			t.Fatalf("отчёт после снятия запрета: %+v", res.Report.Children)
+		}
+	}
+	if _, applied, _, _ := g.h.get(); strings.Join(applied, " ") != "5:noForbidden 6:+15 7:note:n-1:Привет:0" {
+		t.Fatalf("применены %v", applied)
+	}
+	// До Host дошли: снять запрет, старая команда, сообщение, нет ребёнка (повторы, подпись и range
+	// отсекает проверка).
+	if n := g.h.applyEnter.Load(); n != 4 {
+		t.Fatalf("Host вызван %d раз", n)
 	}
 }

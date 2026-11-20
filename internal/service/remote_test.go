@@ -412,7 +412,7 @@ func TestRemoteChildrenAndChanged(t *testing.T) {
 	id := h.childID(childSID)
 	var today ipc.GetTodayReply
 	h.ok(adminPeer(), tok, ipc.CmdGetToday, nil, &today)
-	got := remoteHost{h.svc}.Children()
+	got := remoteHost{h.svc}.Children(false)
 	if len(got) != 2 || len(today.Children) != 2 {
 		t.Fatalf("детей %d/%d", len(got), len(today.Children))
 	}
@@ -445,7 +445,7 @@ func TestRemoteChildrenUnlimited(t *testing.T) {
 		var week [7]core.DayLimit // TotalMin nil — без лимита
 		h.store.SetDayLimits(id, week)
 	})
-	got := remoteHost{h.svc}.Children()
+	got := remoteHost{h.svc}.Children(false)
 	if len(got) != 2 {
 		t.Fatalf("детей %d", len(got))
 	}

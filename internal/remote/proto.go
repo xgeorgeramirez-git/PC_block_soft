@@ -18,6 +18,8 @@ const (
 	KindPair2R = "pair2r"
 	KindCmd    = "cmd"
 	KindCmdR   = "cmdr"
+	KindNote   = "note"  // сообщение ребёнку (раздел 5а)
+	KindNoteR  = "noter" // ответ на сообщение
 )
 
 // Типы подписанных данных (поле "t", протокол, раздел 2).
@@ -25,6 +27,37 @@ const (
 	TypeCmd    = "cmd"
 	TypeCmdR   = "cmdr"
 	TypeReport = "report"
+	TypeNote   = "note"
+	TypeNoteR  = "noter"
+)
+
+// Состояния сообщения в отчёте (NoteReport.State, раздел 5а).
+const (
+	NoteQueued  = "queued"  // ждёт ребёнка на экране
+	NoteShown   = "shown"   // плашка на экране ребёнка («Доставлено»)
+	NoteRead    = "read"    // нажал «Понял» или вышло время показа
+	NoteExpired = "expired" // 10 минут ждало ребёнка и погасло
+)
+
+// Действия команды (поле "op", раздел 5б). Пустое — доп. время (телефон 0.8.0/0.8.1).
+const (
+	OpExtra       = "extra"       // доп. время на delta минут
+	OpNoForbidden = "noForbidden" // снять запретные часы на сегодня (FR-42), delta нет
+)
+
+// Запретные часы ребёнка сегодня в отчёте (ChildReport.Forbid, раздел 6).
+const (
+	ForbidNone    = "none"    // сегодня запретных часов нет
+	ForbidAhead   = "ahead"   // будут сегодня
+	ForbidActive  = "active"  // идут сейчас (ForbidUntilMs — конец интервала)
+	ForbidCleared = "cleared" // сняты на сегодня
+)
+
+// Пределы сообщения (раздел 5а).
+const (
+	MaxNoteRunes = 300 // знаков Unicode после обрезки пробелов по краям
+	MaxNoteLines = 5   // переводов строк
+	maxNoteIDLen = 64
 )
 
 // Коды отказа команды (поле error ответа cmdr, протокол, раздел 5).
@@ -91,7 +124,9 @@ type Pair2R struct {
 	NPc string `json:"nPc"`
 }
 
-// Command — данные команды телефона (data в Signed).
+// Command — данные команды телефона (data в Signed). Op пусто или OpExtra — доп. время на Delta
+// минут (раздел 5); OpNoForbidden — снять запрет на сегодня, Delta нет (раздел 5б). Пустые поля в
+// JSON не пишутся: байты команды без op — те же, что у телефона 0.8.0.
 type Command struct {
 	V     int    `json:"v"`
 	T     string `json:"t"`
@@ -100,7 +135,8 @@ type Command struct {
 	Seq   int64  `json:"seq"`
 	TS    int64  `json:"ts"`
 	Child int64  `json:"child"`
-	Delta int    `json:"delta"`
+	Delta int    `json:"delta,omitempty"`
+	Op    string `json:"op,omitempty"`
 }
 
 // CmdResult — данные ответа cmdr. LastSeq — только в отказе.
@@ -127,6 +163,8 @@ type Report struct {
 	Phone    string        `json:"phone"`
 	TS       int64         `json:"ts"`
 	Children []ChildReport `json:"children"`
+	// Notes — последние сообщения не старше суток (раздел 5а); пусто — поля нет.
+	Notes []NoteReport `json:"notes,omitempty"`
 }
 
 // ChildReport — строка ребёнка в отчёте; LeftSec — то же «осталось», что в окне родителя; -1 — сегодня без лимита.
@@ -137,6 +175,68 @@ type ChildReport struct {
 	LeftSec  int64  `json:"leftSec"`
 	ExtraMin int    `json:"extraMin"`
 	Blocked  bool   `json:"blocked"`
+	// Forbid — запретные часы сегодня (Forbid*, раздел 6); пусто — компьютер старой версии.
+	Forbid string `json:"forbid,omitempty"`
+	// ForbidUntilMs — конец идущего запретного интервала при ForbidActive (часы компьютера).
+	ForbidUntilMs int64 `json:"forbidUntilMs,omitempty"`
+	// Today — «Статистика за сегодня» (FR-43, раздел 6): только в отчёте pc/report, в отчёте внутри
+	// cmdr/noter поля нет; нет и у компьютера старой версии.
+	Today *TodayReport `json:"today,omitempty"`
+}
+
+// TodayReport — «Итоги» за сегодня окна родителя для телефона (FR-43, раздел 6). Моменты — UTC мс
+// по часам компьютера; FirstMs 0 — сегодня ребёнок за компьютер не садился. Списки — по убыванию
+// времени, пустые — [] (не null); More — сколько строк не вошло в списки (урезание, раздел 6).
+type TodayReport struct {
+	FirstMs    int64      `json:"firstMs"`
+	NowAt      bool       `json:"nowAt"`
+	SinceMs    int64      `json:"sinceMs"`
+	UsedSec    int64      `json:"usedSec"`
+	LeftSec    int64      `json:"leftSec"`
+	GamesSec   int64      `json:"gamesSec"`
+	StudySec   int64      `json:"studySec"`
+	VideoSec   int64      `json:"videoSec"`
+	Programs   []TimeItem `json:"programs"`
+	Sites      []TimeItem `json:"sites"`
+	More       TodayMore  `json:"more"`
+	Violations int        `json:"violations"`
+	Bypass     int        `json:"bypass"`
+}
+
+// TimeItem — строка списка программ или сайтов за сегодня: название (≤ MaxItemNameRunes знаков),
+// категория вкладки «Итогов» (Item*: game, study, video, other) и секунды.
+type TimeItem struct {
+	Name string `json:"name"`
+	Cat  string `json:"cat"`
+	Sec  int64  `json:"sec"`
+}
+
+// TodayMore — сколько программ и сайтов не вошло в списки отчёта.
+type TodayMore struct {
+	Programs int `json:"programs"`
+	Sites    int `json:"sites"`
+}
+
+// Note — данные сообщения телефона ребёнку (data в Signed, раздел 5а).
+type Note struct {
+	V       int    `json:"v"`
+	T       string `json:"t"`
+	PC      string `json:"pc"`
+	Phone   string `json:"phone"`
+	Seq     int64  `json:"seq"`
+	TS      int64  `json:"ts"`
+	Child   int64  `json:"child"`
+	ID      string `json:"id"`
+	Text    string `json:"text"`
+	ShowSec int    `json:"showSec"`
+}
+
+// NoteReport — строка сообщения в отчёте: состояние и момент последней смены (часы компьютера).
+type NoteReport struct {
+	ID    string `json:"id"`
+	Child int64  `json:"child"`
+	State string `json:"state"` // Note*
+	AtMs  int64  `json:"atMs"`
 }
 
 // State — то, что служба хранит в настройках (запись целиком, PL-55).
@@ -176,7 +276,7 @@ func isObject(raw []byte) bool {
 	return len(raw) > 0 && raw[0] == '{'
 }
 
-// ParseMsg разбирает тело по виду: *Pair1, *Pair2 или *Signed (cmd). Ключ pair1 проверяется
+// ParseMsg разбирает тело по виду: *Pair1, *Pair2 или *Signed (cmd, note). Ключ pair1 проверяется
 // (P-256), nPhone — 16 байт. Подпись команды здесь не проверяется — это CheckCommand.
 func ParseMsg(m Msg) (any, error) {
 	if m.ID == "" || m.From == "" || !isObject(m.Body) {
@@ -209,7 +309,7 @@ func ParseMsg(m Msg) (any, error) {
 		}
 		p.nonce = n
 		return &p, nil
-	case KindCmd:
+	case KindCmd, KindNote:
 		var s Signed
 		if json.Unmarshal(m.Body, &s) != nil || s.Data == "" || s.Sig == "" {
 			return nil, ErrBadMsg
@@ -234,35 +334,131 @@ func cleanName(s string) string {
 	return s
 }
 
-// CheckCommand — проверка команды (протокол, раздел 5) до применения: подпись ключом
-// привязанного телефона → тип и версия → pc/phone/отправитель → ts ±5 мин → seq больше
-// последнего. Подпись — первой: JSON разбирается только из проверенных байтов (раздел 2).
+// header — общие поля подписанных данных телефона (команда и сообщение).
+type header struct {
+	V     int    `json:"v"`
+	T     string `json:"t"`
+	PC    string `json:"pc"`
+	Phone string `json:"phone"`
+	Seq   int64  `json:"seq"`
+	TS    int64  `json:"ts"`
+}
+
+// checkSigned — общая часть проверки команды и сообщения (разделы 5, 5а): подпись ключом
+// привязанного телефона → тип typ и версия → pc/phone/отправитель → ts ±5 мин. Подпись — первой:
+// JSON разбирается только из проверенных байтов (раздел 2). into получает данные целиком.
+func checkSigned(st State, s Signed, from string, now time.Time, typ string, into any) (header, []byte, string) {
+	var h header
+	if st.Phone == nil {
+		return h, nil, ErrCodeNotPaired
+	}
+	pub, err := ParsePub(st.Phone.Pub)
+	if err != nil {
+		return h, nil, ErrCodeNotPaired
+	}
+	data, err := Verify(pub, s)
+	if err != nil {
+		return h, nil, ErrCodeBadSig
+	}
+	if !isObject(data) || json.Unmarshal(data, &h) != nil || h.T != typ || h.V != ProtoVersion || json.Unmarshal(data, into) != nil {
+		return header{}, data, ErrCodeBadSig
+	}
+	if h.PC != st.PCID || h.Phone != st.Phone.ID || from != st.Phone.ID {
+		return h, data, ErrCodeNotPaired
+	}
+	if d := now.UnixMilli() - h.TS; d > MaxSkew.Milliseconds() || d < -MaxSkew.Milliseconds() {
+		return h, data, ErrCodeStale
+	}
+	return h, data, ""
+}
+
+// CheckCommand — проверка команды (протокол, разделы 5, 5б) до применения: подпись ключом
+// привязанного телефона → тип и версия → pc/phone/отправитель → ts ±5 мин → op (неизвестный или
+// delta у «снять запрет» — range, номер не тратится) → seq больше последнего. Подпись — первой:
+// JSON разбирается только из проверенных байтов (раздел 2).
 // Пустой код — команду можно отдать Host.ApplyCommand (он проверит seq ещё раз под своей
 // блокировкой). data — подписанные байты (их хэш идёт в ответ cmdr).
 func CheckCommand(st State, s Signed, from string, now time.Time) (Command, []byte, string) {
 	var c Command
-	if st.Phone == nil {
-		return c, nil, ErrCodeNotPaired
+	h, data, code := checkSigned(st, s, from, now, TypeCmd, &c)
+	if code == ErrCodeBadSig {
+		return Command{}, data, code
 	}
-	pub, err := ParsePub(st.Phone.Pub)
-	if err != nil {
-		return c, nil, ErrCodeNotPaired
+	if code != "" {
+		return c, data, code
 	}
-	data, err := Verify(pub, s)
-	if err != nil {
-		return c, nil, ErrCodeBadSig
+	switch c.Op {
+	case "", OpExtra: // предел delta проверяет Host.ApplyCommand (общий путь с окном, R10)
+	case OpNoForbidden:
+		if c.Delta != 0 {
+			return c, data, ErrCodeRange
+		}
+	default:
+		return c, data, ErrCodeRange
 	}
-	if !isObject(data) || json.Unmarshal(data, &c) != nil || c.T != TypeCmd || c.V != ProtoVersion {
-		return Command{}, data, ErrCodeBadSig
-	}
-	if c.PC != st.PCID || c.Phone != st.Phone.ID || from != st.Phone.ID {
-		return c, data, ErrCodeNotPaired
-	}
-	if d := now.UnixMilli() - c.TS; d > MaxSkew.Milliseconds() || d < -MaxSkew.Milliseconds() {
-		return c, data, ErrCodeStale
-	}
-	if c.Seq <= st.LastSeq {
+	if h.Seq <= st.LastSeq {
 		return c, data, ErrCodeReplay
 	}
 	return c, data, ""
+}
+
+// CheckNote — проверка сообщения (раздел 5а) до показа: как команда (подпись, тип, pc/phone, ts),
+// затем текст (1…300 знаков после обрезки, не больше 5 переводов строк), showSec ∈ {0, 10, 30, 60}
+// и id (ошибка range) и только потом seq — общий с командами. Текст в ответе уже очищен (NoteText).
+func CheckNote(st State, s Signed, from string, now time.Time) (Note, []byte, string) {
+	var n Note
+	h, data, code := checkSigned(st, s, from, now, TypeNote, &n)
+	if code == ErrCodeBadSig {
+		return Note{}, data, code
+	}
+	if code != "" {
+		return n, data, code
+	}
+	text, ok := NoteText(n.Text)
+	if !ok || !validShowSec(n.ShowSec) || !validNoteID(n.ID) {
+		return n, data, ErrCodeRange
+	}
+	n.Text = text
+	if h.Seq <= st.LastSeq {
+		return n, data, ErrCodeReplay
+	}
+	return n, data, ""
+}
+
+// NoteText очищает текст сообщения: переводы строк \r\n и \r — \n, табуляция — пробел, прочие
+// управляющие и неверные символы убраны, пробелы по краям обрезаны. false — пусто, длиннее
+// MaxNoteRunes знаков или больше MaxNoteLines переводов строк.
+func NoteText(raw string) (string, bool) {
+	raw = strings.ReplaceAll(raw, "\r\n", "\n")
+	raw = strings.ReplaceAll(raw, "\r", "\n")
+	var b strings.Builder
+	for _, r := range raw {
+		switch {
+		case r == '\n':
+			b.WriteRune(r)
+		case r == '\t':
+			b.WriteRune(' ')
+		case unicode.IsControl(r) || r == unicode.ReplacementChar || unicode.Is(unicode.Cf, r) && r != '\u200d':
+		default:
+			b.WriteRune(r)
+		}
+	}
+	text := strings.TrimSpace(b.String())
+	n := len([]rune(text))
+	return text, n >= 1 && n <= MaxNoteRunes && strings.Count(text, "\n") <= MaxNoteLines
+}
+
+func validShowSec(s int) bool { return s == 0 || s == 10 || s == 30 || s == 60 }
+
+// validNoteID — id сообщения: 1…64 знака base64url (телефон шлёт 16 случайных байтов).
+func validNoteID(id string) bool {
+	if id == "" || len(id) > maxNoteIDLen {
+		return false
+	}
+	for _, r := range id {
+		if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '-' || r == '_') {
+			return false
+		}
+	}
+	return true
 }

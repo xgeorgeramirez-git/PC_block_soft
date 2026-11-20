@@ -24,6 +24,10 @@ object Format {
         }
     }
 
+    /** Время в статистике: «1 ч 20 мин», «15 мин», «меньше минуты» (1…59 с), «0 мин» (ни секунды). */
+    fun spent(seconds: Long, minTpl: String, hmTpl: String, lessTpl: String): String =
+        if (seconds in 1..59) lessTpl else duration(seconds, minTpl, hmTpl)
+
     private val HM = DateTimeFormatter.ofPattern("HH:mm", Locale.ROOT)
     private val DM = DateTimeFormatter.ofPattern("dd.MM", Locale.ROOT)
 

@@ -37,14 +37,66 @@
     <string name="child_unlimited">Без лимита</string>
     <string name="child_blocked">Компьютер заблокирован</string>
     <string name="child_extra">Доп. время сегодня: %1$s</string>
-    <string name="btn_add15">+15 мин</string>
-    <string name="btn_sub15">−15 мин</string>
-    <string name="btn_add15_desc">Добавить 15 минут, %1$s</string>
-    <string name="btn_sub15_desc">Убавить 15 минут, %1$s</string>
+    <string name="btn_add">+%1$d мин</string>
+    <string name="btn_sub">−%1$d мин</string>
+    <string name="btn_add_desc">Добавить %1$d минут, %2$s</string>
+    <string name="btn_sub_desc">Убавить %1$d минут, %2$s</string>
     <string name="btn_custom">Своё число</string>
     <string name="btn_custom_desc">Своё число минут, %1$s</string>
+    <string name="forbid_until">Запретные часы до %1$s</string>
+    <string name="btn_no_forbidden">Снять запрет на сегодня</string>
+    <string name="btn_no_forbidden_desc">Снять запрет на сегодня, %1$s</string>
+    <string name="forbid_cleared">Запрет на сегодня снят</string>
     <string name="cmd_sending">Отправляем…</string>
     <string name="cmd_done">Готово</string>
+
+    <!-- Сообщение ребёнку (FR-41) -->
+    <string name="btn_note">Сообщение</string>
+    <string name="btn_note_desc">Написать сообщение, %1$s</string>
+    <string name="note_title">Сообщение</string>
+    <string name="note_label">Текст сообщения</string>
+    <string name="note_counter">%1$d/%2$d</string>
+    <string name="note_counter_desc">%1$d из %2$d знаков</string>
+    <string name="note_show_title">Сколько показывать</string>
+    <string name="note_show_until">Пока не нажмёт «Понял»</string>
+    <string name="note_show_10">10 секунд</string>
+    <string name="note_show_30">30 секунд</string>
+    <string name="note_show_60">1 минута</string>
+    <string name="note_send">Отправить</string>
+    <string name="note_sending">Отправляем…</string>
+    <string name="note_recent">Последние сообщения</string>
+    <string name="note_item_meta">%1$s · %2$s</string>
+    <string name="note_item_desc">Сообщение «%1$s», %2$s, %3$s</string>
+    <string name="note_mark_sent">Отправлено</string>
+    <string name="note_mark_delivered">Доставлено</string>
+    <string name="note_mark_read">Прочитано</string>
+    <string name="note_mark_shown">Показано</string>
+    <string name="note_mark_expired">Не доставлено</string>
+
+    <!-- Статистика за сегодня (FR-43) -->
+    <string name="btn_stats">Статистика за сегодня</string>
+    <string name="btn_stats_desc">Статистика за сегодня, %1$s</string>
+    <string name="stats_title">Статистика за сегодня</string>
+    <string name="stats_back">Назад</string>
+    <string name="stats_at_pc_since">За компьютером с %1$s</string>
+    <string name="stats_away_since">Не за компьютером с %1$s</string>
+    <string name="stats_away">Не за компьютером</string>
+    <string name="stats_first">Первый вход сегодня в %1$s</string>
+    <string name="stats_first_none">Сегодня входа ещё не было</string>
+    <string name="stats_used">Всего за сегодня: %1$s</string>
+    <string name="stats_left">Осталось: %1$s</string>
+    <string name="stats_unlimited">Осталось: без лимита</string>
+    <string name="stats_games">Во что играл</string>
+    <string name="stats_games_total">Игры всего: %1$s</string>
+    <string name="stats_no_games">Сегодня игр не было</string>
+    <string name="stats_study">Учёба: %1$s</string>
+    <string name="stats_video">Видео и соцсети: %1$s</string>
+    <string name="stats_programs">Программы</string>
+    <string name="stats_sites">Сайты</string>
+    <string name="stats_more">Ещё %1$d</string>
+    <string name="stats_violations">Нарушений сегодня: %1$d</string>
+    <string name="stats_violations_bypass">Нарушений сегодня: %1$d (из них попыток обхода: %2$d)</string>
+    <string name="stats_none">Статистики пока нет. Она появится, когда компьютер пришлёт данные.</string>
 
     <!-- Своё число -->
     <string name="custom_title">Своё число минут</string>
@@ -62,6 +114,7 @@
     <!-- Длительности и время -->
     <string name="dur_min">%1$d мин</string>
     <string name="dur_hm">%1$d ч %2$02d мин</string>
+    <string name="dur_less_min">меньше минуты</string>
     <string name="time_other_day">%1$s %2$s</string>
 
     <!-- Ошибки (протокол связи, раздел 5) -->
@@ -82,5 +135,9 @@
     <string name="err_pair_cancelled">Подключение отменено. Начните заново</string>
     <string name="err_bad_reply">Ответ компьютера не прошёл проверку. Повторите</string>
     <string name="err_server">Сервер связи не смог выполнить запрос. Повторите позже</string>
+    <string name="err_note_range">Текст от 1 до 300 знаков</string>
+    <string name="err_note_lines">Не больше 6 строк</string>
+    <string name="err_note_pc_offline">Компьютер не на связи. Сообщение не отправлено</string>
+    <string name="err_note_pc_offline_since">Компьютер не на связи с %1$s. Сообщение не отправлено</string>
     <string name="err_key">Не удалось создать ключ на телефоне. Повторите</string>
 </resources>

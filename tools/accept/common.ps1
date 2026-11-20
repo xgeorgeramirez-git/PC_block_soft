@@ -79,6 +79,7 @@ public static class PcbNative {
   delegate bool EnumProc(IntPtr h, IntPtr l);
 
   [DllImport("user32.dll")] static extern bool EnumWindows(EnumProc cb, IntPtr l);
+  [DllImport("user32.dll")] static extern bool EnumChildWindows(IntPtr parent, EnumProc cb, IntPtr l);
   [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
   [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr h);
   [DllImport("user32.dll")] static extern bool GetWindowRect(IntPtr h, out RECT r);
@@ -181,6 +182,25 @@ public static class PcbNative {
       uint pid;
       GetWindowThreadProcessId(h, out pid);
       if (want.Contains(pid) && IsWindowVisible(h)) list.Add(Describe(h));
+      return true;
+    }, IntPtr.Zero);
+    return list.ToArray();
+  }
+
+  // Видимые дочерние окна (кнопки, поле пароля) видимых окон верхнего уровня заданных процессов: тот же
+  // вид "pid|класс|l,t,r,b|текст", координаты экрана (S57: плашка сообщения не закрывает кнопки).
+  public static string[] VisibleChildWindows(uint[] pids) {
+    List<string> list = new List<string>();
+    HashSet<uint> want = new HashSet<uint>(pids);
+    EnumWindows(delegate(IntPtr h, IntPtr l) {
+      uint pid;
+      GetWindowThreadProcessId(h, out pid);
+      if (want.Contains(pid) && IsWindowVisible(h)) {
+        EnumChildWindows(h, delegate(IntPtr c, IntPtr l2) {
+          if (IsWindowVisible(c)) list.Add(Describe(c));
+          return true;
+        }, IntPtr.Zero);
+      }
       return true;
     }, IntPtr.Zero);
     return list.ToArray();
@@ -922,6 +942,26 @@ function Get-BigPcbWindows {
   }
   return $big
 }
+
+# Окна PC Block в виде объектов: класс, текст и рамка (экранные координаты). -Children — дочерние окна
+# (кнопки и поле экрана блокировки), иначе окна верхнего уровня.
+function Get-PcbWindowRects([switch]$Children) {
+  $pids = @([Diagnostics.Process]::GetProcessesByName("PCBlock") | ForEach-Object { [uint32]$_.Id })
+  if ($pids.Count -eq 0) { return @() }
+  $list = if ($Children) { [PcbNative]::VisibleChildWindows([uint32[]]$pids) } else { [PcbNative]::VisibleWindows([uint32[]]$pids) }
+  return @($list | ForEach-Object {
+    $p = $_.Split("|", 4)
+    $r = $p[2].Split(",") | ForEach-Object { [int]$_ }
+    [pscustomobject]@{ Class = $p[1]; Text = $p[3]; Left = $r[0]; Top = $r[1]; Right = $r[2]; Bottom = $r[3] }
+  })
+}
+
+# Прямоугольники a и b пересекаются.
+function Test-RectsOverlap($a, $b) {
+  return ($a.Left -lt $b.Right -and $b.Left -lt $a.Right -and $a.Top -lt $b.Bottom -and $b.Top -lt $a.Bottom)
+}
+
+function Format-Rect($r) { return "$($r.Left),$($r.Top),$($r.Right),$($r.Bottom)" }
 
 # --- Экран стража и проверки чисел ---------------------------------------------------------------------
 # Элементы массива из ответа службы: пустое и null дают пустой список (в PowerShell @($null) это один элемент).

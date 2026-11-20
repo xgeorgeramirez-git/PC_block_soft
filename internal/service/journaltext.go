@@ -65,8 +65,16 @@ func eventText(kind, name string, d map[string]any) string {
 		} else {
 			body = fmt.Sprintf("доп. время +%d мин", m)
 		}
+	case core.EvNoForbidden:
+		// С телефона (FR-42, подробность source): «Миша: запрет на сегодня снят с телефона».
+		body = detStr(d, "text")
+		if detStr(d, "source") == extraSourcePhone && d["on"] == true {
+			body = "запрет на сегодня снят с телефона"
+		}
 	case evRemote:
 		body = remoteEventText(detStr(d, "action"), detStr(d, "phone"))
+	case evRemoteNote:
+		body = noteJournalText(detStr(d, "text"))
 	case evExtraUndone:
 		body = "изменение доп. времени отменено"
 	case core.EvBypass:

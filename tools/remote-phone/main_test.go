@@ -33,6 +33,10 @@ type fakePC struct {
 	wrongHash  bool // ответ cmdr не на эту команду
 	srv        *httptest.Server
 	cmdApplied int
+	notes      []remote.NoteReport
+	forbid     string // запретные часы в отчёте (раздел 6)
+	forbidEnd  int64
+	today      *remote.TodayReport // статистика за сегодня в отчёте (FR-43)
 }
 
 func newFakePC(t *testing.T) *fakePC {
@@ -99,7 +103,8 @@ func (f *fakePC) signed(v any) json.RawMessage {
 
 func (f *fakePC) report() remote.Report {
 	return remote.Report{V: 1, T: remote.TypeReport, PC: "pc1", Phone: "ph1", TS: time.Now().UnixMilli(),
-		Children: []remote.ChildReport{{ID: 3, Name: "Миша", UsedSec: 60, LeftSec: int64(1800 + f.extra*60), ExtraMin: f.extra}}}
+		Children: []remote.ChildReport{{ID: 3, Name: "Миша", UsedSec: 60, LeftSec: int64(1800 + f.extra*60), ExtraMin: f.extra, Forbid: f.forbid, ForbidUntilMs: f.forbidEnd, Today: f.today}},
+		Notes:    append([]remote.NoteReport(nil), f.notes...)}
 }
 
 func (f *fakePC) hSend(w http.ResponseWriter, r *http.Request) {
@@ -134,13 +139,34 @@ func (f *fakePC) hSend(w http.ResponseWriter, r *http.Request) {
 		}
 		if code == "" {
 			f.lastSeq, f.extra, f.cmdApplied = c.Seq, f.extra+c.Delta, f.cmdApplied+1
+			msg := "Добавлено"
+			if c.Op == remote.OpNoForbidden {
+				f.forbid, f.forbidEnd, msg = remote.ForbidCleared, 0, "Запрет на сегодня снят"
+			}
 			rep := f.report()
-			res.OK, res.Message, res.Report = true, "Добавлено", &rep
+			res.OK, res.Message, res.Report = true, msg, &rep
 		} else {
 			last := f.lastSeq
 			res.Error, res.LastSeq = code, &last
 		}
 		f.reply(w, 200, map[string]any{"reply": remote.Msg{ID: "m3", From: "ph1", Kind: remote.KindCmdR, Body: f.signed(res)}})
+	case remote.KindNote:
+		var s remote.Signed
+		json.Unmarshal(in.Body, &s)
+		st := remote.State{PCID: "pc1", Phone: &remote.Phone{ID: "ph1", Pub: f.phonePub}, LastSeq: f.lastSeq}
+		n, _, code := remote.CheckNote(st, s, "ph1", time.Now())
+		data, _ := unb64(s.Data)
+		res := remote.CmdResult{V: 1, T: remote.TypeNoteR, PC: "pc1", Phone: "ph1", Seq: n.Seq, Cmd: remote.HashData(data), TS: time.Now().UnixMilli()}
+		if code == "" {
+			f.lastSeq = n.Seq
+			f.notes = append(f.notes, remote.NoteReport{ID: n.ID, Child: n.Child, State: remote.NoteQueued, AtMs: 1})
+			rep := f.report()
+			res.OK, res.Report = true, &rep
+		} else {
+			last := f.lastSeq
+			res.Error, res.LastSeq = code, &last
+		}
+		f.reply(w, 200, map[string]any{"reply": remote.Msg{ID: "m4", From: "ph1", Kind: remote.KindNoteR, Body: f.signed(res)}})
 	default:
 		f.reply(w, 400, map[string]any{"error": "bad_request"})
 	}
@@ -252,5 +278,128 @@ func TestPhoneUsage(t *testing.T) {
 	missing := filepath.Join(t.TempDir(), "нет.json")
 	if code, out := runJSON(t, "status", "-state", missing); code != 1 || !strings.Contains(out["error"].(string), "no_state") {
 		t.Fatalf("%d %v", code, out)
+	}
+}
+
+// Ловит: тестовый телефон шлёт сообщение не в общей нумерации с командами, тратит номер на подделку,
+// не видит состояния сообщений в проверенном отчёте (S57).
+func TestPhoneNotes(t *testing.T) {
+	f := newFakePC(t)
+	state := filepath.Join(t.TempDir(), "phone.json")
+	if code, out := runJSON(t, "pair", "-state", state, "-url", f.srv.URL, "-code", "123456"); code != 0 {
+		t.Fatalf("pair: %v", out)
+	}
+	runJSON(t, "confirm", "-state", state)
+	runJSON(t, "cmd", "-state", state, "-child", "3", "-delta", "1")
+	code, out := runJSON(t, "note", "-state", state, "-child", "3", "-text", "Иди ужинать", "-show", "0")
+	id, _ := out["id"].(string)
+	if code != 0 || out["ok"] != true || out["seq"] != float64(2) || len(id) != 22 {
+		t.Fatalf("note: %d %v", code, out)
+	}
+	if _, ok := out["ms"].(float64); !ok {
+		t.Fatalf("note: нет ms: %v", out)
+	}
+	if code, out := runJSON(t, "forge-note", "-state", state, "-child", "3", "-text", "Чужое", "-show", "0"); code != 2 || out["error"] != remote.ErrCodeBadSig {
+		t.Fatalf("forge-note: %d %v", code, out)
+	}
+	if code, out := runJSON(t, "note", "-state", state, "-child", "3", "-text", "x", "-show", "15"); code != 2 || out["error"] != remote.ErrCodeRange || out["seq"] != float64(3) {
+		t.Fatalf("show 15: %d %v", code, out)
+	}
+	if code, out := runJSON(t, "cmd", "-state", state, "-child", "3", "-delta", "1"); code != 0 || out["seq"] != float64(4) {
+		t.Fatalf("команда после сообщений: %d %v", code, out)
+	}
+	code, out = runJSON(t, "notes", "-state", state)
+	notes, _ := out["notes"].([]any)
+	if code != 0 || len(notes) != 1 || notes[0].(map[string]any)["id"] != id || notes[0].(map[string]any)["state"] != remote.NoteQueued {
+		t.Fatalf("notes: %d %v", code, out)
+	}
+	if code, out := runJSON(t, "note", "-state", state, "-child", "3"); code != 1 || out["error"] != errUsage {
+		t.Fatalf("без текста: %d %v", code, out)
+	}
+}
+
+// Ловит: «снять запрет» (протокол 5б) уходит без op или с delta, не в общей нумерации seq, подделка
+// тратит номер; статус запретных часов из отчёта не печатается (S58).
+func TestPhoneForbidOff(t *testing.T) {
+	f := newFakePC(t)
+	f.forbid, f.forbidEnd = remote.ForbidActive, 1763496000000
+	state := filepath.Join(t.TempDir(), "phone.json")
+	if code, out := runJSON(t, "pair", "-state", state, "-url", f.srv.URL, "-code", "123456"); code != 0 {
+		t.Fatalf("pair: %v", out)
+	}
+	runJSON(t, "confirm", "-state", state)
+	code, out := runJSON(t, "status", "-state", state)
+	ch, _ := out["children"].([]any)
+	if code != 0 || len(ch) != 1 || ch[0].(map[string]any)["forbid"] != remote.ForbidActive || ch[0].(map[string]any)["forbidUntilMs"] != float64(1763496000000) {
+		t.Fatalf("status до снятия: %d %v", code, out)
+	}
+	runJSON(t, "cmd", "-state", state, "-child", "3", "-delta", "30")
+	if code, out := runJSON(t, "forge-forbid-off", "-state", state, "-child", "3"); code != 2 || out["error"] != remote.ErrCodeBadSig {
+		t.Fatalf("forge-forbid-off: %d %v", code, out)
+	}
+	if code, out := runJSON(t, "forbid-off", "-state", state); code != 1 || out["error"] != errUsage {
+		t.Fatalf("forbid-off без -child: %d %v", code, out)
+	}
+	code, out = runJSON(t, "forbid-off", "-state", state, "-child", "3")
+	if code != 0 || out["ok"] != true || out["seq"] != float64(2) || out["message"] != "Запрет на сегодня снят" || out["forbid"] != remote.ForbidCleared {
+		t.Fatalf("forbid-off: %d %v", code, out)
+	}
+	if _, ok := out["forbidUntilMs"]; ok {
+		t.Fatalf("forbid-off: конец интервала у снятого запрета: %v", out)
+	}
+	if code, out := runJSON(t, "replay", "-state", state); code != 2 || out["error"] != remote.ErrCodeReplay || out["seq"] != float64(2) {
+		t.Fatalf("replay «снять запрет»: %d %v", code, out)
+	}
+	f.mu.Lock()
+	applied, extra := f.cmdApplied, f.extra
+	f.mu.Unlock()
+	if applied != 2 || extra != 30 {
+		t.Fatalf("применено %d, доп. время %d; ждали 2 и 30", applied, extra)
+	}
+	code, out = runJSON(t, "status", "-state", state)
+	ch, _ = out["children"].([]any)
+	if code != 0 || ch[0].(map[string]any)["forbid"] != remote.ForbidCleared {
+		t.Fatalf("status после снятия: %d %v", code, out)
+	}
+}
+
+// Ловит: тестовый телефон не печатает «Статистику за сегодня» (S59 сверяет её с окном), today
+// без -child, неизвестный ребёнок; вывод для человека теряет игры и «за компьютером».
+func TestPhoneToday(t *testing.T) {
+	f := newFakePC(t)
+	f.today = &remote.TodayReport{FirstMs: 1763460000000, NowAt: true, SinceMs: 1763461000000, UsedSec: 3900, LeftSec: 1800,
+		GamesSec: 1200, StudySec: 600, Programs: []remote.TimeItem{{Name: "Minecraft", Cat: remote.ItemGame, Sec: 1200}},
+		Sites: []remote.TimeItem{}, More: remote.TodayMore{Sites: 2}, Violations: 2, Bypass: 1}
+	state := filepath.Join(t.TempDir(), "phone.json")
+	if code, out := runJSON(t, "pair", "-state", state, "-url", f.srv.URL, "-code", "123456"); code != 0 {
+		t.Fatalf("pair: %v", out)
+	}
+	runJSON(t, "confirm", "-state", state)
+	code, out := runJSON(t, "today", "-state", state, "-child", "3")
+	td, _ := out["today"].(map[string]any)
+	progs, _ := td["programs"].([]any)
+	if code != 0 || out["child"] != float64(3) || td["firstMs"] != float64(1763460000000) || td["gamesSec"] != float64(1200) || len(progs) != 1 ||
+		progs[0].(map[string]any)["cat"] != remote.ItemGame || td["nowAt"] != true || out["reportTs"] == nil {
+		t.Fatalf("today: %d %v", code, out)
+	}
+	if code, out := runJSON(t, "status", "-state", state); code != 0 || out["children"].([]any)[0].(map[string]any)["today"] == nil {
+		t.Fatalf("status без today: %v", out)
+	}
+	if code, out := runJSON(t, "today", "-state", state); code != 1 || out["error"] != errUsage {
+		t.Fatalf("без -child: %d %v", code, out)
+	}
+	if code, out := runJSON(t, "today", "-state", state, "-child", "9"); code != 1 || out["error"] != errNoChild {
+		t.Fatalf("нет ребёнка: %d %v", code, out)
+	}
+	var buf bytes.Buffer
+	a := &app{out: &buf, http: &http.Client{Timeout: 10 * time.Second}, now: time.Now}
+	if a.run([]string{"status", "-state", state, "-human"}) != 0 {
+		t.Fatalf("status -human: %s", buf.String())
+	}
+	text := buf.String()
+	for _, want := range []string{"На связи", "Миша (id 3)", "За компьютером с ", "первый вход ", "игры 20 мин", "учёба 10 мин", "Minecraft (game) 20 мин", "сайты: и ещё 2", "из них попыток обхода 1"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("status -human без %q:\n%s", want, text)
+		}
 	}
 }
