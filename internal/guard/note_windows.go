@@ -143,7 +143,7 @@ func (n *noteWindow) layout(lock *NoteLock) {
 		}
 		return measureHeight(hdc, n.font(px, weight), s, width)
 	}
-	n.fit = FitNote(n.dpi, Rect{Left: wa.left, Top: wa.top, Right: wa.right, Bottom: wa.bottom}, lock, n.title, n.text, measure)
+	n.fit = FitNote(n.dpi, Rect{Left: wa.left, Top: wa.top, Right: wa.right, Bottom: wa.bottom}, lock, false, n.title, n.text, measure) // окно пока рисует без стикера
 	procReleaseDC.Call(n.hwnd, hdc)
 	g := toRect(n.fit.Place)
 	n.geom, n.visible = g, true
