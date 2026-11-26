@@ -2090,7 +2090,9 @@
               "id": "BAECAwQFBgcICQoLDA0ODw",
               "text": "Иди ужинать",
               "showS": 0,
-              "waitS": 597
+              "waitS": 597,
+              "sticker": "033",
+              "sound": 2
             }
           }
         ]

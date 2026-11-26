@@ -476,7 +476,7 @@ func examples() map[string]example {
 			{Kind: GuardEvNoteDone, AtMs: t0 - 100, NoteID: "AAECAwQFBgcICQoLDA0ODw"},
 		}}, GuardPollReply{
 			Status: okStatus(), Warnings: []GuardWarning{},
-			Commands: []GuardCommand{{Kind: GuardCmdNote, Note: &GuardNote{ID: "BAECAwQFBgcICQoLDA0ODw", Text: "Иди ужинать", ShowS: 0, WaitS: 597}}},
+			Commands: []GuardCommand{{Kind: GuardCmdNote, Note: &GuardNote{ID: "BAECAwQFBgcICQoLDA0ODw", Text: "Иди ужинать", ShowS: 0, WaitS: 597, Sticker: "033", Sound: 2}}},
 		}),
 		"GuardPoll#empty": ok(GuardPollRequest{Sample: SampleFromCore(core.SessionSample{AtMs: t0})}, GuardPollReply{Status: okStatus()}),
 		"GuardPoll#blocked": ok(GuardPollRequest{Sample: SensorSample{AtMs: t0, SessionActive: true, Foreground: CatNameGames,

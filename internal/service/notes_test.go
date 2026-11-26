@@ -3,6 +3,7 @@ package service
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -14,10 +15,23 @@ import (
 // Сообщение ребёнку с телефона в службе (FR-41, S57, протокол связи, раздел 5а).
 
 func (p *testPhone) note(seq, child int64, id, text string, showSec int, ts time.Time) remote.CmdResult {
+	p.t.Helper()
+	return p.noteWith(seq, child, id, text, showSec, ts, "", "")
+}
+
+// noteWith — сообщение с необязательными сырыми полями sticker и sound ("" — поля нет).
+func (p *testPhone) noteWith(seq, child int64, id, text string, showSec int, ts time.Time, sticker, sound string) remote.CmdResult {
 	t := p.t
 	t.Helper()
-	raw, _ := json.Marshal(remote.Note{V: remote.ProtoVersion, T: remote.TypeNote, PC: p.pcID, Phone: p.id, Seq: seq,
-		TS: ts.UnixMilli(), Child: child, ID: id, Text: text, ShowSec: showSec})
+	n := remote.Note{V: remote.ProtoVersion, T: remote.TypeNote, PC: p.pcID, Phone: p.id, Seq: seq,
+		TS: ts.UnixMilli(), Child: child, ID: id, Text: text, ShowSec: showSec}
+	if sticker != "" {
+		n.StickerRaw = json.RawMessage(sticker)
+	}
+	if sound != "" {
+		n.SoundRaw = json.RawMessage(sound)
+	}
+	raw, _ := json.Marshal(n)
 	s, err := remote.Sign(p.key, raw)
 	if err != nil {
 		t.Fatal(err)
@@ -192,7 +206,8 @@ func TestNoteDeliveryStates(t *testing.T) {
 
 	rep := h.step(activeSample)
 	got := noteCmds(rep)
-	if len(got) != 1 || got[0].ID != "n1" || got[0].Text != "Иди\nужинать" || got[0].ShowS != 0 || got[0].WaitS < 590 || got[0].WaitS > 600 {
+	if len(got) != 1 || got[0].ID != "n1" || got[0].Text != "Иди\nужинать" || got[0].ShowS != 0 || got[0].WaitS < 590 || got[0].WaitS > 600 ||
+		got[0].Sticker != "" || got[0].Sound != 1 {
 		t.Fatalf("команда стражу: %+v (%+v)", got, rep.Commands)
 	}
 	for _, c := range rep.Commands {
@@ -319,7 +334,11 @@ func TestNoteExpiresAndSurvivesRestart(t *testing.T) {
 	h.svc.OnSession(SessionLock, childSession, h.real.Now())
 	ph.note(1, id, "x", "Позвони", 0, h.real.Now())
 	h.real.Advance(time.Second)
-	ph.note(2, id, "y", "Позвони мне", 0, h.real.Now())
+	ph.noteWith(2, id, "y", "Позвони мне", 0, h.real.Now(), `"033"`, `0`)
+	if st := h.storedNotes(); len(st) != 2 || st[0].Sticker != "" || st[0].Sound == nil || *st[0].Sound != 1 ||
+		st[1].Sticker != "033" || st[1].Sound == nil || *st[1].Sound != 0 {
+		t.Fatalf("запись стикера и звука: %+v", st)
+	}
 
 	// Перезапуск службы на той же базе: очередь прочитана из записи.
 	h.svc.Shutdown(h.real.Now())
@@ -346,8 +365,8 @@ func TestNoteExpiresAndSurvivesRestart(t *testing.T) {
 	}
 	h2.svc.OnSession(SessionUnlock, childSession, h2.real.Now())
 	got := noteCmds(h2.poll(activeSample))
-	if len(got) != 1 || got[0].ID != "y" || got[0].WaitS != 1 {
-		t.Fatalf("после срока первого: %+v", got)
+	if len(got) != 1 || got[0].ID != "y" || got[0].WaitS != 1 || got[0].Sticker != "033" || got[0].Sound != 0 {
+		t.Fatalf("после срока первого (стикер и звук 0 переживают перезапуск): %+v", got)
 	}
 	h2.real.Advance(time.Second)
 	h2.svc.Housekeep(h2.real.Now())
@@ -364,6 +383,37 @@ func TestNoteExpiresAndSurvivesRestart(t *testing.T) {
 	}
 	if st := h2.storedNotes(); len(st) != 2 || st[0].Text != "" || st[1].Text != "" {
 		t.Fatalf("текст хранится после срока и показа: %+v", st)
+	}
+}
+
+// Ловит (FB-28): запись очереди 0.8.2 без поля sound после обновления даёт стражу звук 0 (сообщение
+// без звука) вместо 1; неизвестные стикер и звук (999, 9) служба подменяет сама (подмена — в страже).
+func TestNoteOldRecordAndUnknownNumbers(t *testing.T) {
+	r := newTestRelay(t)
+	h, tok := remoteHarness(t)
+	h.childLogsIn()
+	id := h.childID(childSID)
+	ms := h.real.Now().UnixMilli()
+	old := fmt.Sprintf(`[{"id":"old","child":%d,"text":"Привет","showSec":0,"state":"queued","queuedMs":%d,"atMs":%d}]`, id, ms, ms)
+	if err := h.store.SetSetting(settingNotes, old); err != nil {
+		t.Fatal(err)
+	}
+	h.svc.mu.Lock()
+	h.svc.notes.list, h.svc.notes.loaded = nil, false // очередь прочитается из записи 0.8.2
+	h.svc.mu.Unlock()
+	got := noteCmds(h.poll(activeSample))
+	if len(got) != 1 || got[0].ID != "old" || got[0].Text != "Привет" || got[0].Sticker != "" || got[0].Sound != 1 {
+		t.Fatalf("запись 0.8.2: %+v", got)
+	}
+	ph := pairPhone(t, h, tok, r)
+	h.ok(adminPeer(), tok, ipc.CmdLogout, nil, nil)
+	if res := ph.noteWith(1, id, "new", "Ужинать", 0, h.real.Now(), `"999"`, `9`); !res.OK {
+		t.Fatalf("неизвестные номера отклонены: %+v", res)
+	}
+	h.real.Advance(noteResend)
+	got = noteCmds(h.poll(activeSample))
+	if len(got) != 2 || got[1].ID != "new" || got[1].Sticker != "999" || got[1].Sound != 9 {
+		t.Fatalf("неизвестные номера: %+v", got)
 	}
 }
 

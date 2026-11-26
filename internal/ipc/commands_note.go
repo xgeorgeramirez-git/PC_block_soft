@@ -18,10 +18,14 @@ const ButtonNoteOK = "noteOk"
 
 // GuardNote — сообщение для стража. ShowS — сколько показывать (0 — пока не нажмёт «Понял»; 10, 30,
 // 60). WaitS — сколько сообщение ещё может ждать показа (10 минут от приёма минус прошедшее): не
-// показанное за этот срок страж молча забывает, служба гасит его сама (expired).
+// показанное за этот срок страж молча забывает, служба гасит его сама (expired). Sticker — номер
+// стикера из трёх цифр ("" — без стикера), Sound — 0 (без звука) или номер звука 1…99, как прислал
+// телефон: стикер или звук, которого нет в этой версии, страж подменяет сам (без стикера, звук 1).
 type GuardNote struct {
-	ID    string `json:"id"`
-	Text  string `json:"text"`
-	ShowS int    `json:"showS"`
-	WaitS int    `json:"waitS"`
+	ID      string `json:"id"`
+	Text    string `json:"text"`
+	ShowS   int    `json:"showS"`
+	WaitS   int    `json:"waitS"`
+	Sticker string `json:"sticker,omitempty"`
+	Sound   int    `json:"sound"`
 }
