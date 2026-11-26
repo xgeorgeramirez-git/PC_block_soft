@@ -555,7 +555,8 @@ func TestMeasureLongWordWraps(t *testing.T) {
 }
 
 // Ловит: настоящее окно сообщения (мерка Windows) с длинным текстом над экраном блокировки
-// закрывает его заголовок или кнопки, выходит за рабочую область или выше 55 % её, текст обрезан.
+// закрывает его заголовок или кнопки, выходит за рабочую область или выше 55 % её (окно со стикером
+// и тенью), текст обрезан.
 func TestNoteWindowOverLockFits(t *testing.T) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
@@ -568,9 +569,16 @@ func TestNoteWindowOverLockFits(t *testing.T) {
 	text := strings.Repeat(strings.Repeat("Иди ужинать скорее ", 2)+"\n", 5) + strings.Repeat("ж", 110)
 	lock := &NoteLock{Title: Rect{Left: wa.left + 62, Top: wa.top + 65, Right: wa.left + 962, Bottom: wa.top + 115}, ControlsTop: wa.top + 272,
 		MaxUp: 65 - 16, MaxDown: 768 - 16 - 680}
-	for _, lk := range []*NoteLock{nil, lock} {
-		n.apply(&NoteView{Seq: 1, ID: "a", Title: textNoteTitle, Text: text,
-			Buttons: []ButtonView{{Button: ButtonNoteOK, Label: textNoteOK, Main: true, Enabled: true}}}, lk)
+	for i, c := range []struct {
+		lk      *NoteLock
+		sticker string
+	}{{nil, ""}, {lock, ""}, {nil, "033"}, {lock, "033"}} {
+		lk := c.lk
+		v := &NoteView{Seq: i + 1, ID: "a", Title: textNoteTitle, Text: text,
+			Buttons: []ButtonView{{Button: ButtonNoteOK, Label: textNoteOK, Main: true, Enabled: true}}}
+		v.Sticker, v.Frames = noteSticker(c.sticker)
+		v.Started = time.Now()
+		n.apply(v, lk)
 		pump(50 * time.Millisecond)
 		g := n.geom
 		if g.top < wa.top || g.bottom > wa.bottom || g.left < wa.left || g.right > wa.right {
@@ -589,7 +597,7 @@ func TestNoteWindowOverLockFits(t *testing.T) {
 		// Текст целиком (FR-41): без «…», все строки в раскладке (мерка Windows), шрифт не мельче 14 px.
 		hdc, _, _ := procGetDC.Call(n.hwnd)
 		tw := NoteTextWidth(n.dpi, n.fit.Layout.Card.Right-n.fit.Layout.Card.Left, n.fit.Density)
-		need := measureHeight(hdc, n.font(n.fit.FontPx, 400), text, tw)
+		need := measureHeight(hdc, n.font(n.fit.FontPx, 600), text, tw)
 		procReleaseDC.Call(n.hwnd, hdc)
 		if n.fit.Text != text || n.fit.FontPx < 14 || need > n.fit.Layout.Text.Bottom-n.fit.Layout.Text.Top {
 			t.Fatalf("текст не целиком: шрифт %d, нужно %d px, место %+v, %q", n.fit.FontPx, need, n.fit.Layout.Text, n.fit.Text)
@@ -636,5 +644,69 @@ func TestNoteColorsBlue(t *testing.T) {
 	}
 	if NoteNormal.TitlePx != 18 {
 		t.Fatalf("заголовок %d px, want 18", NoteNormal.TitlePx)
+	}
+	// Окно рисует текст теми же цветами, что основа: не прежними нейтральными colorLine/colorText.
+	if noteFrameColor != ref(NoteBlueRGB) || noteTitleColor != ref(NoteBlueRGB) || noteInkColor != ref(NoteInkRGB) {
+		t.Fatalf("окно: рамка %06x, заголовок %06x, текст %06x (COLORREF); want синий %06x и %06x",
+			noteFrameColor, noteTitleColor, noteInkColor, ref(NoteBlueRGB), ref(NoteInkRGB))
+	}
+}
+
+// Ловит (FR-41, NFR-5, план 0.8.3): стикер сообщения в настоящем окне не разобран, не движется
+// (тикер не запущен или кадр не выводится), движется при выключенных анимациях Windows; после
+// скрытия окна тикер идёт дальше, а спрайт и буферы рисунка остаются в памяти; без стикера окно
+// всё равно держит спрайт.
+func TestNoteWindowStickerAnimates(t *testing.T) {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	n, err := newNoteWindow(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer n.close()
+	var shownSticker string
+	var frames []int
+	n.onShown = func(s string, k int) { shownSticker = s; frames = append(frames, k) }
+	v := &NoteView{Seq: 1, ID: "a", Title: textNoteTitle, Text: "Иди ужинать",
+		Buttons: []ButtonView{{Button: ButtonNoteOK, Label: textNoteOK, Main: true, Enabled: true}}}
+	v.Sticker, v.Frames = noteSticker("033")
+	v.Started = time.Now()
+	if v.Sticker != "033" || v.Frames == 0 {
+		t.Fatalf("стикера 033 нет среди встроенных: %q, %d кадров", v.Sticker, v.Frames)
+	}
+	n.apply(v, nil)
+	for end := time.Now().Add(5 * time.Second); n.sprite == nil && time.Now().Before(end); {
+		pump(20 * time.Millisecond)
+	}
+	if n.sprite == nil || n.anim == nil || n.fit.Layout.StickerPx == 0 {
+		t.Fatalf("спрайт %v, шаг кадров %v, стикер %d px", n.sprite != nil, n.anim != nil, n.fit.Layout.StickerPx)
+	}
+	frames = nil
+	pump(time.Second)
+	distinct := map[int]bool{}
+	for _, k := range frames {
+		distinct[k] = true
+	}
+	if shownSticker != "033" || len(distinct) < StickerFPS/3 {
+		t.Fatalf("за 1 с выведено %d разных кадров стикера %q, ждали не меньше %d", len(distinct), shownSticker, StickerFPS/3)
+	}
+	// Анимации Windows выключены: первый кадр, шаг кадров остановлен.
+	still := *v
+	still.Still = true
+	n.apply(&still, nil)
+	if n.anim != nil || n.cur != 0 {
+		t.Fatalf("без анимаций: шаг кадров %v, кадр %d (ждали первый)", n.anim != nil, n.cur)
+	}
+	n.apply(nil, nil)
+	if n.anim != nil || n.sprite != nil || n.bits != nil || n.base != nil || n.dib != 0 || shownSticker != "" {
+		t.Fatalf("после скрытия: шаг %v, спрайт %v, DIB %v, основа %v, стикер %q",
+			n.anim != nil, n.sprite != nil, n.dib != 0, n.base != nil, shownSticker)
+	}
+	// Без стикера: окно не держит спрайт и не шагает кадры.
+	plain := &NoteView{Seq: 2, ID: "b", Title: textNoteTitle, Text: "Иди ужинать", Buttons: v.Buttons}
+	n.apply(plain, nil)
+	pump(100 * time.Millisecond)
+	if n.sprite != nil || n.anim != nil || n.fit.Layout.StickerPx != 0 || n.pending != "" {
+		t.Fatalf("без стикера: спрайт %v, шаг %v, стикер %d px, разбор %q", n.sprite != nil, n.anim != nil, n.fit.Layout.StickerPx, n.pending)
 	}
 }

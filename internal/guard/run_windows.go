@@ -427,7 +427,7 @@ func (a *app) applyPlate(v View) {
 	a.plate.apply(text)
 }
 
-// applyNote показывает плашку «Сообщение от родителя» или прячет её (FR-41).
+// applyNote показывает окно «Сообщение от родителя» или прячет его (FR-41).
 func (a *app) applyNote(v View) {
 	if v.Note == nil {
 		if a.note != nil {
@@ -443,6 +443,7 @@ func (a *app) applyNote(v View) {
 		if err != nil {
 			return // следующий кадр попробует снова; служба ждёт «показано» и повторит
 		}
+		n.onShown = a.ctl.SetNoteShown // тестовый режим: стикер и кадр окна (GuardState, S60)
 		a.note = n
 	}
 	var lock *NoteLock
