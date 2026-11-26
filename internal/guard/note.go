@@ -48,6 +48,34 @@ type NoteView struct {
 	// Sound — номер встроенного звука сообщения (sound.PlayMessage): 0 — без звука. Номер, которого
 	// нет среди встроенных (телефон новее компьютера), уже заменён на 1.
 	Sound int
+	// Sticker - номер встроенного стикера над карточкой; "" - без стикера (телефон не выбрал или
+	// прислал номер, которого нет среди встроенных: stickerFrames == 0).
+	Sticker string
+	// Frames - кадров у стикера (0 без стикера), Started - начало показа: кадры идут по кругу,
+	// пока окно видно (NoteStickerFrame). Frame - кадр на момент вида. Still - анимации Windows
+	// выключены: стоит первый кадр, тикер кадров не нужен.
+	Frames  int
+	Started time.Time
+	Frame   int
+	Still   bool
+}
+
+// NoteStickerFrame - кадр стикера сообщения v в момент now: StickerFPS кадров в секунду от начала
+// показа по кругу (после последнего снова первый); при выключенных анимациях - первый. Окно зовёт
+// по своему тикеру без Model; без стикера - 0.
+func NoteStickerFrame(v *NoteView, now time.Time) int {
+	if v == nil || v.Sticker == "" || v.Frames <= 0 || v.Still {
+		return 0
+	}
+	return stickerFrameAt(v.Started, now, v.Frames, false)
+}
+
+// noteSticker - стикер, который покажет страж: встроенный номер как есть, остальное - без стикера.
+func noteSticker(n string) (string, int) {
+	if f := stickerFrames(n); n != "" && f > 0 {
+		return n, f
+	}
+	return "", 0
 }
 
 // OnNote принимает сообщение службы (ipc.GuardCmdNote). То же id второй раз не встаёт в очередь
@@ -170,8 +198,12 @@ func (m *Model) noteView(now time.Time) *NoteView {
 		return nil
 	}
 	n := m.note
-	return &NoteView{Seq: n.seq, ID: n.id, Title: textNoteTitle, Text: n.text, Sound: noteSound(n.sound),
+	v := &NoteView{Seq: n.seq, ID: n.id, Title: textNoteTitle, Text: n.text, Sound: noteSound(n.sound),
 		Buttons: []ButtonView{{Button: ButtonNoteOK, Label: textNoteOK, Main: true, Enabled: true}}}
+	v.Sticker, v.Frames = noteSticker(n.sticker)
+	v.Started, v.Still = n.shownAt, m.still
+	v.Frame = NoteStickerFrame(v, now)
+	return v
 }
 
 // TakeNoteEvents возвращает события «показано» и «Понял» и очищает очередь; пустой — [], не nil.

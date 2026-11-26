@@ -447,3 +447,55 @@ func TestNoteTimedCountsOnlyVisible(t *testing.T) {
 		t.Fatal("не закрылась через 30 с на экране")
 	}
 }
+
+// Ловит (FR-41, S60): стикер, которого нет во встроенных (телефон новее компьютера), уходит в окно
+// и оно ищет несуществующие кадры; встроенный стикер теряется по пути до вида; кадр стикера
+// сообщения не идёт по кругу (останавливается на последнем, как одно проигрывание промокода);
+// при выключенных анимациях Windows стоит не на первом кадре.
+func TestNoteStickerView(t *testing.T) {
+	frames := stickerFrames("033")
+	if frames != 78 {
+		t.Fatalf("кадров у 033: %d, ждали 78", frames)
+	}
+	for _, c := range []struct{ in, want string }{{"033", "033"}, {"999", ""}, {"", ""}, {"33", ""}} {
+		m := NewModel()
+		m.OnDecision(t0, runningDecision(3600), false, nil)
+		m.OnNote(t0, ipc.GuardNote{ID: "a", Text: "т", WaitS: 600, Sticker: c.in, Sound: 1})
+		v := m.View(t0)
+		if v.Note == nil || v.Note.Sticker != c.want {
+			t.Fatalf("стикер %q: вид %+v, ждали %q", c.in, v.Note, c.want)
+		}
+		wantFrames := 0
+		if c.want != "" {
+			wantFrames = 78
+		}
+		if v.Note.Frames != wantFrames || !v.Note.Started.Equal(t0) {
+			t.Fatalf("стикер %q: кадров %d, начало %v", c.in, v.Note.Frames, v.Note.Started)
+		}
+	}
+	m := NewModel()
+	m.OnDecision(t0, runningDecision(3600), false, nil)
+	m.OnNote(t0, ipc.GuardNote{ID: "a", Text: "т", WaitS: 600, Sticker: "033", Sound: 1})
+	// Середина кадра: граница кадра в наносекундах округляется вниз.
+	frameAt := func(f int) time.Time { return t0.Add(time.Duration(f)*time.Second/StickerFPS + 10*time.Millisecond) }
+	last := frameAt(77)
+	if v := m.View(last); v.Note.Frame != 77 || NoteStickerFrame(v.Note, last) != 77 {
+		t.Fatalf("кадр 77: %d", v.Note.Frame)
+	}
+	// Через границу числа кадров: после 77-го снова 0, потом 1 (по кругу, пока окно видно).
+	for _, c := range []struct{ frame, want int }{{78, 0}, {79, 1}, {78*3 + 5, 5}} {
+		at := frameAt(c.frame)
+		v := m.View(at)
+		if v.Note.Frame != c.want || NoteStickerFrame(v.Note, at) != c.want {
+			t.Fatalf("кадр %d: вид %d, NoteStickerFrame %d, ждали %d", c.frame, v.Note.Frame, NoteStickerFrame(v.Note, at), c.want)
+		}
+	}
+	m.SetAnimations(false)
+	at := t0.Add(2 * time.Second)
+	if v := m.View(at); !v.Note.Still || v.Note.Frame != 0 || NoteStickerFrame(v.Note, at) != 0 {
+		t.Fatalf("анимации выключены: %+v", v.Note)
+	}
+	if NoteStickerFrame(nil, at) != 0 || NoteStickerFrame(&NoteView{}, at) != 0 {
+		t.Fatal("без стикера кадр не 0")
+	}
+}
