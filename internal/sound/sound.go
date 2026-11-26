@@ -1,13 +1,19 @@
-// Package sound — звук предупреждения заказчика (D-55, FR-9). Файл заказчика
-// assets/sounds/warning.mp3 один раз переведён в wav скриптом tools/sound-wav.sh и встроен в
-// программу: Windows играет его из памяти (PlaySoundW, SND_MEMORY), без временных файлов и без
+// Package sound — звук предупреждения заказчика (D-55, FR-9) и звуки сообщения от родителя (FR-41,
+// D-101). Файлы заказчика assets/sounds/warning.mp3 и assets/sounds/message/N.mp3 один раз
+// переведены в wav скриптами tools/sound-wav.sh и tools/sound-message-wav.sh и встроены в
+// программу: Windows играет их из памяти (PlaySoundW, SND_MEMORY), без временных файлов и без
 // MCI, которому нужен файл на диске и DirectShow (страж работает от имени системы).
 package sound
 
 import (
-	_ "embed"
+	"embed"
 	"encoding/binary"
 	"errors"
+	"io/fs"
+	"slices"
+	"strconv"
+	"strings"
+	"sync"
 )
 
 //go:embed warning.wav
@@ -15,6 +21,67 @@ var warningWAV []byte // живёт всё время работы програ�
 
 // WarningWAV возвращает встроенный звук предупреждения (не менять: буфер общий).
 func WarningWAV() []byte { return warningWAV }
+
+// Звуки сообщения: набор — файлы message/N.wav (номер 1…99), не список в коде: новый N.mp3 и
+// пересборка скриптом дают новый звук без правки кода (D-101).
+//
+//go:embed message/*.wav
+var messageFS embed.FS
+
+var (
+	messageNums = scanMessages() // номера встроенных звуков по возрастанию
+
+	messageMu  sync.Mutex
+	messageWAV = map[int][]byte{} // разобранные из встроенных файлов; живут всё время работы (SND_ASYNC)
+)
+
+// scanMessages читает имена встроенных wav: «N.wav», N — 1…99 без ведущего нуля.
+func scanMessages() []int {
+	ents, err := fs.ReadDir(messageFS, "message")
+	if err != nil {
+		return []int{}
+	}
+	out := []int{}
+	for _, e := range ents {
+		name, ok := strings.CutSuffix(e.Name(), ".wav")
+		n, err := strconv.Atoi(name)
+		if !ok || err != nil || n < 1 || n > 99 || strconv.Itoa(n) != name {
+			continue
+		}
+		out = append(out, n)
+	}
+	slices.Sort(out)
+	return out
+}
+
+// MessageSounds — номера встроенных звуков сообщения по возрастанию (копия: можно менять).
+func MessageSounds() []int { return slices.Clone(messageNums) }
+
+// HasMessage: звук сообщения с номером n встроен. 0 («без звука») и чужие номера — false.
+func HasMessage(n int) bool {
+	_, ok := slices.BinarySearch(messageNums, n)
+	return ok
+}
+
+// MessageWAV возвращает встроенный звук сообщения n; nil — такого нет. Буфер читается из
+// встроенных файлов при первом запросе и дальше общий (не менять): в памяти только звуки, которые
+// уже играли.
+func MessageWAV(n int) []byte {
+	if !HasMessage(n) {
+		return nil
+	}
+	messageMu.Lock()
+	defer messageMu.Unlock()
+	if b, ok := messageWAV[n]; ok {
+		return b
+	}
+	b, err := messageFS.ReadFile("message/" + strconv.Itoa(n) + ".wav")
+	if err != nil || len(b) == 0 {
+		return nil
+	}
+	messageWAV[n] = b
+	return b
+}
 
 // WAVFormat — то, что нужно знать о wav для проверки.
 type WAVFormat struct {

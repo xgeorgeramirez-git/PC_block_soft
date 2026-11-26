@@ -29,3 +29,15 @@ func PlayWarning() bool {
 	r, _, _ := procPlaySound.Call(uintptr(unsafe.Pointer(&warningWAV[0])), 0, sndMemory|sndAsync|sndNoDefault)
 	return r != 0
 }
+
+// PlayMessage один раз играет встроенный звук сообщения n из памяти, не дожидаясь его конца (флаги
+// как у PlayWarning). Нет такого звука или Windows его не принял — false. Буфер MessageWAV живёт
+// всё время работы: SND_ASYNC читает его после возврата.
+func PlayMessage(n int) bool {
+	b := MessageWAV(n)
+	if len(b) == 0 || procPlaySound.Find() != nil {
+		return false
+	}
+	r, _, _ := procPlaySound.Call(uintptr(unsafe.Pointer(&b[0])), 0, sndMemory|sndAsync|sndNoDefault)
+	return r != 0
+}
