@@ -311,29 +311,27 @@ func TestNoteSoundNumber(t *testing.T) {
 	}
 }
 
-// Ловит (ревью I-5): предупреждение и сообщение в одном кадре играют двумя исполнителями сразу
-// (PlaySoundW обрывает или путает звуки) или один из них теряется; проверка «плеер задан» берёт
-// чужой вид (нет плеера предупреждений — не играет и сообщение).
+// Ловит (ревью I-5, M2 0.8.3): предупреждение и сообщение в одном кадре играют двумя исполнителями
+// сразу или второй звук начинается до конца первого (PlaySoundW с SND_ASYNC возвращается сразу, и
+// следующий вызов обрывает текущий звук), или один из них теряется; проверка «плеер задан» берёт
+// чужой вид (нет плеера предупреждений - не играет и сообщение). Плееры не блокируют, как настоящий
+// PlaySoundW; конец звука - подменённое ожидание его длины.
 func TestSoundWarningAndNoteOneLoop(t *testing.T) {
-	var active, maxActive atomic.Int32
 	var mu sync.Mutex
 	var order []string
-	busy := func(name string) bool {
-		n := active.Add(1)
-		for {
-			m := maxActive.Load()
-			if n <= m || maxActive.CompareAndSwap(m, n) {
-				break
-			}
-		}
-		time.Sleep(40 * time.Millisecond)
+	play := func(name string) bool {
 		mu.Lock()
 		order = append(order, name)
 		mu.Unlock()
-		active.Add(-1)
 		return true
 	}
-	got := func(want int) string {
+	played := func() string {
+		mu.Lock()
+		defer mu.Unlock()
+		return strings.Join(order, ",")
+	}
+	// waitPlayed ждёт want звуков (не дольше 2 с) и ещё немного: лишний вызов успел бы прийти.
+	waitPlayed := func(want int) string {
 		for end := time.Now().Add(2 * time.Second); time.Now().Before(end); time.Sleep(5 * time.Millisecond) {
 			mu.Lock()
 			n := len(order)
@@ -343,14 +341,19 @@ func TestSoundWarningAndNoteOneLoop(t *testing.T) {
 			}
 		}
 		time.Sleep(60 * time.Millisecond)
-		mu.Lock()
-		defer mu.Unlock()
-		return strings.Join(order, ",")
+		return played()
 	}
-	start := func(warn func() bool, msg func(int) bool) *ctRig {
+	reset := func() {
+		mu.Lock()
+		order = nil
+		mu.Unlock()
+	}
+	start := func(warn func() bool, msg func(int) bool) (*ctRig, *fakeSoundTimers) {
 		r := newCtRig()
 		r.svc.test = true
 		r.ctl.SetSoundPlayers(warn, msg)
+		r.ctl.SetSoundLengths(func() time.Duration { return 2400 * time.Millisecond }, func(n int) time.Duration { return 3840 * time.Millisecond })
+		timers := newFakeSoundTimers(r.ctl)
 		r.svc.status = ctRunningStatus(300)
 		r.svc.warns = []ipc.GuardWarning{ipc.NewGuardWarning(5)}
 		r.svc.cmds = []ipc.GuardCommand{{Kind: ipc.GuardCmdNote, Note: &ipc.GuardNote{ID: "n1", Text: "Ужин", WaitS: 600, Sound: 3}}}
@@ -358,11 +361,18 @@ func TestSoundWarningAndNoteOneLoop(t *testing.T) {
 		if v.Warning == nil || v.Note == nil {
 			t.Fatalf("в одном кадре нет табло или сообщения: %+v %+v", v.Warning, v.Note)
 		}
-		return r
+		t.Cleanup(r.ctl.StopSounds)
+		return r, timers
 	}
-	r := start(func() bool { return busy("w") }, func(n int) bool { return busy(fmt.Sprint("n", n)) })
-	if o := got(2); o != "w,n3" || maxActive.Load() != 1 {
-		t.Fatalf("сыграно %q, одновременно %d; ждали w,n3 по очереди", o, maxActive.Load())
+	r, timers := start(func() bool { return play("w") }, func(n int) bool { return play(fmt.Sprint("n", n)) })
+	w := timers.next(t)
+	time.Sleep(60 * time.Millisecond) // сообщение, начатое до конца предупреждения, успело бы сыграть
+	if o := played(); w.d != 2400*time.Millisecond || o != "w" {
+		t.Fatalf("до конца звука предупреждения: ждёт %v, сыграно %q; ждали 2,4 с и только w", w.d, o)
+	}
+	w.fire <- time.Now()
+	if w = timers.next(t); w.d != 3840*time.Millisecond || played() != "w,n3" {
+		t.Fatalf("после конца предупреждения: ждёт %v, сыграно %q; ждали 3,84 с и w,n3", w.d, played())
 	}
 	r.ctl.mu.Lock()
 	snd := append([]ipc.ShownSound(nil), r.ctl.sounds...)
@@ -372,11 +382,9 @@ func TestSoundWarningAndNoteOneLoop(t *testing.T) {
 	}
 
 	// Нет плеера предупреждений: сообщение всё равно звучит, предупреждение в журнал не пишется.
-	mu.Lock()
-	order = nil
-	mu.Unlock()
-	r = start(nil, func(n int) bool { return busy(fmt.Sprint("n", n)) })
-	if o := got(1); o != "n3" {
+	reset()
+	r, _ = start(nil, func(n int) bool { return play(fmt.Sprint("n", n)) })
+	if o := waitPlayed(1); o != "n3" {
 		t.Fatalf("без плеера предупреждений сыграно %q", o)
 	}
 	r.ctl.mu.Lock()
@@ -387,11 +395,9 @@ func TestSoundWarningAndNoteOneLoop(t *testing.T) {
 	}
 
 	// Нет плеера сообщений: предупреждение звучит, сообщение в журнал не пишется.
-	mu.Lock()
-	order = nil
-	mu.Unlock()
-	r = start(func() bool { return busy("w") }, nil)
-	if o := got(1); o != "w" {
+	reset()
+	r, _ = start(func() bool { return play("w") }, nil)
+	if o := waitPlayed(1); o != "w" {
 		t.Fatalf("без плеера сообщений сыграно %q", o)
 	}
 	r.ctl.mu.Lock()
