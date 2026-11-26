@@ -18,8 +18,8 @@ import java.util.Random
 class NoteTest {
     private val peer = Vectors.peer()
 
-    private fun note(text: String = "Иди ужинать", showSec: Int = 0, seq: Long = 18) =
-        Proto.noteData(Vectors.PC, Vectors.PHONE, seq, 1763490000000, 3, "AAECAwQFBgcICQoLDA0ODw", text, showSec)
+    private fun note(text: String = "Иди ужинать", showSec: Int = 0, seq: Long = 18, sticker: String = "", sound: Int = 1) =
+        Proto.noteData(Vectors.PC, Vectors.PHONE, seq, 1763490000000, 3, "AAECAwQFBgcICQoLDA0ODw", text, showSec, sticker, sound)
 
     private fun pcSigned(json: String) = Crypto.seal(SoftSigner.pc(), json.toByteArray(Charsets.UTF_8))
 
@@ -43,11 +43,52 @@ class NoteTest {
         val s = String(note(), Charsets.UTF_8)
         assertEquals(
             "{\"v\":1,\"t\":\"note\",\"pc\":\"pc-vector\",\"phone\":\"phone-vector\",\"seq\":18,\"ts\":1763490000000," +
-                "\"child\":3,\"id\":\"AAECAwQFBgcICQoLDA0ODw\",\"text\":\"Иди ужинать\",\"showSec\":0}",
+                "\"child\":3,\"id\":\"AAECAwQFBgcICQoLDA0ODw\",\"text\":\"Иди ужинать\",\"showSec\":0,\"sound\":1}",
             s,
         )
         val o = JSONObject(s)
         assertEquals("Иди ужинать", o.getString("text"))
+        // «Без стикера» — поля sticker нет совсем (протокол 5а), звук уходит всегда.
+        assertFalse(o.has("sticker"))
+    }
+
+    @Test
+    fun noteDataWithStickerAndSoundInProtocolOrder() {
+        assertEquals(
+            "{\"v\":1,\"t\":\"note\",\"pc\":\"pc-vector\",\"phone\":\"phone-vector\",\"seq\":18,\"ts\":1763490000000," +
+                "\"child\":3,\"id\":\"AAECAwQFBgcICQoLDA0ODw\",\"text\":\"Иди ужинать\",\"showSec\":30,\"sticker\":\"033\",\"sound\":2}",
+            String(note(showSec = 30, sticker = "033", sound = 2), Charsets.UTF_8),
+        )
+        // «Без звука» — sound 0, поле есть (нет поля компьютер понимает как «Звук 1»).
+        val silent = JSONObject(String(note(sound = 0), Charsets.UTF_8))
+        assertEquals(0, silent.getInt("sound"))
+        assertFalse(silent.has("sticker"))
+        // Номер, которого нет в наборе этого телефона, — не ошибка вида (набор компьютера может быть новее).
+        assertEquals("999", JSONObject(String(note(sticker = "999", sound = 99), Charsets.UTF_8)).getString("sticker"))
+    }
+
+    @Test
+    fun noteDataRefusesBadStickerOrSound() {
+        val bad = listOf<() -> Unit>(
+            { note(sticker = "33") },
+            { note(sticker = "0333") },
+            { note(sticker = "abc") },
+            { note(sticker = " 33") },
+            { note(sticker = "\u0660\u0663\u0663") }, // не ASCII-цифры
+            { note(sound = -1) },
+            { note(sound = 100) },
+        )
+        for (b in bad) {
+            try {
+                b()
+                fail("ожидался отказ")
+            } catch (e: IllegalArgumentException) {
+                // ожидаемо
+            }
+        }
+        assertTrue(Proto.stickerOk("033"))
+        assertTrue(Proto.stickerOk(""))
+        assertFalse(Proto.stickerOk("33"))
     }
 
     @Test
@@ -132,22 +173,42 @@ class NoteTest {
         val r = NoteRetry()
         var n = 0
         val gen = { "id${++n}" }
-        val a = r.idFor(3, "Иди ужинать", 0, gen)
+        val a = r.idFor(3, "Иди ужинать", 0, "", 1, gen)
         // Ответа не было (обрыв сети): повтор того же сообщения — тот же id.
-        assertEquals(a, r.idFor(3, "Иди ужинать", 0, gen))
-        assertEquals(a, r.idFor(3, "Иди ужинать", 0, gen))
+        assertEquals(a, r.idFor(3, "Иди ужинать", 0, "", 1, gen))
+        assertEquals(a, r.idFor(3, "Иди ужинать", 0, "", 1, gen))
         // Другой текст, ребёнок или показ — другое сообщение.
-        val b = r.idFor(3, "Иди ужинать!", 0, gen)
+        val b = r.idFor(3, "Иди ужинать!", 0, "", 1, gen)
         assertTrue(a != b)
-        val c = r.idFor(4, "Иди ужинать!", 0, gen)
+        val c = r.idFor(4, "Иди ужинать!", 0, "", 1, gen)
         assertTrue(b != c)
-        val d = r.idFor(4, "Иди ужинать!", 30, gen)
+        val d = r.idFor(4, "Иди ужинать!", 30, "", 1, gen)
         assertTrue(c != d)
         // Компьютер ответил: следующее такое же — новое сообщение.
         r.answered()
-        val e = r.idFor(4, "Иди ужинать!", 30, gen)
+        val e = r.idFor(4, "Иди ужинать!", 30, "", 1, gen)
         assertTrue(d != e)
         assertEquals(5, n)
+    }
+
+    @Test
+    fun retrySameIdOnlyWithSameStickerAndSound() {
+        val r = NoteRetry()
+        var n = 0
+        val gen = { "id${++n}" }
+        val a = r.idFor(3, "Иди ужинать", 0, "033", 2, gen)
+        assertEquals(a, r.idFor(3, "Иди ужинать", 0, "033", 2, gen))
+        // Другой стикер — другое сообщение.
+        val b = r.idFor(3, "Иди ужинать", 0, "017", 2, gen)
+        assertTrue(a != b)
+        // «Без стикера» — тоже другое.
+        val c = r.idFor(3, "Иди ужинать", 0, "", 2, gen)
+        assertTrue(b != c)
+        // Другой звук — другое сообщение.
+        val d = r.idFor(3, "Иди ужинать", 0, "", 0, gen)
+        assertTrue(c != d)
+        assertEquals(d, r.idFor(3, "Иди ужинать", 0, "", 0, gen))
+        assertEquals(4, n)
     }
 
     // ---------- ответ noter ----------
@@ -235,10 +296,10 @@ class NoteTest {
         assertEquals(Problem.NOTE_PC_OFFLINE, Problem.fromRelayNote("pc_offline"))
         assertEquals(Problem.BUSY, Problem.fromRelayNote("busy"))
         assertEquals("Компьютер не на связи с 19:05. Сообщение не отправлено", Strings["err_note_pc_offline_since"].format("19:05"))
-        assertEquals("12/300", Strings["note_counter"].format(12, 300))
+        assertEquals("12 из 300", Strings["note_counter"].format(12, 300))
     }
 
-    // ---------- вектор Go (дополнит компьютерная часть) ----------
+    // ---------- вектор Go ----------
 
     @Test
     fun goNoteVectorMatches() {
@@ -246,13 +307,15 @@ class NoteTest {
         val goBytes = Vectors.s("noteJson").toByteArray(Charsets.UTF_8)
         // Подпись Go проверяется ключом телефона, байты совпадают.
         assertArrayEquals(goBytes, Crypto.open(Crypto.parsePublicB64(Vectors.s("phonePub")), Vectors.signed("note")))
-        // Kotlin собирает те же байты из тех же полей.
+        // Вектор 0.8.2 без sticker и sound: телефон 0.8.3 шлёт звук всегда, поэтому те же поля дают
+        // те же байты плюс «"sound":1» (нет поля — тот же «Звук 1», протокол 5а).
         val o = JSONObject(Vectors.s("noteJson"))
+        assertFalse(o.has("sticker") || o.has("sound"))
         val ours = Proto.noteData(
             o.getString("pc"), o.getString("phone"), o.getLong("seq"), o.getLong("ts"), o.getLong("child"),
-            o.getString("id"), o.getString("text"), o.getInt("showSec"),
+            o.getString("id"), o.getString("text"), o.getInt("showSec"), "", 1,
         )
-        assertEquals(Vectors.s("noteJson"), String(ours, Charsets.UTF_8))
+        assertEquals(Vectors.s("noteJson").removeSuffix("}") + ",\"sound\":1}", String(ours, Charsets.UTF_8))
         if (Vectors.json.has("noteHash")) assertEquals(Vectors.s("noteHash"), Crypto.hashData(goBytes))
         if (Vectors.json.has("noter")) {
             val r = Proto.openNoteReply(Vectors.peer(), Vectors.signed("noter"), goBytes)
@@ -284,6 +347,22 @@ class NoteTest {
         assertEquals(0, NoteBook(kv).showSec)
         kv.putInt(NoteBook.SHOW_SEC, 999)
         assertEquals(0, NoteBook(kv).showSec)
+    }
+
+    @Test
+    fun soundChoiceRemembered() {
+        val kv = MapKv()
+        assertEquals(1, NoteBook(kv).sound) // по умолчанию «Звук 1»
+        NoteBook(kv).sound = 0
+        assertEquals(0, NoteBook(kv).sound) // «Без звука» тоже запоминается
+        NoteBook(kv).sound = 4
+        assertEquals(4, NoteBook(kv).sound)
+        assertEquals(4, kv.getInt(NoteBook.SOUND, -1))
+        kv.putInt(NoteBook.SOUND, 100)
+        assertEquals(1, NoteBook(kv).sound)
+        kv.putInt(NoteBook.SOUND, -1)
+        assertEquals(1, NoteBook(kv).sound)
+        assertEquals("noteSound", NoteBook.SOUND)
     }
 
     @Test
