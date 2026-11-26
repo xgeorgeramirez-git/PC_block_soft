@@ -169,6 +169,7 @@ func Run(opts launch.Options) error {
 		procPostMessage.Call(a.host, wmAppRefresh, 0, 0)
 	})
 	a.ctl.SetSoundPlayers(sound.PlayWarning, sound.PlayMessage)
+	a.ctl.SetSoundLengths(sound.WarningLength, sound.MessageLength)
 	a.ctl.SetTabActor(winTabs{})
 	a.ctl.SetClockSpeed(a.speed)
 	a.ctl.SetAnimations(clientAreaAnimation())
@@ -188,7 +189,8 @@ func Run(opts launch.Options) error {
 	runStage.Store(1)
 
 	close(stop)
-	caller.close() // прерывает ожидающий запрос
+	a.ctl.StopSounds() // исполнитель звуков выходит, не дожидаясь конца звука
+	caller.close()     // прерывает ожидающий запрос
 	wg.Wait()
 	runStage.Store(2)
 	a.shutdown()

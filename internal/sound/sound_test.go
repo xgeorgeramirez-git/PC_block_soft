@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 // Ловит: встроенный звук не RIFF/WAVE PCM 16 бит 48 кГц стерео (PlaySoundW из памяти его не
@@ -181,5 +182,27 @@ func TestPlayMessageOtherOS(t *testing.T) {
 	}
 	if PlayMessage(1) {
 		t.Fatal("на Linux звук не может быть принят")
+	}
+}
+
+// Ловит (ревью M2 0.8.3): страж не знает, сколько звучит звук, и следующий PlaySoundW обрывает
+// текущий: длина не из шапки wav (у сообщения 2 - 7,76 с по durations.json), у чужого номера не 0.
+func TestSoundLengths(t *testing.T) {
+	near := func(got time.Duration, sec float64) bool {
+		return math.Abs(got.Seconds()-sec) < 0.01
+	}
+	if got := WarningLength(); got < 2300*time.Millisecond || got > 2500*time.Millisecond {
+		t.Errorf("звук предупреждения %v, ждали около 2,4 с (D-55)", got)
+	}
+	if got := MessageLength(2); !near(got, 7.758367) {
+		t.Errorf("звук сообщения 2: %v, ждали 7,758 с", got)
+	}
+	if got := MessageLength(1); !near(got, 2.429388) {
+		t.Errorf("звук сообщения 1: %v, ждали 2,429 с", got)
+	}
+	for _, n := range []int{0, -1, 9, 100} {
+		if got := MessageLength(n); got != 0 {
+			t.Errorf("звук %d (нет такого): длина %v, ждали 0", n, got)
+		}
 	}
 }

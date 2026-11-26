@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 )
 
 //go:embed warning.wav
@@ -100,6 +101,22 @@ func (f WAVFormat) Seconds() float64 {
 	}
 	return float64(f.DataBytes) / float64(f.ByteRate)
 }
+
+// Length - сколько звучит wav b по его шапке; испорченный или пустой - 0.
+func Length(b []byte) time.Duration {
+	f, err := ParseWAV(b)
+	if err != nil {
+		return 0
+	}
+	return time.Duration(f.Seconds() * float64(time.Second))
+}
+
+// WarningLength - сколько звучит звук предупреждения: страж не начинает следующий звук раньше
+// (PlaySoundW с SND_ASYNC обрывает текущий).
+func WarningLength() time.Duration { return Length(warningWAV) }
+
+// MessageLength - сколько звучит встроенный звук сообщения n; такого нет - 0.
+func MessageLength(n int) time.Duration { return Length(MessageWAV(n)) }
 
 var errWAV = errors.New("файл не wav PCM")
 

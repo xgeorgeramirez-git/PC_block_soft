@@ -402,6 +402,125 @@ func TestSoundWarningAndNoteOneLoop(t *testing.T) {
 	}
 }
 
+// fakeSoundTimers подменяет ожидание конца звука в soundLoop: каждый запрос приходит в канал asked,
+// звук «кончается», когда тест отправит время в канал ответа; stopped - сколько ожиданий отменено.
+type fakeSoundTimers struct {
+	asked   chan fakeSoundWait
+	stopped atomic.Int32
+}
+
+type fakeSoundWait struct {
+	d    time.Duration
+	fire chan time.Time
+}
+
+func newFakeSoundTimers(c *Controller) *fakeSoundTimers {
+	f := &fakeSoundTimers{asked: make(chan fakeSoundWait, 8)}
+	c.mu.Lock()
+	c.soundTimer = func(d time.Duration) (<-chan time.Time, func() bool) {
+		w := fakeSoundWait{d: d, fire: make(chan time.Time, 1)}
+		f.asked <- w
+		return w.fire, func() bool { f.stopped.Add(1); return true }
+	}
+	c.mu.Unlock()
+	return f
+}
+
+// next ждёт следующего запроса ожидания (не дольше 2 с).
+func (f *fakeSoundTimers) next(t *testing.T) fakeSoundWait {
+	t.Helper()
+	select {
+	case w := <-f.asked:
+		return w
+	case <-time.After(2 * time.Second):
+		t.Fatal("исполнитель звука не ждёт конца звука")
+		return fakeSoundWait{}
+	}
+}
+
+// Ловит (ревью M2 0.8.3): PlaySoundW с SND_ASYNC возвращается сразу, и следующий звук обрывает
+// текущий: предупреждение «5 мин» сразу после звука сообщения 2 (7,8 с) обрезает его. Исполнитель
+// после принятого звука ждёт его длину (из шапки wav) и только потом играет следующий; непринятый
+// звук не ждёт; остановка стража не ждёт конца звука.
+func TestSoundWaitsForPreviousToEnd(t *testing.T) {
+	var mu sync.Mutex
+	var order []string
+	play := func(name string, ok bool) bool {
+		mu.Lock()
+		order = append(order, name)
+		mu.Unlock()
+		return ok
+	}
+	played := func() string {
+		mu.Lock()
+		defer mu.Unlock()
+		return strings.Join(order, ",")
+	}
+	warnOK := atomic.Bool{}
+	warnOK.Store(true)
+	r := newCtRig()
+	r.svc.test = true
+	r.ctl.SetSoundPlayers(func() bool { return play("w", warnOK.Load()) }, func(n int) bool { return play(fmt.Sprint("n", n), true) })
+	r.ctl.SetSoundLengths(func() time.Duration { return 2400 * time.Millisecond },
+		func(n int) time.Duration { return time.Duration(n)*time.Second + 800*time.Millisecond })
+	timers := newFakeSoundTimers(r.ctl)
+	r.svc.status = ctRunningStatus(300)
+	r.svc.cmds = []ipc.GuardCommand{{Kind: ipc.GuardCmdNote, Note: &ipc.GuardNote{ID: "n1", Text: "Ужин", WaitS: 600, Sound: 2}}}
+	r.poll()
+	r.svc.cmds = nil
+	if w := timers.next(t); w.d != 2800*time.Millisecond || played() != "n2" {
+		t.Fatalf("после звука сообщения 2: ждёт %v, сыграно %q; ждали 2,8 с и n2", w.d, played())
+	} else {
+		// Предупреждение пришло, пока звучит сообщение: оно не начинается раньше конца сообщения.
+		r.svc.warns = []ipc.GuardWarning{ipc.NewGuardWarning(5)}
+		if v := r.poll(); v.Warning == nil {
+			t.Fatal("нет табло 5 мин")
+		}
+		time.Sleep(50 * time.Millisecond)
+		if got := played(); got != "n2" {
+			t.Fatalf("до конца звука сообщения сыграно %q: предупреждение оборвало бы его", got)
+		}
+		w.fire <- time.Now()
+	}
+	w := timers.next(t)
+	if w.d != 2400*time.Millisecond || played() != "n2,w" {
+		t.Fatalf("после конца сообщения: ждёт %v, сыграно %q; ждали 2,4 с и n2,w", w.d, played())
+	}
+	// Остановка стража во время звука: исполнитель выходит, не дожидаясь конца, ожидание отменено.
+	r.ctl.mu.Lock()
+	exit := r.ctl.soundExit
+	r.ctl.mu.Unlock()
+	r.ctl.StopSounds()
+	select {
+	case <-exit:
+	case <-time.After(2 * time.Second):
+		t.Fatal("исполнитель звука не вышел после StopSounds: остановка стража ждала бы конца звука")
+	}
+	if timers.stopped.Load() != 1 {
+		t.Fatalf("ожидание конца звука не отменено: %d", timers.stopped.Load())
+	}
+	r.ctl.StopSounds() // повторная остановка не паникует
+
+	// Непринятый звук (раннер без звуковой карты) не ждёт: следующий играет сразу.
+	mu.Lock()
+	order = nil
+	mu.Unlock()
+	warnOK.Store(false)
+	r = newCtRig()
+	r.svc.test = true
+	r.ctl.SetSoundPlayers(func() bool { return play("w", warnOK.Load()) }, func(n int) bool { return play(fmt.Sprint("n", n), true) })
+	r.ctl.SetSoundLengths(func() time.Duration { return 2400 * time.Millisecond }, func(int) time.Duration { return time.Second })
+	timers = newFakeSoundTimers(r.ctl)
+	r.svc.status = ctRunningStatus(300)
+	r.svc.warns = []ipc.GuardWarning{ipc.NewGuardWarning(5)}
+	r.svc.cmds = []ipc.GuardCommand{{Kind: ipc.GuardCmdNote, Note: &ipc.GuardNote{ID: "n1", Text: "Ужин", WaitS: 600, Sound: 3}}}
+	r.poll()
+	if w := timers.next(t); w.d != time.Second || played() != "w,n3" {
+		t.Fatalf("непринятое предупреждение: ждёт %v, сыграно %q; ждали 1 с только после n3", w.d, played())
+	}
+	r.ctl.StopSounds()
+}
+
 // Срок показа 10 с идёт, только пока плашка на экране: за родительской сессией и без связи со службой
 // он стоит, после возврата плашка видна оставшееся время.
 func TestNoteTimedCountsOnlyVisible(t *testing.T) {

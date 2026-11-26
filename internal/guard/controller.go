@@ -93,6 +93,17 @@ type Controller struct {
 	noteSticker string
 	noteFrame   int
 
+	// lenWarn/lenMsg - сколько звучит звук предупреждения и звук сообщения с номером (из шапки wav):
+	// после принятого звука исполнитель ждёт его конца (nil или 0 - не ждёт). soundTimer - ожидание
+	// (nil - time.NewTimer; тест подменяет). soundStop закрывает StopSounds; soundExit закрывает
+	// исполнитель, выйдя.
+	lenWarn    func() time.Duration
+	lenMsg     func(int) time.Duration
+	soundTimer func(time.Duration) (<-chan time.Time, func() bool)
+	soundStop  chan struct{}
+	stopOnce   sync.Once
+	soundExit  chan struct{}
+
 	closingMu   sync.Mutex
 	closingDone bool // GuardClosing в этом конце сеанса уже отправлен (или попытка не удалась)
 	closingOK   bool // исход первой попытки
@@ -106,8 +117,9 @@ func NewController(model *Model, call ipc.Caller, now func() time.Time, read fun
 	}
 	return &Controller{
 		model: model, call: call, now: now, read: read, wake: wake,
-		kick:   make(chan struct{}, 1),
-		fields: map[string]string{},
+		kick:      make(chan struct{}, 1),
+		fields:    map[string]string{},
+		soundStop: make(chan struct{}),
 	}
 }
 
@@ -140,6 +152,27 @@ func (c *Controller) SetSoundPlayers(warning func() bool, message func(n int) bo
 	c.mu.Lock()
 	c.playWarn, c.playMsg = warning, message
 	c.mu.Unlock()
+}
+
+// SetSoundLengths задаёт, сколько звучит звук предупреждения (окно: sound.WarningLength) и звук
+// сообщения с номером (sound.MessageLength). PlaySoundW с SND_ASYNC возвращается сразу, а следующий
+// вызов обрывает текущий звук: исполнитель после принятого звука ждёт его длину и только потом играет
+// следующий (ревью M2 0.8.3). Без длины (nil или 0) не ждёт. Вызывать до первого View.
+func (c *Controller) SetSoundLengths(warning func() time.Duration, message func(n int) time.Duration) {
+	c.mu.Lock()
+	c.lenWarn, c.lenMsg = warning, message
+	c.mu.Unlock()
+}
+
+// StopSounds останавливает исполнителя звуков (конец работы стража): он выходит сразу, не дожидаясь
+// конца звука; звук, который уже играет Windows, доигрывает сам. Не ждёт выхода исполнителя: плеер
+// может не вернуться (раннер без звуковой карты). Повторный вызов ничего не делает.
+func (c *Controller) StopSounds() {
+	c.stopOnce.Do(func() {
+		if c.soundStop != nil {
+			close(c.soundStop)
+		}
+	})
 }
 
 // SetStickerWarmer задаёт, как заранее готовить кадры стикера промокода: Run зовёт его в своей
@@ -642,7 +675,8 @@ func (c *Controller) enqueueSoundLocked(rec ipc.ShownSound, it soundItem) {
 	it.idx = idx
 	if c.soundQ == nil {
 		c.soundQ = make(chan soundItem, 8)
-		go c.soundLoop(c.soundQ)
+		c.soundExit = make(chan struct{})
+		go c.soundLoop(c.soundQ, c.soundStop, c.soundExit)
 	}
 	select {
 	case c.soundQ <- it:
@@ -650,22 +684,36 @@ func (c *Controller) enqueueSoundLocked(rec ipc.ShownSound, it soundItem) {
 	}
 }
 
-// soundLoop — единственный исполнитель звуков обоих видов: играет их по одному (PlaySoundW не
-// любит одновременных вызовов, второй обрывает первый) и дописывает ответ Windows в журнал. Записи
-// журнала могли сдвинуться при обрезке до maxSoundLog: тогда ответ теряется, а не попадает к чужой
-// записи.
-func (c *Controller) soundLoop(q <-chan soundItem) {
-	for it := range q {
+// soundLoop - единственный исполнитель звуков обоих видов: играет их по одному и дописывает ответ
+// Windows в журнал. PlaySoundW с SND_ASYNC возвращается сразу, а следующий вызов обрывает текущий
+// звук, поэтому после принятого звука исполнитель ждёт его длину (SetSoundLengths) и только потом
+// берёт следующий из очереди. stop (StopSounds) прерывает и ожидание: выход стража конца звука не
+// ждёт. Записи журнала могли сдвинуться при обрезке до maxSoundLog: тогда ответ теряется, а не
+// попадает к чужой записи.
+func (c *Controller) soundLoop(q <-chan soundItem, stop <-chan struct{}, exit chan<- struct{}) {
+	defer close(exit)
+	for {
+		var it soundItem
+		select {
+		case <-stop:
+			return
+		case it = <-q:
+		}
 		c.mu.Lock()
-		warn, msg := c.playWarn, c.playMsg
+		warn, msg, lenWarn, lenMsg, timer := c.playWarn, c.playMsg, c.lenWarn, c.lenMsg, c.soundTimer
 		c.mu.Unlock()
 		ok := false
+		var length time.Duration
 		safely(func() {
 			switch {
 			case it.note && msg != nil:
-				ok = msg(it.n)
+				if ok = msg(it.n); ok && lenMsg != nil {
+					length = lenMsg(it.n)
+				}
 			case !it.note && warn != nil:
-				ok = warn()
+				if ok = warn(); ok && lenWarn != nil {
+					length = lenWarn()
+				}
 			}
 		})
 		c.mu.Lock()
@@ -674,6 +722,22 @@ func (c *Controller) soundLoop(q <-chan soundItem) {
 		}
 		c.mu.Unlock()
 		c.wake()
+		if length <= 0 {
+			continue
+		}
+		if timer == nil {
+			timer = func(d time.Duration) (<-chan time.Time, func() bool) {
+				t := time.NewTimer(d)
+				return t.C, t.Stop
+			}
+		}
+		done, cancel := timer(length)
+		select {
+		case <-done:
+		case <-stop:
+			cancel()
+			return
+		}
 	}
 }
 
