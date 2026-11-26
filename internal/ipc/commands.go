@@ -957,6 +957,11 @@ type GuardStateReply struct {
 	// Кнопка «Понял» — в Buttons (noteOk).
 	Note   string `json:"note"`
 	NoteID string `json:"noteId"`
+	// NoteSticker — номер стикера, который окно сообщения сейчас рисует над карточкой («033»); пусто —
+	// без стикера (телефон не выбрал, номера нет среди встроенных, спрайт ещё не разобран). NoteFrame —
+	// кадр, выведенный последним (кадры идут по кругу, приёмка S60). Заполняет страж по своему окну.
+	NoteSticker string `json:"noteSticker,omitempty"`
+	NoteFrame   int    `json:"noteFrame"`
 }
 
 // Виды плашек стража для GuardStateReply.PlateKind, кроме плашек о закрытых программах (их вид —

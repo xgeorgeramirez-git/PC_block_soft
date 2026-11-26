@@ -2163,7 +2163,8 @@
         "promoSticker": "",
         "promoText": "",
         "note": "",
-        "noteId": ""
+        "noteId": "",
+        "noteFrame": 0
       }
     }
   },
@@ -2197,7 +2198,8 @@
         "promoSticker": "",
         "promoText": "",
         "note": "",
-        "noteId": ""
+        "noteId": "",
+        "noteFrame": 0
       }
     }
   },
@@ -2228,7 +2230,8 @@
         "promoSticker": "",
         "promoText": "",
         "note": "",
-        "noteId": ""
+        "noteId": "",
+        "noteFrame": 0
       }
     }
   },
@@ -2261,7 +2264,8 @@
         "promoSticker": "",
         "promoText": "",
         "note": "",
-        "noteId": ""
+        "noteId": "",
+        "noteFrame": 0
       }
     }
   },
@@ -2292,7 +2296,43 @@
         "promoSticker": "",
         "promoText": "",
         "note": "",
-        "noteId": ""
+        "noteId": "",
+        "noteFrame": 0
+      }
+    }
+  },
+  "GuardState#note": {
+    "reply": {
+      "ok": true,
+      "payload": {
+        "warnings": [],
+        "sounds": [],
+        "ui": {
+          "tickMs": 0,
+          "ticks": 0,
+          "panic": ""
+        },
+        "lockShown": false,
+        "lockKind": "",
+        "plate": "",
+        "plateKind": "",
+        "buttons": [
+          "noteOk"
+        ],
+        "fields": [],
+        "restTimer": "",
+        "restMessage": "",
+        "exits": [],
+        "foregroundPath": "",
+        "foregroundDomain": "",
+        "closedTab": "",
+        "closedTabWay": "",
+        "promoSticker": "",
+        "promoText": "",
+        "note": "Иди ужинать",
+        "noteId": "AAECAwQFBgcICQoLDA0ODw",
+        "noteSticker": "033",
+        "noteFrame": 17
       }
     }
   },
@@ -2328,7 +2368,8 @@
         "promoSticker": "017",
         "promoText": "Ура! +30 минут",
         "note": "",
-        "noteId": ""
+        "noteId": "",
+        "noteFrame": 0
       }
     }
   },
@@ -2364,7 +2405,8 @@
         "promoSticker": "",
         "promoText": "",
         "note": "",
-        "noteId": ""
+        "noteId": "",
+        "noteFrame": 0
       }
     }
   },

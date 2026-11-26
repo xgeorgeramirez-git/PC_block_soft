@@ -88,6 +88,10 @@ type Controller struct {
 	tabs      tabLadder
 	closedTab string
 	closedWay string
+	// noteSticker/noteFrame — стикер и кадр, которые окно сообщения вывело последним (SetNoteShown;
+	// GuardState.NoteSticker, NoteFrame; только тестовый режим).
+	noteSticker string
+	noteFrame   int
 
 	closingMu   sync.Mutex
 	closingDone bool // GuardClosing в этом конце сеанса уже отправлен (или попытка не удалась)
@@ -945,6 +949,18 @@ func (c *Controller) SetField(id, text string) {
 	c.fields[id] = text
 }
 
+// SetNoteShown запоминает, что окно сообщения вывело сейчас: номер стикера ("" — без стикера) и кадр
+// (GuardState.NoteSticker, NoteFrame). Только в тестовом режиме, как журнал звуков; зовёт поток окон
+// на каждом выведенном кадре и при скрытии окна.
+func (c *Controller) SetNoteShown(sticker string, frame int) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if !c.testMode {
+		return
+	}
+	c.noteSticker, c.noteFrame = sticker, frame
+}
+
 // SetAnimations передаёт модели, включены ли анимации Windows (стикер промокода без движения, R26).
 func (c *Controller) SetAnimations(on bool) { c.model.SetAnimations(on) }
 
@@ -1010,6 +1026,9 @@ func (c *Controller) PushState() {
 	st.ForegroundPath = c.lastFg
 	st.ForegroundDomain = c.lastDomain
 	st.ClosedTab, st.ClosedTabWay = c.closedTab, c.closedWay
+	if c.last.Note != nil { // окно сообщения могло ещё не узнать, что сообщение закрыто
+		st.NoteSticker, st.NoteFrame = c.noteSticker, c.noteFrame
+	}
 	c.mu.Unlock()
 	if p, ok := lastPanic.Load().(string); ok {
 		st.UI.Panic = p

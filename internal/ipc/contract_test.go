@@ -525,6 +525,10 @@ func examples() map[string]example {
 			Plate: "Программа «SuperGame» ждёт разрешения родителя", PlateKind: BlockedUnknown,
 			Buttons: []string{"askNow", "plateClose"}, ForegroundPath: `c:\users\миша\downloads\supergame.exe`,
 		}),
+		"GuardState#note": ok(nil, GuardStateReply{
+			Note: "Иди ужинать", NoteID: "AAECAwQFBgcICQoLDA0ODw", NoteSticker: "033", NoteFrame: 17,
+			Buttons: []string{ButtonNoteOK},
+		}),
 		"GuardState#brave": ok(nil, GuardStateReply{
 			ForegroundPath:   `c:\program files\bravesoftware\brave-browser\application\brave.exe`,
 			ForegroundDomain: "probe-site.test",

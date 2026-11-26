@@ -499,3 +499,46 @@ func TestNoteStickerView(t *testing.T) {
 		t.Fatal("без стикера кадр не 0")
 	}
 }
+
+// Ловит (план 0.8.3, приёмка S60): GuardState не говорит, какой стикер и какой кадр рисует окно
+// сообщения (приёмке нечем проверить, что стикер есть и движется); или пишет их вне тестового режима;
+// или после «Понял» ещё называет стикер закрытого сообщения.
+func TestPushStateCarriesNoteSticker(t *testing.T) {
+	r := newCtRig()
+	r.ctl.SetNoteShown("033", 4) // до приветствия тестовый режим неизвестен: не запоминается
+	r.svc.test = true
+	r.svc.status = ctRunningStatus(3600)
+	r.svc.cmds = []ipc.GuardCommand{{Kind: ipc.GuardCmdNote, Note: &ipc.GuardNote{ID: "n1", Text: "Иди ужинать", WaitS: 600, Sticker: "033", Sound: 0}}}
+	r.poll()
+	r.svc.cmds = nil
+	r.ctl.PushState()
+	if st := lastPushed(t, r); st.NoteSticker != "" || st.NoteFrame != 0 || st.NoteID != "n1" {
+		t.Fatalf("до вывода кадра: стикер %q, кадр %d, сообщение %q", st.NoteSticker, st.NoteFrame, st.NoteID)
+	}
+	r.ctl.SetNoteShown("033", 17)
+	r.ctl.PushState()
+	if st := lastPushed(t, r); st.NoteSticker != "033" || st.NoteFrame != 17 {
+		t.Fatalf("после кадра 17: стикер %q, кадр %d", st.NoteSticker, st.NoteFrame)
+	}
+	r.ctl.Press(ButtonNoteOK, "")
+	r.ctl.View()
+	r.ctl.PushState()
+	if st := lastPushed(t, r); st.NoteSticker != "" || st.NoteFrame != 0 || st.Note != "" {
+		t.Fatalf("после «Понял»: стикер %q, кадр %d, текст %q", st.NoteSticker, st.NoteFrame, st.Note)
+	}
+}
+
+// Ловит: вне тестового режима страж запоминает, что рисует окно сообщения (GuardState только для
+// приёмки, как журнал звуков).
+func TestSetNoteShownOnlyInTestMode(t *testing.T) {
+	r := newCtRig()
+	r.svc.status = ctRunningStatus(3600)
+	r.poll()
+	r.ctl.SetNoteShown("033", 5)
+	r.ctl.mu.Lock()
+	got, frame := r.ctl.noteSticker, r.ctl.noteFrame
+	r.ctl.mu.Unlock()
+	if got != "" || frame != 0 {
+		t.Fatalf("вне тестового режима запомнено %q, кадр %d", got, frame)
+	}
+}
