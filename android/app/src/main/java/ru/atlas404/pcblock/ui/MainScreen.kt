@@ -1,6 +1,18 @@
 package ru.atlas404.pcblock.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items as gridItems
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
@@ -88,13 +100,26 @@ fun MainScreen(vm: AppViewModel) {
     var menu by remember { mutableStateOf(false) }
     var askUnpair by rememberSaveable { mutableStateOf(false) }
     var customFor by remember { mutableStateOf<Proto.Child?>(null) }
-    var noteFor by remember { mutableStateOf<Proto.Child?>(null) }
+    var noteFor by rememberSaveable { mutableStateOf<Long?>(null) }
+    var noteName by rememberSaveable { mutableStateOf("") }
     var statsFor by rememberSaveable { mutableStateOf<Long?>(null) }
 
     // «Статистика за сегодня» поверх главного экрана: опрос (выше) продолжается, данные обновляются.
     val statsId = statsFor
     if (statsId != null) {
         StatsScreen(child = vm.report?.children?.firstOrNull { it.id == statsId }, onBack = { statsFor = null })
+        return
+    }
+    // «Сообщение для <имя>» (FR-41) — отдельный экран; опрос идёт, отметки обновляются.
+    val noteId = noteFor
+    if (noteId != null) {
+        NoteScreen(
+            childId = noteId,
+            name = vm.report?.children?.firstOrNull { it.id == noteId }?.name ?: noteName,
+            vm = vm,
+            onBack = { if (!vm.noteBusy) noteFor = null },
+            onSent = { noteFor = null },
+        )
         return
     }
 
@@ -164,8 +189,9 @@ fun MainScreen(vm: AppViewModel) {
                         onStats = { statsFor = c.id },
                         notes = vm.notes.filter { it.child == c.id }.sortedByDescending { it.sentAtMs }.take(3),
                         onNote = {
-                            vm.clearNoteError()
-                            noteFor = c
+                            vm.startNote()
+                            noteName = c.name
+                            noteFor = c.id
                         },
                     )
                 }
@@ -187,14 +213,6 @@ fun MainScreen(vm: AppViewModel) {
             dismissButton = {
                 TextButton(onClick = { askUnpair = false }) { Text(stringResource(R.string.cancel)) }
             },
-        )
-    }
-    noteFor?.let { c ->
-        NoteDialog(
-            child = c,
-            vm = vm,
-            onDismiss = { if (!vm.noteBusy) noteFor = null },
-            onSent = { noteFor = null },
         )
     }
     customFor?.let { c ->
@@ -525,127 +543,339 @@ private fun NoteList(notes: List<SavedNote>) {
     }
 }
 
-/** Сообщение ребёнку: текст до 300 знаков, сколько показывать, «Отправить» и «Отмена». */
+/**
+ * «Сообщение для <имя>» (FR-41, план 0.8.3, «UX-сценарий»): текст до 300 знаков, стикер (сетка 4 в ряд:
+ * «Без стикера» и первые 11, «Все N» — полный список), звук с прослушиванием, сколько показывать,
+ * «Отправить». Отправка и отметки — как раньше (протокол, раздел 5а).
+ */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun NoteDialog(child: Proto.Child, vm: AppViewModel, onDismiss: () -> Unit, onSent: () -> Unit) {
+private fun NoteScreen(childId: Long, name: String, vm: AppViewModel, onBack: () -> Unit, onSent: () -> Unit) {
     var text by rememberSaveable { mutableStateOf("") }
     var tried by remember { mutableStateOf(false) }
+    var allStickers by rememberSaveable { mutableStateOf(false) }
+    val sounds = rememberSoundPreview()
     val field = remember { FocusRequester() }
     LaunchedEffect(Unit) {
         withFrameNanos { }
-        field.requestFocus()
+        // Сразу набирать текст; после поворота на полном списке стикеров поля в дереве нет.
+        if (!allStickers) runCatching { field.requestFocus() }
     }
+    if (allStickers) {
+        StickerListScreen(
+            stickers = vm.noteStickers,
+            selected = vm.noteSticker,
+            onPick = { id ->
+                vm.chooseSticker(id)
+                allStickers = false
+            },
+            onBack = { allStickers = false },
+        )
+        return
+    }
+    BackHandler(onBack = onBack)
     val len = Proto.noteLength(text)
     val ok = Proto.noteOk(text)
     val busy = vm.noteBusy
     val err = vm.noteError
     // Ошибка видна, когда текст уже набран неверно (длиннее 300, больше 5 строк) или после «Отправить».
     val showBad = !ok && (tried || text.isNotBlank())
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(stringResource(R.string.note_title)) },
-        text = {
-            Column(
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.verticalScroll(rememberScrollState()),
-            ) {
-                Text(child.name, style = MaterialTheme.typography.titleMedium)
-                val counter = stringResource(R.string.note_counter, len, Proto.MAX_NOTE)
-                val counterDesc = stringResource(R.string.note_counter_desc, len, Proto.MAX_NOTE)
-                OutlinedTextField(
-                    value = text,
-                    onValueChange = { v ->
-                        text = v
-                        vm.clearNoteError()
-                    },
-                    label = { Text(stringResource(R.string.note_label)) },
-                    minLines = 3,
-                    maxLines = 6,
-                    enabled = !busy,
-                    isError = showBad,
-                    supportingText = {
-                        Row(Modifier.fillMaxWidth()) {
-                            if (showBad) {
-                                val tooManyLines = Proto.cleanNote(text).count { it == '\n' } > Proto.MAX_NOTE_LINES
-                                Text(
-                                    stringResource(if (tooManyLines && len <= Proto.MAX_NOTE) R.string.err_note_lines else R.string.err_note_range),
-                                    modifier = Modifier.weight(1f),
-                                )
-                            } else {
-                                Spacer(Modifier.weight(1f))
-                            }
-                            Text(counter, modifier = Modifier.semantics { contentDescription = counterDesc })
-                        }
-                    },
-                    keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .focusRequester(field),
-                )
-                Text(
-                    stringResource(R.string.note_show_title),
-                    style = MaterialTheme.typography.titleSmall,
-                    modifier = Modifier.semantics { heading() },
-                )
-                Column(Modifier.selectableGroup()) {
-                    for (sec in Proto.SHOW_SEC) {
-                        val selected = vm.noteShowSec == sec
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .heightIn(min = 48.dp)
-                                .selectable(
-                                    selected = selected,
-                                    enabled = !busy,
-                                    role = Role.RadioButton,
-                                    onClick = { vm.chooseShowSec(sec) },
-                                ),
-                        ) {
-                            RadioButton(selected = selected, onClick = null, enabled = !busy)
-                            Spacer(Modifier.width(12.dp))
-                            Text(stringResource(showSecRes(sec)), style = MaterialTheme.typography.bodyLarge)
-                        }
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text(stringResource(R.string.note_title, name), maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                navigationIcon = {
+                    IconButton(onClick = onBack, enabled = !busy) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.note_back))
                     }
-                }
-                // Постоянная область итога: TalkBack зачитывает отправку и ошибку сам.
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(min = 24.dp)
-                        .semantics { liveRegion = LiveRegionMode.Polite },
-                ) {
-                    when {
-                        busy -> {
-                            CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
-                            Spacer(Modifier.width(8.dp))
-                            Text(stringResource(R.string.note_sending), style = MaterialTheme.typography.bodyLarge)
+                },
+            )
+        },
+    ) { pad ->
+        Column(
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(pad)
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+        ) {
+            val counter = stringResource(R.string.note_counter, len, Proto.MAX_NOTE)
+            val counterDesc = stringResource(R.string.note_counter_desc, len, Proto.MAX_NOTE)
+            OutlinedTextField(
+                value = text,
+                onValueChange = { v ->
+                    text = v
+                    vm.clearNoteError()
+                },
+                label = { Text(stringResource(R.string.note_label)) },
+                minLines = 3,
+                maxLines = 6,
+                enabled = !busy,
+                isError = showBad,
+                supportingText = {
+                    Row(Modifier.fillMaxWidth()) {
+                        if (showBad) {
+                            val tooManyLines = Proto.cleanNote(text).count { it == '\n' } > Proto.MAX_NOTE_LINES
+                            Text(
+                                stringResource(if (tooManyLines && len <= Proto.MAX_NOTE) R.string.err_note_lines else R.string.err_note_range),
+                                modifier = Modifier.weight(1f),
+                            )
+                        } else {
+                            Spacer(Modifier.weight(1f))
                         }
-                        err != null -> Text(
-                            problemText(err, vm.lastSeenMs),
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = MaterialTheme.colorScheme.error,
-                        )
+                        Text(counter, modifier = Modifier.semantics { contentDescription = counterDesc })
+                    }
+                },
+                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .focusRequester(field),
+            )
+
+            // ---------- стикер ----------
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                SectionTitle(stringResource(R.string.note_sticker_title), Modifier.weight(1f))
+                if (vm.noteStickers.size > Proto.STICKER_GRID) {
+                    val allDesc = stringResource(R.string.note_sticker_all_desc, vm.noteStickers.size)
+                    TextButton(
+                        onClick = {
+                            sounds.stop()
+                            allStickers = true
+                        },
+                        enabled = !busy,
+                        modifier = Modifier
+                            .heightIn(min = 48.dp)
+                            .semantics { contentDescription = allDesc },
+                    ) { Text(stringResource(R.string.note_sticker_all, vm.noteStickers.size)) }
+                }
+            }
+            val selected = vm.noteSticker
+            val first = vm.noteStickers.take(Proto.STICKER_GRID)
+            // Стикер, выбранный из полного списка, виден в сетке первым после «Без стикера».
+            val shown = if (selected.isNotEmpty() && selected !in first) listOf(selected) + first.dropLast(1) else first
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.selectableGroup()) {
+                for (row in (listOf("") + shown).chunked(STICKER_COLUMNS)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                        for (id in row) {
+                            StickerCell(
+                                id = id,
+                                selected = id == selected,
+                                enabled = !busy,
+                                onClick = { vm.chooseSticker(id) },
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
+                        repeat(STICKER_COLUMNS - row.size) { Spacer(Modifier.weight(1f)) }
                     }
                 }
             }
-        },
-        confirmButton = {
-            TextButton(
+
+            // ---------- звук ----------
+            SectionTitle(stringResource(R.string.note_sound_title))
+            Column(Modifier.selectableGroup()) {
+                SoundRow(
+                    label = stringResource(R.string.note_sound_none),
+                    selected = vm.noteSound == Proto.NO_SOUND,
+                    enabled = !busy,
+                    onSelect = { vm.chooseSound(Proto.NO_SOUND) },
+                    playDesc = null,
+                    onPlay = {},
+                )
+                for (n in vm.noteSounds) {
+                    SoundRow(
+                        label = stringResource(R.string.note_sound_n, n),
+                        selected = vm.noteSound == n,
+                        enabled = !busy,
+                        onSelect = { vm.chooseSound(n) },
+                        playDesc = stringResource(R.string.note_sound_play_desc, n),
+                        onPlay = {
+                            // Как на макете: прослушанный звук становится выбранным.
+                            if (!busy) vm.chooseSound(n)
+                            sounds.play(n)
+                        },
+                    )
+                }
+            }
+
+            // ---------- сколько показывать ----------
+            SectionTitle(stringResource(R.string.note_show_title))
+            Column(Modifier.selectableGroup()) {
+                for (sec in Proto.SHOW_SEC) {
+                    val on = vm.noteShowSec == sec
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 48.dp)
+                            .selectable(
+                                selected = on,
+                                enabled = !busy,
+                                role = Role.RadioButton,
+                                onClick = { vm.chooseShowSec(sec) },
+                            ),
+                    ) {
+                        RadioButton(selected = on, onClick = null, enabled = !busy)
+                        Spacer(Modifier.width(12.dp))
+                        Text(stringResource(showSecRes(sec)), style = MaterialTheme.typography.bodyLarge)
+                    }
+                }
+            }
+
+            // Постоянная область итога: TalkBack зачитывает отправку и ошибку сам.
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 24.dp)
+                    .semantics { liveRegion = LiveRegionMode.Polite },
+            ) {
+                when {
+                    busy -> {
+                        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                        Spacer(Modifier.width(8.dp))
+                        Text(stringResource(R.string.note_sending), style = MaterialTheme.typography.bodyLarge)
+                    }
+                    err != null -> Text(
+                        problemText(err, vm.lastSeenMs),
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+            }
+            Button(
                 // Кнопка доступна и при неверном тексте: нажатие объясняет, что не так (не «молчит»).
                 onClick = {
                     tried = true
-                    if (ok) vm.sendNote(child.id, text, onSent) else field.requestFocus()
+                    if (ok) {
+                        sounds.stop()
+                        vm.sendNote(childId, text, onSent)
+                    } else {
+                        runCatching { field.requestFocus() }
+                    }
                 },
                 enabled = !busy,
-                modifier = Modifier.heightIn(min = 48.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 52.dp),
             ) { Text(stringResource(R.string.note_send)) }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss, enabled = !busy, modifier = Modifier.heightIn(min = 48.dp)) {
-                Text(stringResource(R.string.cancel))
-            }
-        },
+        }
+    }
+}
+
+private const val STICKER_COLUMNS = 4
+
+@Composable
+private fun SectionTitle(text: String, modifier: Modifier = Modifier) {
+    Text(
+        text,
+        style = MaterialTheme.typography.titleMedium,
+        modifier = modifier
+            .padding(top = 4.dp)
+            .semantics { heading() },
     )
+}
+
+/**
+ * Клетка стикера: квадрат со скруглением, выбранная — рамка 3 dp цвета primary темы и движущийся
+ * стикер; остальные — PNG первого кадра. "" — «Без стикера» (подпись вместо картинки).
+ */
+@Composable
+private fun StickerCell(id: String, selected: Boolean, enabled: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    val shape = RoundedCornerShape(12.dp)
+    val desc = if (id.isEmpty()) stringResource(R.string.note_sticker_none) else stringResource(R.string.note_sticker_one, id)
+    BoxWithConstraints(
+        contentAlignment = Alignment.Center,
+        modifier = modifier
+            .aspectRatio(1f)
+            .heightIn(min = 48.dp)
+            .clip(shape)
+            .background(MaterialTheme.colorScheme.surfaceContainerLowest)
+            .border(
+                width = if (selected) 3.dp else 1.dp,
+                color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
+                shape = shape,
+            )
+            .selectable(selected = selected, enabled = enabled, role = Role.RadioButton, onClick = onClick)
+            // Выбор, роль и действие — от selectable выше; картинка и подпись внутри заменены одной подписью.
+            .clearAndSetSemantics { contentDescription = desc },
+    ) {
+        val img = maxWidth - 14.dp
+        when {
+            id.isEmpty() -> Text(
+                desc,
+                style = MaterialTheme.typography.labelMedium,
+                textAlign = TextAlign.Center,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(4.dp),
+            )
+            selected -> StickerAnimated(id, img)
+            else -> StickerPreview(id, img)
+        }
+    }
+}
+
+/** Строка звука: выбор (RadioButton) и, у звуков, кнопка ▶ «Прослушать Звук N» рядом. */
+@Composable
+private fun SoundRow(
+    label: String,
+    selected: Boolean,
+    enabled: Boolean,
+    onSelect: () -> Unit,
+    playDesc: String?,
+    onPlay: () -> Unit,
+) {
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .weight(1f)
+                .heightIn(min = 48.dp)
+                .selectable(selected = selected, enabled = enabled, role = Role.RadioButton, onClick = onSelect),
+        ) {
+            RadioButton(selected = selected, onClick = null, enabled = enabled)
+            Spacer(Modifier.width(12.dp))
+            Text(label, style = MaterialTheme.typography.bodyLarge)
+        }
+        if (playDesc != null) {
+            IconButton(onClick = onPlay) {
+                Icon(Icons.Filled.PlayArrow, contentDescription = playDesc, tint = MaterialTheme.colorScheme.primary)
+            }
+        } else {
+            Spacer(Modifier.size(48.dp))
+        }
+    }
+}
+
+/** «Все стикеры»: полный набор сеткой 4 в ряд; выбор возвращает на экран сообщения. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun StickerListScreen(stickers: List<String>, selected: String, onPick: (String) -> Unit, onBack: () -> Unit) {
+    BackHandler(onBack = onBack)
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text(stringResource(R.string.note_stickers_title)) },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.note_back))
+                    }
+                },
+            )
+        },
+    ) { pad ->
+        LazyVerticalGrid(
+            columns = GridCells.Fixed(STICKER_COLUMNS),
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(pad)
+                .selectableGroup(),
+        ) {
+            item(key = "none") { StickerCell("", selected.isEmpty(), true, { onPick("") }) }
+            gridItems(stickers, key = { it }) { id -> StickerCell(id, id == selected, true, { onPick(id) }) }
+        }
+    }
 }

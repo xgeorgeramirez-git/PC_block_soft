@@ -102,6 +102,18 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     /** Выбор «сколько показывать», запоминается на телефоне. */
     var noteShowSec by mutableStateOf(prefs.notes.showSec)
         private set
+
+    /** Стикеры и звуки сообщения — по файлам assets (ui/StickerAssets.kt), не константа. */
+    val noteStickers: List<String> = MessageAssets.stickers(app)
+    val noteSounds: List<Int> = MessageAssets.sounds(app)
+
+    /** Звук сообщения: последний выбранный (0 — «Без звука»); звука нет в наборе — первый из набора. */
+    var noteSound by mutableStateOf(knownSound(prefs.notes.sound))
+        private set
+
+    /** Стикер нового сообщения: «Без стикера» (""), не запоминается между сообщениями (FR-41). */
+    var noteSticker by mutableStateOf("")
+        private set
     private var fastUntilMs = 0L
 
     /** Когда компьютер последний раз был на связи (для «не на связи с HH:MM» в отказе команды). */
@@ -347,12 +359,35 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         noteShowSec = prefs.notes.showSec
     }
 
-    /** Открыт новый диалог сообщения: прежняя ошибка не показывается. */
+    fun chooseSound(n: Int) {
+        prefs.notes.sound = knownSound(n)
+        noteSound = knownSound(prefs.notes.sound)
+    }
+
+    /** Выбран стикер ("" — «Без стикера»); незнакомый номер не выбирается. */
+    fun chooseSticker(id: String) {
+        if (noteBusy) return
+        noteSticker = if (id in noteStickers) id else ""
+    }
+
+    private fun knownSound(n: Int): Int = when {
+        n == Proto.NO_SOUND || n in noteSounds -> n
+        else -> noteSounds.firstOrNull() ?: Proto.NO_SOUND
+    }
+
+    /** Открыт новый экран сообщения: прежняя ошибка не показывается, стикер — «Без стикера». */
+    fun startNote() {
+        if (noteBusy) return
+        noteError = null
+        noteSticker = ""
+    }
+
+    /** Текст поменялся: прежняя ошибка отправки не показывается. */
     fun clearNoteError() {
         if (!noteBusy) noteError = null
     }
 
-    /** Отправить сообщение; onSent вызывается, когда компьютер его принял (диалог закрывается). */
+    /** Отправить сообщение; onSent вызывается, когда компьютер его принял (экран закрывается). */
     fun sendNote(childId: Long, raw: String, onSent: () -> Unit) {
         if (noteBusy || busyChild != null || peer == null) return
         val text = Proto.cleanNote(raw)
@@ -361,10 +396,12 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             return
         }
         val showSec = noteShowSec
+        val sticker = noteSticker
+        val sound = noteSound
         noteBusy = true
         noteError = null
         viewModelScope.launch {
-            val out = withContext(Dispatchers.IO) { sendNoteNow(childId, text, showSec) }
+            val out = withContext(Dispatchers.IO) { sendNoteNow(childId, text, showSec, sticker, sound) }
             noteBusy = false
             if (out.repair) needRepair = true
             if (out.saved != null) {
@@ -385,16 +422,16 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     private class NoteOutcome(val saved: SavedNote? = null, val problem: Problem? = null, val repair: Boolean = false)
 
-    private fun sendNoteNow(childId: Long, text: String, showSec: Int): NoteOutcome {
+    private fun sendNoteNow(childId: Long, text: String, showSec: Int, sticker: String, sound: Int): NoteOutcome {
         fun fail(p: Problem, repair: Boolean = false) = NoteOutcome(problem = p, repair = repair)
         val pr = peer ?: return fail(Problem.NOT_PAIRED)
         val key = PhoneKey.load() ?: return fail(Problem.NOT_PAIRED, repair = true)
         return try {
             val seq = prefs.nextSeq() // записан до отправки: общий счёт с командами
             // Повтор после обрыва без ответа — тот же id: компьютер не покажет сообщение дважды.
-            val id = noteRetry.idFor(childId, text, showSec) { Proto.newNoteId(rnd) }
+            val id = noteRetry.idFor(childId, text, showSec, sticker, sound) { Proto.newNoteId(rnd) }
             val now = System.currentTimeMillis()
-            val data = Proto.noteData(pr.pcId, pr.phoneId, seq, now, childId, id, text, showSec)
+            val data = Proto.noteData(pr.pcId, pr.phoneId, seq, now, childId, id, text, showSec, sticker, sound)
             val signed = Crypto.seal(key, data)
             val m = RelayClient(prefs.url).send(prefs.phoneToken, Proto.KIND_NOTE, Proto.signedToJson(signed))
             if (m.kind != Proto.KIND_NOTER) throw ProtoException("ожидался noter")
