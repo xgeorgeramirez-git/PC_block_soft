@@ -40,6 +40,12 @@
     "data": "eyJ2IjoxLCJ0IjoicmVwb3J0IiwicGMiOiJwYy12ZWN0b3IiLCJwaG9uZSI6InBob25lLXZlY3RvciIsInRzIjoxNzYzNDkwMDAzMDAwLCJjaGlsZHJlbiI6W3siaWQiOjMsIm5hbWUiOiLQnNC40YjQsCIsInVzZWRTZWMiOjM2MDAsImxlZnRTZWMiOjE4MDAsImV4dHJhTWluIjoxNSwiYmxvY2tlZCI6ZmFsc2V9XSwibm90ZXMiOlt7ImlkIjoiQUFFQ0F3UUZCZ2NJQ1FvTERBME9EdyIsImNoaWxkIjozLCJzdGF0ZSI6InNob3duIiwiYXRNcyI6MTc2MzQ5MDAwMjUwMH1dfQ",
     "sig": "MEUCIAWF3el769croeJaVYj3p66N-Hmj6nsqzFin1UHuOsqiAiEA0JO6raewHo4FOMdUOLyFqrHPp7eUlbW9fX27Jf6Y8Og"
   },
+  "noteStickerJson": "{\"v\":1,\"t\":\"note\",\"pc\":\"pc-vector\",\"phone\":\"phone-vector\",\"seq\":20,\"ts\":1763490007000,\"child\":3,\"id\":\"EBESExQVFhcYGRobHB0eHw\",\"text\":\"Иди ужинать\",\"showSec\":30,\"sticker\":\"033\",\"sound\":2}",
+  "noteSticker": {
+    "data": "eyJ2IjoxLCJ0Ijoibm90ZSIsInBjIjoicGMtdmVjdG9yIiwicGhvbmUiOiJwaG9uZS12ZWN0b3IiLCJzZXEiOjIwLCJ0cyI6MTc2MzQ5MDAwNzAwMCwiY2hpbGQiOjMsImlkIjoiRUJFU0V4UVZGaGNZR1JvYkhCMGVIdyIsInRleHQiOiLQmNC00Lgg0YPQttC40L3QsNGC0YwiLCJzaG93U2VjIjozMCwic3RpY2tlciI6IjAzMyIsInNvdW5kIjoyfQ",
+    "sig": "MEYCIQClgydPzeqv9oyQzb1Ch4otI0R50oUt1hj00KKaFOTH_QIhAIwyVdIOarxGgen9guJt60TYnER_eO-0zsFofGmC48xN"
+  },
+  "noteStickerHash": "EPqErSS0HV2SiFw3utTorALkpiY3XbX83Uak_xZmoB0",
   "cmdNoForbiddenJson": "{\"v\":1,\"t\":\"cmd\",\"pc\":\"pc-vector\",\"phone\":\"phone-vector\",\"seq\":19,\"ts\":1763490004000,\"child\":3,\"op\":\"noForbidden\"}",
   "cmdNoForbidden": {
     "data": "eyJ2IjoxLCJ0IjoiY21kIiwicGMiOiJwYy12ZWN0b3IiLCJwaG9uZSI6InBob25lLXZlY3RvciIsInNlcSI6MTksInRzIjoxNzYzNDkwMDA0MDAwLCJjaGlsZCI6Mywib3AiOiJub0ZvcmJpZGRlbiJ9",

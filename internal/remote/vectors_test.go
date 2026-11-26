@@ -46,6 +46,11 @@ type vectors struct {
 	Noter           Signed `json:"noter"`
 	ReportNotesJSON string `json:"reportNotesJson"`
 	ReportNotes     Signed `json:"reportNotes"`
+	// Сообщение со стикером и звуком (раздел 5а, FB-28): data с необязательными sticker и sound после
+	// showSec, подпись ключом телефона, хэш. Вектор note выше — сообщение телефона 0.8.2 без них.
+	NoteStickerJSON string `json:"noteStickerJson"`
+	NoteSticker     Signed `json:"noteSticker"`
+	NoteStickerHash string `json:"noteStickerHash"`
 
 	// «Снять запрет на сегодня» (раздел 5б): data команды с op и без delta, подпись ключом телефона,
 	// хэш и ответ cmdr с отчётом, где у ребёнка forbid (подпись ключом компьютера).
@@ -74,6 +79,13 @@ func vectorReport() Report {
 func vectorNote() Note {
 	return Note{V: 1, T: TypeNote, PC: "pc-vector", Phone: "phone-vector", Seq: 18, TS: 1763490002000, Child: 3,
 		ID: "AAECAwQFBgcICQoLDA0ODw", Text: "Иди ужинать\nПотом уроки", ShowSec: 0}
+}
+
+// vectorNoteSticker — сообщение со стикером 033 и звуком 2 (FB-28).
+func vectorNoteSticker() Note {
+	return Note{V: 1, T: TypeNote, PC: "pc-vector", Phone: "phone-vector", Seq: 20, TS: 1763490007000, Child: 3,
+		ID: "EBESExQVFhcYGRobHB0eHw", Text: "Иди ужинать", ShowSec: 30,
+		StickerRaw: json.RawMessage(`"033"`), SoundRaw: json.RawMessage(`2`)}
 }
 
 func vectorReportNotes() Report {
@@ -167,6 +179,7 @@ func writeVectors(t *testing.T) {
 	n := vectorNote()
 	noter := CmdResult{V: 1, T: TypeNoteR, PC: n.PC, Phone: n.Phone, Seq: n.Seq, Cmd: HashData(noteJSON), TS: repN.TS, OK: true, Report: &repN}
 	noterJSON, _ := json.Marshal(noter)
+	nsJSON, _ := json.Marshal(vectorNoteSticker())
 	nfJSON, _ := json.Marshal(vectorNoForbidden())
 	repF := vectorReportForbid()
 	repFJSON, _ := json.Marshal(repF)
@@ -191,6 +204,7 @@ func writeVectors(t *testing.T) {
 		NoteJSON: string(noteJSON), Note: sign(phone, noteJSON, v.NoteJSON, v.Note), NoteHash: HashData(noteJSON),
 		NoterJSON: string(noterJSON), Noter: sign(pc, noterJSON, v.NoterJSON, v.Noter),
 		ReportNotesJSON: string(repNJSON), ReportNotes: sign(pc, repNJSON, v.ReportNotesJSON, v.ReportNotes),
+		NoteStickerJSON: string(nsJSON), NoteSticker: sign(phone, nsJSON, v.NoteStickerJSON, v.NoteSticker), NoteStickerHash: HashData(nsJSON),
 		CmdNoForbiddenJSON: string(nfJSON), CmdNoForbidden: sign(phone, nfJSON, v.CmdNoForbiddenJSON, v.CmdNoForbidden),
 		CmdNoForbiddenHash:  HashData(nfJSON),
 		CmdrNoForbiddenJSON: string(cmdrNFJSON), CmdrNoForbidden: sign(pc, cmdrNFJSON, v.CmdrNoForbiddenJSON, v.CmdrNoForbidden),
@@ -280,6 +294,23 @@ func TestVectors(t *testing.T) {
 	stN := State{PCID: "pc-vector", Phone: &Phone{ID: "phone-vector", Pub: v.PhonePub}, LastSeq: 17}
 	if n, _, code := CheckNote(stN, v.Note, "phone-vector", time.UnixMilli(vectorNote().TS)); code != "" || n.Text != "Иди ужинать\nПотом уроки" {
 		t.Fatalf("сообщение векторов отклонено: %q %+v", code, n)
+	}
+	// Сообщение со стикером и звуком (FB-28): поля после showSec, подпись телефона, хэш, разбор.
+	nsJSON, _ := json.Marshal(vectorNoteSticker())
+	if string(nsJSON) != v.NoteStickerJSON || v.NoteStickerJSON != `{"v":1,"t":"note","pc":"pc-vector","phone":"phone-vector","seq":20,"ts":1763490007000,"child":3,"id":"EBESExQVFhcYGRobHB0eHw","text":"Иди ужинать","showSec":30,"sticker":"033","sound":2}` {
+		t.Fatalf("сборка data сообщения со стикером изменилась:\n%s\n%s", nsJSON, v.NoteStickerJSON)
+	}
+	check("noteSticker", &v.NoteSticker, &phone.PublicKey, v.NoteStickerJSON)
+	if HashData([]byte(v.NoteStickerJSON)) != v.NoteStickerHash {
+		t.Fatal("хэш сообщения со стикером не сошёлся")
+	}
+	stS := State{PCID: "pc-vector", Phone: &Phone{ID: "phone-vector", Pub: v.PhonePub}, LastSeq: 19}
+	if n, _, code := CheckNote(stS, v.NoteSticker, "phone-vector", time.UnixMilli(vectorNoteSticker().TS)); code != "" || n.Sticker != "033" || n.Sound != 2 || n.ShowSec != 30 {
+		t.Fatalf("сообщение со стикером отклонено: %q %+v", code, n)
+	}
+	// Сообщение 0.8.2 без полей: без стикера, звук 1.
+	if n, _, _ := CheckNote(stN, v.Note, "phone-vector", time.UnixMilli(vectorNote().TS)); n.Sticker != "" || n.Sound != 1 {
+		t.Fatalf("сообщение без стикера: %+v", n)
 	}
 	// «Снять запрет» (раздел 5б): data байт в байт, подписи, хэш, ответ с отчётом всех состояний.
 	nfJSON, _ := json.Marshal(vectorNoForbidden())

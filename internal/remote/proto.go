@@ -229,6 +229,14 @@ type Note struct {
 	ID      string `json:"id"`
 	Text    string `json:"text"`
 	ShowSec int    `json:"showSec"`
+	// StickerRaw и SoundRaw — необязательные поля как пришли (раздел 5а). Сырыми, чтобы неверный
+	// JSON-тип не валил разбор подписанных данных в bad_sig: вид проверяет CheckNote (range).
+	StickerRaw json.RawMessage `json:"sticker,omitempty"`
+	SoundRaw   json.RawMessage `json:"sound,omitempty"`
+	// Sticker — номер стикера из трёх цифр ("" — без стикера), Sound — 0 (без звука) или 1…99; нет
+	// поля sound — 1. Заполняет CheckNote; неизвестный номер не ошибка (подменяет страж).
+	Sticker string `json:"-"`
+	Sound   int    `json:"-"`
 }
 
 // NoteReport — строка сообщения в отчёте: состояние и момент последней смены (часы компьютера).
@@ -403,8 +411,9 @@ func CheckCommand(st State, s Signed, from string, now time.Time) (Command, []by
 }
 
 // CheckNote — проверка сообщения (раздел 5а) до показа: как команда (подпись, тип, pc/phone, ts),
-// затем текст (1…300 знаков после обрезки, не больше 5 переводов строк), showSec ∈ {0, 10, 30, 60}
-// и id (ошибка range) и только потом seq — общий с командами. Текст в ответе уже очищен (NoteText).
+// затем текст (1…300 знаков после обрезки, не больше 5 переводов строк), showSec ∈ {0, 10, 30, 60},
+// id, вид sticker и sound (ошибка range) и только потом seq — общий с командами. Текст в ответе уже
+// очищен (NoteText), Sticker и Sound разобраны (нет поля sound — 1).
 func CheckNote(st State, s Signed, from string, now time.Time) (Note, []byte, string) {
 	var n Note
 	h, data, code := checkSigned(st, s, from, now, TypeNote, &n)
@@ -415,10 +424,12 @@ func CheckNote(st State, s Signed, from string, now time.Time) (Note, []byte, st
 		return n, data, code
 	}
 	text, ok := NoteText(n.Text)
-	if !ok || !validShowSec(n.ShowSec) || !validNoteID(n.ID) {
+	sticker, okSticker := noteSticker(n.StickerRaw)
+	sound, okSound := noteSound(n.SoundRaw)
+	if !ok || !validShowSec(n.ShowSec) || !validNoteID(n.ID) || !okSticker || !okSound {
 		return n, data, ErrCodeRange
 	}
-	n.Text = text
+	n.Text, n.Sticker, n.Sound = text, sticker, sound
 	if h.Seq <= st.LastSeq {
 		return n, data, ErrCodeReplay
 	}
@@ -446,6 +457,44 @@ func NoteText(raw string) (string, bool) {
 	text := strings.TrimSpace(b.String())
 	n := len([]rune(text))
 	return text, n >= 1 && n <= MaxNoteRunes && strings.Count(text, "\n") <= MaxNoteLines
+}
+
+// noteSticker — номер стикера: нет поля — "" (без стикера), иначе JSON-строка ровно из 3 цифр
+// ASCII. Есть ли такой стикер в этой версии, решает страж.
+func noteSticker(raw json.RawMessage) (string, bool) {
+	if raw == nil {
+		return "", true
+	}
+	var s string
+	if t := bytes.TrimSpace(raw); len(t) == 0 || t[0] != '"' || json.Unmarshal(t, &s) != nil || len(s) != 3 {
+		return "", false
+	}
+	for i := 0; i < len(s); i++ {
+		if s[i] < '0' || s[i] > '9' {
+			return "", false
+		}
+	}
+	return s, true
+}
+
+// noteSound — номер звука: нет поля — 1, иначе JSON-число записью целого 0…99 без знака, дробной
+// части и степени (2.0, 1e0, -0, "2", null — неверный вид). Есть ли такой звук, решает страж.
+func noteSound(raw json.RawMessage) (int, bool) {
+	if raw == nil {
+		return 1, true
+	}
+	t := bytes.TrimSpace(raw)
+	if len(t) == 0 || len(t) > 2 || len(t) == 2 && t[0] == '0' {
+		return 0, false
+	}
+	n := 0
+	for _, c := range t {
+		if c < '0' || c > '9' {
+			return 0, false
+		}
+		n = n*10 + int(c-'0')
+	}
+	return n, true
 }
 
 func validShowSec(s int) bool { return s == 0 || s == 10 || s == 30 || s == 60 }
