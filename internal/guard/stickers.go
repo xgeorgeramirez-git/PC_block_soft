@@ -300,22 +300,32 @@ func ClearStickerCache() {
 	stickerCacheMu.Unlock()
 }
 
-// decodeStickerFrames разбирает спрайт стикера n и уменьшает каждый кадр до px.
-func decodeStickerFrames(n string, px int) ([][]byte, error) {
+// decodeStickerImage разбирает встроенный спрайт стикера n и сверяет его размер с frames.json:
+// рисунок и число кадров.
+func decodeStickerImage(n string) (image.Image, int, error) {
 	count := stickerFrames(n)
 	data, err := stickerSprite(n)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	if count == 0 {
-		return nil, fmt.Errorf("стикер %s: нет в frames.json", n)
+		return nil, 0, fmt.Errorf("стикер %s: нет в frames.json", n)
 	}
 	img, err := png.Decode(bytes.NewReader(data))
 	if err != nil {
-		return nil, fmt.Errorf("стикер %s: %w", n, err)
+		return nil, 0, fmt.Errorf("стикер %s: %w", n, err)
 	}
 	if b := img.Bounds(); b.Dx() != count*StickerFramePx || b.Dy() != StickerFramePx {
-		return nil, fmt.Errorf("стикер %s: %dx%d, ждали %d кадров по %d", n, b.Dx(), b.Dy(), count, StickerFramePx)
+		return nil, 0, fmt.Errorf("стикер %s: %dx%d, ждали %d кадров по %d", n, b.Dx(), b.Dy(), count, StickerFramePx)
+	}
+	return img, count, nil
+}
+
+// decodeStickerFrames разбирает спрайт стикера n и уменьшает каждый кадр до px.
+func decodeStickerFrames(n string, px int) ([][]byte, error) {
+	img, count, err := decodeStickerImage(n)
+	if err != nil {
+		return nil, err
 	}
 	out := make([][]byte, count)
 	if pal, ok := img.(*image.Paletted); ok && pal.Rect.Min == (image.Point{}) {
@@ -334,31 +344,47 @@ func decodeStickerFrames(n string, px int) ([][]byte, error) {
 	return out, nil
 }
 
-// scalePalettedBGRA — то же, что scaleBGRA, для палитрового спрайта: цвета палитры предумножаются
-// так же попиксельно, пиксели складываются по номерам палитры.
-func scalePalettedBGRA(src *image.Paletted, x0, side, size int) []byte {
-	var pr, pg, pb, pa [256]uint32
-	for i, c := range src.Palette {
+// stickerPalette — цвета палитры спрайта с предумноженной прозрачностью по номеру цвета.
+type stickerPalette struct{ r, g, b, a [256]uint32 }
+
+// premulPalette предумножает цвета палитры p так же попиксельно, как scaleBGRA.
+func premulPalette(p color.Palette) *stickerPalette {
+	out := &stickerPalette{}
+	for i, c := range p {
 		if i > 255 {
 			break
 		}
 		n := color.NRGBAModel.Convert(c).(color.NRGBA)
 		a := uint32(n.A)
-		pr[i], pg[i], pb[i], pa[i] = uint32(n.R)*a/255, uint32(n.G)*a/255, uint32(n.B)*a/255, a
+		out.r[i], out.g[i], out.b[i], out.a[i] = uint32(n.R)*a/255, uint32(n.G)*a/255, uint32(n.B)*a/255, a
 	}
+	return out
+}
+
+// scalePalettedBGRA — то же, что scaleBGRA, для палитрового спрайта: цвета палитры предумножаются
+// так же попиксельно, пиксели складываются по номерам палитры.
+func scalePalettedBGRA(src *image.Paletted, x0, side, size int) []byte {
 	out := make([]byte, size*size*4)
+	scalePalettedInto(out, src.Pix, src.Stride, premulPalette(src.Palette), x0, side, size)
+	return out
+}
+
+// scalePalettedInto уменьшает квадрат палитрового спрайта (номера цветов pix, строка stride байт)
+// со стороной side от (x0, 0) до size×size усреднением по площади и кладёт BGRA с предумноженной
+// прозрачностью в out (длина size×size×4). Один код у промокода и у сообщения: пиксели одни.
+func scalePalettedInto(out, pix []byte, stride int, pal *stickerPalette, x0, side, size int) {
 	for y := 0; y < size; y++ {
 		y0, y1 := y*side/size, max((y+1)*side/size, y*side/size+1)
 		for x := 0; x < size; x++ {
 			sx0, sx1 := x0+x*side/size, x0+max((x+1)*side/size, x*side/size+1)
 			var r, g, b, a, cnt uint32
 			for sy := y0; sy < y1; sy++ {
-				row := src.Pix[sy*src.Stride+sx0 : sy*src.Stride+sx1]
+				row := pix[sy*stride+sx0 : sy*stride+sx1]
 				for _, i := range row {
-					r += pr[i]
-					g += pg[i]
-					b += pb[i]
-					a += pa[i]
+					r += pal.r[i]
+					g += pal.g[i]
+					b += pal.b[i]
+					a += pal.a[i]
 				}
 				cnt += uint32(len(row))
 			}
@@ -366,7 +392,121 @@ func scalePalettedBGRA(src *image.Paletted, x0, side, size int) []byte {
 			out[o], out[o+1], out[o+2], out[o+3] = byte(b/cnt), byte(g/cnt), byte(r/cnt), byte(a/cnt)
 		}
 	}
-	return out
+}
+
+// Стикер окна «Сообщение от родителя» (FR-41, NFR-5). Окно может висеть часами, а кадры идут по
+// кругу, поэтому все кадры в BGRA (как у промокода: 90 кадров по 255 px — 23 МБ) не держатся:
+// спрайт лежит как в PNG, номерами палитры (1 байт на точку, 90 кадров — 8,1 млн байт), и в BGRA
+// переводится только кадр, который показывается сейчас. Общий кэш промокода (StickerFramesBGRA)
+// сообщение не трогает.
+
+// NoteMemoryBudget — предел памяти стикера и окна сообщения (план 0.8.3, NFR-5: страж ≤ 40 МБ).
+const NoteMemoryBudget = 16 << 20
+
+// NoteMemory — сколько держит окно сообщения со стикером из frames кадров в раскладке l: спрайт
+// frames×300² (номера палитры), два кадра BGRA стороной l.StickerPx (текущий и запас), DIB окна и
+// основа карточки с текстом (по l.W×l.H×4).
+func NoteMemory(frames int, l NoteLayout) int {
+	px, win := int(l.StickerPx), int(l.W)*int(l.H)*4
+	return frames*StickerFramePx*StickerFramePx + 2*px*px*4 + 2*win
+}
+
+// NoteSprite — стикер сообщения в памяти: палитровый спрайт и последний переведённый кадр.
+// Не для нескольких горутин: им владеет поток окон.
+type NoteSprite struct {
+	Sticker string
+	Frames  int
+
+	pix    []byte // номера цветов палитры, кадры слева направо
+	stride int
+	pal    *stickerPalette
+
+	frame     []byte // кадр BGRA (FrameBGRA); переиспользуется
+	frameK    int
+	framePx   int
+	frameFull bool // в frame лежит кадр frameK стороной framePx
+}
+
+// LoadNoteSprite разбирает встроенный спрайт стикера n для окна сообщения. Спрайты палитровые
+// (tools/sticker-frames.py); другой рисунок — ошибка (окно тогда без стикера).
+func LoadNoteSprite(n string) (*NoteSprite, error) {
+	img, count, err := decodeStickerImage(n)
+	if err != nil {
+		return nil, err
+	}
+	pal, ok := img.(*image.Paletted)
+	if !ok || pal.Rect.Min != (image.Point{}) {
+		return nil, fmt.Errorf("стикер %s: спрайт не палитровый (%T)", n, img)
+	}
+	return &NoteSprite{Sticker: n, Frames: count, pix: pal.Pix, stride: pal.Stride, pal: premulPalette(pal.Palette)}, nil
+}
+
+// noteSpriteInbox — спрайты стикеров сообщения, разобранные своими горутинами и ещё не забранные
+// потоком окон. Результат хранится по номеру стикера: если стикер сменился во время разбора (A, затем
+// B) и B разобран раньше A, результат B не затирается результатом A (ревью M1 0.8.3). Сам выбор -
+// чистый, его проверяет тест на любой системе; окно только зовёт put из горутины и take в потоке окон.
+type noteSpriteInbox struct {
+	mu   sync.Mutex
+	done map[string]*NoteSprite // nil-спрайт - разбор не удался
+}
+
+// put кладёт результат разбора стикера sticker (s nil - не удался); из любой горутины.
+func (b *noteSpriteInbox) put(sticker string, s *NoteSprite) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.done == nil {
+		b.done = map[string]*NoteSprite{}
+	}
+	b.done[sticker] = s
+}
+
+// take забирает всё разобранное: спрайт стикера want (found - его разбор закончился, sprite nil -
+// не удался; want "" - стикер не нужен) и ждущий номер после этого: pending, пока его результата
+// нет, иначе "". Остальные результаты устарели и выбрасываются.
+func (b *noteSpriteInbox) take(want, pending string) (sprite *NoteSprite, found bool, stillPending string) {
+	b.mu.Lock()
+	done := b.done
+	b.done = nil
+	b.mu.Unlock()
+	if _, ok := done[pending]; ok {
+		pending = ""
+	}
+	if want == "" {
+		return nil, false, pending
+	}
+	sprite, found = done[want]
+	return sprite, found, pending
+}
+
+// FrameBGRA — кадр k (за пределами — ближайший крайний) стороной px (больше StickerFramePx не
+// бывает), BGRA с предумноженной прозрачностью, строки сверху вниз: те же пиксели, что кадр k у
+// StickerFramesBGRA. Срез — общий буфер спрайта, действует до следующего вызова; тот же кадр того
+// же размера не пересчитывается. px < 1 — пустой срез.
+func (s *NoteSprite) FrameBGRA(k, px int) []byte {
+	if s == nil || px < 1 || s.Frames <= 0 {
+		return []byte{}
+	}
+	px = min(px, StickerFramePx)
+	k = max(0, min(k, s.Frames-1))
+	if s.frameFull && s.frameK == k && s.framePx == px {
+		return s.frame
+	}
+	if need := px * px * 4; cap(s.frame) < need {
+		s.frame = make([]byte, need)
+	} else {
+		s.frame = s.frame[:need]
+	}
+	scalePalettedInto(s.frame, s.pix, s.stride, s.pal, k*StickerFramePx, StickerFramePx, px)
+	s.frameK, s.framePx, s.frameFull = k, px, true
+	return s.frame
+}
+
+// Retained — байт, которые держит спрайт: номера палитры и буфер кадра.
+func (s *NoteSprite) Retained() int {
+	if s == nil {
+		return 0
+	}
+	return cap(s.pix) + cap(s.frame)
 }
 
 // scaleBGRA уменьшает квадрат src со стороной side от (x0, 0) до size×size усреднением по

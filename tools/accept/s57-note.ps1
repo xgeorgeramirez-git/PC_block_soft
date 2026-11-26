@@ -8,7 +8,7 @@
 # Тогда: оно видно поверх экрана и через 10 с исчезает, отметка read. Сообщение с чужой подписью не показывается.
 # Журнал читается только после закрытия плашки: родительская сессия в сеансе ребёнка прячет плашки (Ruling 19).
 # Затем длинное сообщение (300 знаков, 5 переводов строк) поверх экрана блокировки: плашка не закрывает ни одной
-# кнопки экрана («Пароль родителя» видна, NFR-10), не выходит за экран и не выше 40 % его, «Понял» её закрывает.
+# кнопки экрана («Пароль родителя» видна, NFR-10), не выходит за экран и не выше 55 % его (окно со стикером и тенью, Ruling FB28-1), «Понял» её закрывает.
 # Снимки: s57-note.png (плашка на рабочем столе), s57-note-lock.png (плашка поверх экрана блокировки),
 # s57-note-long-lock.png (длинное сообщение поверх экрана блокировки).
 $ErrorActionPreference = "Stop"
@@ -180,7 +180,7 @@ Invoke-Scenario "S57" "Сообщение ребёнку с телефона: п
       # Текст целиком (FR-41): 6 строк не влезают в высоту плашки короткого сообщения (одна строка, «…» запрещено).
       Assert-That (($note.Bottom - $note.Top) -ge [int]($script:ShortNoteH * 1.5)) "Плашка длинного сообщения $(Format-Rect $note) не выше короткой ($($script:ShortNoteH) px): текст обрезан"
       Assert-That ($note.Top -ge $screen.Top -and $note.Bottom -le $screen.Bottom -and $note.Left -ge $screen.Left -and $note.Right -le $screen.Right) "Плашка $(Format-Rect $note) за краем экрана"
-      Assert-That (($note.Bottom - $note.Top) -le [int]($screen.Height * 0.4) + 1) "Плашка выше 40 % экрана: $(Format-Rect $note)"
+      Assert-That (($note.Bottom - $note.Top) -le [int]($screen.Height * 0.55) + 1) "Плашка выше 55 % экрана: $(Format-Rect $note)"
       Save-Screen "s57-note-long-lock"
       Invoke-GuardClick "noteOk"
       $g = Wait-GuardState { param($s) -not $s.noteId } 5 "длинное сообщение закрыто «Понял»"

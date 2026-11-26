@@ -3,6 +3,7 @@ package guard
 import (
 	"bytes"
 	"image"
+	"image/color"
 	"image/draw"
 	"image/png"
 	"os"
@@ -478,5 +479,148 @@ func TestStickerStripOver(t *testing.T) {
 	}
 	if s, w, h := StickerStripOver(nil, px, 0, 0, 0); len(s) != 0 || w != 0 || h != 0 {
 		t.Fatal("полоса без кадров не пустая")
+	}
+}
+
+// Ловит (план 0.8.3, «одна истина пикселей»): кадр стикера в окне сообщения считается иначе, чем
+// кадр того же стикера у промокода (свой масштаб, своё предумножение, сдвиг кадра в спрайте).
+func TestNoteSpriteFrameMatchesPromo(t *testing.T) {
+	s, err := LoadNoteSprite("033")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Frames != stickerFrames("033") || s.Sticker != "033" {
+		t.Fatalf("спрайт %s: %d кадров, в frames.json %d", s.Sticker, s.Frames, stickerFrames("033"))
+	}
+	t.Cleanup(ClearStickerCache)
+	for _, px := range []int{int(NoteStickerPx(96)), int(NoteStickerPx(144)), int(NoteStickerMinPx(96))} {
+		promo, err := StickerFramesBGRA("033", px)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for k := range promo {
+			if got := s.FrameBGRA(k, px); !bytes.Equal(got, promo[k]) {
+				t.Fatalf("кадр %d при %d px: сообщение и промокод разошлись", k, px)
+			}
+		}
+		ClearStickerCache()
+	}
+	last := s.FrameBGRA(s.Frames-1, 170)
+	if got := s.FrameBGRA(s.Frames+5, 170); !bytes.Equal(got, last) {
+		t.Fatal("кадр за пределами не стал последним")
+	}
+	if got := s.FrameBGRA(0, 400); len(got) != StickerFramePx*StickerFramePx*4 {
+		t.Fatalf("больше 300 не увеличивается: %d байт", len(got))
+	}
+	if got := s.FrameBGRA(0, 0); len(got) != 0 {
+		t.Fatalf("размер 0: %d байт", len(got))
+	}
+}
+
+// Ловит: стикер, которого нет среди встроенных, или пустой номер разбирается без ошибки (окно
+// оставило бы место под картинку, которой нет).
+func TestNoteSpriteUnknown(t *testing.T) {
+	for _, n := range []string{"", "999", "33", "abc"} {
+		if s, err := LoadNoteSprite(n); err == nil || s != nil {
+			t.Fatalf("%q: спрайт %v, ошибка %v", n, s, err)
+		}
+	}
+}
+
+// Ловит (NFR-5, ревью I-3): окно сообщения держит больше бюджета 16 МБ: все кадры в BGRA, копию
+// спрайта в NRGBA или основу больше окна. Самый длинный стикер (90 кадров) при 150 %: спрайт номерами
+// палитры, два кадра BGRA, DIB окна и основа — по раскладке FitNote для короткого и самого длинного
+// текста, на рабочем столе и над экраном блокировки, и по пределу окна (80 % ширины, 55 % высоты).
+func TestNoteSpriteMemory(t *testing.T) {
+	const dpi = 144
+	s, err := LoadNoteSprite("096")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Frames != 3*StickerFPS {
+		t.Fatalf("096: %d кадров, ждали 90", s.Frames)
+	}
+	area := Rect{Left: 0, Top: 0, Right: 1920, Bottom: 1032}
+	lock := &NoteLock{Title: Rect{Left: 400, Top: 200, Right: 1520, Bottom: 280}, ControlsTop: 700, MaxUp: 150, MaxDown: 150}
+	for _, lk := range []*NoteLock{nil, lock} {
+		for _, text := range []string{"Иди ужинать", longNote()} {
+			l := FitNote(dpi, area, lk, true, textNoteTitle, text, fakeNoteMeasure(dpi)).Layout
+			if l.StickerPx <= 0 {
+				if lk == nil {
+					t.Fatalf("на рабочем столе раскладка без стикера: %+v", l)
+				}
+				continue // над экраном блокировки длинному тексту стикер уступил место (FitNote)
+			}
+			s.FrameBGRA(7, int(l.StickerPx))
+			s.FrameBGRA(8, int(l.StickerPx))
+			// Буфер кадра один и не меньше прошлого: не больше кадра наибольшего стикера при этом dpi.
+			big := int(NoteStickerPx(dpi))
+			if got, want := s.Retained(), s.Frames*StickerFramePx*StickerFramePx+big*big*4; cap(s.pix) != s.Frames*StickerFramePx*StickerFramePx || got > want {
+				t.Fatalf("спрайт держит %d байт (номера палитры %d), ждали не больше %d: номера палитры и один кадр", got, cap(s.pix), want)
+			}
+			if m := NoteMemory(s.Frames, l); m > NoteMemoryBudget {
+				t.Fatalf("окно %dx%d, стикер %d: %d байт, бюджет %d", l.W, l.H, l.StickerPx, m, NoteMemoryBudget)
+			}
+		}
+	}
+	// Предел: окно не шире 80 % и не выше 55 % области 1920×1080, стикер наибольший.
+	l := NoteLayout{W: 1920 * 80 / 100, H: 1080 * 55 / 100, StickerPx: NoteStickerPx(dpi)}
+	m := NoteMemory(s.Frames, l)
+	t.Logf("предел окна при 150 %%: %.1f МБ", float64(m)/(1<<20))
+	if m > NoteMemoryBudget {
+		t.Fatalf("предел окна: %d байт, бюджет %d", m, NoteMemoryBudget)
+	}
+}
+
+// Ловит: спрайт сохранён не палитровым (окно сообщения его не покажет, промокод разберёт медленно).
+func TestStickerSpritesPaletted(t *testing.T) {
+	counts, err := stickerFrameCounts()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for n := range counts {
+		data, err := stickerSprite(n)
+		if err != nil {
+			t.Fatal(err)
+		}
+		cfg, err := png.DecodeConfig(bytes.NewReader(data))
+		if err != nil {
+			t.Fatalf("%s: %v", n, err)
+		}
+		if _, ok := cfg.ColorModel.(color.Palette); !ok {
+			t.Fatalf("%s: спрайт не палитровый (%T)", n, cfg.ColorModel)
+		}
+	}
+}
+
+// Ловит (ревью M1 0.8.3): стикер сменился во время разбора (A, затем B), разбор B закончился раньше
+// A, и результат B затёрт результатом A в одной ячейке: ждущий номер навсегда B, стикер B не
+// показывается до перезапуска стража. Каждый результат хранится по номеру; ждущий номер снимается,
+// когда пришёл его результат, даже если окно уже хочет другой стикер или скрыто.
+func TestNoteSpriteInboxKeepsEachResult(t *testing.T) {
+	a, b, c := &NoteSprite{Sticker: "001"}, &NoteSprite{Sticker: "002"}, &NoteSprite{Sticker: "003"}
+	var in noteSpriteInbox
+	in.put("002", b) // B разобран раньше A
+	in.put("001", a)
+	if s, ok, pending := in.take("002", "002"); !ok || s != b || pending != "" {
+		t.Fatalf("B после A в одной пачке: спрайт %v, есть %v, ждёт %q; ждали B и пустой ждущий", s, ok, pending)
+	}
+	// Второе сообщение о готовности (горутина A): забирать нечего.
+	if s, ok, pending := in.take("002", ""); ok || s != nil || pending != "" {
+		t.Fatalf("повторный забор: спрайт %v, есть %v, ждёт %q", s, ok, pending)
+	}
+	// Устаревший результат пришёл раньше своего: ждущий остаётся, свой забирается следующим.
+	in.put("001", a)
+	if s, ok, pending := in.take("002", "002"); ok || s != nil || pending != "002" {
+		t.Fatalf("только чужой результат: спрайт %v, есть %v, ждёт %q; ждали ждущий 002", s, ok, pending)
+	}
+	in.put("002", nil) // разбор B не удался: окно без стикера
+	if s, ok, pending := in.take("002", "002"); !ok || s != nil || pending != "" {
+		t.Fatalf("неудачный разбор: спрайт %v, есть %v, ждёт %q", s, ok, pending)
+	}
+	// Окно скрыто (стикер не нужен): свой разбор закончился, ждущий снят, следующий показ разберёт заново.
+	in.put("003", c)
+	if s, ok, pending := in.take("", "003"); ok || s != nil || pending != "" {
+		t.Fatalf("окно скрыто: спрайт %v, есть %v, ждёт %q", s, ok, pending)
 	}
 }

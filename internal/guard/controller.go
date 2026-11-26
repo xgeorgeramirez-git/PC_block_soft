@@ -51,9 +51,10 @@ type Controller struct {
 	sounds    []ipc.ShownSound // сыгранные звуки (журнал для GuardState, только тестовый режим)
 	soundID   int              // ID плашки, для которой звук уже сыгран
 	noteSound int              // номер показа сообщения с телефона, для которого звук уже сыгран (FR-41)
-	play      func() bool      // проиграть звук предупреждения; true — Windows принял звук
+	playWarn  func() bool      // проиграть звук предупреждения; true — Windows принял звук
+	playMsg   func(int) bool   // проиграть встроенный звук сообщения с номером; true — Windows принял звук
 	warm      func(string)     // заранее разобрать кадры стикера промокода (не в потоке окон)
-	soundQ    chan int         // номера записей журнала звуков для исполнителя звука; nil — исполнитель не запущен
+	soundQ    chan soundItem   // очередь исполнителя звука (одна на оба вида); nil — исполнитель не запущен
 	speed     int              // ускорение часов ядра, сообщённое окном; модели передаётся только в тестовом режиме
 	ui        ipc.GuardUI      // диагностика потока окон
 	seenPlate int              // наибольший ID плашки, о которой уже известно (ID растут; вернувшаяся плашка не новая)
@@ -87,6 +88,21 @@ type Controller struct {
 	tabs      tabLadder
 	closedTab string
 	closedWay string
+	// noteSticker/noteFrame — стикер и кадр, которые окно сообщения вывело последним (SetNoteShown;
+	// GuardState.NoteSticker, NoteFrame; только тестовый режим).
+	noteSticker string
+	noteFrame   int
+
+	// lenWarn/lenMsg - сколько звучит звук предупреждения и звук сообщения с номером (из шапки wav):
+	// после принятого звука исполнитель ждёт его конца (nil или 0 - не ждёт). soundTimer - ожидание
+	// (nil - time.NewTimer; тест подменяет). soundStop закрывает StopSounds; soundExit закрывает
+	// исполнитель, выйдя.
+	lenWarn    func() time.Duration
+	lenMsg     func(int) time.Duration
+	soundTimer func(time.Duration) (<-chan time.Time, func() bool)
+	soundStop  chan struct{}
+	stopOnce   sync.Once
+	soundExit  chan struct{}
 
 	closingMu   sync.Mutex
 	closingDone bool // GuardClosing в этом конце сеанса уже отправлен (или попытка не удалась)
@@ -101,8 +117,9 @@ func NewController(model *Model, call ipc.Caller, now func() time.Time, read fun
 	}
 	return &Controller{
 		model: model, call: call, now: now, read: read, wake: wake,
-		kick:   make(chan struct{}, 1),
-		fields: map[string]string{},
+		kick:      make(chan struct{}, 1),
+		fields:    map[string]string{},
+		soundStop: make(chan struct{}),
 	}
 }
 
@@ -128,12 +145,34 @@ func (c *Controller) NoteUITick(now time.Time) {
 	c.mu.Unlock()
 }
 
-// SetSoundPlayer задаёт, чем играть звук предупреждения (окно: sound.PlayWarning). Без него
-// звук не играет. Вызывать до первого View.
-func (c *Controller) SetSoundPlayer(play func() bool) {
+// SetSoundPlayers задаёт, чем играть звук предупреждения (окно: sound.PlayWarning) и звук сообщения
+// с телефона по номеру (sound.PlayMessage). Без своего плеера звук этого вида не играет и не пишется
+// в журнал. Вызывать до первого View.
+func (c *Controller) SetSoundPlayers(warning func() bool, message func(n int) bool) {
 	c.mu.Lock()
-	c.play = play
+	c.playWarn, c.playMsg = warning, message
 	c.mu.Unlock()
+}
+
+// SetSoundLengths задаёт, сколько звучит звук предупреждения (окно: sound.WarningLength) и звук
+// сообщения с номером (sound.MessageLength). PlaySoundW с SND_ASYNC возвращается сразу, а следующий
+// вызов обрывает текущий звук: исполнитель после принятого звука ждёт его длину и только потом играет
+// следующий (ревью M2 0.8.3). Без длины (nil или 0) не ждёт. Вызывать до первого View.
+func (c *Controller) SetSoundLengths(warning func() time.Duration, message func(n int) time.Duration) {
+	c.mu.Lock()
+	c.lenWarn, c.lenMsg = warning, message
+	c.mu.Unlock()
+}
+
+// StopSounds останавливает исполнителя звуков (конец работы стража): он выходит сразу, не дожидаясь
+// конца звука; звук, который уже играет Windows, доигрывает сам. Не ждёт выхода исполнителя: плеер
+// может не вернуться (раннер без звуковой карты). Повторный вызов ничего не делает.
+func (c *Controller) StopSounds() {
+	c.stopOnce.Do(func() {
+		if c.soundStop != nil {
+			close(c.soundStop)
+		}
+	})
 }
 
 // SetStickerWarmer задаёт, как заранее готовить кадры стикера промокода: Run зовёт его в своей
@@ -595,11 +634,12 @@ func (c *Controller) playDue(now time.Time, w *WarningView) {
 		return
 	}
 	c.soundID = w.ID
-	c.enqueueSoundLocked(ipc.ShownSound{AtMs: now.UnixMilli(), Threshold: w.Threshold})
+	c.enqueueSoundLocked(ipc.ShownSound{AtMs: now.UnixMilli(), Threshold: w.Threshold}, soundItem{})
 }
 
-// playNote играет звук заказчика один раз на каждый показ плашки сообщения с телефона (FR-41): тем же
-// исполнителем, что звук предупреждений.
+// playNote играет выбранный родителем звук один раз на каждый показ плашки сообщения с телефона
+// (FR-41): тем же исполнителем и той же очередью, что звук предупреждений. «Без звука» — ни одного
+// вызова плеера.
 func (c *Controller) playNote(now time.Time, n *NoteView) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -607,12 +647,21 @@ func (c *Controller) playNote(now time.Time, n *NoteView) {
 		return
 	}
 	c.noteSound = n.Seq
-	c.enqueueSoundLocked(ipc.ShownSound{AtMs: now.UnixMilli(), Note: true})
+	c.enqueueSoundLocked(ipc.ShownSound{AtMs: now.UnixMilli(), Note: true, NoteSound: n.Sound}, soundItem{note: true, n: n.Sound})
+}
+
+// soundItem — звук в очереди исполнителя: вид (предупреждение или сообщение с номером) и запись
+// журнала звуков, куда дописать ответ Windows.
+type soundItem struct {
+	note bool // звук сообщения с телефона; иначе звук предупреждения
+	n    int  // номер звука сообщения
+	idx  int  // запись журнала звуков (тестовый режим); -1 — не пишется
 }
 
 // enqueueSoundLocked отдаёт звук исполнителю (под c.mu); в тестовом режиме пишет его в журнал звуков.
-func (c *Controller) enqueueSoundLocked(rec ipc.ShownSound) {
-	if c.play == nil {
+// Плеер проверяется для своего вида: без плеера сообщений звук предупреждения всё равно играет.
+func (c *Controller) enqueueSoundLocked(rec ipc.ShownSound, it soundItem) {
+	if it.note && c.playMsg == nil || !it.note && c.playWarn == nil {
 		return
 	}
 	idx := -1
@@ -623,29 +672,72 @@ func (c *Controller) enqueueSoundLocked(rec ipc.ShownSound) {
 		}
 		idx = len(c.sounds) - 1
 	}
+	it.idx = idx
 	if c.soundQ == nil {
-		c.soundQ = make(chan int, 8)
-		go c.soundLoop(c.play, c.soundQ)
+		c.soundQ = make(chan soundItem, 8)
+		c.soundExit = make(chan struct{})
+		go c.soundLoop(c.soundQ, c.soundStop, c.soundExit)
 	}
 	select {
-	case c.soundQ <- idx:
+	case c.soundQ <- it:
 	default: // очередь полна: звуки идут чаще, чем Windows их принимает; лишний пропускается
 	}
 }
 
-// soundLoop играет звуки по одному (PlaySoundW не любит одновременных вызовов) и дописывает
-// ответ Windows в журнал. Записи журнала могли сдвинуться при обрезке до maxSoundLog: тогда
-// ответ теряется, а не попадает к чужой записи.
-func (c *Controller) soundLoop(play func() bool, q <-chan int) {
-	for idx := range q {
-		ok := false
-		safely(func() { ok = play() })
+// soundLoop - единственный исполнитель звуков обоих видов: играет их по одному и дописывает ответ
+// Windows в журнал. PlaySoundW с SND_ASYNC возвращается сразу, а следующий вызов обрывает текущий
+// звук, поэтому после принятого звука исполнитель ждёт его длину (SetSoundLengths) и только потом
+// берёт следующий из очереди. stop (StopSounds) прерывает и ожидание: выход стража конца звука не
+// ждёт. Записи журнала могли сдвинуться при обрезке до maxSoundLog: тогда ответ теряется, а не
+// попадает к чужой записи.
+func (c *Controller) soundLoop(q <-chan soundItem, stop <-chan struct{}, exit chan<- struct{}) {
+	defer close(exit)
+	for {
+		var it soundItem
+		select {
+		case <-stop:
+			return
+		case it = <-q:
+		}
 		c.mu.Lock()
-		if idx >= 0 && idx < len(c.sounds) && len(c.sounds) < maxSoundLog {
+		warn, msg, lenWarn, lenMsg, timer := c.playWarn, c.playMsg, c.lenWarn, c.lenMsg, c.soundTimer
+		c.mu.Unlock()
+		ok := false
+		var length time.Duration
+		safely(func() {
+			switch {
+			case it.note && msg != nil:
+				if ok = msg(it.n); ok && lenMsg != nil {
+					length = lenMsg(it.n)
+				}
+			case !it.note && warn != nil:
+				if ok = warn(); ok && lenWarn != nil {
+					length = lenWarn()
+				}
+			}
+		})
+		c.mu.Lock()
+		if idx := it.idx; idx >= 0 && idx < len(c.sounds) && len(c.sounds) < maxSoundLog {
 			c.sounds[idx].OK = ok
 		}
 		c.mu.Unlock()
 		c.wake()
+		if length <= 0 {
+			continue
+		}
+		if timer == nil {
+			timer = func(d time.Duration) (<-chan time.Time, func() bool) {
+				t := time.NewTimer(d)
+				return t.C, t.Stop
+			}
+		}
+		done, cancel := timer(length)
+		select {
+		case <-done:
+		case <-stop:
+			cancel()
+			return
+		}
 	}
 }
 
@@ -921,6 +1013,18 @@ func (c *Controller) SetField(id, text string) {
 	c.fields[id] = text
 }
 
+// SetNoteShown запоминает, что окно сообщения вывело сейчас: номер стикера ("" — без стикера) и кадр
+// (GuardState.NoteSticker, NoteFrame). Только в тестовом режиме, как журнал звуков; зовёт поток окон
+// на каждом выведенном кадре и при скрытии окна.
+func (c *Controller) SetNoteShown(sticker string, frame int) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if !c.testMode {
+		return
+	}
+	c.noteSticker, c.noteFrame = sticker, frame
+}
+
 // SetAnimations передаёт модели, включены ли анимации Windows (стикер промокода без движения, R26).
 func (c *Controller) SetAnimations(on bool) { c.model.SetAnimations(on) }
 
@@ -986,6 +1090,9 @@ func (c *Controller) PushState() {
 	st.ForegroundPath = c.lastFg
 	st.ForegroundDomain = c.lastDomain
 	st.ClosedTab, st.ClosedTabWay = c.closedTab, c.closedWay
+	if c.last.Note != nil { // окно сообщения могло ещё не узнать, что сообщение закрыто
+		st.NoteSticker, st.NoteFrame = c.noteSticker, c.noteFrame
+	}
 	c.mu.Unlock()
 	if p, ok := lastPanic.Load().(string); ok {
 		st.UI.Panic = p

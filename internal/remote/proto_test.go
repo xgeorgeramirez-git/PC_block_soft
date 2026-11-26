@@ -252,6 +252,92 @@ func TestCheckNote(t *testing.T) {
 	}
 }
 
+// Ловит (протокол 5а, FB-28): нет поля sound даёт 0 вместо 1 (у старого телефона пропадает звук);
+// неверный вид (строка вместо числа, дробное, null, не 3 цифры) проходит или валит разбор в bad_sig
+// (телефон увидел бы «чужая подпись»); неизвестный номер (999, 9) отклоняется (подмена — дело
+// стража); range по стикеру тратит seq.
+func TestCheckNoteStickerSound(t *testing.T) {
+	phone := mustKey(t)
+	st := State{PCID: "pc", Phone: &Phone{ID: "ph", Pub: MarshalPub(&phone.PublicKey)}, LastSeq: 3}
+	now := time.UnixMilli(1763490000000)
+	base := Note{V: 1, T: TypeNote, PC: "pc", Phone: "ph", Seq: 4, TS: now.UnixMilli(), Child: 3, ID: "AbC", Text: "Иди ужинать", ShowSec: 0}
+	// sign — подписанные данные base с дописанными сырыми полями extra (`"sticker":"033"` и т. п.).
+	sign := func(n Note, extra string) Signed {
+		raw, _ := json.Marshal(n)
+		if extra != "" {
+			raw = append(raw[:len(raw)-1], []byte(","+extra+"}")...)
+		}
+		s, err := Sign(phone, raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return s
+	}
+	good := []struct {
+		extra   string
+		sticker string
+		sound   int
+	}{
+		{"", "", 1},
+		{`"sticker":"033","sound":2`, "033", 2},
+		{`"sound":0`, "", 0},
+		{`"sound":1`, "", 1},
+		{`"sound":99`, "", 99},
+		{`"sticker":"000"`, "000", 1},
+		{`"sticker":"999","sound":9`, "999", 9},
+		{`"sticker" : "074" , "sound" : 5`, "074", 5},
+		{`"sticker":"033"`, "033", 1},
+	}
+	for _, c := range good {
+		n, data, code := CheckNote(st, sign(base, c.extra), "ph", now)
+		if code != "" || n.Sticker != c.sticker || n.Sound != c.sound || n.Text != "Иди ужинать" || len(data) == 0 {
+			t.Errorf("%s: %q стикер %q звук %d; нужно %q, %d", c.extra, code, n.Sticker, n.Sound, c.sticker, c.sound)
+		}
+	}
+	bad := []string{
+		`"sticker":"33"`,
+		`"sticker":"abc"`,
+		`"sticker":"0333"`,
+		`"sticker":""`,
+		`"sticker":" 33"`,
+		`"sticker":"٠٣٣"`,
+		`"sticker":33`,
+		`"sticker":null`,
+		`"sticker":["033"]`,
+		`"sound":-1`,
+		`"sound":100`,
+		`"sound":2.0`,
+		`"sound":2.5`,
+		`"sound":"2"`,
+		`"sound":null`,
+		`"sound":true`,
+		`"sound":1e0`,
+		`"sound":-0`,
+		`"sound":{}`,
+	}
+	for _, extra := range bad {
+		if _, _, code := CheckNote(st, sign(base, extra), "ph", now); code != ErrCodeRange {
+			t.Errorf("%s: %q, нужно range", extra, code)
+		}
+	}
+	// Неверный вид отклоняется раньше seq: номер не тратится, ответ range, а не replay.
+	old := base
+	old.Seq = 2
+	if _, _, code := CheckNote(st, sign(old, `"sound":"2"`), "ph", now); code != ErrCodeRange {
+		t.Fatalf("неверный звук со старым seq: %q", code)
+	}
+	if _, _, code := CheckNote(st, sign(old, `"sticker":"033"`), "ph", now); code != ErrCodeReplay {
+		t.Fatalf("старый seq со стикером: %q", code)
+	}
+	// Разобранные поля в data не попадают: собранное без сырых — как сообщение 0.8.2.
+	m := base
+	m.Sticker, m.Sound = "033", 2
+	raw, _ := json.Marshal(m)
+	if string(raw) != `{"v":1,"t":"note","pc":"pc","phone":"ph","seq":4,"ts":1763490000000,"child":3,"id":"AbC","text":"Иди ужинать","showSec":0}` {
+		t.Fatalf("data: %s", raw)
+	}
+}
+
 // Ловит (протокол 5б): неизвестный op применяется как доп. время; «снять запрет» с delta проходит;
 // старая команда без op перестала проходить; поле op попадает в данные старой команды (байты
 // векторов Android меняются) или delta 0 уходит у «снять запрет».

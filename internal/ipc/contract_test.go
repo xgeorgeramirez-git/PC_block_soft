@@ -476,7 +476,7 @@ func examples() map[string]example {
 			{Kind: GuardEvNoteDone, AtMs: t0 - 100, NoteID: "AAECAwQFBgcICQoLDA0ODw"},
 		}}, GuardPollReply{
 			Status: okStatus(), Warnings: []GuardWarning{},
-			Commands: []GuardCommand{{Kind: GuardCmdNote, Note: &GuardNote{ID: "BAECAwQFBgcICQoLDA0ODw", Text: "Иди ужинать", ShowS: 0, WaitS: 597}}},
+			Commands: []GuardCommand{{Kind: GuardCmdNote, Note: &GuardNote{ID: "BAECAwQFBgcICQoLDA0ODw", Text: "Иди ужинать", ShowS: 0, WaitS: 597, Sticker: "033", Sound: 2}}},
 		}),
 		"GuardPoll#empty": ok(GuardPollRequest{Sample: SampleFromCore(core.SessionSample{AtMs: t0})}, GuardPollReply{Status: okStatus()}),
 		"GuardPoll#blocked": ok(GuardPollRequest{Sample: SensorSample{AtMs: t0, SessionActive: true, Foreground: CatNameGames,
@@ -505,7 +505,7 @@ func examples() map[string]example {
 		"TestSeedDay#bonusPending": ok(TestSeedDayRequest{ChildID: 1, Day: "2026-11-17", TotalS: 2400, GamesS: 2400, BonusPending: true}, Empty{}),
 		CmdGuardState: ok(nil, GuardStateReply{
 			Warnings:  []ShownWarning{{AtMs: t0 - 60_000, Threshold: 1, Text: "Осталась 1 минута: 0:59"}},
-			Sounds:    []ShownSound{{AtMs: t0 - 60_000, Threshold: 1, OK: true}},
+			Sounds:    []ShownSound{{AtMs: t0 - 60_000, Threshold: 1, OK: true}, {AtMs: t0 - 30_000, OK: true, Note: true, NoteSound: 2}},
 			LockShown: true,
 			LockKind:  LockTimeUp,
 			Buttons:   []string{ButtonParentPassword, ButtonShutdown, ButtonLogoff, ButtonSwitchUser},
@@ -524,6 +524,10 @@ func examples() map[string]example {
 		"GuardState#blocked": ok(nil, GuardStateReply{
 			Plate: "Программа «SuperGame» ждёт разрешения родителя", PlateKind: BlockedUnknown,
 			Buttons: []string{"askNow", "plateClose"}, ForegroundPath: `c:\users\миша\downloads\supergame.exe`,
+		}),
+		"GuardState#note": ok(nil, GuardStateReply{
+			Note: "Иди ужинать", NoteID: "AAECAwQFBgcICQoLDA0ODw", NoteSticker: "033", NoteFrame: 17,
+			Buttons: []string{ButtonNoteOK},
 		}),
 		"GuardState#brave": ok(nil, GuardStateReply{
 			ForegroundPath:   `c:\program files\bravesoftware\brave-browser\application\brave.exe`,

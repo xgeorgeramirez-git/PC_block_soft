@@ -37,12 +37,22 @@ type noteRec struct {
 	Child    int64  `json:"child"`
 	Text     string `json:"text,omitempty"`
 	ShowSec  int    `json:"showSec"`
-	State    string `json:"state"`    // remote.Note*
-	QueuedMs int64  `json:"queuedMs"` // приём (настоящие часы службы)
-	AtMs     int64  `json:"atMs"`     // последняя смена состояния
+	Sticker  string `json:"sticker,omitempty"` // номер стикера из 3 цифр, "" — без стикера (как прислал телефон)
+	Sound    *int   `json:"sound,omitempty"`   // 0 — без звука, 1…99; nil — запись 0.8.2, звук 1
+	State    string `json:"state"`             // remote.Note*
+	QueuedMs int64  `json:"queuedMs"`          // приём (настоящие часы службы)
+	AtMs     int64  `json:"atMs"`              // последняя смена состояния
 
 	sentTo uint32    // сеанс, стражу которого сообщение отдано последним (в памяти)
 	sentAt time.Time // когда
+}
+
+// sound — номер звука для стража: запись 0.8.2 без поля — 1 (протокол 5а: нет поля — звук 1).
+func (r *noteRec) sound() int {
+	if r.Sound == nil {
+		return 1
+	}
+	return *r.Sound
 }
 
 // notesState — очередь сообщений (под s.mu).
@@ -127,8 +137,9 @@ func (h remoteHost) ApplyNote(gen int64, n remote.Note) (string, int64) {
 	real := s.cfg.RealNow()
 	s.real = real
 	ms := real.UnixMilli()
+	sound := n.Sound // всегда записан: nil в записи значит «запись 0.8.2» (звук 1)
 	s.notes.list = append(s.notes.list, &noteRec{ID: n.ID, Child: n.Child, Text: n.Text, ShowSec: n.ShowSec,
-		State: remote.NoteQueued, QueuedMs: ms, AtMs: ms})
+		Sticker: n.Sticker, Sound: &sound, State: remote.NoteQueued, QueuedMs: ms, AtMs: ms})
 	s.pruneNotes(real)
 	s.saveNotes()
 	s.journal.Write(cs.child.ID, evRemoteNote, map[string]any{"text": n.Text})
@@ -240,6 +251,7 @@ func (s *Service) deliverNotes(cs *childState, ss *sessState, session uint32, re
 		r.sentTo, r.sentAt = session, real
 		out = append(out, ipc.GuardCommand{Kind: ipc.GuardCmdNote, Note: &ipc.GuardNote{
 			ID: r.ID, Text: r.Text, ShowS: r.ShowSec, WaitS: int(left / time.Second),
+			Sticker: r.Sticker, Sound: r.sound(),
 		}})
 	}
 	return out

@@ -31,6 +31,25 @@ object Proto {
     /** Сколько показывать: 0 — пока не нажмёт «Понял», иначе секунды. */
     val SHOW_SEC = listOf(0, 10, 30, 60)
 
+    /** Звук сообщения (раздел 5а): 0 — без звука, 1…99 — номер; нет поля — 1. */
+    const val NO_SOUND = 0
+    const val DEFAULT_SOUND = 1
+    const val MAX_SOUND = 99
+
+    /** Сколько стикеров в сетке экрана сообщения рядом с «Без стикера» (остальные — «Все N»). */
+    const val STICKER_GRID = 11
+
+    private val STICKER_FILE = Regex("^([0-9]{3})\\.tgs$")
+    private val SOUND_FILE = Regex("^([1-9][0-9]?)\\.mp3$")
+
+    /** Номера стикеров по именам файлов папки stickers (NNN.tgs), по возрастанию. */
+    fun stickerIds(files: Array<String>?): List<String> =
+        files.orEmpty().mapNotNull { STICKER_FILE.matchEntire(it)?.groupValues?.get(1) }.distinct().sorted()
+
+    /** Номера звуков по именам файлов папки sounds/message (N.mp3, 1…99), по возрастанию. */
+    fun soundIds(files: Array<String>?): List<Int> =
+        files.orEmpty().mapNotNull { SOUND_FILE.matchEntire(it)?.groupValues?.get(1)?.toInt() }.distinct().sorted()
+
     /** Привязанный компьютер: чьи подписи и для какого телефона принимаем. */
     data class Peer(val pcId: String, val phoneId: String, val pcPub: PublicKey)
 
@@ -338,18 +357,43 @@ object Proto {
     /** Выбор показа из настроек: незнакомое значение — «Пока не нажмёт «Понял»». */
     fun normalShowSec(v: Int): Int = if (v in SHOW_SEC) v else 0
 
+    /** Стикер годится для протокола: "" (без стикера) или ровно три цифры ASCII. */
+    fun stickerOk(s: String): Boolean = s.isEmpty() || (s.length == 3 && s.all { it in '0'..'9' })
+
+    /** Звук годится для протокола: 0…99. */
+    fun soundOk(n: Int): Boolean = n in NO_SOUND..MAX_SOUND
+
+    /** Выбор звука из настроек: незнакомое значение — «Звук 1». */
+    fun normalSound(v: Int): Int = if (soundOk(v)) v else DEFAULT_SOUND
+
     /** Случайный id сообщения: 16 байт base64url. */
     fun newNoteId(rnd: java.util.Random): String = B64.enc(ByteArray(NONCE_LEN).also { rnd.nextBytes(it) })
 
     /**
      * Байты data сообщения. Строки кодируются как json.Marshal в Go (экранирование <, >, &,
-     * U+2028/2029), порядок полей фиксирован: так байты совпадают с вектором Go.
+     * U+2028/2029), порядок полей фиксирован: так байты совпадают с вектором Go. sticker "" — поля
+     * нет (без стикера); sound уходит всегда (0 — без звука).
      */
-    fun noteData(pc: String, phone: String, seq: Long, ts: Long, child: Long, id: String, text: String, showSec: Int): ByteArray {
+    fun noteData(
+        pc: String,
+        phone: String,
+        seq: Long,
+        ts: Long,
+        child: Long,
+        id: String,
+        text: String,
+        showSec: Int,
+        sticker: String,
+        sound: Int,
+    ): ByteArray {
         require(noteOk(text) && cleanNote(text) == text) { "текст вне 1…300 знаков" }
         require(showSec in SHOW_SEC) { "showSec не из 0, 10, 30, 60" }
+        require(stickerOk(sticker)) { "sticker не из трёх цифр" }
+        require(soundOk(sound)) { "sound вне 0…99" }
+        val stickerField = if (sticker.isEmpty()) "" else ",\"sticker\":${goQuote(sticker)}"
         val json = "{\"v\":$VERSION,\"t\":\"note\",\"pc\":${goQuote(pc)},\"phone\":${goQuote(phone)}," +
-            "\"seq\":$seq,\"ts\":$ts,\"child\":$child,\"id\":${goQuote(id)},\"text\":${goQuote(text)},\"showSec\":$showSec}"
+            "\"seq\":$seq,\"ts\":$ts,\"child\":$child,\"id\":${goQuote(id)},\"text\":${goQuote(text)}," +
+            "\"showSec\":$showSec$stickerField,\"sound\":$sound}"
         return json.toByteArray(Charsets.UTF_8)
     }
 
@@ -465,21 +509,23 @@ object Proto {
 /**
  * Повтор сообщения после обрыва (протокол, раздел 5а): если на отправку не пришёл ответ компьютера
  * (сеть оборвалась, сервер связи не дождался компьютера, ответ не разобран), сообщение могло дойти.
- * Повтор того же текста тому же ребёнку с тем же показом идёт с тем же id: компьютер считает тот же id
- * с новым seq одним сообщением. Ответ компьютера (принято или отказ) — повтор не нужен, следующее
+ * Повтор того же текста тому же ребёнку с тем же показом, стикером и звуком идёт с тем же id: компьютер
+ * считает тот же id с новым seq одним сообщением. Ответ компьютера (принято или отказ) — повтор не нужен, следующее
  * сообщение получает новый id.
  */
 class NoteRetry {
-    private data class Pending(val child: Long, val text: String, val showSec: Int, val id: String)
+    private data class Pending(val child: Long, val text: String, val showSec: Int, val sticker: String, val sound: Int, val id: String)
 
     private var pending: Pending? = null
 
     /** id для отправки: тот же, что у неотвеченного такого же сообщения, иначе newId(). */
-    fun idFor(child: Long, text: String, showSec: Int, newId: () -> String): String {
+    fun idFor(child: Long, text: String, showSec: Int, sticker: String, sound: Int, newId: () -> String): String {
         val p = pending
-        if (p != null && p.child == child && p.text == text && p.showSec == showSec) return p.id
+        if (p != null && p.child == child && p.text == text && p.showSec == showSec && p.sticker == sticker && p.sound == sound) {
+            return p.id
+        }
         val id = newId()
-        pending = Pending(child, text, showSec, id)
+        pending = Pending(child, text, showSec, sticker, sound, id)
         return id
     }
 

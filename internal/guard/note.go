@@ -6,10 +6,11 @@ import (
 
 	"pcblock/internal/core"
 	"pcblock/internal/ipc"
+	"pcblock/internal/sound"
 )
 
-// Плашка «Сообщение от родителя» (FR-41, D-97, S57): текст с телефона, кнопка «Понял», звук при
-// появлении. Видна и поверх экрана блокировки PC Block (окно своё, не мешает его кнопкам и паролю,
+// Плашка «Сообщение от родителя» (FR-41, D-97, S57): текст с телефона, кнопка «Понял», звук,
+// выбранный родителем, при появлении. Видна и поверх экрана блокировки PC Block (окно своё, не мешает его кнопкам и паролю,
 // NFR-10). Сообщения идут по очереди: следующее — когда закрыто прежнее. Плашку 1 мин сообщение не
 // перекрывает: пока она видна без экрана блокировки, сообщение ждёт (PL-34). Ждёт и при родительской
 // сессии и без связи со службой. Жизнь плашки (PL-70): showS = 0 — до «Понял»; 10, 30, 60 с —
@@ -26,6 +27,8 @@ const (
 // noteItem — сообщение в очереди стража.
 type noteItem struct {
 	id, text  string
+	sticker   string        // номер стикера, как прислал телефон ("" — без стикера)
+	sound     int           // номер звука, как прислал телефон (0 — без звука); подмена — в noteView
 	show      time.Duration // 0 — до «Понял»
 	waitUntil time.Time     // не показанное к этому моменту забывается
 	shownAt   time.Time
@@ -42,7 +45,37 @@ type NoteView struct {
 	Title   string // «Сообщение от родителя»
 	Text    string // как написал родитель, с переводами строк
 	Buttons []ButtonView
-	Sound   bool
+	// Sound — номер встроенного звука сообщения (sound.PlayMessage): 0 — без звука. Номер, которого
+	// нет среди встроенных (телефон новее компьютера), уже заменён на 1.
+	Sound int
+	// Sticker - номер встроенного стикера над карточкой; "" - без стикера (телефон не выбрал или
+	// прислал номер, которого нет среди встроенных: stickerFrames == 0).
+	Sticker string
+	// Frames - кадров у стикера (0 без стикера), Started - начало показа: кадры идут по кругу,
+	// пока окно видно (NoteStickerFrame). Frame - кадр на момент вида. Still - анимации Windows
+	// выключены: стоит первый кадр, тикер кадров не нужен.
+	Frames  int
+	Started time.Time
+	Frame   int
+	Still   bool
+}
+
+// NoteStickerFrame - кадр стикера сообщения v в момент now: StickerFPS кадров в секунду от начала
+// показа по кругу (после последнего снова первый); при выключенных анимациях - первый. Окно зовёт
+// по своему тикеру без Model; без стикера - 0.
+func NoteStickerFrame(v *NoteView, now time.Time) int {
+	if v == nil || v.Sticker == "" || v.Frames <= 0 || v.Still {
+		return 0
+	}
+	return stickerFrameAt(v.Started, now, v.Frames, false)
+}
+
+// noteSticker - стикер, который покажет страж: встроенный номер как есть, остальное - без стикера.
+func noteSticker(n string) (string, int) {
+	if f := stickerFrames(n); n != "" && f > 0 {
+		return n, f
+	}
+	return "", 0
 }
 
 // OnNote принимает сообщение службы (ipc.GuardCmdNote). То же id второй раз не встаёт в очередь
@@ -66,7 +99,7 @@ func (m *Model) OnNote(now time.Time, n ipc.GuardNote) {
 	}
 	wait := time.Duration(max(n.WaitS, 1)) * time.Second
 	show := time.Duration(max(n.ShowS, 0)) * time.Second
-	m.noteQ = append(m.noteQ, &noteItem{id: n.ID, text: text, show: show, waitUntil: now.Add(wait)})
+	m.noteQ = append(m.noteQ, &noteItem{id: n.ID, text: text, sticker: n.Sticker, sound: n.Sound, show: show, waitUntil: now.Add(wait)})
 	m.advanceNotes(now)
 }
 
@@ -165,8 +198,12 @@ func (m *Model) noteView(now time.Time) *NoteView {
 		return nil
 	}
 	n := m.note
-	return &NoteView{Seq: n.seq, ID: n.id, Title: textNoteTitle, Text: n.text, Sound: true,
+	v := &NoteView{Seq: n.seq, ID: n.id, Title: textNoteTitle, Text: n.text, Sound: noteSound(n.sound),
 		Buttons: []ButtonView{{Button: ButtonNoteOK, Label: textNoteOK, Main: true, Enabled: true}}}
+	v.Sticker, v.Frames = noteSticker(n.sticker)
+	v.Started, v.Still = n.shownAt, m.still
+	v.Frame = NoteStickerFrame(v, now)
+	return v
 }
 
 // TakeNoteEvents возвращает события «показано» и «Понял» и очищает очередь; пустой — [], не nil.
@@ -181,7 +218,17 @@ func (m *Model) TakeNoteEvents() []ipc.GuardEvent {
 	return out
 }
 
+// noteSound — звук, который сыграет страж: 0 («Без звука») — как есть, встроенный номер — как есть,
+// остальное (номер новее этой программы) — звук 1. Служба и журнал хранят то, что прислал телефон.
+func noteSound(n int) int {
+	if n == 0 || sound.HasMessage(n) {
+		return n
+	}
+	return 1
+}
+
 // NoteSoundDue: окну пора сыграть звук для плашки сообщения n, если звук уже играл для показа lastSeq.
+// «Без звука» (0) — никогда.
 func NoteSoundDue(lastSeq int, n *NoteView) bool {
-	return n != nil && n.Sound && n.Seq != lastSeq
+	return n != nil && n.Sound != 0 && n.Seq != lastSeq
 }

@@ -69,6 +69,24 @@ class VectorsTest {
         assertEquals(1800, r.report!!.children.single().leftSec)
     }
 
+    /** Сообщение со стикером и звуком (раздел 5а, 0.8.3): Go = Kotlin байт в байт, хэш тот же. */
+    @Test
+    fun goNoteStickerVectorMatches() {
+        val goJson = Vectors.s("noteStickerJson")
+        val goBytes = goJson.toByteArray(Charsets.UTF_8)
+        assertArrayEquals(goBytes, Crypto.open(Crypto.parsePublicB64(Vectors.s("phonePub")), Vectors.signed("noteSticker")))
+        val o = org.json.JSONObject(goJson)
+        assertEquals("033", o.getString("sticker"))
+        assertEquals(2, o.getInt("sound"))
+        val ours = Proto.noteData(
+            o.getString("pc"), o.getString("phone"), o.getLong("seq"), o.getLong("ts"), o.getLong("child"),
+            o.getString("id"), o.getString("text"), o.getInt("showSec"), o.getString("sticker"), o.getInt("sound"),
+        )
+        assertArrayEquals(goBytes, ours)
+        assertEquals(goJson, String(ours, Charsets.UTF_8))
+        assertEquals(Vectors.s("noteStickerHash"), Crypto.hashData(ours))
+    }
+
     @Test
     fun kotlinSignatureVerifiesWithOwnKey() {
         val signer = SoftSigner.phone()

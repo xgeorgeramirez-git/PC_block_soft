@@ -34,7 +34,9 @@ type fakePC struct {
 	srv        *httptest.Server
 	cmdApplied int
 	notes      []remote.NoteReport
-	forbid     string // запретные часы в отчёте (раздел 6)
+	noteData   string      // data последнего сообщения (FB-28: есть ли поля sticker и sound)
+	note       remote.Note // последнее принятое сообщение после CheckNote
+	forbid     string      // запретные часы в отчёте (раздел 6)
 	forbidEnd  int64
 	today      *remote.TodayReport // статистика за сегодня в отчёте (FR-43)
 }
@@ -156,9 +158,10 @@ func (f *fakePC) hSend(w http.ResponseWriter, r *http.Request) {
 		st := remote.State{PCID: "pc1", Phone: &remote.Phone{ID: "ph1", Pub: f.phonePub}, LastSeq: f.lastSeq}
 		n, _, code := remote.CheckNote(st, s, "ph1", time.Now())
 		data, _ := unb64(s.Data)
+		f.noteData = string(data)
 		res := remote.CmdResult{V: 1, T: remote.TypeNoteR, PC: "pc1", Phone: "ph1", Seq: n.Seq, Cmd: remote.HashData(data), TS: time.Now().UnixMilli()}
 		if code == "" {
-			f.lastSeq = n.Seq
+			f.lastSeq, f.note = n.Seq, n
 			f.notes = append(f.notes, remote.NoteReport{ID: n.ID, Child: n.Child, State: remote.NoteQueued, AtMs: 1})
 			rep := f.report()
 			res.OK, res.Report = true, &rep
@@ -315,6 +318,54 @@ func TestPhoneNotes(t *testing.T) {
 	}
 	if code, out := runJSON(t, "note", "-state", state, "-child", "3"); code != 1 || out["error"] != errUsage {
 		t.Fatalf("без текста: %d %v", code, out)
+	}
+}
+
+// Ловит (FB-28): без -sticker и -sound поля всё же уходят (телефон 0.8.2 их не шлёт); звук 0
+// пропадает (omitempty), стикер или звук уходят не тем JSON-типом; неверный -sound (не целое)
+// уходит на компьютер вместо ошибки вызова.
+func TestPhoneNoteStickerSound(t *testing.T) {
+	f := newFakePC(t)
+	state := filepath.Join(t.TempDir(), "phone.json")
+	if code, out := runJSON(t, "pair", "-state", state, "-url", f.srv.URL, "-code", "123456"); code != 0 {
+		t.Fatalf("pair: %v", out)
+	}
+	runJSON(t, "confirm", "-state", state)
+	last := func() (string, remote.Note) {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		return f.noteData, f.note
+	}
+	if code, out := runJSON(t, "note", "-state", state, "-child", "3", "-text", "Иди ужинать"); code != 0 {
+		t.Fatalf("без стикера: %d %v", code, out)
+	}
+	if data, n := last(); strings.Contains(data, "sticker") || strings.Contains(data, "sound") || n.Sticker != "" || n.Sound != 1 {
+		t.Fatalf("без стикера и звука: %s %+v", data, n)
+	}
+	if code, out := runJSON(t, "note", "-state", state, "-child", "3", "-text", "Иди", "-sticker", "033", "-sound", "2"); code != 0 {
+		t.Fatalf("стикер и звук: %d %v", code, out)
+	}
+	if data, n := last(); !strings.HasSuffix(data, `"showSec":0,"sticker":"033","sound":2}`) || n.Sticker != "033" || n.Sound != 2 {
+		t.Fatalf("стикер и звук: %s %+v", data, n)
+	}
+	if code, out := runJSON(t, "note", "-state", state, "-child", "3", "-text", "Иди", "-sound", "0"); code != 0 {
+		t.Fatalf("звук 0: %d %v", code, out)
+	}
+	if data, n := last(); !strings.HasSuffix(data, `"showSec":0,"sound":0}`) || n.Sound != 0 {
+		t.Fatalf("звук 0: %s %+v", data, n)
+	}
+	// Неверные значения уходят как есть: компьютер отвечает range.
+	for _, bad := range [][]string{{"-sticker", "33"}, {"-sticker", "abc"}, {"-sound", "100"}, {"-sound", "-1"}} {
+		args := append([]string{"note", "-state", state, "-child", "3", "-text", "Иди"}, bad...)
+		if code, out := runJSON(t, args...); code != 2 || out["error"] != remote.ErrCodeRange {
+			t.Fatalf("%v: %d %v", bad, code, out)
+		}
+		if data, _ := last(); !strings.Contains(data, `"`+strings.TrimPrefix(bad[0], "-")+`":`) {
+			t.Fatalf("%v: поле не ушло: %s", bad, data)
+		}
+	}
+	if code, out := runJSON(t, "note", "-state", state, "-child", "3", "-text", "Иди", "-sound", "два"); code != 1 || out["error"] != errUsage {
+		t.Fatalf("-sound не число: %d %v", code, out)
 	}
 }
 

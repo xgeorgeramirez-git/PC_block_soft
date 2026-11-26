@@ -89,7 +89,7 @@ func TestVideoBoardCountsVideo(t *testing.T) {
 func TestVideoWarningRearmsAndSounds(t *testing.T) {
 	r := newCtRig()
 	r.svc.test = true
-	r.ctl.SetSoundPlayer(func() bool { return true })
+	r.ctl.SetSoundPlayers(func() bool { return true }, nil)
 	r.svc.status = ipc.ChildStatusFrom("Миша", videoDecision(5000, 300))
 	r.svc.warns = []ipc.GuardWarning{ipc.NewGuardWarningFor(5, core.WarnVideo, 300)}
 	r.poll()

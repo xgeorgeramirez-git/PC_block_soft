@@ -66,6 +66,17 @@ android {
     // Векторы протокола из Go (testdata/remote/vectors.json) — ресурс JVM-тестов.
     sourceSets["test"].resources.srcDir("../../testdata/remote")
 
+    // Стикеры (stickers/*.tgs, *.png) и звуки сообщения (sounds/message/*.mp3) — одна папка
+    // assets репозитория на компьютер и телефон (FR-41, D-101): набор берётся по файлам.
+    sourceSets["main"].assets.srcDir("../../assets")
+
+    androidResources {
+        // README в папках assets в APK не нужны; остальное — шаблон aapt по умолчанию.
+        ignoreAssetsPattern = "!.svn:!.git:!.ds_store:!*.scc:.*:<dir>_*:!CVS:!thumbs.db:!picasa.ini:!*~:!*.md"
+        // Прослушивание звука идёт через openFd: mp3 в APK не сжимается.
+        noCompress += "mp3"
+    }
+
     lint {
         // Проверки lint не должны ронять сборку выпуска в CI: правим по отчёту, а не по падению.
         checkReleaseBuilds = false
@@ -89,6 +100,8 @@ dependencies {
     implementation("androidx.compose.foundation:foundation")
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-core")
+    // Движущийся стикер выбранной клетки (.tgs = Lottie JSON в gzip, разжимается сам, ui/StickerAssets.kt).
+    implementation("com.airbnb.android:lottie-compose:6.6.0")
 
     // В Android org.json встроен в систему; в JVM-тестах нужна настоящая библиотека.
     testImplementation("junit:junit:4.13.2")

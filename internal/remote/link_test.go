@@ -170,7 +170,7 @@ func (h *fakeHost) ApplyNote(gen int64, n Note) (string, int64) {
 	if n.Child != 3 {
 		return ErrCodeNoChild, n.Seq
 	}
-	h.applied = append(h.applied, fmt.Sprintf("%d:note:%s:%s:%d", n.Seq, n.ID, n.Text, n.ShowSec))
+	h.applied = append(h.applied, fmt.Sprintf("%d:note:%s:%s:%d:%s:%d", n.Seq, n.ID, n.Text, n.ShowSec, n.Sticker, n.Sound))
 	h.notes = append(h.notes, NoteReport{ID: n.ID, Child: n.Child, State: NoteQueued, AtMs: 1})
 	return "", n.Seq
 }
@@ -723,7 +723,7 @@ func TestLinkNoteTable(t *testing.T) {
 	}
 	cmd := Command{V: 1, T: TypeCmd, PC: "pc-x", Phone: "ph1", Seq: 7, TS: now, Child: 3, Delta: 15}
 	cases := []tc{
-		{"верное", KindNote, phone, base, "", 5, "5:note:n-1:Иди ужинать:0"},
+		{"верное", KindNote, phone, base, "", 5, "5:note:n-1:Иди ужинать:0::1"},
 		{"повтор seq", KindNote, phone, with(func(n *Note) { n.ID = "n-2" }), ErrCodeReplay, 5, ""},
 		{"чужой ключ", KindNote, stranger, with(func(n *Note) { n.Seq = 6 }), ErrCodeBadSig, 5, ""},
 		{"команда как сообщение", KindNote, phone, cmd, ErrCodeBadSig, 5, ""},
@@ -741,7 +741,13 @@ func TestLinkNoteTable(t *testing.T) {
 		{"на 300 знаков, 5 строк, 60 с", KindNote, phone, with(func(n *Note) {
 			n.Seq, n.ID, n.ShowSec = 9, "n_4", 60
 			n.Text = "1\n2\n3\n4\n5\n" + strings.Repeat("ж", 290)
-		}), "", 9, "9:note:n_4:1\n2\n3\n4\n5\n" + strings.Repeat("ж", 290) + ":60"},
+		}), "", 9, "9:note:n_4:1\n2\n3\n4\n5\n" + strings.Repeat("ж", 290) + ":60::1"},
+		// Стикер и звук (FB-28): неверный вид — range (не bad_sig), номер не тратится; верный — как есть.
+		{"звук строкой", KindNote, phone, with(func(n *Note) { n.Seq, n.ID, n.SoundRaw = 10, "n-5", json.RawMessage(`"2"`) }), ErrCodeRange, 9, ""},
+		{"стикер числом", KindNote, phone, with(func(n *Note) { n.Seq, n.ID, n.StickerRaw = 10, "n-5", json.RawMessage(`33`) }), ErrCodeRange, 9, ""},
+		{"стикер и звук", KindNote, phone, with(func(n *Note) {
+			n.Seq, n.ID, n.StickerRaw, n.SoundRaw = 10, "n-5", json.RawMessage(`"033"`), json.RawMessage(`0`)
+		}), "", 10, "10:note:n-5:Иди ужинать:0:033:0"},
 	}
 	for _, c := range cases {
 		raw, _ := json.Marshal(c.data)
@@ -787,7 +793,7 @@ func TestLinkNoteTable(t *testing.T) {
 			t.Fatalf("%s: применено %q, нужно %q", c.name, after, c.applied)
 		}
 	}
-	if st, _, _, _ := g.h.get(); st.LastSeq != 9 {
+	if st, _, _, _ := g.h.get(); st.LastSeq != 10 {
 		t.Fatalf("LastSeq %d", st.LastSeq)
 	}
 }
@@ -1345,7 +1351,7 @@ func TestLinkNoForbidden(t *testing.T) {
 			t.Fatalf("отчёт после снятия запрета: %+v", res.Report.Children)
 		}
 	}
-	if _, applied, _, _ := g.h.get(); strings.Join(applied, " ") != "5:noForbidden 6:+15 7:note:n-1:Привет:0" {
+	if _, applied, _, _ := g.h.get(); strings.Join(applied, " ") != "5:noForbidden 6:+15 7:note:n-1:Привет:0::1" {
 		t.Fatalf("применены %v", applied)
 	}
 	// До Host дошли: снять запрет, старая команда, сообщение, нет ребёнка (повторы, подпись и range

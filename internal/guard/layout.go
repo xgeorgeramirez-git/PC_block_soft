@@ -181,62 +181,124 @@ func (l PlateLayout) Hit(x, y int32) int {
 	return -2
 }
 
-// NoteLayout — раскладка плашки «Сообщение от родителя» (FR-41): заголовок, текст крупно с переносами,
-// большая кнопка «Понял» по центру внизу. Координаты клиентские, в пикселях экрана.
+// NoteLayout - раскладка окна «Сообщение от родителя» (FR-41, вид - ТЗ 8.2): сверху по центру стикер,
+// его нижняя часть (Overlap) лежит на карточке; в карточке по центру заголовок, текст родителя и кнопка
+// «Понял» во всю ширину внутреннего поля; вокруг карточки мягкая тень. W, H - окно целиком, со стикером
+// и тенью: пиксели тени ловят клики, поэтому место окна (NoteFit.Place) считается с ней. Координаты
+// клиентские, в пикселях экрана. Без стикера Sticker пустой, StickerPx и Overlap 0.
 type NoteLayout struct {
-	W, H   int32
-	Title  Rect
-	Text   Rect
-	Button Rect
+	W, H      int32
+	Card      Rect  // карточка: фон, рамка, скругление Radius
+	Shadow    Rect  // где рисуется тень: карточка, сдвинутая на ShadowDY и расширенная на ShadowBlur
+	Sticker   Rect  // стикер StickerPx×StickerPx
+	StickerPx int32 // сторона стикера
+	Overlap   int32 // сколько стикера заходит на карточку
+	Title     Rect
+	Text      Rect
+	Button    Rect
+	Radius    int32 // скругление карточки
+	Border    int32 // рамка карточки
+	BtnRadius int32 // скругление кнопки
+	ShadowDY  int32 // сдвиг тени вниз
+	// ShadowBlur - размытие тени: тень сходит на нет на этом расстоянии от сдвинутой карточки.
+	ShadowBlur int32
 }
 
-// Размеры плашки сообщения при 96 dpi: ширина 560, поля 24, кнопка 200×56. Рамка нейтральная, как у
-// остальных плашек стража, без цветной полосы (ТЗ 8.0: цвет — только для статусов). Тесная плашка
-// (над экраном блокировки на низком экране) — поля 12, кнопка 160×44, заголовок мельче.
+// Размеры окна сообщения при 96 dpi (макет вариант Б): карточка 520, стикер 170 (на низком экране не
+// меньше 96), нахлёст 56 из 170, скругление карточки 20, рамка 2, кнопка скругление 6 (ТЗ 8.0 п. 1).
 const (
-	noteWidthPx    = 560
-	noteMaxWPct    = 80 // длинному тексту плашка шире, до 80 % ширины области
-	noteWidthStep  = 40 // шаг расширения при 96 dpi
-	noteMarginPx   = 24 // от верхнего края рабочей области
-	noteMinSidePx  = 16 // от боковых краёв на узком экране
-	noteLockGapPx  = 12 // от заголовка и столбца кнопок экрана блокировки
-	noteLockEdgePx = 16 // столбец экрана блокировки, раздвинутый ради плашки, не ближе к краю экрана
-	noteMaxPct     = 40 // плашка не выше 40 % рабочей области
+	noteWidthPx      = 520
+	noteStickerMaxPx = 170
+	noteStickerMinPx = 96
+	noteStickerStep  = 10 // шаг уменьшения стикера при 96 dpi
+	noteOverlapPx    = 56 // из noteStickerMaxPx: нахлёст пропорционален стороне стикера
+	noteRadiusPx     = 20
+	noteBorderPx     = 2
+	noteBtnRadiusPx  = 6
+	noteMaxWPct      = 80 // длинному тексту карточка шире, окно до 80 % ширины области
+	noteWidthStep    = 40 // шаг расширения при 96 dpi
+	noteMarginPx     = 24 // от верхнего края рабочей области
+	noteMinSidePx    = 16 // от боковых краёв на узком экране
+	noteLockGapPx    = 12 // от заголовка и столбца кнопок экрана блокировки
+	noteLockEdgePx   = 16 // столбец экрана блокировки, раздвинутый ради окна, не ближе к краю экрана
+	noteMaxPct       = 55 // окно с тенью и стикером не выше 55 % рабочей области (Ruling FB28-1)
 
-	// NoteFontPx — текст сообщения при 96 dpi; не помещается и в плашку шириной 80 % (над экраном
-	// блокировки — и раздвинув его) — мельче шагом noteFontStep, не меньше NoteFontMinPx. Текст не
+	// NoteFontPx - текст сообщения при 96 dpi; не помещается и в карточку шириной 80 % (над экраном
+	// блокировки - и раздвинув его) - мельче шагом noteFontStep, не меньше NoteFontMinPx. Текст не
 	// обрезается никогда (FR-41: до 300 знаков и 5 переводов строк видны целиком).
 	NoteFontPx    = 28
 	NoteFontMinPx = 14
 	noteFontStep  = 2
 )
 
-// NoteDensity — отступы и размеры плашки сообщения при 96 dpi.
+// NoteDensity - отступы и размеры окна сообщения при 96 dpi.
 type NoteDensity struct {
-	Pad, Gap, BtnGap, BtnW, BtnH int
-	TitlePx                      int // заголовок «Сообщение от родителя»
+	PadTop, PadSide, PadBottom int // поля карточки (сверху - без стикера)
+	StickerGap                 int // от низа стикера до заголовка
+	Gap                        int // от заголовка до текста
+	BtnGap                     int // от текста до кнопки
+	BtnH                       int
+	TitlePx                    int // заголовок «Сообщение от родителя», полужирный синий
+	BtnPx                      int // подпись кнопки «Понял»
+	ShadowDY, ShadowBlur       int
 }
 
 var (
-	// NoteNormal — обычная плашка.
-	NoteNormal = NoteDensity{Pad: 24, Gap: 10, BtnGap: 20, BtnW: 200, BtnH: 56, TitlePx: 24}
-	// NoteCompact — тесная плашка: место между заголовком и кнопками экрана блокировки на низком экране.
-	NoteCompact = NoteDensity{Pad: 12, Gap: 4, BtnGap: 10, BtnW: 160, BtnH: 44, TitlePx: 18}
+	// NoteNormal - обычное окно (макет): поля 64 со стикером (нахлёст 56 и 8), 32 по бокам, 28 снизу.
+	NoteNormal = NoteDensity{PadTop: 28, PadSide: 32, PadBottom: 28, StickerGap: 8, Gap: 12, BtnGap: 24, BtnH: 56,
+		TitlePx: 18, BtnPx: 22, ShadowDY: 6, ShadowBlur: 16}
+	// NoteCompact - тесное окно: место между заголовком и кнопками экрана блокировки на низком экране.
+	NoteCompact = NoteDensity{PadTop: 10, PadSide: 16, PadBottom: 10, StickerGap: 4, Gap: 4, BtnGap: 8, BtnH: 44,
+		TitlePx: 16, BtnPx: 18, ShadowDY: 2, ShadowBlur: 6}
 )
 
-// NoteWidth — ширина плашки сообщения при dpi на экране шириной areaW (узкий экран — уже).
+// NoteStickerPx - сторона стикера сообщения при dpi: 170 px при 100 %, не больше кадра StickerFramePx.
+func NoteStickerPx(dpi int) int32 { return min(Scaled(noteStickerMaxPx, dpi), StickerFramePx) }
+
+// NoteStickerMinPx - меньше этого стикер сообщения не бывает: 96 px при 100 %, не больше кадра.
+func NoteStickerMinPx(dpi int) int32 { return min(Scaled(noteStickerMinPx, dpi), StickerFramePx) }
+
+// NoteOverlap - сколько стикера стороной px заходит на карточку: 56 из 170, с округлением.
+func NoteOverlap(px int32) int32 {
+	if px <= 0 {
+		return 0
+	}
+	return (px*noteOverlapPx + noteStickerMaxPx/2) / noteStickerMaxPx
+}
+
+// noteStickerSizes - стороны стикера по убыванию: от NoteStickerPx шагом noteStickerStep до
+// NoteStickerMinPx включительно.
+func noteStickerSizes(dpi int) []int32 {
+	hi, lo := NoteStickerPx(dpi), NoteStickerMinPx(dpi)
+	out := []int32{}
+	for px := hi; px > lo; px -= Scaled(noteStickerStep, dpi) {
+		out = append(out, px)
+	}
+	return append(out, lo)
+}
+
+// noteShadowSide - тень сбоку от карточки обычного окна (оно шире тесного).
+func noteShadowSide(dpi int) int32 { return Scaled(NoteNormal.ShadowBlur, dpi) }
+
+// noteMaxCardWidth - шире карточка не бывает: окно с тенью не шире 80 % области и не ближе
+// noteMinSidePx к краям.
+func noteMaxCardWidth(dpi int, areaW int32) int32 {
+	return min(areaW*noteMaxWPct/100, areaW-2*Scaled(noteMinSidePx, dpi)) - 2*noteShadowSide(dpi)
+}
+
+// NoteWidth - ширина карточки сообщения при dpi на экране шириной areaW (узкий экран - уже).
 func NoteWidth(dpi int, areaW int32) int32 {
 	w := Scaled(noteWidthPx, dpi)
-	if limit := areaW - 2*Scaled(noteMinSidePx, dpi); limit > 0 && w > limit {
+	if limit := noteMaxCardWidth(dpi, areaW); limit > 0 && w > limit {
 		w = limit
 	}
 	return w
 }
 
-// noteWidths — ширины плашки по возрастанию: от NoteWidth до 80 % ширины области шагом noteWidthStep.
+// noteWidths - ширины карточки по возрастанию: от NoteWidth до noteMaxCardWidth шагом noteWidthStep.
 func noteWidths(dpi int, areaW int32) []int32 {
 	w0 := NoteWidth(dpi, areaW)
-	wMax := max(w0, min(areaW*noteMaxWPct/100, areaW-2*Scaled(noteMinSidePx, dpi)))
+	wMax := max(w0, noteMaxCardWidth(dpi, areaW))
 	out := []int32{w0}
 	for w := w0 + Scaled(noteWidthStep, dpi); w < wMax; w += Scaled(noteWidthStep, dpi) {
 		out = append(out, w)
@@ -247,24 +309,40 @@ func noteWidths(dpi int, areaW int32) []int32 {
 	return out
 }
 
-// NoteTextWidth — ширина области заголовка и текста плашки шириной w: окно знает её до измерения.
-func NoteTextWidth(dpi int, w int32, d NoteDensity) int32 {
-	return w - 2*Scaled(d.Pad, dpi)
+// NoteTextWidth - ширина заголовка, текста и кнопки в карточке шириной cardW: окно знает её до измерения.
+func NoteTextWidth(dpi int, cardW int32, d NoteDensity) int32 {
+	return cardW - 2*Scaled(d.PadSide, dpi)
 }
 
-// NewNoteLayout считает плашку ширины w для заголовка высотой titleH и текста высотой textH.
-func NewNoteLayout(dpi int, d NoteDensity, w, titleH, textH int32) NoteLayout {
+// NewNoteLayout считает окно с карточкой шириной cardW, стикером стороной sticker (0 - без стикера),
+// заголовком высотой titleH и текстом высотой textH.
+func NewNoteLayout(dpi int, d NoteDensity, cardW, sticker, titleH, textH int32) NoteLayout {
 	s := func(px int) int32 { return Scaled(px, dpi) }
-	left, pad := s(d.Pad), s(d.Pad)
-	l := NoteLayout{W: w}
-	tw := NoteTextWidth(dpi, w, d)
-	l.Title = Rect{Left: left, Top: pad, Right: left + tw, Bottom: pad + titleH}
-	l.Text = Rect{Left: left, Top: l.Title.Bottom + s(d.Gap), Right: left + tw, Bottom: l.Title.Bottom + s(d.Gap) + textH}
-	bw := min(s(d.BtnW), tw)
-	bl := left + (tw-bw)/2
-	bt := l.Text.Bottom + s(d.BtnGap)
-	l.Button = Rect{Left: bl, Top: bt, Right: bl + bw, Bottom: bt + s(d.BtnH)}
-	l.H = l.Button.Bottom + pad
+	dy, blur := s(d.ShadowDY), s(d.ShadowBlur)
+	l := NoteLayout{Radius: s(noteRadiusPx), Border: s(noteBorderPx), BtnRadius: s(noteBtnRadiusPx), ShadowDY: dy, ShadowBlur: blur}
+	padTop := s(d.PadTop)
+	cardTop := max(0, blur-dy) // тень над карточкой
+	if sticker > 0 {
+		l.StickerPx, l.Overlap = sticker, NoteOverlap(sticker)
+		cardTop = max(cardTop, sticker-l.Overlap)
+		padTop = max(padTop, l.Overlap+s(d.StickerGap))
+	}
+	l.Card = Rect{Left: blur, Top: cardTop, Right: blur + cardW}
+	l.W = l.Card.Right + blur
+	if sticker > 0 {
+		left := (l.W - sticker) / 2
+		l.Sticker = Rect{Left: left, Top: cardTop - (sticker - l.Overlap), Right: left + sticker, Bottom: cardTop + l.Overlap}
+	}
+	left := l.Card.Left + s(d.PadSide)
+	tw := NoteTextWidth(dpi, cardW, d)
+	l.Title = Rect{Left: left, Top: cardTop + padTop, Right: left + tw, Bottom: cardTop + padTop + titleH}
+	top := l.Title.Bottom + s(d.Gap)
+	l.Text = Rect{Left: left, Top: top, Right: left + tw, Bottom: top + textH}
+	top = l.Text.Bottom + s(d.BtnGap)
+	l.Button = Rect{Left: left, Top: top, Right: left + tw, Bottom: top + s(d.BtnH)}
+	l.Card.Bottom = l.Button.Bottom + s(d.PadBottom)
+	l.Shadow = Rect{Left: l.Card.Left - blur, Top: l.Card.Top + dy - blur, Right: l.Card.Right + blur, Bottom: l.Card.Bottom + dy + blur}
+	l.H = l.Shadow.Bottom
 	return l
 }
 
@@ -280,13 +358,13 @@ type NoteLock struct {
 	MaxDown     int32
 }
 
-// NoteMeasure — высота текста s шрифтом fontPx (размер при 96 dpi) в ширину width; меряет Windows
+// NoteMeasure - высота текста s шрифтом fontPx (размер при 96 dpi) в ширину width; меряет Windows
 // тем же переносом, что рисует.
 type NoteMeasure func(fontPx int, width int32, s string) int32
 
-// NoteFit — плашка сообщения, разложенная под место: плотность, размер шрифта текста (при 96 dpi),
-// текст (всегда целиком), раскладка, окно в координатах области и сдвиг экрана блокировки под ней:
-// ShiftDown — столбец поля и кнопок вниз, ShiftUp — заголовок и всё над столбцом вверх.
+// NoteFit - окно сообщения, разложенное под место: плотность, размер шрифта текста (при 96 dpi),
+// текст (всегда целиком), раскладка, окно с тенью в координатах области и сдвиг экрана блокировки под
+// ним: ShiftDown - столбец поля и кнопок вниз, ShiftUp - заголовок и всё над столбцом вверх.
 type NoteFit struct {
 	Density            NoteDensity
 	FontPx             int
@@ -296,10 +374,11 @@ type NoteFit struct {
 	ShiftUp, ShiftDown int32
 }
 
-// noteSpot — место для плашки высотой h: верх и сдвиг экрана блокировки; ok — поместилась. Плашка не
-// выше noteMaxPct % рабочей области. На рабочем столе — сверху рабочей области. Над экраном блокировки —
-// выше его заголовка, если там помещается, иначе между заголовком и столбцом кнопок; spread — можно
-// раздвинуть экран: сначала столбец кнопок вниз, потом заголовок вверх, ровно на нехватку.
+// noteSpot - место для окна высотой h (со стикером и тенью): верх и сдвиг экрана блокировки; ok -
+// поместилось. Окно не выше noteMaxPct % рабочей области. На рабочем столе - сверху рабочей области.
+// Над экраном блокировки - выше его заголовка, если там помещается, иначе между заголовком и столбцом
+// кнопок; spread - можно раздвинуть экран: сначала столбец кнопок вниз, потом заголовок вверх, ровно
+// на нехватку.
 func noteSpot(dpi int, area Rect, lock *NoteLock, h int32, spread bool) (top, up, down int32, ok bool) {
 	s := func(px int) int32 { return Scaled(px, dpi) }
 	if h > (area.Bottom-area.Top)*noteMaxPct/100 {
@@ -329,20 +408,39 @@ func noteSpot(dpi int, area Rect, lock *NoteLock, h int32, spread bool) (top, up
 	return midTop - up, up, down, true
 }
 
-// FitNote раскладывает плашку с заголовком title и текстом text в области area (рабочая область
-// монитора) над экраном блокировки lock (nil — рабочий стол). Шрифт текста от NoteFontPx вниз до
-// NoteFontMinPx; на каждом размере — обычная плашка, потом тесная, каждая от NoteWidth шире до 80 %
-// области; не поместилось — над экраном блокировки та же широкая плашка, раздвинув экран (начиная со
-// шрифта, которым встаёт одна строка без раздвижки: короткое сообщение экран не двигает, длинное не
-// мельче короткого); и только потом шрифт мельче. Текст не
-// обрезается. Не поместилось и мельчайшим шрифтом (крошечный экран) — тесная широкая плашка с
-// раздвинутым экраном прижимается к столбцу кнопок сверху: кнопки и поле пароля важнее заголовка.
-func FitNote(dpi int, area Rect, lock *NoteLock, title, text string, measure NoteMeasure) NoteFit {
+// FitNote раскладывает окно с заголовком title и текстом text в области area (рабочая область
+// монитора) над экраном блокировки lock (nil - рабочий стол); sticker - у сообщения есть стикер.
+// Порядок ужатия: шрифт текста от NoteFontPx вниз до NoteFontMinPx; на каждом размере - обычное окно со
+// стикером от 170 px до 96 (при 100 %), потом тесное со стикером 96; каждое - с карточкой от NoteWidth
+// шире до 80 % области. Не поместилось - над экраном блокировки то же окно с широкой карточкой и
+// наименьшим стикером, раздвинув экран (начиная со шрифта, которым встаёт одна строка без раздвижки:
+// короткое сообщение экран не двигает, длинное не мельче короткого); и только потом шрифт мельче.
+// Над экраном блокировки стикер остаётся, только если текст с ним не мельче, чем без него; иначе (и
+// если стикер не помещается совсем: низкий экран при 150 %) - окно без стикера тем же порядком: текст и
+// кнопки экрана блокировки важнее картинки. Текст не обрезается. Не поместилось и
+// мельчайшим шрифтом (крошечный экран) - тесное широкое окно без стикера с раздвинутым экраном
+// прижимается к столбцу кнопок сверху: кнопки и поле пароля важнее заголовка.
+func FitNote(dpi int, area Rect, lock *NoteLock, sticker bool, title, text string, measure NoteMeasure) NoteFit {
+	type mkey struct {
+		font int
+		w    int32
+		s    string
+	}
+	memo := map[mkey]int32{}
+	meas := func(font int, w int32, s string) int32 {
+		k := mkey{font, w, s}
+		h, ok := memo[k]
+		if !ok {
+			h = measure(font, w, s)
+			memo[k] = h
+		}
+		return h
+	}
 	widths := noteWidths(dpi, area.Right-area.Left)
 	wMax := widths[len(widths)-1]
-	build := func(d NoteDensity, font int, w int32) NoteLayout {
+	build := func(d NoteDensity, font int, w, st int32, t string) NoteLayout {
 		tw := NoteTextWidth(dpi, w, d)
-		return NewNoteLayout(dpi, d, w, measure(d.TitlePx, tw, title), measure(font, tw, text))
+		return NewNoteLayout(dpi, d, w, st, meas(d.TitlePx, tw, title), meas(font, tw, t))
 	}
 	place := func(f NoteFit, top int32) NoteFit {
 		left := area.Left + (area.Right-area.Left-f.Layout.W)/2
@@ -350,42 +448,76 @@ func FitNote(dpi int, area Rect, lock *NoteLock, title, text string, measure Not
 		return f
 	}
 	densities := []NoteDensity{NoteNormal, NoteCompact}
-	fits := func(d NoteDensity, font int, w int32, t string) (NoteLayout, int32, bool) {
-		tw := NoteTextWidth(dpi, w, d)
-		l := NewNoteLayout(dpi, d, w, measure(d.TitlePx, tw, title), measure(font, tw, t))
-		top, _, _, ok := noteSpot(dpi, area, lock, l.H, false)
-		return l, top, ok
-	}
-	// Шрифт короткого сообщения (одна строка) на этом месте: экран раздвигается только с него и мельче,
-	// так что длинный текст не мельче короткого, а короткий экран не двигает.
-	oneLine := NoteFontMinPx
-	for font := NoteFontPx; font > NoteFontMinPx && oneLine == NoteFontMinPx; font -= noteFontStep {
-		for _, d := range densities {
-			if _, _, ok := fits(d, font, widths[0], "Ж"); ok {
-				oneLine = font
-				break
-			}
+	// stickers - стороны стикера для плотности d: обычное окно - от полного до наименьшего, тесное -
+	// наименьший (стикер ужимается раньше отступов); без стикера - 0.
+	stickers := func(on bool, d NoteDensity) []int32 {
+		if !on {
+			return []int32{0}
 		}
+		if d == NoteCompact {
+			return []int32{NoteStickerMinPx(dpi)}
+		}
+		return noteStickerSizes(dpi)
 	}
-	for font := NoteFontPx; font >= NoteFontMinPx; font -= noteFontStep {
-		for _, d := range densities {
-			for _, w := range widths {
-				if l, top, ok := fits(d, font, w, text); ok {
-					return place(NoteFit{Density: d, FontPx: font, Text: text, Layout: l}, top)
+	try := func(on bool) (NoteFit, bool) {
+		// Шрифт короткого сообщения (одна строка) на этом месте: экран раздвигается только с него и
+		// мельче, так что длинный текст не мельче короткого, а короткий экран не двигает. Одна строка
+		// не встаёт без раздвижки и мельчайшим - раздвигать с полного шрифта.
+		oneLine := NoteFontPx
+	search:
+		for font := NoteFontPx; font >= NoteFontMinPx; font -= noteFontStep {
+			for _, d := range densities {
+				for _, st := range stickers(on, d) {
+					if _, _, _, ok := noteSpot(dpi, area, lock, build(d, font, widths[0], st, "Ж").H, false); ok {
+						oneLine = font
+						break search
+					}
 				}
 			}
 		}
-		if lock == nil || font > oneLine {
-			continue
-		}
-		for _, d := range densities {
-			l := build(d, font, wMax)
-			if top, up, down, ok := noteSpot(dpi, area, lock, l.H, true); ok {
-				return place(NoteFit{Density: d, FontPx: font, Text: text, Layout: l, ShiftUp: up, ShiftDown: down}, top)
+		for font := NoteFontPx; font >= NoteFontMinPx; font -= noteFontStep {
+			for _, d := range densities {
+				for _, st := range stickers(on, d) {
+					for _, w := range widths {
+						l := build(d, font, w, st, text)
+						if top, _, _, ok := noteSpot(dpi, area, lock, l.H, false); ok {
+							return place(NoteFit{Density: d, FontPx: font, Text: text, Layout: l}, top), true
+						}
+					}
+				}
+			}
+			if lock == nil || font > oneLine {
+				continue
+			}
+			for _, d := range densities {
+				st := stickers(on, d)
+				// Самая узкая карточка с теми же строками, что у самой широкой: раздвижка наименьшая, а
+				// короткое сообщение не растягивается на 80 % экрана.
+				l := build(d, font, wMax, st[len(st)-1], text)
+				for _, w := range widths {
+					if n := build(d, font, w, st[len(st)-1], text); n.Text.Bottom-n.Text.Top == l.Text.Bottom-l.Text.Top {
+						l = n
+						break
+					}
+				}
+				if top, up, down, ok := noteSpot(dpi, area, lock, l.H, true); ok {
+					return place(NoteFit{Density: d, FontPx: font, Text: text, Layout: l, ShiftUp: up, ShiftDown: down}, top), true
+				}
 			}
 		}
+		return NoteFit{}, false
 	}
-	f := NoteFit{Density: NoteCompact, FontPx: NoteFontMinPx, Text: text, Layout: build(NoteCompact, NoteFontMinPx, wMax)}
+	plain, plainOK := try(false)
+	if sticker {
+		// Над экраном блокировки стикер не делает текст мельче, чем без него: читать важнее картинки.
+		if f, ok := try(true); ok && (lock == nil || !plainOK || f.FontPx >= plain.FontPx) {
+			return f
+		}
+	}
+	if plainOK {
+		return plain
+	}
+	f := NoteFit{Density: NoteCompact, FontPx: NoteFontMinPx, Text: text, Layout: build(NoteCompact, NoteFontMinPx, wMax, 0, text)}
 	h := f.Layout.H
 	top := area.Top + Scaled(noteMarginPx, dpi)
 	if lock != nil {

@@ -354,7 +354,7 @@ func boardThenOneMinute(t *testing.T, balance int, buttons string) {
 
 	r := newCtRig()
 	r.svc.test = true
-	r.ctl.SetSoundPlayer(func() bool { return true })
+	r.ctl.SetSoundPlayers(func() bool { return true }, nil)
 	a := &app{ctl: r.ctl}
 	defer a.shutdown()
 	ctRunningStatus := func(rem int) ipc.ChildStatus {
@@ -554,8 +554,9 @@ func TestMeasureLongWordWraps(t *testing.T) {
 	}
 }
 
-// Ловит: настоящая плашка сообщения (мерка Windows) с длинным текстом над экраном блокировки
-// закрывает его заголовок или кнопки, выходит за рабочую область или выше 40 % её, текст обрезан.
+// Ловит: настоящее окно сообщения (мерка Windows) с длинным текстом над экраном блокировки
+// закрывает его заголовок или кнопки, выходит за рабочую область или выше 55 % её (окно со стикером
+// и тенью), текст обрезан.
 func TestNoteWindowOverLockFits(t *testing.T) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
@@ -568,16 +569,23 @@ func TestNoteWindowOverLockFits(t *testing.T) {
 	text := strings.Repeat(strings.Repeat("Иди ужинать скорее ", 2)+"\n", 5) + strings.Repeat("ж", 110)
 	lock := &NoteLock{Title: Rect{Left: wa.left + 62, Top: wa.top + 65, Right: wa.left + 962, Bottom: wa.top + 115}, ControlsTop: wa.top + 272,
 		MaxUp: 65 - 16, MaxDown: 768 - 16 - 680}
-	for _, lk := range []*NoteLock{nil, lock} {
-		n.apply(&NoteView{Seq: 1, ID: "a", Title: textNoteTitle, Text: text,
-			Buttons: []ButtonView{{Button: ButtonNoteOK, Label: textNoteOK, Main: true, Enabled: true}}}, lk)
+	for i, c := range []struct {
+		lk      *NoteLock
+		sticker string
+	}{{nil, ""}, {lock, ""}, {nil, "033"}, {lock, "033"}} {
+		lk := c.lk
+		v := &NoteView{Seq: i + 1, ID: "a", Title: textNoteTitle, Text: text,
+			Buttons: []ButtonView{{Button: ButtonNoteOK, Label: textNoteOK, Main: true, Enabled: true}}}
+		v.Sticker, v.Frames = noteSticker(c.sticker)
+		v.Started = time.Now()
+		n.apply(v, lk)
 		pump(50 * time.Millisecond)
 		g := n.geom
 		if g.top < wa.top || g.bottom > wa.bottom || g.left < wa.left || g.right > wa.right {
 			t.Fatalf("плашка %+v вне рабочей области %+v", g, wa)
 		}
-		if h := g.bottom - g.top; h > (wa.bottom-wa.top)*40/100 {
-			t.Fatalf("плашка %d px выше 40 %% области", h)
+		if h := g.bottom - g.top; h > (wa.bottom-wa.top)*55/100 {
+			t.Fatalf("окно %d px выше 55 %% области (Ruling FB28-1)", h)
 		}
 		if lk != nil {
 			f := n.fit
@@ -588,8 +596,8 @@ func TestNoteWindowOverLockFits(t *testing.T) {
 		}
 		// Текст целиком (FR-41): без «…», все строки в раскладке (мерка Windows), шрифт не мельче 14 px.
 		hdc, _, _ := procGetDC.Call(n.hwnd)
-		tw := NoteTextWidth(n.dpi, n.fit.Layout.W, n.fit.Density)
-		need := measureHeight(hdc, n.font(n.fit.FontPx, 400), text, tw)
+		tw := NoteTextWidth(n.dpi, n.fit.Layout.Card.Right-n.fit.Layout.Card.Left, n.fit.Density)
+		need := measureHeight(hdc, n.font(n.fit.FontPx, 600), text, tw)
 		procReleaseDC.Call(n.hwnd, hdc)
 		if n.fit.Text != text || n.fit.FontPx < 14 || need > n.fit.Layout.Text.Bottom-n.fit.Layout.Text.Top {
 			t.Fatalf("текст не целиком: шрифт %d, нужно %d px, место %+v, %q", n.fit.FontPx, need, n.fit.Layout.Text, n.fit.Text)
@@ -617,17 +625,182 @@ func contrastRatio(a, b uintptr) float64 {
 	return (la + 0.05) / (lb + 0.05)
 }
 
-// Ловит: цветная (синяя) рамка плашки сообщения вместо нейтральной, как у остальных плашек (ТЗ 8.0:
-// цвет — только для статусов); тусклый заголовок (контраст с поверхностью ниже 4,5:1) и заголовок не
-// крупнее подписи 20 px.
-func TestNoteColorsNeutral(t *testing.T) {
-	if noteFrameColor != colorLine {
-		t.Fatalf("рамка %06x, want нейтральная colorLine %06x", noteFrameColor, colorLine)
+// Ловит (ТЗ 8.0 п. 3, 8.2): окно сообщения не своего синего (рамка, заголовок и кнопка #2F6DB5 на
+// фоне #EEF4FC - одни константы с рисунком noterender.go); заголовок тусклый (контраст ниже 4,5:1) или
+// не 18 px; белая подпись «Понял» на синей кнопке ниже 4,5:1.
+func TestNoteColorsBlue(t *testing.T) {
+	ref := func(v uint32) uintptr { return rgb(v>>16&0xFF, v>>8&0xFF, v&0xFF) }
+	if NoteBlueRGB != 0x2F6DB5 || NoteTintRGB != 0xEEF4FC || NoteInkRGB != 0x1B1F23 {
+		t.Fatalf("цвета %06x/%06x/%06x, want 2F6DB5/EEF4FC/1B1F23", NoteBlueRGB, NoteTintRGB, NoteInkRGB)
 	}
-	if r := contrastRatio(noteTitleColor, colorSurface); r < 4.5 || noteTitleColor == colorSecondary {
-		t.Fatalf("заголовок: контраст %.2f, цвет %06x", r, noteTitleColor)
+	if r := contrastRatio(ref(NoteBlueRGB), ref(NoteTintRGB)); r < 4.5 {
+		t.Fatalf("заголовок на карточке: контраст %.2f", r)
 	}
-	if NoteNormal.TitlePx <= 20 {
-		t.Fatalf("заголовок %d px, want крупнее 20", NoteNormal.TitlePx)
+	if r := contrastRatio(ref(0xFFFFFF), ref(NoteBlueRGB)); r < 4.5 {
+		t.Fatalf("«Понял» на кнопке: контраст %.2f", r)
+	}
+	if r := contrastRatio(ref(NoteInkRGB), ref(NoteTintRGB)); r < 4.5 {
+		t.Fatalf("текст на карточке: контраст %.2f", r)
+	}
+	if NoteNormal.TitlePx != 18 {
+		t.Fatalf("заголовок %d px, want 18", NoteNormal.TitlePx)
+	}
+	// Окно рисует текст теми же цветами, что основа: не прежними нейтральными colorLine/colorText.
+	if noteFrameColor != ref(NoteBlueRGB) || noteTitleColor != ref(NoteBlueRGB) || noteInkColor != ref(NoteInkRGB) {
+		t.Fatalf("окно: рамка %06x, заголовок %06x, текст %06x (COLORREF); want синий %06x и %06x",
+			noteFrameColor, noteTitleColor, noteInkColor, ref(NoteBlueRGB), ref(NoteInkRGB))
+	}
+}
+
+// Ловит (FR-41, NFR-5, план 0.8.3): стикер сообщения в настоящем окне не разобран, не движется
+// (тикер не запущен или кадр не выводится), движется при выключенных анимациях Windows; после
+// скрытия окна тикер идёт дальше, а спрайт и буферы рисунка остаются в памяти; без стикера окно
+// всё равно держит спрайт.
+func TestNoteWindowStickerAnimates(t *testing.T) {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	n, err := newNoteWindow(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer n.close()
+	var shownSticker string
+	var frames []int
+	n.onShown = func(s string, k int) { shownSticker = s; frames = append(frames, k) }
+	v := &NoteView{Seq: 1, ID: "a", Title: textNoteTitle, Text: "Иди ужинать",
+		Buttons: []ButtonView{{Button: ButtonNoteOK, Label: textNoteOK, Main: true, Enabled: true}}}
+	v.Sticker, v.Frames = noteSticker("033")
+	v.Started = time.Now()
+	if v.Sticker != "033" || v.Frames == 0 {
+		t.Fatalf("стикера 033 нет среди встроенных: %q, %d кадров", v.Sticker, v.Frames)
+	}
+	n.apply(v, nil)
+	for end := time.Now().Add(5 * time.Second); n.sprite == nil && time.Now().Before(end); {
+		pump(20 * time.Millisecond)
+	}
+	if n.sprite == nil || n.anim == nil || n.fit.Layout.StickerPx == 0 {
+		t.Fatalf("спрайт %v, шаг кадров %v, стикер %d px", n.sprite != nil, n.anim != nil, n.fit.Layout.StickerPx)
+	}
+	frames = nil
+	pump(time.Second)
+	distinct := map[int]bool{}
+	for _, k := range frames {
+		distinct[k] = true
+	}
+	if shownSticker != "033" || len(distinct) < StickerFPS/3 {
+		t.Fatalf("за 1 с выведено %d разных кадров стикера %q, ждали не меньше %d", len(distinct), shownSticker, StickerFPS/3)
+	}
+	// Анимации Windows выключены: первый кадр, шаг кадров остановлен.
+	still := *v
+	still.Still = true
+	n.apply(&still, nil)
+	if n.anim != nil || n.cur != 0 {
+		t.Fatalf("без анимаций: шаг кадров %v, кадр %d (ждали первый)", n.anim != nil, n.cur)
+	}
+	n.apply(nil, nil)
+	if n.anim != nil || n.sprite != nil || n.bits != nil || n.base != nil || n.dib != 0 || shownSticker != "" {
+		t.Fatalf("после скрытия: шаг %v, спрайт %v, DIB %v, основа %v, стикер %q",
+			n.anim != nil, n.sprite != nil, n.dib != 0, n.base != nil, shownSticker)
+	}
+	// Без стикера: окно не держит спрайт и не шагает кадры.
+	plain := &NoteView{Seq: 2, ID: "b", Title: textNoteTitle, Text: "Иди ужинать", Buttons: v.Buttons}
+	n.apply(plain, nil)
+	pump(100 * time.Millisecond)
+	if n.sprite != nil || n.anim != nil || n.fit.Layout.StickerPx != 0 || n.pending != "" {
+		t.Fatalf("без стикера: спрайт %v, шаг %v, стикер %d px, разбор %q", n.sprite != nil, n.anim != nil, n.fit.Layout.StickerPx, n.pending)
+	}
+}
+
+var procWindowFromPoint = user32.NewProc("WindowFromPoint")
+
+// windowAt - окно в точке экрана, как его выберет щелчок мыши (POINT по значению одним регистром на
+// amd64 и arm64).
+func windowAt(x, y int32) uintptr {
+	h, _, _ := procWindowFromPoint.Call(uintptr(uint64(uint32(x)) | uint64(uint32(y))<<32))
+	return h
+}
+
+// Ловит (ревью M3 0.8.3, NFR-10): прозрачные пиксели окна сообщения (угол рядом со стикером, вне
+// тени) ловят щелчки, и окно под ним (поле пароля, кнопки экрана блокировки) там не нажать; или
+// карточка с текстом и кнопка «Понял» щелчков не ловят.
+func TestNoteWindowClicksPassThroughTransparent(t *testing.T) {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	n, err := newNoteWindow(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer n.close()
+	v := &NoteView{Seq: 1, ID: "a", Title: textNoteTitle, Text: "Иди ужинать",
+		Buttons: []ButtonView{{Button: ButtonNoteOK, Label: textNoteOK, Main: true, Enabled: true}}}
+	v.Sticker, v.Frames = noteSticker("033")
+	v.Started = time.Now()
+	n.apply(v, nil)
+	for end := time.Now().Add(5 * time.Second); n.sprite == nil && time.Now().Before(end); {
+		pump(20 * time.Millisecond)
+	}
+	pump(100 * time.Millisecond)
+	l := n.fit.Layout
+	if n.sprite == nil || l.StickerPx <= 0 || n.bits == nil || !n.visible {
+		t.Fatalf("окно со стикером не показано: спрайт %v, стикер %d px, DIB %v", n.sprite != nil, l.StickerPx, n.bits != nil)
+	}
+	alpha := func(x, y int32) byte { return n.bits[(int(y)*int(n.dibW)+int(x))*4+3] }
+	// Угол окна левее стикера и выше тени карточки: альфа 0.
+	cx, cy := l.Sticker.Left/2, int32(2)
+	if cy >= l.Shadow.Top || cx <= 0 || alpha(cx, cy) != 0 {
+		t.Fatalf("точка (%d, %d) окна не прозрачна: альфа %d, стикер с %d, тень с %d", cx, cy, alpha(cx, cy), l.Sticker.Left, l.Shadow.Top)
+	}
+	if h := windowAt(n.geom.left+cx, n.geom.top+cy); h == n.hwnd {
+		t.Fatalf("щелчок в прозрачной точке (%d, %d) окна ловит окно сообщения: под ним ничего не нажать", cx, cy)
+	}
+	for _, p := range []struct {
+		name string
+		r    Rect
+	}{{"текст на карточке", l.Text}, {"кнопка «Понял»", l.Button}} {
+		x, y := (p.r.Left+p.r.Right)/2, (p.r.Top+p.r.Bottom)/2
+		if a := alpha(x, y); a != 255 {
+			t.Fatalf("%s (%d, %d): альфа %d, ждали непрозрачную", p.name, x, y, a)
+		}
+		if h := windowAt(n.geom.left+x, n.geom.top+y); h != n.hwnd {
+			t.Fatalf("%s (%d, %d): щелчок попадает в окно %#x, а не в окно сообщения %#x", p.name, x, y, h, n.hwnd)
+		}
+	}
+}
+
+// Ловит (ревью M4 0.8.3): над экраном блокировки настоящее окно (мерка Windows) никогда не оставляет
+// стикер, хотя места хватает: путь «стикер над блокировкой» не проверялся ни одним настоящим окном
+// (в TestNoteWindowOverLockFits длинный текст отдаёт стикер). Высокий экран блокировки: заголовок
+// сверху, кнопки внизу, короткое сообщение встаёт между ними со стикером и без сдвига экрана.
+func TestNoteWindowStickerOverLock(t *testing.T) {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	n, err := newNoteWindow(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer n.close()
+	var shown string
+	n.onShown = func(s string, _ int) { shown = s }
+	wa := workArea()
+	lock := &NoteLock{Title: Rect{Left: wa.left + 62, Top: wa.top + 20, Right: wa.right - 62, Bottom: wa.top + 60}, ControlsTop: wa.bottom - 60}
+	v := &NoteView{Seq: 1, ID: "a", Title: textNoteTitle, Text: "Иди ужинать",
+		Buttons: []ButtonView{{Button: ButtonNoteOK, Label: textNoteOK, Main: true, Enabled: true}}}
+	v.Sticker, v.Frames = noteSticker("033")
+	v.Started = time.Now()
+	n.apply(v, lock)
+	for end := time.Now().Add(5 * time.Second); n.sprite == nil && time.Now().Before(end); {
+		pump(20 * time.Millisecond)
+	}
+	pump(50 * time.Millisecond)
+	f, g := n.fit, n.geom
+	if f.Layout.StickerPx <= 0 {
+		t.Fatalf("над экраном блокировки (рабочая область %d×%d, %d dpi) окно без стикера: %+v",
+			wa.right-wa.left, wa.bottom-wa.top, n.dpi, f.Layout)
+	}
+	if n.sprite == nil || shown != "033" {
+		t.Fatalf("стикер над экраном блокировки не выведен: спрайт %v, выведен %q", n.sprite != nil, shown)
+	}
+	if f.ShiftUp != 0 || f.ShiftDown != 0 || g.top < lock.Title.Bottom || g.bottom > lock.ControlsTop {
+		t.Fatalf("окно %+v закрывает заголовок %+v или кнопки (с %d), сдвиг %d/%d", g, lock.Title, lock.ControlsTop, f.ShiftUp, f.ShiftDown)
 	}
 }

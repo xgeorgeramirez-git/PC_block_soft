@@ -13,7 +13,7 @@ on:
   workflow_dispatch:
     inputs:
       scenario:
-        description: "Что прогнать после сборки: пусто = обычная сборка, smoke = ранний смоук службы (tools/accept/smoke.ps1), accept = приёмка S1...S23, S25...S27, S33...S56, LE1, LE2, FB1, FB5, TMP1, PROBE (tools/accept/run-all.ps1), probe = проба Brave (TestBraveProbe, M4 T0)"
+        description: "Что прогнать после сборки: пусто = обычная сборка, smoke = ранний смоук службы (tools/accept/smoke.ps1), accept = приёмка S1...S23, S25...S27, S33...S60, LE1, LE2, FB1, FB5, TMP1, PROBE (tools/accept/run-all.ps1), probe = проба Brave (TestBraveProbe, M4 T0)"
         required: false
         default: ""
         type: string
@@ -105,15 +105,15 @@ jobs:
           exec > >(tee -a "$RUNNER_TEMP/ci.log") 2>&1
           wails build -clean -nsis -trimpath -ldflags "-s -w"
 
-      # NFR-4: установщик не больше 40 МБ (с полным списком 18+ ожидание около 28 МБ).
-      - name: Размер установщика (NFR-4 ≤ 40 МБ)
+      # NFR-4: установщик не больше 70 МБ (D-101: 74 стикера сообщения; ожидание около 62–66 МБ).
+      - name: Размер установщика (NFR-4 ≤ 70 МБ)
         run: |
           exec > >(tee -a "$RUNNER_TEMP/ci.log") 2>&1
           inst=$(ls build/bin/*installer*.exe | head -1)
           size=$(stat -c %s "$inst")
           echo "::notice title=Размер установщика::$size байт ($inst)"
-          if [ "$size" -gt 41943040 ]; then
-            echo "::error title=Размер установщика::$size байт, NFR-4 не больше 41943040 (40 МБ)"
+          if [ "$size" -gt 73400320 ]; then
+            echo "::error title=Размер установщика::$size байт, NFR-4 не больше 73400320 (70 МБ)"
             exit 1
           fi
 

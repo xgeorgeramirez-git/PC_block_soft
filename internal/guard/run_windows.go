@@ -168,7 +168,8 @@ func Run(opts launch.Options) error {
 	a.ctl = NewController(NewModel(), caller, time.Now, a.readSensors, func() {
 		procPostMessage.Call(a.host, wmAppRefresh, 0, 0)
 	})
-	a.ctl.SetSoundPlayer(sound.PlayWarning)
+	a.ctl.SetSoundPlayers(sound.PlayWarning, sound.PlayMessage)
+	a.ctl.SetSoundLengths(sound.WarningLength, sound.MessageLength)
 	a.ctl.SetTabActor(winTabs{})
 	a.ctl.SetClockSpeed(a.speed)
 	a.ctl.SetAnimations(clientAreaAnimation())
@@ -188,7 +189,8 @@ func Run(opts launch.Options) error {
 	runStage.Store(1)
 
 	close(stop)
-	caller.close() // прерывает ожидающий запрос
+	a.ctl.StopSounds() // исполнитель звуков выходит, не дожидаясь конца звука
+	caller.close()     // прерывает ожидающий запрос
 	wg.Wait()
 	runStage.Store(2)
 	a.shutdown()
@@ -427,7 +429,7 @@ func (a *app) applyPlate(v View) {
 	a.plate.apply(text)
 }
 
-// applyNote показывает плашку «Сообщение от родителя» или прячет её (FR-41).
+// applyNote показывает окно «Сообщение от родителя» или прячет его (FR-41).
 func (a *app) applyNote(v View) {
 	if v.Note == nil {
 		if a.note != nil {
@@ -443,6 +445,7 @@ func (a *app) applyNote(v View) {
 		if err != nil {
 			return // следующий кадр попробует снова; служба ждёт «показано» и повторит
 		}
+		n.onShown = a.ctl.SetNoteShown // тестовый режим: стикер и кадр окна (GuardState, S60)
 		a.note = n
 	}
 	var lock *NoteLock
