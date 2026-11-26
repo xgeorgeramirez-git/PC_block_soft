@@ -2121,6 +2121,13 @@
             "atMs": 1759999940000,
             "threshold": 1,
             "ok": true
+          },
+          {
+            "atMs": 1759999970000,
+            "threshold": 0,
+            "ok": true,
+            "note": true,
+            "noteSound": 2
           }
         ],
         "ui": {

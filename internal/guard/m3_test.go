@@ -297,7 +297,7 @@ func TestBlockedPlateAndWarningShareCorner(t *testing.T) {
 	// Контроллер: вернувшаяся плашка 1 мин не пишется показанной второй раз и звук не повторяет.
 	r := newCtRig()
 	r.svc.test = true
-	r.ctl.SetSoundPlayer(func() bool { return true })
+	r.ctl.SetSoundPlayers(func() bool { return true }, nil)
 	r.svc.status = ctRunningStatus(60)
 	r.svc.warns = []ipc.GuardWarning{ipc.NewGuardWarning(1)}
 	r.poll()
@@ -596,7 +596,7 @@ func TestGamesAndLimitInOnePoll(t *testing.T) {
 
 	r := newCtRig()
 	r.svc.test = true
-	r.ctl.SetSoundPlayer(func() bool { return true })
+	r.ctl.SetSoundPlayers(func() bool { return true }, nil)
 	r.svc.status = ipc.ChildStatusFrom("Миша", gamesDecision(5000, 300))
 	r.svc.warns = []ipc.GuardWarning{ipc.NewGuardWarningFor(5, core.WarnGames, 300)}
 	r.poll()

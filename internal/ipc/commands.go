@@ -896,13 +896,14 @@ type ShownWarning struct {
 	Text      string `json:"text"`
 }
 
-// ShownSound — звук предупреждения, который страж сыграл (тестовый режим): порог и ответ
-// Windows (PlaySoundW принял звук; на раннере без звуковой карты бывает false).
+// ShownSound — звук, который страж сыграл (тестовый режим): порог предупреждения или номер звука
+// сообщения и ответ Windows (PlaySoundW принял звук; на раннере без звуковой карты бывает false).
 type ShownSound struct {
 	AtMs      int64 `json:"atMs"`
 	Threshold int   `json:"threshold"`
 	OK        bool  `json:"ok"`
-	Note      bool  `json:"note,omitempty"` // звук плашки «Сообщение от родителя» (FR-41), не порога
+	Note      bool  `json:"note,omitempty"`      // звук плашки «Сообщение от родителя» (FR-41), не порога
+	NoteSound int   `json:"noteSound,omitempty"` // номер сыгранного звука сообщения (после подмены неизвестного на 1)
 }
 
 // GuardUI — жив ли поток окон стража: момент и число его кадров, последняя паника, пойманная в
@@ -922,7 +923,7 @@ type GuardField struct {
 // GuardStateReply — что сейчас показывает страж (GuardState, только тестовый режим).
 type GuardStateReply struct {
 	Warnings  []ShownWarning `json:"warnings"`  // журнал показанных предупреждений
-	Sounds    []ShownSound   `json:"sounds"`    // журнал сыгранных звуков предупреждений (D-55)
+	Sounds    []ShownSound   `json:"sounds"`    // журнал сыгранных звуков предупреждений (D-55) и сообщений (FR-41)
 	UI        GuardUI        `json:"ui"`        // диагностика потока окон стража (тестовый режим)
 	LockShown bool           `json:"lockShown"` // экран блокировки показан
 	LockKind  string         `json:"lockKind"`  // Lock*

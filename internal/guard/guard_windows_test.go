@@ -354,7 +354,7 @@ func boardThenOneMinute(t *testing.T, balance int, buttons string) {
 
 	r := newCtRig()
 	r.svc.test = true
-	r.ctl.SetSoundPlayer(func() bool { return true })
+	r.ctl.SetSoundPlayers(func() bool { return true }, nil)
 	a := &app{ctl: r.ctl}
 	defer a.shutdown()
 	ctRunningStatus := func(rem int) ipc.ChildStatus {

@@ -505,7 +505,7 @@ func examples() map[string]example {
 		"TestSeedDay#bonusPending": ok(TestSeedDayRequest{ChildID: 1, Day: "2026-11-17", TotalS: 2400, GamesS: 2400, BonusPending: true}, Empty{}),
 		CmdGuardState: ok(nil, GuardStateReply{
 			Warnings:  []ShownWarning{{AtMs: t0 - 60_000, Threshold: 1, Text: "Осталась 1 минута: 0:59"}},
-			Sounds:    []ShownSound{{AtMs: t0 - 60_000, Threshold: 1, OK: true}},
+			Sounds:    []ShownSound{{AtMs: t0 - 60_000, Threshold: 1, OK: true}, {AtMs: t0 - 30_000, OK: true, Note: true, NoteSound: 2}},
 			LockShown: true,
 			LockKind:  LockTimeUp,
 			Buttons:   []string{ButtonParentPassword, ButtonShutdown, ButtonLogoff, ButtonSwitchUser},

@@ -51,9 +51,10 @@ type Controller struct {
 	sounds    []ipc.ShownSound // сыгранные звуки (журнал для GuardState, только тестовый режим)
 	soundID   int              // ID плашки, для которой звук уже сыгран
 	noteSound int              // номер показа сообщения с телефона, для которого звук уже сыгран (FR-41)
-	play      func() bool      // проиграть звук предупреждения; true — Windows принял звук
+	playWarn  func() bool      // проиграть звук предупреждения; true — Windows принял звук
+	playMsg   func(int) bool   // проиграть встроенный звук сообщения с номером; true — Windows принял звук
 	warm      func(string)     // заранее разобрать кадры стикера промокода (не в потоке окон)
-	soundQ    chan int         // номера записей журнала звуков для исполнителя звука; nil — исполнитель не запущен
+	soundQ    chan soundItem   // очередь исполнителя звука (одна на оба вида); nil — исполнитель не запущен
 	speed     int              // ускорение часов ядра, сообщённое окном; модели передаётся только в тестовом режиме
 	ui        ipc.GuardUI      // диагностика потока окон
 	seenPlate int              // наибольший ID плашки, о которой уже известно (ID растут; вернувшаяся плашка не новая)
@@ -128,11 +129,12 @@ func (c *Controller) NoteUITick(now time.Time) {
 	c.mu.Unlock()
 }
 
-// SetSoundPlayer задаёт, чем играть звук предупреждения (окно: sound.PlayWarning). Без него
-// звук не играет. Вызывать до первого View.
-func (c *Controller) SetSoundPlayer(play func() bool) {
+// SetSoundPlayers задаёт, чем играть звук предупреждения (окно: sound.PlayWarning) и звук сообщения
+// с телефона по номеру (sound.PlayMessage). Без своего плеера звук этого вида не играет и не пишется
+// в журнал. Вызывать до первого View.
+func (c *Controller) SetSoundPlayers(warning func() bool, message func(n int) bool) {
 	c.mu.Lock()
-	c.play = play
+	c.playWarn, c.playMsg = warning, message
 	c.mu.Unlock()
 }
 
@@ -595,11 +597,12 @@ func (c *Controller) playDue(now time.Time, w *WarningView) {
 		return
 	}
 	c.soundID = w.ID
-	c.enqueueSoundLocked(ipc.ShownSound{AtMs: now.UnixMilli(), Threshold: w.Threshold})
+	c.enqueueSoundLocked(ipc.ShownSound{AtMs: now.UnixMilli(), Threshold: w.Threshold}, soundItem{})
 }
 
-// playNote играет звук заказчика один раз на каждый показ плашки сообщения с телефона (FR-41): тем же
-// исполнителем, что звук предупреждений.
+// playNote играет выбранный родителем звук один раз на каждый показ плашки сообщения с телефона
+// (FR-41): тем же исполнителем и той же очередью, что звук предупреждений. «Без звука» — ни одного
+// вызова плеера.
 func (c *Controller) playNote(now time.Time, n *NoteView) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -607,12 +610,21 @@ func (c *Controller) playNote(now time.Time, n *NoteView) {
 		return
 	}
 	c.noteSound = n.Seq
-	c.enqueueSoundLocked(ipc.ShownSound{AtMs: now.UnixMilli(), Note: true})
+	c.enqueueSoundLocked(ipc.ShownSound{AtMs: now.UnixMilli(), Note: true, NoteSound: n.Sound}, soundItem{note: true, n: n.Sound})
+}
+
+// soundItem — звук в очереди исполнителя: вид (предупреждение или сообщение с номером) и запись
+// журнала звуков, куда дописать ответ Windows.
+type soundItem struct {
+	note bool // звук сообщения с телефона; иначе звук предупреждения
+	n    int  // номер звука сообщения
+	idx  int  // запись журнала звуков (тестовый режим); -1 — не пишется
 }
 
 // enqueueSoundLocked отдаёт звук исполнителю (под c.mu); в тестовом режиме пишет его в журнал звуков.
-func (c *Controller) enqueueSoundLocked(rec ipc.ShownSound) {
-	if c.play == nil {
+// Плеер проверяется для своего вида: без плеера сообщений звук предупреждения всё равно играет.
+func (c *Controller) enqueueSoundLocked(rec ipc.ShownSound, it soundItem) {
+	if it.note && c.playMsg == nil || !it.note && c.playWarn == nil {
 		return
 	}
 	idx := -1
@@ -623,25 +635,37 @@ func (c *Controller) enqueueSoundLocked(rec ipc.ShownSound) {
 		}
 		idx = len(c.sounds) - 1
 	}
+	it.idx = idx
 	if c.soundQ == nil {
-		c.soundQ = make(chan int, 8)
-		go c.soundLoop(c.play, c.soundQ)
+		c.soundQ = make(chan soundItem, 8)
+		go c.soundLoop(c.soundQ)
 	}
 	select {
-	case c.soundQ <- idx:
+	case c.soundQ <- it:
 	default: // очередь полна: звуки идут чаще, чем Windows их принимает; лишний пропускается
 	}
 }
 
-// soundLoop играет звуки по одному (PlaySoundW не любит одновременных вызовов) и дописывает
-// ответ Windows в журнал. Записи журнала могли сдвинуться при обрезке до maxSoundLog: тогда
-// ответ теряется, а не попадает к чужой записи.
-func (c *Controller) soundLoop(play func() bool, q <-chan int) {
-	for idx := range q {
-		ok := false
-		safely(func() { ok = play() })
+// soundLoop — единственный исполнитель звуков обоих видов: играет их по одному (PlaySoundW не
+// любит одновременных вызовов, второй обрывает первый) и дописывает ответ Windows в журнал. Записи
+// журнала могли сдвинуться при обрезке до maxSoundLog: тогда ответ теряется, а не попадает к чужой
+// записи.
+func (c *Controller) soundLoop(q <-chan soundItem) {
+	for it := range q {
 		c.mu.Lock()
-		if idx >= 0 && idx < len(c.sounds) && len(c.sounds) < maxSoundLog {
+		warn, msg := c.playWarn, c.playMsg
+		c.mu.Unlock()
+		ok := false
+		safely(func() {
+			switch {
+			case it.note && msg != nil:
+				ok = msg(it.n)
+			case !it.note && warn != nil:
+				ok = warn()
+			}
+		})
+		c.mu.Lock()
+		if idx := it.idx; idx >= 0 && idx < len(c.sounds) && len(c.sounds) < maxSoundLog {
 			c.sounds[idx].OK = ok
 		}
 		c.mu.Unlock()
