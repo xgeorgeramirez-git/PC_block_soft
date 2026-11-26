@@ -441,6 +441,43 @@ func LoadNoteSprite(n string) (*NoteSprite, error) {
 	return &NoteSprite{Sticker: n, Frames: count, pix: pal.Pix, stride: pal.Stride, pal: premulPalette(pal.Palette)}, nil
 }
 
+// noteSpriteInbox — спрайты стикеров сообщения, разобранные своими горутинами и ещё не забранные
+// потоком окон. Результат хранится по номеру стикера: если стикер сменился во время разбора (A, затем
+// B) и B разобран раньше A, результат B не затирается результатом A (ревью M1 0.8.3). Сам выбор -
+// чистый, его проверяет тест на любой системе; окно только зовёт put из горутины и take в потоке окон.
+type noteSpriteInbox struct {
+	mu   sync.Mutex
+	done map[string]*NoteSprite // nil-спрайт - разбор не удался
+}
+
+// put кладёт результат разбора стикера sticker (s nil - не удался); из любой горутины.
+func (b *noteSpriteInbox) put(sticker string, s *NoteSprite) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.done == nil {
+		b.done = map[string]*NoteSprite{}
+	}
+	b.done[sticker] = s
+}
+
+// take забирает всё разобранное: спрайт стикера want (found - его разбор закончился, sprite nil -
+// не удался; want "" - стикер не нужен) и ждущий номер после этого: pending, пока его результата
+// нет, иначе "". Остальные результаты устарели и выбрасываются.
+func (b *noteSpriteInbox) take(want, pending string) (sprite *NoteSprite, found bool, stillPending string) {
+	b.mu.Lock()
+	done := b.done
+	b.done = nil
+	b.mu.Unlock()
+	if _, ok := done[pending]; ok {
+		pending = ""
+	}
+	if want == "" {
+		return nil, false, pending
+	}
+	sprite, found = done[want]
+	return sprite, found, pending
+}
+
 // FrameBGRA — кадр k (за пределами — ближайший крайний) стороной px (больше StickerFramePx не
 // бывает), BGRA с предумноженной прозрачностью, строки сверху вниз: те же пиксели, что кадр k у
 // StickerFramesBGRA. Срез — общий буфер спрайта, действует до следующего вызова; тот же кадр того

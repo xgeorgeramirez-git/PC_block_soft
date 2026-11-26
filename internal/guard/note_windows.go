@@ -4,7 +4,6 @@ package guard
 
 import (
 	"fmt"
-	"sync"
 	"time"
 	"unsafe"
 
@@ -89,12 +88,6 @@ var (
 	noteInkColor   = noteColorRef(NoteInkRGB)
 )
 
-// noteSpriteResult - спрайт, разобранный горутиной (sprite nil - разбор не удался).
-type noteSpriteResult struct {
-	sticker string
-	sprite  *NoteSprite
-}
-
 type noteWindow struct {
 	hwnd, hInst uintptr
 	dpi         int
@@ -130,8 +123,7 @@ type noteWindow struct {
 	cur     int
 	anim    *stickerAnim
 
-	mu    sync.Mutex
-	built *noteSpriteResult // разобранный горутиной и ещё не забранный потоком окон
+	inbox noteSpriteInbox // разобранные горутинами и ещё не забранные потоком окон, по номеру
 }
 
 func newNoteWindow(onPress func(Button)) (*noteWindow, error) {
@@ -460,37 +452,32 @@ func (n *noteWindow) wantSprite(sticker string) {
 		if err != nil {
 			s = nil
 		}
-		n.mu.Lock()
-		n.built = &noteSpriteResult{sticker: sticker, sprite: s}
-		n.mu.Unlock()
+		n.inbox.put(sticker, s)
 		procPostMessage.Call(hwnd, wmNoteSprite, 0, 0)
 	})
 }
 
-// spriteReady забирает разобранный спрайт: свой - кадр на экран и шаг кадров; чужой (стикер уже
-// сменился, окно скрыто) выбрасывается; разбор не удался - окно без стикера.
+// spriteReady забирает разобранные спрайты (noteSpriteInbox: по номеру, порядок окончания разборов
+// не важен): свой - кадр на экран и шаг кадров; чужие (стикер уже сменился, окно скрыто)
+// выбрасываются; разбор не удался - окно без стикера.
 func (n *noteWindow) spriteReady() {
-	n.mu.Lock()
-	res := n.built
-	n.built = nil
-	n.mu.Unlock()
-	if res == nil {
+	want := ""
+	if n.visible {
+		want = n.sticker
+	}
+	sprite, found, pending := n.inbox.take(want, n.pending)
+	n.pending = pending
+	if !found {
 		return
 	}
-	if n.pending == res.sticker {
-		n.pending = ""
-	}
-	if !n.visible || res.sticker != n.sticker {
-		return
-	}
-	if res.sprite == nil {
-		n.failed = res.sticker
+	if sprite == nil {
+		n.failed = want
 		n.key = "" // заново без стикера: место под картинку не пустует
 		v := n.view
 		n.apply(&v, n.lock)
 		return
 	}
-	n.sprite = res.sprite
+	n.sprite = sprite
 	n.cur = -1
 	if n.putFrame(NoteStickerFrame(&n.view, time.Now())) {
 		n.updateSticker()
