@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"image"
 	"image/png"
+	"os"
 	"sort"
 	"strings"
 	"testing"
@@ -15,7 +16,9 @@ var promoStickerNumbers = []string{
 	"077", "082", "084", "093", "095", "096", "110", "112",
 }
 
-func TestStickerFramesIndexListsPromoStickers(t *testing.T) {
+// Ловит: стикер из assets/stickers не встроен в стража (D-101: в сообщении с телефона любой из
+// 74 стикеров заказчика) или пропал стикер промокода.
+func TestStickerFramesIndexListsAllStickers(t *testing.T) {
 	counts, err := stickerFrameCounts()
 	if err != nil {
 		t.Fatalf("frames.json: %v", err)
@@ -25,8 +28,27 @@ func TestStickerFramesIndexListsPromoStickers(t *testing.T) {
 		got = append(got, n)
 	}
 	sort.Strings(got)
-	if strings.Join(got, ",") != strings.Join(promoStickerNumbers, ",") {
-		t.Fatalf("в frames.json %v, ждали %v", got, promoStickerNumbers)
+	src, err := os.ReadDir("../../assets/stickers")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{}
+	for _, e := range src {
+		if n, ok := strings.CutSuffix(e.Name(), ".tgs"); ok {
+			want = append(want, n)
+		}
+	}
+	sort.Strings(want)
+	if len(want) != 74 {
+		t.Fatalf("в assets/stickers %d стикеров .tgs, ждали 74 (D-83)", len(want))
+	}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("в frames.json %v, ждали %v", got, want)
+	}
+	for _, n := range promoStickerNumbers {
+		if counts[n] == 0 {
+			t.Fatalf("стикер промокода %s не встроен", n)
+		}
 	}
 }
 
@@ -64,10 +86,10 @@ func TestStickerSpritesMatchIndex(t *testing.T) {
 			pngs++
 		}
 	}
-	if pngs != 17 {
-		t.Fatalf("PNG стикеров: %d, ждали 17", pngs)
+	if pngs != len(counts) {
+		t.Fatalf("PNG стикеров: %d, в frames.json %d", pngs, len(counts))
 	}
-	for _, n := range promoStickerNumbers {
+	for n := range counts {
 		data, err := stickerSprite(n)
 		if err != nil {
 			t.Fatalf("%s: %v", n, err)
@@ -88,9 +110,9 @@ func TestStickerSpritesMatchIndex(t *testing.T) {
 		}
 		checkStickerAlpha(t, n, img, frames)
 	}
-	// Бюджет 10 МБ (D-84: 30 кадров/с; установщик 28,5 МБ при пределе NFR-4 40 МБ).
-	if total > 10<<20 {
-		t.Fatalf("стикеры вместе %d байт, бюджет 10 МБ (%d)", total, 10<<20)
+	// Бюджет 40 МБ (D-84: 30 кадров/с; D-101: все 74 стикера, около 35 МБ; NFR-4 — установщик ≤ 70 МБ).
+	if total > 40<<20 {
+		t.Fatalf("стикеры вместе %d байт, бюджет 40 МБ (%d)", total, 40<<20)
 	}
 	t.Logf("стикеры вместе %d байт", total)
 }

@@ -12,7 +12,7 @@ internal/guard/assets/stickers/<n>.png (палитра 256 цветов с пр�
 Запускает разработчик в своей песочнице, вывод коммитится (как rest-cat.png);
 в CI генератор не идёт. Пример:
 
-    python3 -I tools/sticker-frames.py            # 17 стикеров промокода (R26)
+    python3 -I tools/sticker-frames.py            # все стикеры assets/stickers/*.tgs (D-101)
     python3 -I tools/sticker-frames.py 017 023 --size 240 --fps 30
 """
 
@@ -25,23 +25,20 @@ import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 
-# R26, D-83: верный код, затем неверный.
-PROMO = [
-    "017", "033", "044", "049", "050", "077", "093", "096", "112",
-    "023", "028", "048", "069", "082", "084", "095", "110",
-]
-
 
 def parse_args(argv):
     p = argparse.ArgumentParser(description="Кадры стикеров для стража (спрайт PNG).")
-    p.add_argument("numbers", nargs="*", default=PROMO, help="номера стикеров (по умолчанию 17 из R26)")
+    p.add_argument("numbers", nargs="*", default=None, help="номера стикеров (по умолчанию все assets/stickers/*.tgs: промокод R26 и сообщение FR-41)")
     p.add_argument("--size", type=int, default=300, help="сторона кадра, px (300)")
-    p.add_argument("--fps", type=int, default=30, help="кадров в секунду (30: плавный показ по кругу, D-84; бюджет 10 МБ)")
+    p.add_argument("--fps", type=int, default=30, help="кадров в секунду (30: плавный показ по кругу, D-84; бюджет 40 МБ на все)")
     p.add_argument("--src", type=pathlib.Path, default=ROOT / "assets" / "stickers")
     p.add_argument("--out", type=pathlib.Path, default=ROOT / "internal" / "guard" / "assets" / "stickers")
     p.add_argument("--player", type=pathlib.Path, default=ROOT / "frontend" / "src" / "vendor" / "lottie_light.min.js")
     p.add_argument("--chrome", default="/usr/bin/google-chrome")
-    return p.parse_args(argv)
+    args = p.parse_args(argv)
+    if not args.numbers:
+        args.numbers = sorted(f.stem for f in args.src.glob("*.tgs"))
+    return args
 
 
 def frame_times(total, src_fps, fps):
