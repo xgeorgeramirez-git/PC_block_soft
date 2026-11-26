@@ -8,6 +8,7 @@ on:
     branches: [main, feature/m7-android, feature/m7-remote]
     paths:
       - "android/**"
+      - "assets/**"
       - "testdata/remote/**"
       - "internal/version/**"
       - ".github/workflows/android.yml"
@@ -15,6 +16,7 @@ on:
     branches: [main]
     paths:
       - "android/**"
+      - "assets/**"
       - "testdata/remote/**"
       - "internal/version/**"
       - ".github/workflows/android.yml"

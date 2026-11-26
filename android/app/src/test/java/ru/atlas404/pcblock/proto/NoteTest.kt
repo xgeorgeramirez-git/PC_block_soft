@@ -166,6 +166,37 @@ class NoteTest {
         assertTrue(Proto.noteOk("x".repeat(300) + "\u200b".repeat(20)))
     }
 
+    // ---------- набор стикеров и звуков (файлы assets, не константа) ----------
+
+    @Test
+    fun stickerAndSoundSetsComeFromFileNames() {
+        assertEquals(
+            listOf("001", "017", "033", "113"),
+            Proto.stickerIds(arrayOf("033.tgs", "033.png", "README.md", "113.tgs", "001.tgs", "17.tgs", "017.tgs", "abc.tgs", "0333.tgs")),
+        )
+        assertEquals(emptyList<String>(), Proto.stickerIds(null))
+        assertEquals(
+            listOf(1, 2, 5, 10, 99),
+            Proto.soundIds(arrayOf("10.mp3", "2.mp3", "README.md", "1.mp3", "0.mp3", "100.mp3", "5.mp3", "x.mp3", "99.mp3", "3.wav", "01.mp3")),
+        )
+        assertEquals(emptyList<Int>(), Proto.soundIds(null))
+    }
+
+    /**
+     * Папка assets репозитория (её берёт APK, app/build.gradle.kts): у каждого стикера есть превью,
+     * «Звук 1» (звук по умолчанию) есть. Число не зашито: новый файл — новый стикер или звук (D-101).
+     */
+    @Test
+    fun repoAssetsHaveStickersWithPreviewsAndSounds() {
+        val root = listOf("../../assets", "../assets", "assets").map { java.io.File(it) }
+            .firstOrNull { java.io.File(it, "stickers").isDirectory } ?: error("папка assets не найдена")
+        val stickers = Proto.stickerIds(java.io.File(root, "stickers").list())
+        assertTrue(stickers.size > Proto.STICKER_GRID)
+        for (id in stickers) assertTrue("нет превью $id.png", java.io.File(root, "stickers/$id.png").isFile)
+        val sounds = Proto.soundIds(java.io.File(root, "sounds/message").list())
+        assertEquals(Proto.DEFAULT_SOUND, sounds.first())
+    }
+
     // ---------- повтор после обрыва ----------
 
     @Test

@@ -36,6 +36,20 @@ object Proto {
     const val DEFAULT_SOUND = 1
     const val MAX_SOUND = 99
 
+    /** Сколько стикеров в сетке экрана сообщения рядом с «Без стикера» (остальные — «Все N»). */
+    const val STICKER_GRID = 11
+
+    private val STICKER_FILE = Regex("^([0-9]{3})\\.tgs$")
+    private val SOUND_FILE = Regex("^([1-9][0-9]?)\\.mp3$")
+
+    /** Номера стикеров по именам файлов папки stickers (NNN.tgs), по возрастанию. */
+    fun stickerIds(files: Array<String>?): List<String> =
+        files.orEmpty().mapNotNull { STICKER_FILE.matchEntire(it)?.groupValues?.get(1) }.distinct().sorted()
+
+    /** Номера звуков по именам файлов папки sounds/message (N.mp3, 1…99), по возрастанию. */
+    fun soundIds(files: Array<String>?): List<Int> =
+        files.orEmpty().mapNotNull { SOUND_FILE.matchEntire(it)?.groupValues?.get(1)?.toInt() }.distinct().sorted()
+
     /** Привязанный компьютер: чьи подписи и для какого телефона принимаем. */
     data class Peer(val pcId: String, val phoneId: String, val pcPub: PublicKey)
 
