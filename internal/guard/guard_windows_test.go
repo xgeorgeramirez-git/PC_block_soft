@@ -554,8 +554,8 @@ func TestMeasureLongWordWraps(t *testing.T) {
 	}
 }
 
-// Ловит: настоящая плашка сообщения (мерка Windows) с длинным текстом над экраном блокировки
-// закрывает его заголовок или кнопки, выходит за рабочую область или выше 40 % её, текст обрезан.
+// Ловит: настоящее окно сообщения (мерка Windows) с длинным текстом над экраном блокировки
+// закрывает его заголовок или кнопки, выходит за рабочую область или выше 55 % её, текст обрезан.
 func TestNoteWindowOverLockFits(t *testing.T) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
@@ -576,8 +576,8 @@ func TestNoteWindowOverLockFits(t *testing.T) {
 		if g.top < wa.top || g.bottom > wa.bottom || g.left < wa.left || g.right > wa.right {
 			t.Fatalf("плашка %+v вне рабочей области %+v", g, wa)
 		}
-		if h := g.bottom - g.top; h > (wa.bottom-wa.top)*40/100 {
-			t.Fatalf("плашка %d px выше 40 %% области", h)
+		if h := g.bottom - g.top; h > (wa.bottom-wa.top)*55/100 {
+			t.Fatalf("окно %d px выше 55 %% области (Ruling FB28-1)", h)
 		}
 		if lk != nil {
 			f := n.fit
@@ -588,7 +588,7 @@ func TestNoteWindowOverLockFits(t *testing.T) {
 		}
 		// Текст целиком (FR-41): без «…», все строки в раскладке (мерка Windows), шрифт не мельче 14 px.
 		hdc, _, _ := procGetDC.Call(n.hwnd)
-		tw := NoteTextWidth(n.dpi, n.fit.Layout.W, n.fit.Density)
+		tw := NoteTextWidth(n.dpi, n.fit.Layout.Card.Right-n.fit.Layout.Card.Left, n.fit.Density)
 		need := measureHeight(hdc, n.font(n.fit.FontPx, 400), text, tw)
 		procReleaseDC.Call(n.hwnd, hdc)
 		if n.fit.Text != text || n.fit.FontPx < 14 || need > n.fit.Layout.Text.Bottom-n.fit.Layout.Text.Top {
@@ -617,17 +617,24 @@ func contrastRatio(a, b uintptr) float64 {
 	return (la + 0.05) / (lb + 0.05)
 }
 
-// Ловит: цветная (синяя) рамка плашки сообщения вместо нейтральной, как у остальных плашек (ТЗ 8.0:
-// цвет — только для статусов); тусклый заголовок (контраст с поверхностью ниже 4,5:1) и заголовок не
-// крупнее подписи 20 px.
-func TestNoteColorsNeutral(t *testing.T) {
-	if noteFrameColor != colorLine {
-		t.Fatalf("рамка %06x, want нейтральная colorLine %06x", noteFrameColor, colorLine)
+// Ловит (ТЗ 8.0 п. 3, 8.2): окно сообщения не своего синего (рамка, заголовок и кнопка #2F6DB5 на
+// фоне #EEF4FC - одни константы с рисунком noterender.go); заголовок тусклый (контраст ниже 4,5:1) или
+// не 18 px; белая подпись «Понял» на синей кнопке ниже 4,5:1.
+func TestNoteColorsBlue(t *testing.T) {
+	ref := func(v uint32) uintptr { return rgb(v>>16&0xFF, v>>8&0xFF, v&0xFF) }
+	if NoteBlueRGB != 0x2F6DB5 || NoteTintRGB != 0xEEF4FC || NoteInkRGB != 0x1B1F23 {
+		t.Fatalf("цвета %06x/%06x/%06x, want 2F6DB5/EEF4FC/1B1F23", NoteBlueRGB, NoteTintRGB, NoteInkRGB)
 	}
-	if r := contrastRatio(noteTitleColor, colorSurface); r < 4.5 || noteTitleColor == colorSecondary {
-		t.Fatalf("заголовок: контраст %.2f, цвет %06x", r, noteTitleColor)
+	if r := contrastRatio(ref(NoteBlueRGB), ref(NoteTintRGB)); r < 4.5 {
+		t.Fatalf("заголовок на карточке: контраст %.2f", r)
 	}
-	if NoteNormal.TitlePx <= 20 {
-		t.Fatalf("заголовок %d px, want крупнее 20", NoteNormal.TitlePx)
+	if r := contrastRatio(ref(0xFFFFFF), ref(NoteBlueRGB)); r < 4.5 {
+		t.Fatalf("«Понял» на кнопке: контраст %.2f", r)
+	}
+	if r := contrastRatio(ref(NoteInkRGB), ref(NoteTintRGB)); r < 4.5 {
+		t.Fatalf("текст на карточке: контраст %.2f", r)
+	}
+	if NoteNormal.TitlePx != 18 {
+		t.Fatalf("заголовок %d px, want 18", NoteNormal.TitlePx)
 	}
 }
