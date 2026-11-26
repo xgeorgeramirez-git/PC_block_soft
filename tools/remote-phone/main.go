@@ -10,7 +10,9 @@
 //	remote-phone today   -state f.json -child 3 [-human] (статистика за сегодня одного ребёнка, FR-43)
 //	remote-phone forge-cmd -state f.json -child 3 -delta 15   (подпись чужим ключом)
 //	remote-phone replay  -state f.json                        (повтор последней команды, тот же seq)
-//	remote-phone note    -state f.json -child 3 -text "Иди ужинать" -show 0   (сообщение, FR-41)
+//	remote-phone note    -state f.json -child 3 -text "Иди ужинать" -show 0 [-sticker 033] [-sound 2]
+//	                                                          (сообщение, FR-41; без -sticker и -sound
+//	                                                          полей нет, как у телефона 0.8.2)
 //	remote-phone forge-note -state f.json -child 3 -text "…" -show 0       (подпись чужим ключом)
 //	remote-phone notes   -state f.json                        (состояния сообщений из отчёта)
 //	remote-phone forbid-off -state f.json -child 3            (снять запрет на сегодня, FR-42)
@@ -33,6 +35,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -109,6 +112,8 @@ func (a *app) run(args []string) int {
 	delta := fs.Int("delta", 0, "минуты доп. времени, со знаком (cmd, forge-cmd)")
 	text := fs.String("text", "", "текст сообщения (note, forge-note)")
 	show := fs.Int("show", 0, "сколько показывать, с: 0 (до «Понял»), 10, 30, 60 (note, forge-note)")
+	sticker := fs.String("sticker", "", "номер стикера из 3 цифр, уходит строкой как есть; пусто: поля нет (note, forge-note)")
+	sound := fs.String("sound", "", "номер звука, целое, уходит числом как есть (0: без звука); пусто: поля нет (note, forge-note)")
 	human := fs.Bool("human", false, "вывод для человека вместо JSON (status, today)")
 	if err := fs.Parse(rest); err != nil {
 		return a.emitErr(fail(errUsage, "%v", err))
@@ -158,7 +163,7 @@ func (a *app) run(args []string) int {
 		}
 	case "note", "forge-note":
 		var r noteOut
-		r, err = a.note(*statePath, sub, *child, *text, *show)
+		r, err = a.note(*statePath, sub, *child, *text, *show, *sticker, *sound)
 		res, rejected = r, err == nil && !r.OK
 	case "notes":
 		var r statusOut
@@ -668,7 +673,9 @@ type noteOut struct {
 // note — сообщение ребёнку (протокол, раздел 5а): следующий seq (общий с командами), случайный id
 // из 16 байтов, подпись ключом телефона; forge-note — подпись чужим ключом (seq не тратится). Ответ
 // noter принимается, только если подпись компьютера верна и cmd — хэш нашего сообщения.
-func (a *app) note(statePath, sub string, child int64, text string, show int) (noteOut, error) {
+// sticker и sound уходят как есть (неверные — для проверки отказа range): sticker — JSON-строкой,
+// sound — JSON-числом (не целое — ошибка вызова); пустые — поля нет.
+func (a *app) note(statePath, sub string, child int64, text string, show int, sticker, sound string) (noteOut, error) {
 	st, err := loadState(statePath)
 	if err != nil {
 		return noteOut{}, err
@@ -685,6 +692,18 @@ func (a *app) note(statePath, sub string, child int64, text string, show int) (n
 	}
 	n := remote.Note{V: remote.ProtoVersion, T: remote.TypeNote, PC: st.PCID, Phone: st.PhoneID, Seq: st.Seq + 1,
 		TS: a.now().UnixMilli(), Child: child, ID: b64(idRaw), Text: text, ShowSec: show}
+	if sticker != "" {
+		if n.StickerRaw, err = json.Marshal(sticker); err != nil {
+			return noteOut{}, err
+		}
+	}
+	if sound != "" {
+		v, err := strconv.Atoi(sound)
+		if err != nil {
+			return noteOut{}, fail(errUsage, "%s: -sound должен быть целым числом", sub)
+		}
+		n.SoundRaw = json.RawMessage(strconv.Itoa(v))
+	}
 	data, err := json.Marshal(n)
 	if err != nil {
 		return noteOut{}, err
