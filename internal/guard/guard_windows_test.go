@@ -766,3 +766,41 @@ func TestNoteWindowClicksPassThroughTransparent(t *testing.T) {
 		}
 	}
 }
+
+// Ловит (ревью M4 0.8.3): над экраном блокировки настоящее окно (мерка Windows) никогда не оставляет
+// стикер, хотя места хватает: путь «стикер над блокировкой» не проверялся ни одним настоящим окном
+// (в TestNoteWindowOverLockFits длинный текст отдаёт стикер). Высокий экран блокировки: заголовок
+// сверху, кнопки внизу, короткое сообщение встаёт между ними со стикером и без сдвига экрана.
+func TestNoteWindowStickerOverLock(t *testing.T) {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	n, err := newNoteWindow(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer n.close()
+	var shown string
+	n.onShown = func(s string, _ int) { shown = s }
+	wa := workArea()
+	lock := &NoteLock{Title: Rect{Left: wa.left + 62, Top: wa.top + 20, Right: wa.right - 62, Bottom: wa.top + 60}, ControlsTop: wa.bottom - 60}
+	v := &NoteView{Seq: 1, ID: "a", Title: textNoteTitle, Text: "Иди ужинать",
+		Buttons: []ButtonView{{Button: ButtonNoteOK, Label: textNoteOK, Main: true, Enabled: true}}}
+	v.Sticker, v.Frames = noteSticker("033")
+	v.Started = time.Now()
+	n.apply(v, lock)
+	for end := time.Now().Add(5 * time.Second); n.sprite == nil && time.Now().Before(end); {
+		pump(20 * time.Millisecond)
+	}
+	pump(50 * time.Millisecond)
+	f, g := n.fit, n.geom
+	if f.Layout.StickerPx <= 0 {
+		t.Fatalf("над экраном блокировки (рабочая область %d×%d, %d dpi) окно без стикера: %+v",
+			wa.right-wa.left, wa.bottom-wa.top, n.dpi, f.Layout)
+	}
+	if n.sprite == nil || shown != "033" {
+		t.Fatalf("стикер над экраном блокировки не выведен: спрайт %v, выведен %q", n.sprite != nil, shown)
+	}
+	if f.ShiftUp != 0 || f.ShiftDown != 0 || g.top < lock.Title.Bottom || g.bottom > lock.ControlsTop {
+		t.Fatalf("окно %+v закрывает заголовок %+v или кнопки (с %d), сдвиг %d/%d", g, lock.Title, lock.ControlsTop, f.ShiftUp, f.ShiftDown)
+	}
+}
