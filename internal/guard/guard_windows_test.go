@@ -710,3 +710,59 @@ func TestNoteWindowStickerAnimates(t *testing.T) {
 		t.Fatalf("без стикера: спрайт %v, шаг %v, стикер %d px, разбор %q", n.sprite != nil, n.anim != nil, n.fit.Layout.StickerPx, n.pending)
 	}
 }
+
+var procWindowFromPoint = user32.NewProc("WindowFromPoint")
+
+// windowAt - окно в точке экрана, как его выберет щелчок мыши (POINT по значению одним регистром на
+// amd64 и arm64).
+func windowAt(x, y int32) uintptr {
+	h, _, _ := procWindowFromPoint.Call(uintptr(uint64(uint32(x)) | uint64(uint32(y))<<32))
+	return h
+}
+
+// Ловит (ревью M3 0.8.3, NFR-10): прозрачные пиксели окна сообщения (угол рядом со стикером, вне
+// тени) ловят щелчки, и окно под ним (поле пароля, кнопки экрана блокировки) там не нажать; или
+// карточка с текстом и кнопка «Понял» щелчков не ловят.
+func TestNoteWindowClicksPassThroughTransparent(t *testing.T) {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	n, err := newNoteWindow(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer n.close()
+	v := &NoteView{Seq: 1, ID: "a", Title: textNoteTitle, Text: "Иди ужинать",
+		Buttons: []ButtonView{{Button: ButtonNoteOK, Label: textNoteOK, Main: true, Enabled: true}}}
+	v.Sticker, v.Frames = noteSticker("033")
+	v.Started = time.Now()
+	n.apply(v, nil)
+	for end := time.Now().Add(5 * time.Second); n.sprite == nil && time.Now().Before(end); {
+		pump(20 * time.Millisecond)
+	}
+	pump(100 * time.Millisecond)
+	l := n.fit.Layout
+	if n.sprite == nil || l.StickerPx <= 0 || n.bits == nil || !n.visible {
+		t.Fatalf("окно со стикером не показано: спрайт %v, стикер %d px, DIB %v", n.sprite != nil, l.StickerPx, n.bits != nil)
+	}
+	alpha := func(x, y int32) byte { return n.bits[(int(y)*int(n.dibW)+int(x))*4+3] }
+	// Угол окна левее стикера и выше тени карточки: альфа 0.
+	cx, cy := l.Sticker.Left/2, int32(2)
+	if cy >= l.Shadow.Top || cx <= 0 || alpha(cx, cy) != 0 {
+		t.Fatalf("точка (%d, %d) окна не прозрачна: альфа %d, стикер с %d, тень с %d", cx, cy, alpha(cx, cy), l.Sticker.Left, l.Shadow.Top)
+	}
+	if h := windowAt(n.geom.left+cx, n.geom.top+cy); h == n.hwnd {
+		t.Fatalf("щелчок в прозрачной точке (%d, %d) окна ловит окно сообщения: под ним ничего не нажать", cx, cy)
+	}
+	for _, p := range []struct {
+		name string
+		r    Rect
+	}{{"текст на карточке", l.Text}, {"кнопка «Понял»", l.Button}} {
+		x, y := (p.r.Left+p.r.Right)/2, (p.r.Top+p.r.Bottom)/2
+		if a := alpha(x, y); a != 255 {
+			t.Fatalf("%s (%d, %d): альфа %d, ждали непрозрачную", p.name, x, y, a)
+		}
+		if h := windowAt(n.geom.left+x, n.geom.top+y); h != n.hwnd {
+			t.Fatalf("%s (%d, %d): щелчок попадает в окно %#x, а не в окно сообщения %#x", p.name, x, y, h, n.hwnd)
+		}
+	}
+}
