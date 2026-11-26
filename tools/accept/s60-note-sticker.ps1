@@ -259,7 +259,15 @@ Invoke-Scenario "S60" "Сообщение с телефона со стикер�
       }
       $distinct = @($frames | Sort-Object -Unique).Count
       Write-Log "$what`: кадры стикера за 0,9 с: $($frames -join ', ')"
-      Assert-That ($distinct -ge 2) "$what`: кадр стикера не меняется за 0,9 с (кадры $($frames -join ', ')); анимации Windows у пользователя сценария: $([PcbScreenInk]::Animations()) (выключены: стикер стоит, R26)"
+      # Ruling S60-1: на раннере GitHub анимации Windows выключены, а при выключенных анимациях стикер
+      # по правилу R26 стоит на первом кадре. Тогда сценарий проверяет именно это, а движение кадров
+      # в настоящем окне проверяет Windows-тест TestNoteWindowStickerAnimates (windows.yml, «Тесты Go на Windows»).
+      if ([PcbScreenInk]::Animations()) {
+        Assert-That ($distinct -ge 2) "$what`: кадр стикера не меняется за 0,9 с (кадры $($frames -join ', ')) при включённых анимациях Windows"
+      } else {
+        Write-Log "$what`: анимации Windows выключены, стикер должен стоять на первом кадре (R26)"
+        Assert-That ($distinct -eq 1 -and $frames[0] -eq 0) "$what`: анимации Windows выключены, а кадры стикера $($frames -join ', '): ждали только 0 (R26)"
+      }
       Assert-OneNoteSound $before 2 $what
       Wait-NoteState $script:IdA "shown" 10
       Assert-NoteFits (Get-NoteRect) $what
