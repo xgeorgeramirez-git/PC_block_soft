@@ -926,6 +926,9 @@ type ShownSound struct {
 	OK        bool  `json:"ok"`
 	Note      bool  `json:"note,omitempty"`      // звук плашки «Сообщение от родителя» (FR-41), не порога
 	NoteSound int   `json:"noteSound,omitempty"` // номер сыгранного звука сообщения (после подмены неизвестного на 1)
+	// System — звук схемы Windows плашки «Игрового лобби» («SystemExclamation», «Notification.Default»;
+	// ТЗ 8.2.4, 8.2.5): что запрошено; OK — принял ли Windows (выключенный в схеме звук - false).
+	System string `json:"system,omitempty"`
 }
 
 // GuardUI — жив ли поток окон стража: момент и число его кадров, последняя паника, пойманная в

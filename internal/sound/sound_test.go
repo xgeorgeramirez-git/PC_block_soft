@@ -206,3 +206,14 @@ func TestSoundLengths(t *testing.T) {
 		}
 	}
 }
+
+// Ловит (R-7, D-111): имена звуков схемы Windows для плашек «Игрового лобби» не те, что в
+// разделе «Звуки» панели управления («Восклицание», «Уведомление»).
+func TestSystemAliases(t *testing.T) {
+	if AliasExclamation != "SystemExclamation" || AliasNotify != "Notification.Default" {
+		t.Fatalf("%q %q", AliasExclamation, AliasNotify)
+	}
+	if !isWindows && PlaySystem(AliasExclamation) {
+		t.Fatal("вне Windows системный звук принят")
+	}
+}

@@ -168,7 +168,7 @@ func Run(opts launch.Options) error {
 	a.ctl = NewController(NewModel(), caller, time.Now, a.readSensors, func() {
 		procPostMessage.Call(a.host, wmAppRefresh, 0, 0)
 	})
-	a.ctl.SetSoundPlayers(sound.PlayWarning, sound.PlayMessage)
+	a.ctl.SetSoundPlayers(sound.PlayWarning, sound.PlayMessage, sound.PlaySystem)
 	a.ctl.SetSoundLengths(sound.WarningLength, sound.MessageLength)
 	a.ctl.SetTabActor(winTabs{})
 	a.ctl.SetClockSpeed(a.speed)

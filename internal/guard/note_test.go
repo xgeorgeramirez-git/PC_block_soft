@@ -195,7 +195,7 @@ func TestControllerPhoneNote(t *testing.T) {
 		played = append(played, n)
 		mu.Unlock()
 		return true
-	})
+	}, nil)
 	playedNow := func(want int) string {
 		for end := time.Now().Add(2 * time.Second); time.Now().Before(end); time.Sleep(5 * time.Millisecond) {
 			mu.Lock()
@@ -351,7 +351,7 @@ func TestSoundWarningAndNoteOneLoop(t *testing.T) {
 	start := func(warn func() bool, msg func(int) bool) (*ctRig, *fakeSoundTimers) {
 		r := newCtRig()
 		r.svc.test = true
-		r.ctl.SetSoundPlayers(warn, msg)
+		r.ctl.SetSoundPlayers(warn, msg, nil)
 		r.ctl.SetSoundLengths(func() time.Duration { return 2400 * time.Millisecond }, func(n int) time.Duration { return 3840 * time.Millisecond })
 		timers := newFakeSoundTimers(r.ctl)
 		r.svc.status = ctRunningStatus(300)
@@ -466,7 +466,7 @@ func TestSoundWaitsForPreviousToEnd(t *testing.T) {
 	warnOK.Store(true)
 	r := newCtRig()
 	r.svc.test = true
-	r.ctl.SetSoundPlayers(func() bool { return play("w", warnOK.Load()) }, func(n int) bool { return play(fmt.Sprint("n", n), true) })
+	r.ctl.SetSoundPlayers(func() bool { return play("w", warnOK.Load()) }, func(n int) bool { return play(fmt.Sprint("n", n), true) }, nil)
 	r.ctl.SetSoundLengths(func() time.Duration { return 2400 * time.Millisecond },
 		func(n int) time.Duration { return time.Duration(n)*time.Second + 800*time.Millisecond })
 	timers := newFakeSoundTimers(r.ctl)
@@ -514,7 +514,7 @@ func TestSoundWaitsForPreviousToEnd(t *testing.T) {
 	warnOK.Store(false)
 	r = newCtRig()
 	r.svc.test = true
-	r.ctl.SetSoundPlayers(func() bool { return play("w", warnOK.Load()) }, func(n int) bool { return play(fmt.Sprint("n", n), true) })
+	r.ctl.SetSoundPlayers(func() bool { return play("w", warnOK.Load()) }, func(n int) bool { return play(fmt.Sprint("n", n), true) }, nil)
 	r.ctl.SetSoundLengths(func() time.Duration { return 2400 * time.Millisecond }, func(int) time.Duration { return time.Second })
 	timers = newFakeSoundTimers(r.ctl)
 	r.svc.status = ctRunningStatus(300)
