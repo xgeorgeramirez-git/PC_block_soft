@@ -8,6 +8,11 @@ interface Props {
   until: string;
   /** Запрос к службе идёт: значок и выбор срока недоступны. */
   busy?: boolean;
+  /**
+   * Клетка сетки кнопок карточки «Сегодня» (8.3.2 п. 3): выключенный значок подписан «Пауза»; во время
+   * паузы значок с «Закончить паузу» и «Пауза до 18:30» занимает всю строку сетки, выбор срока — справа.
+   */
+  compact?: boolean;
   onPick: (preset: PausePreset) => void;
   onEnd: () => void;
 }
@@ -27,7 +32,7 @@ const PRESETS: { preset: PausePreset; label: string }[] = [
  * Значок-переключатель паузы на карточке ребёнка (R11, D-96). Выключен: нажатие открывает выбор
  * срока; включён (значок нажат, рядом «Пауза до 18:30»): нажатие сразу заканчивает паузу.
  */
-export default function PauseToggle({ paused, until, busy = false, onPick, onEnd }: Props) {
+export default function PauseToggle({ paused, until, busy = false, compact = false, onPick, onEnd }: Props) {
   const [open, setOpen] = useState(false);
   const button = useRef<HTMLButtonElement>(null);
   const wrap = useRef<HTMLDivElement>(null);
@@ -71,7 +76,8 @@ export default function PauseToggle({ paused, until, busy = false, onPick, onEnd
 
   return (
     <div
-      className="pause-toggle-wrap"
+      className={compact ? "pause-toggle-wrap pause-toggle-compact" : "pause-toggle-wrap"}
+      data-paused={paused ? "true" : undefined}
       ref={wrap}
       onKeyDown={(e) => {
         if (e.key === "Escape" && open) {
@@ -97,7 +103,7 @@ export default function PauseToggle({ paused, until, busy = false, onPick, onEnd
           <rect x="11.5" y="4" width="3.5" height="12" rx="1" />
         </svg>
         {/* Во время паузы видно словами, что сделает нажатие (визуальная приёмка FB-25). */}
-        {paused ? <span className="pause-toggle-label">Закончить паузу</span> : null}
+        {paused ? <span className="pause-toggle-label">Закончить паузу</span> : compact ? <span className="pause-toggle-label">Пауза</span> : null}
       </button>
       {paused && until ? <span className="pause-toggle-until">{`Пауза до ${until}`}</span> : null}
       {open && !paused ? (

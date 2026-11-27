@@ -107,15 +107,6 @@ test("s00 вход родителя", async ({ page }) => {
   await page.screenshot({ path: `${SCREENS}/s00-login.png`, fullPage: true });
 });
 
-// s00-dark — тот же вход в тёмной теме Windows.
-test("s00 вход родителя, тёмная тема", async ({ page }) => {
-  await page.emulateMedia({ colorScheme: "dark" });
-  await mockProgram(page);
-  await page.goto("/");
-  await expect(page.getByLabel("Пароль родителя")).toBeVisible();
-  await page.screenshot({ path: `${SCREENS}/s00-login-dark.png`, fullPage: true });
-});
-
 // s01 — мастер, шаг 1 (S1).
 test("s01 мастер, шаг пароля", async ({ page }) => {
   await mockProgram(page, { configured: false, mode: "wizard" });
@@ -129,38 +120,140 @@ test("s01 мастер, шаг пароля", async ({ page }) => {
   await page.screenshot({ path: `${SCREENS}/s01-wizard-password.png`, fullPage: true });
 });
 
-// s02 — «Сегодня»: статус словом и цветом (зелёный, жёлтый, красный); обход больше не
-// блокирует экран, кнопки сгруппированы, «Снять блокировку» нет (D-41, FB-5).
+// s02 — «Сегодня» во взрослом виде (8.3.2 п. 3, D-109): два ребёнка (85 и 10 мин), две программы ждут решения,
+// четыре события. Карточка: присутствие, копилка, запрет, остаток цветом, полоса, игры и видео, кнопки справа.
+const todayLimits = () =>
+  [1, 2, 3, 4, 5, 6, 7].map((weekday) => ({
+    weekday,
+    totalMin: 120,
+    unlimited: false,
+    gamesMin: 60,
+    gamesUnlimited: false,
+    videoMin: 30,
+    videoUnlimited: false,
+  }));
+
+const todayFamily = (): MockChild[] => [
+  child({
+    limits: todayLimits(),
+    usedS: 35 * 60,
+    gamesUsedS: 40 * 60,
+    videoUsedS: 10 * 60,
+    bonusBalance: 45,
+    presenceNow: true,
+    presenceText: "За компьютером с 18:20",
+    schedule: [1, 2, 3, 4, 5, 6, 7].map((weekday) => ({ weekday, startMin: 21 * 60, endMin: 7 * 60 })),
+  }),
+  child({
+    childId: 2,
+    sid: "S-1-5-21-111-222-333-1002",
+    name: "Аня",
+    limits: todayLimits(),
+    usedS: 110 * 60,
+    gamesUsedS: 50 * 60,
+    videoUsedS: 30 * 60,
+    bonusBalance: 120,
+    presenceNow: false,
+    presenceText: "Не за компьютером с 17:05",
+    schedule: [1, 2, 3, 4, 5, 6, 7].map((weekday) => ({ weekday, startMin: 21 * 60 + 30, endMin: 7 * 60 })),
+  }),
+];
+
+const todayEvents = (now: number) => [
+  { atMs: now - 10 * 60_000, tzOffsetMin: -new Date(now).getTimezoneOffset(), childId: 1, childName: "Миша", kind: "extra_time", text: "Миша: +15 минут с телефона" },
+  { atMs: now - 30 * 60_000, tzOffsetMin: -new Date(now).getTimezoneOffset(), childId: 1, childName: "Миша", kind: "session", text: "Миша: сел за компьютер" },
+  { atMs: now - 95 * 60_000, tzOffsetMin: -new Date(now).getTimezoneOffset(), childId: 2, childName: "Аня", kind: "session", text: "Аня: вышла из компьютера" },
+  { atMs: now - 130 * 60_000, tzOffsetMin: -new Date(now).getTimezoneOffset(), childId: 2, childName: "Аня", kind: "promo_redeem", text: "Аня: промокод на 30 минут" },
+];
+
+/**
+ * Карточки «Сегодня» без наложений (8.3.2 п. 3): колонки «кто», «остаток», «кнопки» не пересекаются, ничего не
+ * выходит за карточку, подписи кнопок и числа видны целиком (не обрезаны и не перенесены в две строки у кнопок).
+ */
+async function todayCardsFit(page: Page) {
+  const bad = await page.evaluate(() => {
+    const out: string[] = [];
+    const box = (el: Element) => el.getBoundingClientRect();
+    const cross = (a: DOMRect, b: DOMRect) => a.left < b.right - 0.5 && b.left < a.right - 0.5 && a.top < b.bottom - 0.5 && b.top < a.bottom - 0.5;
+    for (const card of document.querySelectorAll(".child-card")) {
+      const c = box(card);
+      const parts = [".cc-who", ".cc-time", ".cc-actions"].map((sel) => card.querySelector(sel)).filter((x): x is Element => x !== null);
+      for (let i = 0; i < parts.length; i++) {
+        const r = box(parts[i]);
+        if (r.left < c.left - 0.5 || r.right > c.right + 0.5) out.push(`${parts[i].className} выходит за карточку`);
+        for (let j = i + 1; j < parts.length; j++) if (cross(r, box(parts[j]))) out.push(`${parts[i].className} налезает на ${parts[j].className}`);
+      }
+      for (const el of card.querySelectorAll<HTMLElement>("button, .remain-num, .cc-of, .cc-coin, .cc-forbid, .cc-presence")) {
+        if (el.offsetParent === null) continue;
+        if (el.scrollWidth > el.clientWidth + 1) out.push(`«${el.textContent}» обрезано`);
+      }
+    }
+    return out;
+  });
+  expect(bad, "карточка «Сегодня»").toEqual([]);
+}
+
+/** Цвет числа остатка карточки ребёнка (getComputedStyle). */
+const remainColor = (page: Page, name: string) =>
+  page.getByRole("article", { name }).locator(".remain-num").evaluate((el) => getComputedStyle(el).color);
+
 test("s02 сегодня", async ({ page }) => {
-  await tallWindow(page, 900);
-  await mockProgram(page, { mode: "parent", sessionActive: true, children: family() });
+  await page.setViewportSize({ width: 1280, height: 800 });
+  const now = Date.now();
+  await mockProgram(page, { mode: "parent", sessionActive: true, children: todayFamily(), pending: pendingPrograms(now), events: todayEvents(now) });
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "Сегодня" })).toBeVisible();
-  await expect(page.getByRole("article", { name: "Миша" }).getByText("Осталось 10 мин")).toBeVisible();
-  await expect(page.getByRole("article", { name: "Егор" }).getByText("Можно", { exact: true })).toBeVisible();
-  // Даша: время вышло (красный), «+время» доступно, «Снять блокировку» нигде нет (D-41).
-  const dasha = page.getByRole("article", { name: "Даша" });
-  await expect(dasha.getByText("Время вышло")).toBeVisible();
-  await expect(dasha.getByRole("button", { name: "+15" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Снять блокировку" })).toHaveCount(0);
-  // Кнопки «Сегодня» сгруппированы: у Миши есть группа «Доп. время», значок паузы, «Статистика» (FB-5, D-96).
   const misha = page.getByRole("article", { name: "Миша" });
-  await expect(misha.getByText("Доп. время")).toBeVisible();
-  await expect(misha.getByRole("button", { name: "−30" })).toBeVisible();
-  await expect(misha.getByRole("button", { name: "Своё время…" })).toBeVisible();
+  await expect(misha.getByText("За компьютером с 18:20")).toBeVisible();
+  await expect(misha.getByText("В копилке 45 мин")).toBeVisible();
+  await expect(misha.getByText("Запрет с 21:00 до 07:00")).toBeVisible();
+  await expect(misha.locator(".remain-num")).toHaveText("1:25");
+  await expect(misha.getByText("осталось из 2:00")).toBeVisible();
+  await expect(misha.getByText("Игры 40 из 60 мин")).toBeVisible();
+  await expect(misha.getByText("Видео и соцсети 10 из 30 мин")).toBeVisible();
+  for (const name of ["+15", "+30", "+60", "Своё время…", "−15", "−30", "−60", "Начислить в копилку", "Статистика", "Снять запрет на сегодня"]) {
+    await expect(misha.getByRole("button", { name })).toBeVisible();
+  }
   await expect(misha.getByRole("button", { name: "Поставить на паузу: ограничения не действуют, время считается" })).toBeVisible();
-  await expect(misha.getByRole("button", { name: "Статистика" })).toBeVisible();
+  const anya = page.getByRole("article", { name: "Аня" });
+  await expect(anya.locator(".remain-num")).toHaveText("0:10");
+  await expect(anya.getByText("Не за компьютером с 17:05")).toBeVisible();
+  // «Снять блокировку» только при canClearBlock (обход - только журнал, D-41).
+  await expect(page.getByRole("button", { name: "Снять блокировку" })).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "2 программы ждут решения" })).toBeVisible();
+  await expect(page.getByText("SuperGame и Тренажёр таблицы умножения для начальной школы. Пока вы не решите, ребёнок не сможет их запустить.")).toBeVisible();
+  const recent = page.getByRole("region", { name: "Последние события" });
+  await expect(recent.getByRole("listitem")).toHaveCount(4);
+  await expect(recent.getByRole("button", { name: "Весь журнал" })).toBeVisible();
+  await todayCardsFit(page);
   await noHorizontalScroll(page);
   await page.screenshot({ path: `${SCREENS}/s02-today.png`, fullPage: true });
+  // Самое узкое окно родителя 960 × 620 (PL-26): кнопки уходят под остаток, ничего не налезает.
+  await page.setViewportSize({ width: 960, height: 620 });
+  await todayCardsFit(page);
+  await noHorizontalScroll(page);
+  await wholePage(page);
+  await page.screenshot({ path: `${SCREENS}/s02-today-960.png`, fullPage: true });
 });
 
-test("s02 сегодня, тёмная тема", async ({ page }) => {
-  await page.emulateMedia({ colorScheme: "dark" });
-  await tallWindow(page, 900);
-  await mockProgram(page, { mode: "parent", sessionActive: true, children: family() });
+// Цвет остатка (ТЗ 8.0 п. 3, 9): больше 1 ч зелёный, до 1 ч синий, 15 мин и меньше красный; окно 960 × 620.
+test("s02 сегодня, цвет остатка", async ({ page }) => {
+  await page.setViewportSize({ width: 960, height: 620 });
+  const kids = [
+    child({ limits: everyDay(120), usedS: 35 * 60 }),
+    child({ childId: 2, sid: "S-1-5-21-111-222-333-1002", name: "Даша", limits: everyDay(120), usedS: 80 * 60 }),
+    child({ childId: 3, sid: "S-1-5-21-111-222-333-1003", name: "Егор", limits: everyDay(120), usedS: 110 * 60 }),
+  ];
+  await mockProgram(page, { mode: "parent", sessionActive: true, children: kids, pending: [] });
   await page.goto("/");
-  await expect(page.getByRole("article", { name: "Даша" })).toBeVisible();
-  await page.screenshot({ path: `${SCREENS}/s02-today-dark.png`, fullPage: true });
+  await expect(page.getByRole("article", { name: "Егор" })).toBeVisible();
+  expect(await remainColor(page, "Миша")).toBe("rgb(19, 138, 79)");
+  expect(await remainColor(page, "Даша")).toBe("rgb(37, 82, 217)");
+  expect(await remainColor(page, "Егор")).toBe("rgb(200, 30, 30)");
+  await todayCardsFit(page);
+  await noHorizontalScroll(page);
+  await wholePage(page);
+  await page.screenshot({ path: `${SCREENS}/s02-today-remain-tones.png`, fullPage: true });
 });
 
 // Значок-переключатель паузы (R11, D-96): выключен → выбор срока → включён, «Пауза до 18:30»;
@@ -286,12 +379,12 @@ async function openJournal(page: Page, over: MockOptions = {}) {
     ...over,
   });
   await page.goto("/");
-  await page.getByRole("button", { name: "Журнал" }).click();
+  // Пункт меню, а не «Весь журнал» на «Сегодня».
+  await page.getByRole("navigation", { name: "Разделы" }).getByRole("button", { name: "Журнал" }).click();
 }
 
-for (const scheme of ["light", "dark"] as const) {
-  test(`s04 журнал${scheme === "dark" ? ", тёмная тема" : ""}`, async ({ page }) => {
-    await page.emulateMedia({ colorScheme: scheme });
+{
+  test("s04 журнал", async ({ page }) => {
     await openJournal(page);
     await expect(page.getByText("Миша: доп. время +30 мин")).toBeVisible();
     await expect(page.getByRole("tab", { name: "Всё" })).toHaveAttribute("aria-selected", "true");
@@ -300,18 +393,20 @@ for (const scheme of ["light", "dark"] as const) {
     // При «Все дети» кнопки очистки нет (8.3.7 п.3).
     await expect(page.getByRole("button", { name: "Очистить журнал" })).toHaveCount(0);
     await noHorizontalScroll(page);
-    await page.screenshot({ path: `${SCREENS}/s04-journal${scheme === "dark" ? "-dark" : ""}.png`, fullPage: true });
+    await page.screenshot({ path: `${SCREENS}/s04-journal.png`, fullPage: true });
   });
 }
 
-// s04 — ссылка «Нарушения сегодня» с главной: «Что: Нарушения», вкладка «Сегодня», выбран ребёнок -
-// справа «Очистить журнал». На 800 px строка фильтров не уходит вбок.
+// s04 — ссылка «Нарушения сегодня» с карточки ребёнка: «Что: Нарушения», вкладка «Сегодня», выбран этот
+// ребёнок - справа «Очистить журнал». На 800 px строка фильтров не уходит вбок.
 test("s04 журнал: нарушения сегодня у одного ребёнка", async ({ page }) => {
   await page.setViewportSize({ width: 800, height: 640 });
   await openJournal(page);
   await page.getByRole("button", { name: "Сегодня", exact: true }).click();
-  await page.getByRole("button", { name: /^Нарушения сегодня: / }).click();
+  // Ссылка карточки Даши (8.3.2 п. 5): журнал сразу на ней, «Что: Нарушения», вкладка «Сегодня».
+  await page.getByRole("article", { name: "Даша" }).getByRole("button", { name: /^Нарушения сегодня: / }).click();
   await expect(page.getByLabel("Что")).toHaveValue("violations");
+  await expect(page.getByLabel("Ребёнок")).toHaveValue("2");
   await expect(page.getByRole("tab", { name: "Сегодня" })).toHaveAttribute("aria-selected", "true");
   await expect(page.getByText("Даша: попытка открыть запрещённое: сайт example.com")).toBeVisible();
   await expect(page.getByText("Миша: доп. время +30 мин")).toHaveCount(0);
@@ -1933,15 +2028,6 @@ test("s11 программы: пусто", async ({ page }) => {
   await page.screenshot({ path: `${SCREENS}/s11-programs-empty.png`, fullPage: true });
 });
 
-// s11 — тёмная тема Windows: тот же экран читается.
-test("s11 программы, тёмная тема", async ({ page }) => {
-  await page.emulateMedia({ colorScheme: "dark" });
-  await tallWindow(page, 1500);
-  await openPrograms(page, { pending: pendingPrograms(Date.now()), programs: programList() });
-  await expect(page.getByRole("heading", { name: "Ждут решения: 2" })).toBeVisible();
-  await page.screenshot({ path: `${SCREENS}/s11-programs-dark.png`, fullPage: true });
-});
-
 // m4-programs-hints — пояснения на «Программах» (B-39, B-43): легенда кнопок решения под «Решение
 // действует для всех детей», подсказка у неизвестного издателя, пояснение «Скрыть», «Скрыть нельзя»
 // у запрещённой в своей ячейке, «Применить» без категории недоступна с причиной в той же строке
@@ -2117,11 +2203,10 @@ async function restBlocksApart(page: Page) {
 }
 
 // s12 — вкладка «Отдых» (FR-37, 8.3.3 п.7): включено, «Только игры», порог 30, своё сообщение;
-// итог словами совпадает с полями, образец «Как увидит ребёнок» с сообщением; светлая и тёмная
-// тема, обычное окно родителя и самое узкое (960x620).
+// итог словами совпадает с полями, образец «Как увидит ребёнок» с сообщением; окно родителя (всегда
+// светлое, R-11) обычное и самое узкое (960x620).
 for (const v of [
   { name: "s12-rest-tab", scheme: "light" as const, w: 1200, h: 820 },
-  { name: "s12-rest-tab-dark", scheme: "dark" as const, w: 1200, h: 820 },
   { name: "s12-rest-tab-960", scheme: "light" as const, w: 960, h: 620 },
 ]) {
   test(`s12 вкладка «Отдых»: ${v.name}`, async ({ page }) => {
@@ -2218,16 +2303,6 @@ test("s12 когда время вышло: учебные есть", async ({ p
   await page.screenshot({ path: `${SCREENS}/s12-end-mode.png`, fullPage: true });
 });
 
-test("s12 когда время вышло, тёмная тема", async ({ page }) => {
-  await page.emulateMedia({ colorScheme: "dark" });
-  await mockProgram(page, { mode: "parent", sessionActive: true, children: [child({ limits: gamesWeek(), endMode: "study_only" })], programs: [] });
-  await page.goto("/");
-  await page.getByRole("button", { name: "Дети" }).click();
-  await page.getByRole("tab", { name: "Когда время вышло" }).click();
-  await expect(page.locator(".end-mode-warn")).toBeVisible();
-  await page.screenshot({ path: `${SCREENS}/s12-end-mode-dark.png`, fullPage: true });
-});
-
 // s12 — мастер, шаг 4 «Программы» (FR-2): окно мастера 880x680, список найденных программ с выбором.
 test("s12 мастер, шаг программ", async ({ page }) => {
   await page.setViewportSize({ width: 880, height: 680 });
@@ -2274,11 +2349,12 @@ test("s12 сегодня с играми", async ({ page }) => {
   });
   await page.goto("/");
   const misha = page.getByRole("article", { name: "Миша" });
-  const games = misha.getByText("Игры 40 мин из 1 ч", { exact: true });
+  // Строка игр под полосой остатка (8.3.2 п. 3): потрачено из лимита игр.
+  const games = misha.getByText("Игры 40 из 60 мин", { exact: true });
   await expect(games).toBeVisible();
-  const used = await boxOf(misha.getByText(/^Использовано /));
+  const bar = await boxOf(misha.locator(".remain-bar"));
   const g = await boxOf(games);
-  expect(g.top).toBeGreaterThanOrEqual(used.bottom - 0.5);
+  expect(g.top).toBeGreaterThanOrEqual(bar.bottom - 0.5);
   await noHorizontalScroll(page);
   await page.screenshot({ path: `${SCREENS}/s12-today-games.png`, fullPage: true });
 });
@@ -2382,21 +2458,10 @@ test("m4 сайты: списки и 18+", async ({ page }) => {
   await page.screenshot({ path: `${SCREENS}/m4-sites.png`, fullPage: true });
 });
 
-// m4-sites-dark — тот же экран в тёмной теме Windows.
-test("m4 сайты: тёмная тема", async ({ page }) => {
-  await page.emulateMedia({ colorScheme: "dark" });
-  await page.setViewportSize({ width: 1200, height: 820 });
-  await openSites(page);
-  await siteRowsFit(page);
-  await wholePage(page);
-  await page.screenshot({ path: `${SCREENS}/m4-sites-dark.png`, fullPage: true });
-});
-
-// m5-checkboxes-dark — флажки своим оформлением в тёмной теме (ревью окна M5): пустые «18+» у Даши и строк
-// списка, отмеченные «18+» у Миши и строка casino.example, «выбрано не всё» у «Выбрать всё в списке».
-// Рамка 2 px цветом рамки поля, а не рамка браузера (в тёмной теме сливалась с карточкой).
-test("m5 флажки: тёмная тема, пустые и отмеченные", async ({ page }) => {
-  await page.emulateMedia({ colorScheme: "dark" });
+// m5-checkboxes — флажки своим оформлением (ревью окна M5): пустые «18+» у Даши и строк списка, отмеченные
+// «18+» у Миши и строка casino.example. Рамка 2 px цветом рамки поля, а не рамка браузера. Окно родителя
+// всегда светлое (ТЗ 3.3, R-11): снимка в тёмной теме нет.
+test("m5 флажки: пустые и отмеченные", async ({ page }) => {
   await page.setViewportSize({ width: 1200, height: 820 });
   await openSites(page);
   const group = page.getByRole("group", { name: "Блокировать сайты 18+" });
@@ -2417,7 +2482,7 @@ test("m5 флажки: тёмная тема, пустые и отмеченны
   for (const l of look) expect(l).toEqual({ appearance: "none", border: "2px", width: "18px" });
   await siteRowsFit(page);
   await wholePage(page);
-  await page.screenshot({ path: `${SCREENS}/m5-checkboxes-dark.png`, fullPage: true });
+  await page.screenshot({ path: `${SCREENS}/m5-checkboxes.png`, fullPage: true });
 });
 
 // m4-sites-960 — наименьшее окно 960 x 620: без прокрутки вбок, поле и «Добавить» в одну строку.
@@ -2459,10 +2524,11 @@ test("m4 сайты: ошибка у поля и отмена удаления",
   await expect(sitesTab(page, "Запрещённые")).toHaveText("Запрещённые 3");
   await page.screenshot({ path: `${SCREENS}/m4-sites-undo.png`, fullPage: true });
 
+  // Окно родителя без верхней строки (макет parent2.py): на месте остаются меню и верх страницы.
   await field.evaluate((el) => el.scrollIntoView({ block: "start" }));
   const state = await page.evaluate(() => ({
     docTop: document.scrollingElement!.scrollTop,
-    barTop: document.querySelector("header.topbar")!.getBoundingClientRect().top,
+    barTop: document.querySelector("nav.menu")!.getBoundingClientRect().top,
   }));
   expect(state).toEqual({ docTop: 0, barTop: 0 });
   await noHorizontalScroll(page);
@@ -2671,13 +2737,14 @@ test("m4 сегодня с видео", async ({ page }) => {
   await mockProgram(page, { mode: "parent", sessionActive: true, children: [videoChild()] });
   await page.goto("/");
   const misha = page.getByRole("article", { name: "Миша" });
-  await expect(misha.getByText("Использовано 35 мин из 2 ч", { exact: true })).toBeVisible();
-  const games = misha.getByText("Игры 10 мин из 1 ч", { exact: true });
-  const video = misha.getByText("Видео 15 мин из 20 мин", { exact: true });
+  await expect(misha.getByText("осталось из 2:00", { exact: true })).toBeVisible();
+  const games = misha.getByText("Игры 10 из 60 мин", { exact: true });
+  const video = misha.getByText("Видео и соцсети 15 из 20 мин", { exact: true });
   await expect(video).toBeVisible();
   const gb = await boxOf(games);
   const vb = await boxOf(video);
-  expect(vb.top, "строка видео не под строкой игр").toBeGreaterThanOrEqual(gb.bottom - 0.5);
+  // Видео после игр: правее в той же строке или ниже, если не поместилось (макет parent2.py).
+  expect(vb.left >= gb.right - 0.5 || vb.top >= gb.bottom - 0.5, "строка видео не после строки игр").toBe(true);
   await noHorizontalScroll(page);
   await page.screenshot({ path: `${SCREENS}/m4-today-video.png`, fullPage: true });
 });
@@ -2851,10 +2918,9 @@ async function tilesFit(page: Page, where: string) {
 }
 
 // s21 — статистика родителя за неделю G15 (S21): «Итоги», «По дням» 7 столбиков (среда пустая), «Программы»,
-// «Сайты», «Нарушения», «Копилка»; подпись «Статистика ведётся с»; светлая и тёмная тема.
-for (const scheme of ["light", "dark"] as const) {
-  test(`s21 статистика родителя: неделя G15, тема ${scheme}`, async ({ page }) => {
-    await page.emulateMedia({ colorScheme: scheme });
+// «Сайты», «Нарушения», «Копилка»; подпись «Статистика ведётся с». Окно родителя всегда светлое (R-11).
+{
+  test("s21 статистика родителя: неделя G15", async ({ page }) => {
     await page.clock.setFixedTime(G15_NOW);
     await page.setViewportSize({ width: 960, height: 900 });
     await openParentStats(page, [g15()]);
@@ -2870,11 +2936,11 @@ for (const scheme of ["light", "dark"] as const) {
     await expect(page.getByRole("region", { name: "Копилка" }).getByText("Сейчас в копилке: 25 мин", { exact: true })).toBeVisible();
     await expect(page.getByRole("button", { name: "Очистить статистику" })).toBeVisible();
     expect((await chartOverflow(page)).scroll).toBeLessThanOrEqual((await chartOverflow(page)).client);
-    await barsFit(page, `неделя, тема ${scheme}`);
-    await tilesFit(page, `неделя 960, тема ${scheme}`);
+    await barsFit(page, "неделя");
+    await tilesFit(page, "неделя 960");
     await noHorizontalScroll(page);
     await wholePage(page);
-    await page.screenshot({ path: `${SCREENS}/s21-parent-stats-week${scheme === "dark" ? "-dark" : ""}.png`, fullPage: true });
+    await page.screenshot({ path: `${SCREENS}/s21-parent-stats-week.png`, fullPage: true });
   });
 }
 
@@ -3079,9 +3145,8 @@ test("s48 очистка статистики: подтверждение и р�
 
 // s48 — «Очистить журнал» (FR-38, 8.3.7 п.3): окно открыто с клавиатуры, фокус и рамка на «Отмена»;
 // после «Удалить» - «Журнал Миши очищен», в журнале Миши одна запись, у Даши записи на месте.
-for (const scheme of ["light", "dark"] as const) {
-  test(`s48 очистка журнала: подтверждение и результат${scheme === "dark" ? ", тёмная тема" : ""}`, async ({ page }) => {
-    await page.emulateMedia({ colorScheme: scheme });
+{
+  test("s48 очистка журнала: подтверждение и результат", async ({ page }) => {
     await openJournal(page);
     await page.getByLabel("Ребёнок").selectOption({ label: "Миша" });
     await expect(page.locator(".journal-item")).toHaveCount(2);
@@ -3093,8 +3158,7 @@ for (const scheme of ["light", "dark"] as const) {
     await expect(dialog.getByRole("button", { name: "Отмена" })).toBeFocused();
     expect(await dialog.getByRole("button", { name: "Отмена" }).evaluate((el) => el.matches(":focus-visible")), "рамка фокуса на «Отмена» не видна").toBe(true);
     await noHorizontalScroll(page);
-    const dark = scheme === "dark" ? "-dark" : "";
-    await page.screenshot({ path: `${SCREENS}/s48-clear-journal-dialog${dark}.png` });
+    await page.screenshot({ path: `${SCREENS}/s48-clear-journal-dialog.png` });
     // Esc закрывает окно, ничего не удаляя; фокус возвращается на кнопку.
     await page.keyboard.press("Escape");
     await expect(dialog).toHaveCount(0);
@@ -3107,7 +3171,7 @@ for (const scheme of ["light", "dark"] as const) {
     await expect(page.locator(".journal-item")).toHaveCount(1);
     await expect(page.locator(".journal-item .journal-text")).toHaveText("Миша: журнал очищен");
     await noHorizontalScroll(page);
-    if (scheme === "light") await page.screenshot({ path: `${SCREENS}/s48-clear-journal-done.png`, fullPage: true });
+    await page.screenshot({ path: `${SCREENS}/s48-clear-journal-done.png`, fullPage: true });
     await page.getByLabel("Ребёнок").selectOption({ label: "Даша" });
     await expect(page.getByText("Даша: попытка открыть запрещённое: сайт example.com")).toBeVisible();
     await expect(page.locator(".stat-clear-status")).toHaveText("");
@@ -3168,10 +3232,8 @@ async function codesNotClipped(page: Page) {
   expect(bad).toEqual([]);
 }
 
-for (const scheme of ["light", "dark"] as const) {
-  const dark = scheme === "dark" ? "-dark" : "";
-  test(`s49 промокоды: действующие${scheme === "dark" ? ", тёмная тема" : ""}`, async ({ page }) => {
-    await page.emulateMedia({ colorScheme: scheme });
+{
+  test("s49 промокоды: действующие", async ({ page }) => {
     await page.setViewportSize({ width: 960, height: 900 });
     await openPromos(page);
     const tabs = page.getByRole("tablist", { name: "Промокоды" });
@@ -3185,11 +3247,10 @@ for (const scheme of ["light", "dark"] as const) {
     await noHorizontalScroll(page);
     await codesNotClipped(page);
     await wholePage(page);
-    await page.screenshot({ path: `${SCREENS}/s49-promos-active${dark}.png`, fullPage: true });
+    await page.screenshot({ path: `${SCREENS}/s49-promos-active.png`, fullPage: true });
   });
 
-  test(`s49 промокоды: придумать коды${scheme === "dark" ? ", тёмная тема" : ""}`, async ({ page }) => {
-    await page.emulateMedia({ colorScheme: scheme });
+  test("s49 промокоды: придумать коды", async ({ page }) => {
     await page.setViewportSize({ width: 960, height: 900 });
     await openPromos(page);
     const gen = page.getByRole("region", { name: "Придумать коды" });
@@ -3215,7 +3276,7 @@ for (const scheme of ["light", "dark"] as const) {
     await expect(fresh).toHaveCSS("user-select", "text");
     await noHorizontalScroll(page);
     await codesNotClipped(page);
-    await page.screenshot({ path: `${SCREENS}/s49-promos-generated${dark}.png` });
+    await page.screenshot({ path: `${SCREENS}/s49-promos-generated.png` });
   });
 }
 
@@ -3302,7 +3363,7 @@ test("s49 промокоды: очистить историю", async ({ page })
     const css = getComputedStyle(el);
     return { bg: css.backgroundColor, color: css.color, border: css.borderTopColor, radius: css.borderRadius };
   });
-  expect(del.radius).toBe("6px");
+  expect(del.radius).toBe("10px");
   for (const c of [del.bg, del.color, del.border]) expect(c, "«Очистить» красная").not.toBe("rgb(179, 38, 30)");
   await noHorizontalScroll(page);
   await page.screenshot({ path: `${SCREENS}/s49-promos-clear-dialog.png` });
@@ -3388,7 +3449,6 @@ async function startupRowsInside(page: Page) {
 
 for (const v of [
   { name: "s50-startup", scheme: "light" as const },
-  { name: "s50-startup-dark", scheme: "dark" as const },
 ]) {
   test(`s50 автозагрузка: ${v.name}`, async ({ page }) => {
     await page.setViewportSize({ width: 1200, height: 820 });

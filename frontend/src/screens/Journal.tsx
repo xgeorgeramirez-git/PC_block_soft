@@ -10,6 +10,8 @@ import type { JournalEntry, JournalGroup } from "../types";
 interface Props {
   /** Открыт по ссылке «Нарушения сегодня»: «Что: Нарушения» и вкладка «Сегодня» (8.3.7 п.2). */
   violationsOnly?: boolean;
+  /** Открыт со ссылки карточки ребёнка («Нарушения сегодня: N»): фильтр «Ребёнок» сразу на нём. */
+  initialChildId?: number;
 }
 
 interface PickChild {
@@ -39,10 +41,10 @@ function request(f: Filter) {
  * «Что» уходят в запрос службы, внизу «Показать ещё» по курсору. При выбранном ребёнке - «Очистить
  * журнал» с подтверждением (FR-38, 8.3.7 п.3).
  */
-export default function Journal({ violationsOnly = false }: Props) {
+export default function Journal({ violationsOnly = false, initialChildId = 0 }: Props) {
   const [filter, setFilter] = useState<Filter>({
     period: violationsOnly ? "today" : "all",
-    childId: 0,
+    childId: initialChildId,
     group: violationsOnly ? "violations" : "",
   });
   const [children, setChildren] = useState<PickChild[]>([]);

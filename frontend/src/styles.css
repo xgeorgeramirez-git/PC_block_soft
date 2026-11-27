@@ -1,14 +1,41 @@
-/* Токены интерфейса — ТЗ, раздел 8.0. Цвет — только носитель статуса.
-   Без градиентов, стекла, кнопок-«пилюль», кремового фона. */
+/* Токены интерфейса — ТЗ 8.0 п. 9 (D-109): окно родителя — взрослый спокойный вид, всегда светлое
+   (тёмной темы у окна родителя нет, ТЗ 3.3, R-11). Белые карточки с тонкой линией, без градиентов и
+   теней-«пузырей»; цвет — носитель статуса (остаток зелёный, синий, красный; «+» зелёный, «−» оранжевый).
+   Окно ребёнка «Игровое лобби» — своя область стилей .lobby. */
 :root {
-  --bg: #f3f4f6;
+  --bg: #f3f5f9;
   --surface: #ffffff;
-  --line: #d8dce0;
+  --line: #dde3ee;
   --share-bar: #d8dce0; /* полоса доли в «Итогах» */
-  --text: #1b1f23;
-  --text-muted: #59616a;
-  --primary: #2b3138;
+  --text: #1a2238;
+  --text-muted: #5b6680;
+  --primary: #2552d9;
   --primary-text: #ffffff;
+  --primary-hover: #1e45b8;
+  /* Выбранный пункт меню и мягкий синий фон. */
+  --accent-soft: #e6edff;
+  /* Остаток времени (8.0 п. 3): число и полоса. Зелёный крупный (≥ 24 px) — 4,4:1, крупный текст. */
+  --remain-green: #138a4f;
+  --remain-green-bar: #1fa463;
+  --remain-blue: #2552d9;
+  --remain-red: #c81e1e;
+  --remain-red-bar: #e5484d;
+  --remain-track: #e3e8f2;
+  /* Кнопки «+» и «−» (8.0 п. 9): текст на своём фоне не меньше 4,5:1. */
+  --plus-text: #0f7a45;
+  --plus-bg: #e7f5ec;
+  --minus-text: #c2410c;
+  --minus-bg: #fcede6;
+  /* Копилка: монета и золотая кнопка «Начислить в копилку». */
+  --coin: #ffc53a;
+  --gold-text: #5a3b00;
+  --gold-bg: #ffe7ad;
+  /* Блок «N программ ждут решения». */
+  --pending-bg: #fff6e0;
+  --pending-line: #f3d99a;
+  --pending-text: #6b5320;
+  /* Точка «не за компьютером». */
+  --presence-off: #a4aec2;
   --status-warn: #a15c00;
   --status-danger: #b3261e;
   --status-ok: #2c7a4b;
@@ -16,8 +43,8 @@
   /* Столбики «По дням» (D-78): нейтральный графит, не цвет статуса (ТЗ 8.0 п.3); на поверхности 6,2:1. */
   --chart-bar: #59616a;
 
-  --radius-control: 6px;
-  --radius-panel: 8px;
+  --radius-control: 10px;
+  --radius-panel: 18px;
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;
@@ -25,8 +52,9 @@
   --space-6: 24px;
   --space-8: 32px;
 
-  --font: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, sans-serif;
-  --font-display: "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
+  /* Шрифты встроены (fonts.css, ТЗ 8.0 п. 2); системные — запас, пока файл не прочитан. */
+  --font: "Inter", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  --font-display: "Inter", "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
   /* Коды промокодов (8.3.10): моноширинный, чтобы «0» и «O», «1» и «I» не путались. */
   --font-mono: "Cascadia Mono", Consolas, "Courier New", monospace;
 
@@ -35,24 +63,9 @@
   accent-color: var(--primary);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #15181b;
-    --surface: #1f2327;
-    --line: #343a40;
-    --share-bar: #4a525a; /* заметнее линии разделителя, текст на полосе 4.7:1 (B-64) */
-    --text: #eef1f4;
-    --text-muted: #a3abb3;
-    --primary: #eef1f4;
-    --primary-text: #15181b;
-    --field-border: #7d868e;
-    --chart-bar: #a3abb3;
-    /* На тёмном фоне статусные цвета светлее: контраст текста не меньше 4,5:1 (NFR-14). */
-    --status-warn: #e3a23b;
-    --status-danger: #f2877d;
-    --status-ok: #4fb47a;
-    color-scheme: dark;
-  }
+/* Цифры — моноширинные по ширине (8.0 п. 2): числа в столбик не прыгают. */
+.num {
+  font-variant-numeric: tabular-nums;
 }
 
 * {
@@ -265,36 +278,74 @@ input[type="radio"]:disabled {
   flex: none;
 }
 
+/* Меню окна родителя (8.3.2 п. 2, макет parent2.py): 240 px, логотип, пункты 44 px со значками. */
 .menu {
   display: flex;
   flex-direction: column;
-  width: 200px;
+  gap: var(--space-1);
+  width: 240px;
   flex: none;
   overflow-y: auto;
-  padding: var(--space-4) var(--space-3);
+  padding: 22px 14px;
   background: var(--surface);
   border-right: 1px solid var(--line);
 }
 
+.menu-logo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 10px 22px;
+}
+
+.menu-logo-mark {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  background: var(--primary);
+  color: var(--primary-text);
+}
+
+.menu-logo .product {
+  font-size: 19px;
+  font-weight: 800;
+}
+
 .menu-list {
+  display: flex;
   flex: 1;
+  flex-direction: column;
+  gap: var(--space-1);
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
 .menu-item {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
   width: 100%;
-  padding: var(--space-2) var(--space-3);
+  min-height: 44px;
+  padding: 0 14px;
   background: none;
   border: 0;
-  border-left: 3px solid transparent;
   border-radius: var(--radius-control);
   color: var(--text);
   font: inherit;
+  font-size: 16px;
+  font-weight: 500;
   text-align: left;
   cursor: pointer;
+}
+
+.menu-item svg {
+  flex: none;
+  color: var(--text-muted);
 }
 
 .menu-item:hover {
@@ -302,15 +353,39 @@ input[type="radio"]:disabled {
 }
 
 .menu-item[aria-current="page"] {
-  border-left-color: var(--primary);
-  background: var(--bg);
-  font-weight: 600;
+  background: var(--accent-soft);
+  color: var(--primary);
+  font-weight: 700;
 }
 
-/* «Что нового»: внизу меню, отдельно от разделов (ТЗ 8.3.2 п.2). */
+.menu-item[aria-current="page"] svg {
+  color: var(--primary);
+}
+
+/* Окно уже 1100 px (наименьшее окно родителя 960 × 620, PL-26): меню 200 px, место таблицам «Программ». */
+@media (max-width: 1100px) {
+  .menu {
+    width: 200px;
+    padding-inline: 10px;
+  }
+
+  .menu-item {
+    padding: 0 10px;
+  }
+}
+
+/* Внизу меню: «Что нового», «Выйти» и номер версии (ТЗ 8.3.2 п.2). */
 .menu-foot {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
   margin-top: var(--space-4);
-  color: var(--text-muted);
+}
+
+.menu-version {
+  padding: var(--space-2) 14px 0;
+  font-size: 13px;
+  font-weight: 500;
 }
 
 .content {
@@ -337,6 +412,12 @@ input[type="radio"]:disabled {
   width: 100%;
   max-width: 1120px;
   margin-inline: auto;
+}
+
+/* Окно родителя без верхней строки (макет): отступы страницы 28 × 32 px, зазор сверху - внутри прокрутки. */
+.shell-parent .content {
+  margin-top: 0;
+  padding: 28px 32px;
 }
 
 .content-centered {
@@ -659,14 +740,7 @@ input[type="radio"]:disabled {
   color: var(--text-muted);
 }
 
-/* --- Сегодня ---------------------------------------------------------------------- */
-
-.today-links {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-  margin-bottom: var(--space-4);
-}
+/* --- Сегодня (8.3.2 п. 3, D-109, макет parent2.py) ----------------------------------- */
 
 .cards {
   display: grid;
@@ -674,19 +748,29 @@ input[type="radio"]:disabled {
   gap: var(--space-4);
 }
 
-.child-card {
-  padding: var(--space-4);
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-panel);
+.today-head {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  margin-bottom: 20px;
 }
 
-.child-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: var(--space-3);
-  margin-bottom: var(--space-2);
+.today-title {
+  font-family: var(--font-display);
+  font-size: 30px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.today-head .page-date {
+  font-size: 15px;
+  font-weight: 500;
+}
+
+/* Карточки детей по одной в строку; раскладка карточки — по ширине области (container query). */
+.today-cards {
+  grid-template-columns: minmax(0, 1fr);
+  container-type: inline-size;
 }
 
 .child-name {
@@ -694,8 +778,197 @@ input[type="radio"]:disabled {
   font-weight: 600;
 }
 
-.child-used {
-  margin-bottom: var(--space-1);
+/* Три колонки (макет): кто и что сегодня 200 px, остаток, кнопки 300 px. Уже 860 px - кнопки под ними. */
+.child-card {
+  display: grid;
+  grid-template-columns: 200px minmax(0, 1fr) 300px;
+  grid-template-areas:
+    "who time actions"
+    "fb fb fb";
+  column-gap: 28px;
+  align-items: center;
+  padding: 20px 22px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-panel);
+}
+
+
+.cc-who {
+  grid-area: who;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.cc-id {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.cc-avatar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  color: var(--text);
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.cc-id-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.cc-id-text .child-name {
+  font-size: 20px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.cc-presence {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.cc-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--presence-off);
+}
+
+.cc-dot-on {
+  background: var(--remain-green);
+}
+
+.cc-coin,
+.cc-forbid {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+}
+
+.cc-coin {
+  font-weight: 600;
+}
+
+.cc-forbid {
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.coin,
+.cc-forbid svg {
+  flex: none;
+}
+
+.cc-time {
+  grid-area: time;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.cc-remain {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: 10px;
+  row-gap: 4px;
+}
+
+/* Крупное число остатка (≥ 24 px, крупный текст WCAG): цвет по порогам 15/60 мин (8.0 п. 3). */
+.remain-num {
+  font-family: var(--font-display);
+  font-size: 44px;
+  font-weight: 800;
+  line-height: 1.1;
+  letter-spacing: -0.5px;
+}
+
+.remain-green {
+  color: var(--remain-green);
+}
+
+.remain-blue {
+  color: var(--remain-blue);
+}
+
+.remain-red {
+  color: var(--remain-red);
+}
+
+.cc-of {
+  color: var(--text-muted);
+  font-size: 15px;
+  font-weight: 500;
+}
+
+/* Полоса остатка 12 px с 8 белыми делениями (макет kit2.bar). */
+.remain-bar {
+  position: relative;
+  height: 12px;
+  overflow: hidden;
+  border-radius: 12px;
+  background: var(--remain-track);
+}
+
+.remain-bar::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: repeating-linear-gradient(
+    90deg,
+    transparent 0,
+    transparent calc(100% / 8 - 2px),
+    var(--surface) calc(100% / 8 - 2px),
+    var(--surface) calc(100% / 8)
+  );
+}
+
+.remain-bar-fill {
+  height: 100%;
+}
+
+.remain-bar-green {
+  background: var(--remain-green-bar);
+}
+
+.remain-bar-blue {
+  background: var(--remain-blue);
+}
+
+.remain-bar-red {
+  background: var(--remain-red-bar);
+}
+
+.cc-limits {
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: 20px;
+  row-gap: 2px;
+  color: var(--text-muted);
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.cc-nolimits {
+  font-size: 15px;
 }
 
 .child-meta {
@@ -703,35 +976,174 @@ input[type="radio"]:disabled {
   font-size: 14px;
 }
 
-.child-actions {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
-  margin-top: var(--space-4);
-  padding-top: var(--space-3);
-  border-top: 1px solid var(--line);
-}
-
-/* Блок действий с подписью: «Доп. время» и т.п. — вместо кучи кнопок в один ряд (FB-5). */
-.action-group {
+.cc-actions {
+  grid-area: actions;
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
+  min-width: 0;
 }
 
-.action-group-label {
-  font-size: 13px;
-  color: var(--text-muted);
+.cc-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-2);
 }
 
-.action-row {
+/* Уже 860 px: кнопки строкой под остатком — восемь клеток в ряд, копилка и ссылки ниже слева. */
+@container (max-width: 860px) {
+  .child-card {
+    grid-template-columns: 200px minmax(0, 1fr);
+    grid-template-areas:
+      "who time"
+      "actions actions"
+      "fb fb";
+    row-gap: var(--space-4);
+  }
+
+  .cc-grid {
+    grid-template-columns: repeat(8, minmax(0, 1fr));
+  }
+
+  .cc-actions > .chip-gold {
+    align-self: flex-start;
+    padding: 0 var(--space-4);
+  }
+}
+
+@container (max-width: 520px) {
+  .child-card {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      "who"
+      "time"
+      "actions"
+      "fb";
+  }
+
+  .cc-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+/* Кнопки карточки (макет kit2.chip): 40 px, скругление 10, «+» зелёные, «−» оранжевые, копилка золотая. */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 40px;
+  padding: 0 var(--space-2);
+  border-color: var(--line);
+  font-size: 15px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.chip-plus {
+  background: var(--plus-bg);
+  border-color: var(--plus-bg);
+  color: var(--plus-text);
+}
+
+.chip-minus {
+  background: var(--minus-bg);
+  border-color: var(--minus-bg);
+  color: var(--minus-text);
+}
+
+.chip-gold {
+  background: var(--gold-bg);
+  border-color: var(--gold-bg);
+  color: var(--gold-text);
+}
+
+/* Наведение: та же заливка чуть темнее рамкой, цвет текста прежний (контраст не падает). */
+.chip-plus:hover:not(:disabled) {
+  background: var(--plus-bg);
+  border-color: var(--plus-text);
+}
+
+.chip-minus:hover:not(:disabled) {
+  background: var(--minus-bg);
+  border-color: var(--minus-text);
+}
+
+.chip-gold:hover:not(:disabled) {
+  background: var(--gold-bg);
+  border-color: var(--gold-text);
+}
+
+/* Значок паузы - восьмая клетка сетки; во время паузы - вся строка с «Пауза до 18:30». */
+.pause-toggle-compact {
+  display: flex;
+  min-width: 0;
+}
+
+.pause-toggle-compact .pause-toggle {
+  flex: 1;
+  justify-content: center;
+  min-height: 40px;
+  padding: 0 4px;
+  border-color: var(--line);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.pause-toggle-compact[data-paused] {
+  grid-column: 1 / -1;
+}
+
+.pause-toggle-compact[data-paused] .pause-toggle {
+  flex: none;
+  padding: 0 var(--space-3);
+}
+
+.pause-toggle-compact .pause-picker {
+  left: auto;
+  right: 0;
+}
+
+.cc-links {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--space-2);
+  column-gap: var(--space-4);
+  row-gap: var(--space-1);
+  padding-top: 2px;
 }
 
-.action-row-foot {
-  align-items: center;
+/* Ссылка-кнопка: синий текст без рамки (макет: «Весь журнал»), подчёркивание при наведении. */
+.link-btn {
+  padding: 2px 0;
+  background: none;
+  border: 0;
+  color: var(--primary);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.link-btn:hover:not(:disabled) {
+  color: var(--primary-hover);
+  text-decoration: underline;
+}
+
+.link-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.link-danger {
+  color: var(--remain-red);
+}
+
+.link-danger:hover:not(:disabled) {
+  color: var(--remain-red);
+}
+
+.cc-feedback {
+  grid-area: fb;
 }
 
 /* Приглушённая второстепенная кнопка (убавить время): видно, что это не основное действие. */
@@ -747,7 +1159,7 @@ input[type="radio"]:disabled {
   padding: var(--space-3);
   background: var(--bg);
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
 }
 
 .child-custom-label {
@@ -761,7 +1173,7 @@ input[type="radio"]:disabled {
 .child-custom-input {
   width: 72px;
   padding: 6px 8px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--field-border);
   border-radius: 6px;
   background: var(--surface);
   color: var(--text);
@@ -769,11 +1181,104 @@ input[type="radio"]:disabled {
   font-variant-numeric: tabular-nums;
 }
 
+.cc-grant .bonus-grant {
+  width: 100%;
+}
+
 .child-feedback {
   display: flex;
   align-items: center;
   gap: var(--space-3);
   margin-top: var(--space-3);
+  font-size: 14px;
+}
+
+/* Ниже карточек: «N программ ждут решения» (380 px) и «Последние события». */
+.today-below {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: var(--space-4);
+  margin-top: 20px;
+}
+
+.today-block-title {
+  font-size: 17px;
+  font-weight: 700;
+}
+
+.today-pending {
+  display: flex;
+  flex: 0 1 380px;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 260px;
+  padding: 18px 20px;
+  background: var(--pending-bg);
+  border: 1px solid var(--pending-line);
+  border-radius: var(--radius-panel);
+}
+
+.today-pending-text {
+  color: var(--pending-text);
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.today-recent {
+  display: flex;
+  flex: 1 1 320px;
+  flex-direction: column;
+  min-width: 0;
+  padding: 16px 20px 6px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-panel);
+}
+
+.today-recent-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding-bottom: var(--space-2);
+}
+
+.today-recent-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.today-recent-row {
+  display: flex;
+  gap: var(--space-3);
+  padding: 10px 0;
+  border-top: 1px solid var(--line);
+  font-size: 14px;
+}
+
+.today-recent-time {
+  flex: none;
+  min-width: 44px;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.today-recent-text {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.today-recent-text b {
+  font-weight: 600;
+}
+
+.today-recent-empty {
+  padding: 10px 0 12px;
+  border-top: 1px solid var(--line);
+  color: var(--text-muted);
   font-size: 14px;
 }
 
@@ -2682,9 +3187,13 @@ textarea.sites-add-input {
     border-bottom: 1px solid var(--line);
   }
 
+  .menu-logo {
+    padding: 0 var(--space-2) 0 0;
+  }
+
   /* Пункты переносятся на следующую строку, а не уходят за край окна (B-73: «Стат…» в окне 960 при 150 %). */
   .menu-list {
-    display: flex;
+    flex-direction: row;
     flex: 1 1 100%;
     flex-wrap: wrap;
     min-width: 0;
@@ -2693,21 +3202,26 @@ textarea.sites-add-input {
 
   .menu-item {
     width: auto;
-    border-left: 0;
-    border-bottom: 3px solid transparent;
-  }
-
-  .menu-item[aria-current="page"] {
-    border-bottom-color: var(--primary);
+    min-height: 36px;
+    padding: 0 10px;
+    font-size: 15px;
   }
 
   .menu-foot {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
     margin-top: 0;
     margin-left: auto;
   }
 
+  .menu-version {
+    padding: 0 10px;
+  }
+
   .content,
-  .content-centered {
+  .content-centered,
+  .shell-parent .content {
     padding: var(--space-4);
   }
 
@@ -3638,10 +4152,12 @@ textarea.sites-add-input {
   margin-top: var(--space-3);
 }
 
-/* «Подключить другой телефон» и «Отвязать» заполняют ряд: в узкой карточке обе в ряд не входят и
-   встают одна под другой одной ширины, во всю ширину ряда; в широкой делят ряд без пустого хвоста. */
-.phone-pair-actions > .btn {
-  flex: 1 1 auto;
+/* «Подключить другой телефон» и «Отвязать» заполняют ряд: в узкой карточке встают одна под другой
+   одной ширины, во всю ширину ряда; в широкой делят ряд поровну без пустого хвоста. Сетка, а не перенос
+   по ширине текста: со встроенным Inter (ТЗ 8.0 п. 2) обе подписи входят в 340 px разной ширины. */
+.phone-pair-actions {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
 }
 
 /* Недоступная кнопка подключения - серая, как .btn:disabled в остальном окне, но остаётся в Tab-порядке:
