@@ -161,6 +161,9 @@ Section
     File "..\..\..\internal\sites\adult\LICENSE-UT1.txt"
     # Лицензия проигрывателя стикеров lottie-web (MIT) лежит рядом с программой (M5b, уточнение 12).
     File "..\..\..\frontend\src\vendor\LICENSE-lottie-web.txt"
+    # Лицензии встроенных шрифтов Inter и Rubik (SIL OFL 1.1) лежат рядом с программой (ТЗ 8.0 п. 2).
+    File "..\..\..\frontend\src\assets\fonts\LICENSE-Inter.txt"
+    File "..\..\..\frontend\src\assets\fonts\LICENSE-Rubik.txt"
 
     CreateShortCut "${PCB_RESET_LINK}" "$INSTDIR\${PRODUCT_EXECUTABLE}" "--reset-password" "$INSTDIR\${PRODUCT_EXECUTABLE}" 0
     # Ярлыки шаблона Wails прежних версий: на общем рабочем столе их видят и дети.
@@ -299,6 +302,8 @@ Section "uninstall"
     # Лицензия списка 18+ (файл установки): не удалить её, и папка программы останется.
     Delete "$INSTDIR\LICENSE-UT1.txt"
     Delete "$INSTDIR\LICENSE-lottie-web.txt"
+    Delete "$INSTDIR\LICENSE-Inter.txt"
+    Delete "$INSTDIR\LICENSE-Rubik.txt"
     Delete /REBOOTOK "$INSTDIR\${PRODUCT_EXECUTABLE}"
     !insertmacro wails.deleteUninstaller
     RMDir /REBOOTOK "$INSTDIR"
