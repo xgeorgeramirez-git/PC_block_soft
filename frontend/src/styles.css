@@ -374,6 +374,26 @@ input[type="radio"]:disabled {
   }
 }
 
+/* Низкое окно (наименьшее окно родителя 960 × 620): пункты 38 px и отступы плотнее, чтобы всё меню с
+   «Выйти» и версией помещалось без прокрутки (визуальная приёмка T5); прокрутка меню — запас для 150 %. */
+@media (max-height: 760px) {
+  .menu {
+    padding-block: 14px;
+  }
+
+  .menu-logo {
+    padding-bottom: 12px;
+  }
+
+  .menu-item {
+    min-height: 38px;
+  }
+
+  .menu-foot {
+    margin-top: var(--space-2);
+  }
+}
+
 /* Внизу меню: «Что нового», «Выйти» и номер версии (ТЗ 8.3.2 п.2). */
 .menu-foot {
   display: flex;
@@ -621,6 +641,15 @@ input[type="radio"]:disabled {
   opacity: 1;
 }
 
+/* Фокус поля (8.0 п. 9): одно кольцо акцента 2 px вплотную к рамке того же цвета, а не обводка цветом
+   текста поверх рамки (двойная тёмная рамка, визуальная приёмка T5). Акцент к фону 5,9:1, к полю 6,4:1. */
+.field-input:focus-visible,
+.child-custom-input:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 0;
+  border-color: var(--primary);
+}
+
 .field-input:disabled {
   background: var(--bg);
   color: var(--text-muted);
@@ -821,13 +850,8 @@ input[type="radio"]:disabled {
   font-weight: 700;
 }
 
-.cc-id-text {
-  display: flex;
-  flex-direction: column;
+.cc-id .child-name {
   min-width: 0;
-}
-
-.cc-id-text .child-name {
   font-size: 20px;
   font-weight: 700;
   overflow-wrap: anywhere;

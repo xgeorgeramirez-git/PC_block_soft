@@ -74,3 +74,8 @@ export function pendingLead(names: string[], total: number): string {
   const them = Math.max(total, shown.length) === 1 ? "её" : "их";
   return `${list}Пока вы не решите, ребёнок не сможет ${them} запустить.`;
 }
+
+/** Число и единица времени не разрываются переносом: «Осталось 10 мин» → «Осталось 10\u00a0мин». */
+export function keepUnits(text: string): string {
+  return text.replace(/(\d) (мин|ч|с)(?=$|[\s.,;:)])/g, "$1\u00a0$2");
+}

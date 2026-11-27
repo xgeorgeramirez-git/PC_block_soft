@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatHM, limitLine, pendingLead, programsWaitText, remainMinutes, remainShare, remainTone } from "./remain";
+import { formatHM, keepUnits, limitLine, pendingLead, programsWaitText, remainMinutes, remainShare, remainTone } from "./remain";
 
 // Цвет остатка у родителя (ТЗ 8.0 п. 3, D-109): больше 1 ч зелёный, больше 15 мин до 1 ч включительно
 // синий, 15 мин и меньше красный. Минуты — вверх до целой (как core.RemainingMinutes и значок у часов),
@@ -126,5 +126,17 @@ describe("pendingLead: пояснение блока «ждут решения»
   });
   it("без названий (старая служба) — только пояснение", () => {
     expect(pendingLead([], 2)).toBe(`${tail} их запустить.`);
+  });
+});
+
+describe("keepUnits: число и единица не разрываются", () => {
+  // Ловит (визуальная приёмка T5): «Осталось 10 / мин» переносилось между числом и «мин».
+  it.each([
+    ["Осталось 10 мин", "Осталось 10\u00a0мин"],
+    ["Осталось 1 ч 05 мин", "Осталось 1\u00a0ч 05\u00a0мин"],
+    ["Пауза до 18:30", "Пауза до 18:30"],
+    ["Можно", "Можно"],
+  ])("%s", (text, want) => {
+    expect(keepUnits(text)).toBe(want);
   });
 });

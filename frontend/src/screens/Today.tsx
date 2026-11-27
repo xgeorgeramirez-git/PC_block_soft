@@ -23,7 +23,7 @@ import UndoLine from "../components/UndoLine";
 import { CallError, errorText } from "../lib/errors";
 import { formatDateLong, formatEventTime, formatTimeOfDay, localOffsetMin, sameLocalDay } from "../lib/format";
 import { isViolation, startOfDayMs } from "../lib/journal";
-import { formatHM, limitLine, pendingLead, programsWaitText, remainMinutes, remainShare, remainTone } from "../lib/remain";
+import { formatHM, keepUnits, limitLine, pendingLead, programsWaitText, remainMinutes, remainShare, remainTone } from "../lib/remain";
 import { canAddTime, hasTimeLimits, statusTone } from "../lib/status";
 import type { ChildStatus, JournalEntry, PausePreset, TodayCard } from "../types";
 
@@ -45,6 +45,8 @@ interface Feedback {
   error: boolean;
   /** Сколько мс ещё работает «Отменить» и что она отменяет: доп. время или начисление в копилку. */
   undo?: { kind: "extra" | "bonus"; id: string; ms: number };
+  /** Только для диктора: результат уже виден на карточке (пауза — «Пауза до 18:30» у значка). */
+  quiet?: boolean;
 }
 
 const EXTRA_BUTTONS = [15, 30, 60];
@@ -117,9 +119,9 @@ export default function Today({ onOpenJournal, onOpenSettings, onOpenChildren, o
   const replaceCard = (card: TodayCard) =>
     setCards((prev) => (prev ?? []).map((c) => (c.childId === card.childId ? { ...c, ...card } : c)));
 
-  const say = (childId: number, text: string, error = false, undo?: Feedback["undo"]) => {
+  const say = (childId: number, text: string, error = false, undo?: Feedback["undo"], quiet = false) => {
     seq.current += 1;
-    setFeedback((prev) => ({ ...prev, [childId]: { seq: seq.current, text, error, undo } }));
+    setFeedback((prev) => ({ ...prev, [childId]: { seq: seq.current, text, error, undo, quiet } }));
   };
 
   const run = async (childId: number, action: () => Promise<void>) => {
@@ -177,7 +179,8 @@ export default function Today({ onOpenJournal, onOpenSettings, onOpenChildren, o
     run(card.childId, async () => {
       const reply = await pause(card.childId, preset);
       replaceCard(reply.card);
-      say(card.childId, reply.message);
+      // Видно одно место показа паузы — «Пауза до 18:30» у значка (визуальная приёмка T5); диктор читает ответ.
+      say(card.childId, reply.message, false, undefined, true);
     });
 
   // Закончить паузу раньше срока (D-96): правила действуют сразу, карточка - из ответа службы.
@@ -416,7 +419,7 @@ function ChildCard({
 
   const tone = remainTone(s.remainingS, s.unlimited);
   const presence = card.presenceText ?? "";
-  const statusWord = s.statusText;
+  const statusWord = keepUnits(s.statusText);
   // Статус словами (FR-15) там, где число его не передаёт: «Время вышло», «Пауза», «Запретные часы»…
   const showStatusChip = presence !== "" && !STATUS_BY_NUMBER.has(s.status);
   const forbid = forbidLine(s);
@@ -433,22 +436,24 @@ function ChildCard({
           <span className="cc-avatar" style={{ background: avatarBg }} aria-hidden="true">
             {card.name.trim().slice(0, 1).toUpperCase()}
           </span>
-          <div className="cc-id-text">
-            <h3 id={titleId} className="child-name">
-              {card.name}
-            </h3>
-            <p className="cc-presence">
-              <span className={card.presenceNow ? "cc-dot cc-dot-on" : "cc-dot"} aria-hidden="true" />
-              {presence !== "" ? (
-                presence
-              ) : (
-                <span className={`status status-${statusTone(s.status)}`} data-status={s.status}>
-                  {statusWord}
-                </span>
-              )}
-            </p>
-          </div>
+          <h3 id={titleId} className="child-name">
+            {card.name}
+          </h3>
         </div>
+        {/* Своей строкой во всю колонку: «Не за компьютером с 17:05» рядом с аватаром не помещалась.
+            Одна точка: присутствия (зелёная или серая) или, если оно неизвестно, цвета статуса (.status). */}
+        <p className="cc-presence">
+          {presence !== "" ? (
+            <>
+              <span className={card.presenceNow ? "cc-dot cc-dot-on" : "cc-dot"} aria-hidden="true" />
+              {keepUnits(presence)}
+            </>
+          ) : (
+            <span className={`status status-${statusTone(s.status)}`} data-status={s.status}>
+              {statusWord}
+            </span>
+          )}
+        </p>
         <p className="cc-coin num">
           <Coin size={18} />
           {`В копилке ${card.bonusBalance} мин`}
@@ -605,7 +610,7 @@ function ChildCard({
           <UndoLine
             key={feedback.seq}
             live={false}
-            className="child-feedback"
+            className={feedback.quiet ? "child-feedback visually-hidden" : "child-feedback"}
             text={feedback.text}
             undoMs={feedback.undo?.ms}
             onUndo={feedback.undo ? () => onUndo(feedback.undo!) : undefined}

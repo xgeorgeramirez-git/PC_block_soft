@@ -168,7 +168,7 @@ const todayEvents = (now: number) => [
 
 /**
  * Карточки «Сегодня» без наложений (8.3.2 п. 3): колонки «кто», «остаток», «кнопки» не пересекаются, ничего не
- * выходит за карточку, подписи кнопок и числа видны целиком (не обрезаны и не перенесены в две строки у кнопок).
+ * выходит за карточку, подписи кнопок и числа видны целиком, короткий статус и присутствие — одной строкой.
  */
 async function todayCardsFit(page: Page) {
   const bad = await page.evaluate(() => {
@@ -186,6 +186,12 @@ async function todayCardsFit(page: Page) {
       for (const el of card.querySelectorAll<HTMLElement>("button, .remain-num, .cc-of, .cc-coin, .cc-forbid, .cc-presence")) {
         if (el.offsetParent === null) continue;
         if (el.scrollWidth > el.clientWidth + 1) out.push(`«${el.textContent}» обрезано`);
+      }
+      // Короткий статус и присутствие — одной строкой: «Осталось 10 / мин» не переносится (визуальная приёмка T5).
+      for (const el of card.querySelectorAll<HTMLElement>(".cc-presence, .status")) {
+        const text = el.textContent ?? "";
+        const line = parseFloat(getComputedStyle(el).lineHeight) || 20;
+        if (text.length <= 26 && el.getBoundingClientRect().height > line * 1.5) out.push(`«${text}» в две строки`);
       }
     }
     return out;
@@ -394,6 +400,26 @@ async function openJournal(page: Page, over: MockOptions = {}) {
     await expect(page.getByRole("button", { name: "Очистить журнал" })).toHaveCount(0);
     await noHorizontalScroll(page);
     await page.screenshot({ path: `${SCREENS}/s04-journal.png`, fullPage: true });
+  });
+}
+
+// Меню родителя на низком окне (визуальная приёмка T5: в 960 × 640 «Версия» резалась, «Выйти» уходила за
+// край): всё меню помещается без своей прокрутки и без прокрутки окна (PL-25), «Выйти» видна целиком.
+for (const [w, h] of [
+  [960, 640],
+  [960, 620],
+  [1280, 800],
+]) {
+  test(`меню родителя: низ виден в окне ${w} x ${h}`, async ({ page }) => {
+    await page.setViewportSize({ width: w, height: h });
+    await openJournal(page);
+    const nav = page.getByRole("navigation", { name: "Разделы" });
+    const fit = await nav.evaluate((el) => ({ scroll: el.scrollHeight, client: el.clientHeight }));
+    expect(fit.scroll, `меню ${w} x ${h} прокручивается: ${JSON.stringify(fit)}`).toBeLessThanOrEqual(fit.client);
+    await inFrame(page, nav.getByRole("button", { name: "Выйти" }));
+    await inFrame(page, nav.getByText(/^Версия /));
+    await expect(nav.getByRole("button", { name: "Выйти" })).toBeInViewport({ ratio: 1 });
+    await noHorizontalScroll(page);
   });
 }
 

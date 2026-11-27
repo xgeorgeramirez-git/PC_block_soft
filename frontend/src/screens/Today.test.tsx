@@ -492,6 +492,8 @@ describe("Today: значок-переключатель паузы (R11, D-96)"
     // «Пауза до 18:30» — рядом со значком; ниже ответ службы «Пауза 1 ч».
     expect(within(on.parentElement!).getByText("Пауза до 18:30")).toBeTruthy();
     expect(within(misha).getByRole("status").textContent).toBe("Пауза 1 ч");
+    // Видно одно место показа паузы — «Пауза до 18:30» у значка; ответ службы только для диктора (визуальная приёмка T5).
+    expect(within(misha).getByText("Пауза 1 ч").closest(".visually-hidden")).toBeTruthy();
     expect(within(misha).queryByRole("group", { name: "На сколько поставить паузу" })).toBeNull();
   });
 
@@ -628,10 +630,17 @@ describe("Today: взрослый вид карточки (8.3.2 п. 3, D-109)",
     expect(line.closest(".cc-presence")?.querySelector(".cc-dot-on")).toBeNull();
   });
 
-  it("присутствие неизвестно: на его месте статус словами", async () => {
+  // Ловит (визуальная приёмка T5): серая точка присутствия рядом с цветной точкой статуса — две точки подряд;
+  // «Осталось 10 / мин» переносилось между числом и единицей.
+  it("присутствие неизвестно: на его месте статус словами, одна точка — цвета статуса", async () => {
     setup({ children: [withLeft(10)] });
     const misha = await screen.findByRole("article", { name: "Миша" });
-    expect(within(misha).getByText("Осталось 10 мин").closest(".cc-presence")).toBeTruthy();
+    const status = within(misha).getByText("Осталось 10 мин");
+    expect(status.textContent).toBe("Осталось 10\u00a0мин");
+    const line = status.closest(".cc-presence")!;
+    expect(line).toBeTruthy();
+    expect(line.querySelector(".cc-dot")).toBeNull();
+    expect(status.className).toContain("status-warn");
   });
 
   it("копилка и запрет на сегодня", async () => {

@@ -97,3 +97,17 @@ describe("контраст текста не меньше 4,5:1", () => {
     expect(contrast(t["remain-green"], t.surface)).toBeGreaterThanOrEqual(3);
   });
 });
+
+// Ловит (визуальная приёмка T5): фокус поля — толстая двойная тёмная рамка (обводка браузера цветом текста
+// поверх рамки поля). Кольцо фокуса полей — акцент #2552D9, 2 px, вплотную к рамке; не меньше 3:1 к фону.
+describe("фокус полей ввода", () => {
+  const block = /(^|\n)\.field-input:focus-visible[^{]*\{([^}]*)\}/.exec(css)?.[2] ?? "";
+  it("кольцо акцента 2 px без отступа, рамка поля того же цвета", () => {
+    expect(block).toMatch(/outline:\s*2px solid var\(--primary\)\s*;/);
+    expect(block).toMatch(/outline-offset:\s*0\s*;/);
+    expect(block).toMatch(/border-color:\s*var\(--primary\)\s*;/);
+  });
+  it.each(["surface", "bg"])("акцент к фону %s не меньше 3:1", (bg) => {
+    expect(contrast(t.primary, t[bg])).toBeGreaterThanOrEqual(3);
+  });
+});
