@@ -8,9 +8,6 @@ import (
 	"pcblock/internal/core"
 )
 
-// maxBonusBalance — наибольший баланс копилки в минутах (CHECK в схеме, FR-22).
-const maxBonusBalance = 600
-
 // GetSchedule возвращает запретные интервалы ребёнка (R7), отсортированные по дню недели
 // и началу. Интервалов нет — пустой список, не nil (L-22).
 func (s *Store) GetSchedule(childID int64) ([]core.Interval, error) {
@@ -91,7 +88,7 @@ func (s *Store) GetBonusBalance(childID int64) (int, error) {
 
 // AppendBonus записывает начисление (deltaMin > 0) или трату (deltaMin < 0) и возвращает
 // новый баланс (R10, FR-22). Баланс считается в той же транзакции, что и вставка (L-80):
-// трата сверх баланса и начисление выше 600 отклоняются, строка не пишется. reason
+// трата сверх баланса отклоняется, строка не пишется; предела баланса нет (D-113). reason
 // обязателен (R22).
 func (s *Store) AppendBonus(childID int64, deltaMin int, reason string) (int, error) {
 	if reason == "" {
@@ -116,7 +113,7 @@ func (s *Store) AppendBonus(childID int64, deltaMin int, reason string) (int, er
 }
 
 // GrantDayBonus — автобонус за день одной транзакцией (R25 «один раз»): начисление deltaMin > 0 с
-// причиной reason в копилку (потолок 600, как AppendBonus) и строка дня day с bonus_granted = 1
+// причиной reason в копилку (предела баланса нет, D-113) и строка дня day с bonus_granted = 1
 // (остальные поля как есть). Возвращает баланс после. Отказ или сбой — ни начисления, ни отметки:
 // следующий запуск рассмотрит день заново и начислит ровно один раз.
 func (s *Store) GrantDayBonus(childID int64, day core.DayState, deltaMin int, reason string) (int, error) {
@@ -148,8 +145,8 @@ func (s *Store) GrantDayBonus(childID int64, day core.DayState, deltaMin int, re
 	return after, nil
 }
 
-// appendBonusTx — вставка в копилку внутри tx с проверкой баланса (0…600); причина и ненулевое
-// изменение уже проверены.
+// appendBonusTx — вставка в копилку внутри tx: баланс не ниже нуля, предела баланса нет (D-113);
+// причина и ненулевое изменение уже проверены.
 func appendBonusTx(tx *sql.Tx, childID int64, deltaMin int, reason string) (int, error) {
 	var cur int
 	err := tx.QueryRow(`SELECT balance_after FROM bonus_ledger WHERE child_id = ?
@@ -160,9 +157,6 @@ func appendBonusTx(tx *sql.Tx, childID int64, deltaMin int, reason string) (int,
 	after := cur + deltaMin
 	if after < 0 {
 		return 0, fmt.Errorf("%w: в копилке %d мин, нельзя взять %d", ErrInvalid, cur, -deltaMin)
-	}
-	if after > maxBonusBalance {
-		return 0, fmt.Errorf("%w: можно начислить не больше %d мин", ErrInvalid, maxBonusBalance-cur)
 	}
 	if _, err := tx.Exec(`INSERT INTO bonus_ledger (child_id, at, delta_min, reason, balance_after)
 		VALUES (?, ?, ?, ?, ?)`, childID, timeNow().UnixMilli(), deltaMin, reason, after); err != nil {

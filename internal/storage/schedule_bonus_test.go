@@ -58,8 +58,8 @@ func TestSetGetScheduleRoundTrip(t *testing.T) {
 	}
 }
 
-// Ловит: копилка не считает баланс, уводит ниже 0 или выше 600, трата сверх баланса
-// проходит, начисление не записывается (R10, FR-22, CHECK 0..600).
+// Ловит: копилка не считает баланс, уводит ниже 0, держит старый предел 600 (D-113), трата
+// сверх баланса проходит, начисление не записывается (R10, FR-22, CHECK balance_after >= 0).
 func TestBonusLedgerBalance(t *testing.T) {
 	s := openTemp(t)
 	id := mustChild(t, s, "S-1-5-21-2", "Катя")
@@ -86,12 +86,19 @@ func TestBonusLedgerBalance(t *testing.T) {
 	if bal, _ := s.GetBonusBalance(id); bal != 30 {
 		t.Fatalf("после неудачной траты баланс = %d, want 30 (не изменился)", bal)
 	}
-	// Начисление выше 600 — ошибка.
-	if _, err := s.AppendBonus(id, 600, "слишком много"); err == nil {
-		t.Fatal("AppendBonus(+600) при балансе 30 должно превысить 600 и вернуть ошибку")
+	// Предела баланса нет (D-113): 30 + 560 = 590, 590 + 600 = 1190.
+	if bal, err := s.AppendBonus(id, 560, "за лето"); err != nil || bal != 590 {
+		t.Fatalf("AppendBonus(+560) = %d, err %v, want 590", bal, err)
 	}
-	if bal, _ := s.GetBonusBalance(id); bal != 30 {
-		t.Fatalf("после отказа баланс = %d, want 30", bal)
+	if bal, err := s.AppendBonus(id, 600, "за олимпиаду"); err != nil || bal != 1190 {
+		t.Fatalf("AppendBonus(+600) при балансе 590 = %d, err %v, want 1190", bal, err)
+	}
+	// Трата ниже нуля по-прежнему ErrInvalid, баланс прежний.
+	if _, err := s.AppendBonus(id, -1191, "взято из копилки"); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("AppendBonus(-1191) при балансе 1190 = %v, want ErrInvalid", err)
+	}
+	if bal, _ := s.GetBonusBalance(id); bal != 1190 {
+		t.Fatalf("после отказа баланс = %d, want 1190", bal)
 	}
 }
 
@@ -151,7 +158,8 @@ func TestSaveLoadDayStatePauseUntil(t *testing.T) {
 
 // Ловит (R25 «один раз», ревью M5): автобонус и отметка bonus_granted строки дня пишутся двумя
 // записями — сбой между ними оставляет начисление без отметки, и следующий запуск начисляет снова;
-// отметка теряет поля строки; отказ по потолку или причине всё же пишет строку дня.
+// отметка теряет поля строки; отказ по причине или нулю всё же пишет строку дня; автобонус
+// упирается в старый предел 600 (D-113, R-4).
 func TestGrantDayBonusAtomic(t *testing.T) {
 	s := openTemp(t)
 	id := mustChild(t, s, "S-1-5-21-7", "Миша")
@@ -179,7 +187,7 @@ func TestGrantDayBonusAtomic(t *testing.T) {
 		delta  int
 		reason string
 	}{
-		{"выше потолка", other, 561, "Бонус"},
+		{"минус", other, -5, "Бонус"},
 		{"без причины", other, 5, ""},
 		{"ноль", other, 0, "Бонус"},
 		{"не дата", core.DayState{Day: "25.11.2026"}, 5, "Бонус"},
@@ -204,5 +212,12 @@ func TestGrantDayBonusAtomic(t *testing.T) {
 	}
 	if list, _ := s.ListBonus(id); len(list) != 1 {
 		t.Errorf("после сбоя записей копилки %d, want 1", len(list))
+	}
+	// Предела нет (D-113, R-4): 40 + 600 = 640.
+	if _, err := s.db.Exec(`DROP TRIGGER fail_day`); err != nil {
+		t.Fatal(err)
+	}
+	if bal, err := s.GrantDayBonus(id, other, 600, "Бонус за свободное время: 600 мин"); err != nil || bal != 640 {
+		t.Errorf("GrantDayBonus(+600) при балансе 40 = %d, %v; want 640", bal, err)
 	}
 }

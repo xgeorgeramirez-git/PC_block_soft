@@ -124,7 +124,7 @@ func TestOpenCreatesFullSchema(t *testing.T) {
 }
 
 // Ловит: ограничения CHECK из ТЗ 4 потеряны (одна строка пароля, дни недели 1…7, режим
-// конца времени, потолок копилки), и в базу попадают значения, которые ядро не умеет читать.
+// конца времени, копилка не ниже нуля — предела сверху нет, D-113), и в базу попадают значения, которые ядро не умеет читать.
 func TestSchemaConstraints(t *testing.T) {
 	s := openTemp(t)
 	id := mustChild(t, s, "S-1-5-21-1", "Миша")
@@ -133,7 +133,7 @@ func TestSchemaConstraints(t *testing.T) {
 		{"end_mode вне списка", `UPDATE children SET end_mode = 'kill' WHERE id = ` + itoa(id)},
 		{"weekday 8", `INSERT INTO day_limits (child_id, weekday, total_min) VALUES (` + itoa(id) + `, 8, 10)`},
 		{"лимит 1441 мин", `INSERT INTO day_limits (child_id, weekday, total_min) VALUES (` + itoa(id) + `, 1, 1441)`},
-		{"копилка 601", `INSERT INTO bonus_ledger (child_id, at, delta_min, reason, balance_after) VALUES (` + itoa(id) + `, 1, 1, 'x', 601)`},
+		{"копилка -1", `INSERT INTO bonus_ledger (child_id, at, delta_min, reason, balance_after) VALUES (` + itoa(id) + `, 1, -1, 'x', -1)`},
 		{"категория программы вне списка", `INSERT INTO programs (exe_path, display_name, category, source) VALUES ('c:\a.exe', 'a', 'video', 'parent')`},
 		{"попытка без ждущей программы", `INSERT INTO pending_attempts (exe_path, child_id, attempts, last_attempt_at) VALUES ('c:\нет.exe', ` + itoa(id) + `, 1, 1)`},
 		{"попытка несуществующего ребёнка", `INSERT INTO pending_attempts (exe_path, child_id, attempts, last_attempt_at) VALUES ('c:\p.exe', 999, 1, 1)`},
@@ -213,16 +213,16 @@ func TestOpenTwiceKeepsDataAndMigrationOnce(t *testing.T) {
 		t.Fatalf("второе Open: %v", err)
 	}
 	defer s2.Close()
-	if n := rawNull(t, s2, `SELECT count(*) FROM schema_migrations`); n.Int64 != 11 {
-		t.Errorf("строк schema_migrations = %d, want 11", n.Int64)
+	if n := rawNull(t, s2, `SELECT count(*) FROM schema_migrations`); n.Int64 != 12 {
+		t.Errorf("строк schema_migrations = %d, want 12", n.Int64)
 	}
-	if v := rawNull(t, s2, `SELECT max(version) FROM schema_migrations`); v.Int64 != 11 {
-		t.Errorf("последняя миграция = %d, want 11", v.Int64)
+	if v := rawNull(t, s2, `SELECT max(version) FROM schema_migrations`); v.Int64 != 12 {
+		t.Errorf("последняя миграция = %d, want 12", v.Int64)
 	}
 	if at := rawNull(t, s2, `SELECT applied_at FROM schema_migrations WHERE version = 1`); at.Int64 != 1_000 {
 		t.Errorf("applied_at миграции 1 = %d, want 1000 (момент первого применения)", at.Int64)
 	}
-	for _, v := range []int{2, 3, 4, 5, 6, 7, 8, 9, 10, 11} {
+	for _, v := range []int{2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12} {
 		if at := rawNull(t, s2, `SELECT applied_at FROM schema_migrations WHERE version = ?`, v); at.Int64 != 1_000 {
 			t.Errorf("applied_at миграции %d = %d, want 1000 (все применяются при первом открытии, не повторно)", v, at.Int64)
 		}
