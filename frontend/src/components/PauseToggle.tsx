@@ -41,8 +41,12 @@ export default function PauseToggle({ paused, until, busy = false, onPick, onEnd
     }
   }, [busy]);
 
-  // Пауза началась или закончилась (ответ службы, опрос): выбор срока больше не нужен.
+  // Пауза началась или закончилась (ответ службы, опрос): выбор срока больше не нужен. Только при
+  // смене, не при появлении значка: эффект монтирования после первого нажатия закрывал выбор срока.
+  const wasPaused = useRef(paused);
   useEffect(() => {
+    if (wasPaused.current === paused) return;
+    wasPaused.current = paused;
     setOpen(false);
   }, [paused]);
 
