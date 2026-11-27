@@ -30,6 +30,17 @@ fun Problem.res(): Int = when (this) {
     Problem.KEY -> R.string.err_key
     Problem.NOTE_RANGE -> R.string.err_note_range
     Problem.NOTE_PC_OFFLINE -> R.string.err_note_pc_offline
+    Problem.PROMO_EXISTS -> R.string.err_promo_exists
+    Problem.PROMO_GEN -> R.string.err_promo_gen
+    Problem.PROMO_GONE -> R.string.err_promo_gone
+    Problem.DECIDED_ALREADY -> R.string.err_decided_already
+    Problem.BANK_RANGE -> R.string.err_bank_range
+    Problem.PROMO_CODE_EMPTY -> R.string.err_promo_code_empty
+    Problem.PROMO_CODE_LEN -> R.string.err_promo_code_len
+    Problem.PROMO_CODE_LATIN -> R.string.err_promo_code_latin
+    Problem.PROMO_MINUTES -> R.string.err_promo_minutes
+    Problem.PROMO_COUNT -> R.string.err_promo_count
+    Problem.PROMO_LEN -> R.string.err_promo_len
 }
 
 /** «19:05» или «17.11 19:05» по местному времени телефона. */
@@ -52,6 +63,7 @@ fun problemText(p: Problem, lastSeenMs: Long): String =
 @StringRes
 fun NoteMark.res(): Int = when (this) {
     NoteMark.SENT -> R.string.note_mark_sent
+    NoteMark.WAITING_OFFLINE -> R.string.note_mark_waiting_offline
     NoteMark.DELIVERED -> R.string.note_mark_delivered
     NoteMark.READ -> R.string.note_mark_read
     NoteMark.SHOWN -> R.string.note_mark_shown
