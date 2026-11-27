@@ -1355,7 +1355,7 @@ func (s *Service) hTestClock(c *callCtx) ipc.Reply {
 }
 
 // hTestSession подаёт службе событие сеанса Windows тем же путём, что диспетчер служб (только
-// тестовый режим, приёмка FB5).
+// тестовый режим, приёмка FB5, S50, S63).
 func (s *Service) hTestSession(c *callCtx) ipc.Reply {
 	var req ipc.TestSessionRequest
 	if c.msg.Into(&req) != nil {
@@ -1367,6 +1367,10 @@ func (s *Service) hTestSession(c *callCtx) ipc.Reply {
 		ev = SessionDisconnect
 	case ipc.TestSessionLogoff:
 		ev = SessionLogoff
+	case ipc.TestSessionLock:
+		ev = SessionLock
+	case ipc.TestSessionUnlock:
+		ev = SessionUnlock
 	case ipc.TestSessionLogon:
 		// «Ребёнок снова вошёл» (S50): момент входа — сейчас, и сверка сеансов проходит путь
 		// «ребёнок появился в сеансе» (автозагрузка, R1, политика), как после настоящего входа.

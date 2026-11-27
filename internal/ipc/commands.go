@@ -868,6 +868,8 @@ type TestSessionRequest struct {
 const (
 	TestSessionDisconnect = "disconnect" // смена пользователя: сеанс отключён
 	TestSessionLogoff     = "logoff"     // выход из учётки
+	TestSessionLock       = "lock"       // блокировка сеанса (Win+L): не выход (S63)
+	TestSessionUnlock     = "unlock"     // разблокировка: не вход, окна при входе нет (FR-46, S63)
 )
 
 // TestSeedDayRequest — записать итоги прошлого дня ребёнка и учёт по программам за него (только

@@ -151,6 +151,28 @@ func TestUnlockConnectNoWindow(t *testing.T) {
 	wantWindows(t, h, childSession)
 }
 
+// Ловит (S63): тестовые события блокировки и разблокировки не доходят до службы или открывают окно.
+func TestTestSessionLockUnlockNoWindow(t *testing.T) {
+	h := logonHarness(t, true, withTestMode(TestMode{}))
+	h.childSessionUp()
+	h.ok(adminPeer(), "", ipc.CmdTestSession, ipc.TestSessionRequest{Event: ipc.TestSessionLock, SessionID: childSession}, nil)
+	h.svc.mu.Lock()
+	locked := h.svc.sessions[childSession].locked
+	h.svc.mu.Unlock()
+	if !locked {
+		t.Fatal("тестовая блокировка не дошла до сеанса")
+	}
+	h.ok(adminPeer(), "", ipc.CmdTestSession, ipc.TestSessionRequest{Event: ipc.TestSessionUnlock, SessionID: childSession}, nil)
+	h.hk(12)
+	h.svc.mu.Lock()
+	locked = h.svc.sessions[childSession].locked
+	h.svc.mu.Unlock()
+	if locked {
+		t.Fatal("тестовая разблокировка не дошла до сеанса")
+	}
+	wantWindows(t, h, childSession)
+}
+
 // Ловит: дубль события входа (настоящее и тестовое) — второе окно; окно, закрытое крестиком,
 // открывается снова или пишется обходом; после выхода и нового входа окна нет.
 func TestLogonOnceAndReopenAfterLogoff(t *testing.T) {
