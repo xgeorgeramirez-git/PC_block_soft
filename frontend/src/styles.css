@@ -4208,3 +4208,860 @@ textarea.sites-add-input {
 .phone-message:empty {
   margin: 0;
 }
+
+/* --- Окно ребёнка «Игровое лобби» (8.0 п. 1, 9) ------------------------------------------------ */
+/* Своя область стилей окна ребёнка (.shell-child, .lobby): окно родителя её не видит. Значения — артборды
+   макета plans/design-0.8.4/kit.py и child.py: синий радиальный фон, тёмно-синие панели с обводкой и бликом,
+   объёмные кнопки, крупные белые цифры с тёмной обводкой, шрифт Rubik. Прежние разделы («Итоги», «Мои
+   правила», диалоги) перекрашены токенами ниже: светлый текст на тёмной панели, контраст не ниже 4,5:1. */
+.shell-child {
+  --lb-ink: #0b1d5c;
+  --lb-panel: #13287a;
+  --lb-hi: #2d4dc0;
+  --lb-muted: #c7d4ff;
+  --lb-deep: #0e1f66;
+  /* Токены прежних разделов внутри окна ребёнка. */
+  --bg: #0e1f66;
+  --surface: #13287a;
+  --line: rgba(199, 212, 255, 0.3);
+  --share-bar: rgba(199, 212, 255, 0.3);
+  --text: #ffffff;
+  --text-muted: #c7d4ff;
+  --primary: #ffe066;
+  --primary-text: #0b1d5c;
+  --primary-hover: #ffd033;
+  --accent-soft: #22388f;
+  --status-warn: #ffd54a;
+  --status-danger: #ffb199;
+  --status-ok: #7cf29b;
+  --field-border: #7fb6ff;
+  --chart-bar: #7fb6ff;
+  --font: "Rubik", "Segoe UI", system-ui, sans-serif;
+  --font-display: "Rubik", "Segoe UI", system-ui, sans-serif;
+  background: radial-gradient(ellipse 90% 70% at 50% 25%, #4a86ff 0%, #2a5ce0 45%, #15318c 100%);
+  color: #ffffff;
+  font-family: var(--font);
+  accent-color: #ffe066;
+  scrollbar-color: #7fb6ff #15318c;
+}
+
+html:has(.shell-child) body {
+  background: #15318c;
+}
+
+/* Шапки «PC Block» в макете окна ребёнка нет: вместо неё «Привет, Миша!» внутри страницы. Страница
+   по-прежнему прокручивается внутри .content (PL-25), окно — нет. */
+.shell-child > .topbar {
+  display: none;
+}
+
+.shell-child .content-frame {
+  padding-top: 0;
+}
+
+.shell-child .content {
+  margin-top: 0;
+  padding: 24px 30px 20px;
+  scroll-padding-top: 24px;
+}
+
+/* Кольцо фокуса видно на синем фоне и на панелях. */
+.shell-child :focus-visible {
+  outline: 3px solid #ffe066;
+  outline-offset: 2px;
+}
+
+.lobby.my-stats,
+.lobby.lb-first {
+  width: 100%;
+  max-width: 1100px;
+}
+
+.lobby.my-stats {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.lb-today,
+.lb-all {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+/* Крупный текст с обводкой (kit.py outl): обводка под заливкой, тень вниз. Толщина — size / 11. */
+.lb-big {
+  --lb-stroke: 3px;
+  --lb-drop: 2px;
+  color: #ffffff;
+  font-weight: 900;
+  line-height: 1.05;
+  -webkit-text-stroke: var(--lb-stroke) var(--lb-ink);
+  paint-order: stroke fill;
+  text-shadow: 0 var(--lb-drop) 0 var(--lb-ink);
+}
+
+/* Мелкий текст прямо на светлой части фона: тонкая обводка, иначе вторичный цвет ниже 4,5:1. */
+.lb-date,
+.lb-loading,
+.lb-foot,
+.lb-autobonus,
+.lb-all .stats-since {
+  -webkit-text-stroke: 2px var(--lb-ink);
+  paint-order: stroke fill;
+  text-shadow: 0 1px 0 var(--lb-ink);
+}
+
+.lb-title {
+  font-size: 30px;
+}
+
+.lb-loading {
+  color: var(--lb-muted);
+  font-weight: 700;
+}
+
+/* Шапка: аватар-буква, привет и дата; справа копилка и «Ввести код». */
+.lb-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.lb-hello {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+}
+
+.lb-hello-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.lb-avatar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  border: 3px solid var(--lb-ink);
+  border-radius: 50%;
+  background: linear-gradient(180deg, #ffe066, #ffb800);
+  box-shadow: 0 4px 0 var(--lb-ink);
+  font-size: 26px;
+}
+
+.lb-date {
+  color: var(--lb-muted);
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.lb-head-side {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px;
+}
+
+.lb-coins {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 52px;
+  padding: 0 18px 0 8px;
+  border: 3px solid var(--lb-ink);
+  border-radius: 26px;
+  background: var(--lb-deep);
+  box-shadow: inset 0 3px 0 var(--lb-hi);
+}
+
+.lb-coin,
+.lb-glyph {
+  flex: none;
+}
+
+.lb-coins-text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.1;
+}
+
+.lb-coins-label {
+  color: var(--lb-muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.lb-coins-value {
+  color: #ffd54a;
+  font-size: 20px;
+}
+
+/* Кнопки (kit.py btn): обводка, градиент, «дно» снизу, блик сверху; нажатие опускает кнопку. */
+.lb-btn {
+  --lb-a: #7fb6ff;
+  --lb-b: #3d86ff;
+  --lb-c: #225fd1;
+  --lb-t: #ffffff;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 56px;
+  padding: 0 24px;
+  border: 3px solid var(--lb-ink);
+  border-radius: 18px;
+  background: linear-gradient(180deg, var(--lb-a) 0%, var(--lb-b) 55%);
+  box-shadow:
+    inset 0 -6px 0 var(--lb-c),
+    inset 0 3px 0 rgba(255, 255, 255, 0.55),
+    0 4px 0 var(--lb-ink);
+  color: var(--lb-t);
+  font-family: var(--font);
+  font-size: 18px;
+  font-weight: 900;
+  line-height: 1.1;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    transform 120ms ease,
+    box-shadow 120ms ease,
+    filter 120ms ease;
+}
+
+.lb-btn:hover:not(:disabled):not([aria-disabled="true"]) {
+  filter: brightness(1.06);
+}
+
+.lb-btn:active:not(:disabled):not([aria-disabled="true"]) {
+  transform: translateY(3px);
+  box-shadow:
+    inset 0 -3px 0 var(--lb-c),
+    inset 0 3px 0 rgba(255, 255, 255, 0.55),
+    0 1px 0 var(--lb-ink);
+}
+
+.lb-btn-gold {
+  --lb-a: #ffe066;
+  --lb-b: #ffb800;
+  --lb-c: #d98200;
+  --lb-t: #0b1d5c;
+}
+
+.lb-btn-green {
+  --lb-a: #7cf29b;
+  --lb-b: #2fcb5c;
+  --lb-c: #1c9440;
+  --lb-t: #0b1d5c;
+}
+
+.lb-btn-coral {
+  --lb-a: #ffa48a;
+  --lb-b: #ff6a4a;
+  --lb-c: #d9442a;
+}
+
+/* Белый текст на голубой и коралловой — с обводкой (крупный жирный текст на цветной кнопке). */
+.lb-btn-blue,
+.lb-btn-coral {
+  -webkit-text-stroke: 3px var(--lb-ink);
+  paint-order: stroke fill;
+  text-shadow: 0 2px 0 var(--lb-ink);
+}
+
+.lb-btn-code {
+  height: 52px;
+  padding: 0 22px;
+  border-radius: 16px;
+  font-size: 17px;
+}
+
+.lb-btn-main {
+  width: 250px;
+  height: 72px;
+  padding: 0;
+  border-radius: 22px;
+  font-size: 21px;
+}
+
+.lb-btn-gold.lb-btn-main {
+  font-size: 22px;
+}
+
+.lb-btn-small {
+  height: 44px;
+  padding: 0 18px;
+  border-radius: 14px;
+  font-size: 16px;
+}
+
+/* Недоступная кнопка: тёмная, пунктир, курсор запрета; остаётся в Tab-порядке, пояснение рядом (L-17). */
+.lb-btn[aria-disabled="true"],
+.lb-btn:disabled {
+  --lb-a: #2d4598;
+  --lb-b: #22388f;
+  --lb-c: #152a70;
+  --lb-t: #c7d4ff;
+  border-style: dashed;
+  -webkit-text-stroke: 0;
+  text-shadow: none;
+  cursor: not-allowed;
+}
+
+.lb-btn[aria-disabled="true"] .lb-coin {
+  opacity: 0.6;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lb-btn {
+    transition: none;
+  }
+}
+
+/* Панели (kit.py panel). */
+.lb-panel {
+  border: 3px solid var(--lb-ink);
+  border-radius: 22px;
+  background: var(--lb-panel);
+  box-shadow:
+    inset 0 3px 0 var(--lb-hi),
+    0 5px 0 var(--lb-ink);
+  color: #ffffff;
+}
+
+.lb-plain {
+  padding: 18px 22px;
+  font-size: 17px;
+  font-weight: 600;
+}
+
+/* Главный блок: талисман слева с выносом вверх, остаток крупно, шкала-энергия. */
+.lb-main {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 8px;
+  padding: 22px 30px 22px 220px;
+  border-radius: 28px;
+  background: #132c8a;
+  box-shadow:
+    inset 0 3px 0 #3a5dd6,
+    0 5px 0 var(--lb-ink);
+}
+
+.lb-mascot {
+  position: absolute;
+  top: -26px;
+  left: 6px;
+  width: 210px;
+  height: 210px;
+  object-fit: contain;
+  pointer-events: none;
+  user-select: none;
+}
+
+.lb-main-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 8px 16px;
+}
+
+.lb-main-left {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.lb-left-label {
+  color: #bfd0ff;
+  font-size: 19px;
+  font-weight: 800;
+}
+
+/* 70 px при ширине макета 1040; уже — меньше, чтобы «1 ч 25 мин» стояло одной строкой. */
+.lb-left-value {
+  --lb-stroke: 6px;
+  --lb-drop: 4px;
+  font-size: clamp(40px, 6.8vw, 70px);
+}
+
+.lb-spent {
+  padding-bottom: 8px;
+  color: var(--lb-muted);
+  font-size: 16px;
+  font-weight: 700;
+  text-align: right;
+}
+
+.lb-spent-line {
+  display: block;
+}
+
+.lb-tick-note {
+  color: #a9bcf5;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+/* Шкала (kit.py bar): дорожка с обводкой, заливка с бликом, деления по 15 мин поверх. */
+.lb-bar {
+  position: relative;
+  padding: 4px;
+  border: 3px solid var(--lb-ink);
+  background: #0a1a55;
+}
+
+.lb-bar-fill {
+  height: 100%;
+  box-shadow:
+    inset 0 -4px 0 rgba(0, 0, 0, 0.18),
+    inset 0 3px 0 rgba(255, 255, 255, 0.5);
+}
+
+.lb-bar-ticks {
+  position: absolute;
+  inset: 4px;
+  background-image: repeating-linear-gradient(
+    90deg,
+    transparent 0,
+    transparent calc(100% / var(--lb-ticks) - 3px),
+    rgba(11, 29, 92, 0.55) calc(100% / var(--lb-ticks) - 3px),
+    rgba(11, 29, 92, 0.55) calc(100% / var(--lb-ticks))
+  );
+}
+
+/* Плитки «Игры», «Видео и соцсети», «Учёба». */
+.lb-tiles {
+  display: flex;
+  gap: 16px;
+}
+
+.lb-tile {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  padding: 16px 18px;
+}
+
+.lb-tile-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.lb-badge {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border: 3px solid var(--lb-ink);
+  box-shadow:
+    inset 0 -4px 0 rgba(0, 0, 0, 0.2),
+    inset 0 3px 0 rgba(255, 255, 255, 0.4);
+}
+
+.lb-tile-title {
+  font-size: 19px;
+  font-weight: 800;
+}
+
+.lb-tile-value {
+  font-size: 34px;
+}
+
+.lb-tile-free {
+  display: flex;
+  align-items: center;
+  min-height: 22px;
+  color: #9ff0c4;
+  font-size: 16px;
+  font-weight: 800;
+}
+
+.lb-tile-sub {
+  color: var(--lb-muted);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+/* Запретные часы и главные кнопки. */
+.lb-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: 16px;
+}
+
+.lb-row-fill {
+  flex: 1;
+}
+
+.lb-night {
+  display: flex;
+  flex: 1 1 260px;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 20px;
+  background: #2e2a8f;
+  box-shadow:
+    inset 0 3px 0 #4a44c2,
+    0 5px 0 var(--lb-ink);
+}
+
+.lb-night-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.lb-night-title {
+  font-size: 18px;
+  font-weight: 800;
+}
+
+.lb-night-value {
+  color: #d9d3ff;
+  font-size: 26px;
+}
+
+.lb-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px;
+}
+
+/* Почему «Взять из копилки» недоступна: заметная строка под кнопками, а не серая подсказка (L-17). */
+.lb-note {
+  align-self: flex-end;
+  padding: 8px 14px;
+  border: 3px solid var(--lb-ink);
+  border-radius: 14px;
+  background: var(--lb-deep);
+  color: #ffe066;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+/* Низ: нарушения и ссылки — обычный блок в конце страницы (ничего не накрывает). */
+.lb-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px 24px;
+}
+
+.lb-violations {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.lb-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 24px;
+}
+
+.lb-link {
+  padding: 4px 0;
+  border: 0;
+  background: none;
+  color: var(--lb-muted);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.lb-link-main {
+  color: #ffe066;
+  font-size: 15px;
+  font-weight: 800;
+}
+
+.lb-link:hover {
+  color: #ffffff;
+}
+
+/* «Вся моя статистика»: «← Сегодня», заголовок, прежние разделы в тёмных панелях. */
+.lb-all-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 16px;
+}
+
+.lb-back {
+  height: 48px;
+  padding: 0 18px;
+  border-radius: 16px;
+  font-size: 17px;
+}
+
+.lb-autobonus {
+  color: var(--lb-muted);
+  font-weight: 600;
+}
+
+.lobby .panel {
+  max-width: none;
+  margin-bottom: 0;
+  padding: 20px 22px;
+  border: 3px solid var(--lb-ink);
+  border-radius: 22px;
+  background: var(--lb-panel);
+  box-shadow:
+    inset 0 3px 0 var(--lb-hi),
+    0 5px 0 var(--lb-ink);
+}
+
+.lobby .section-title {
+  color: #ffffff;
+  font-size: 19px;
+  font-weight: 800;
+}
+
+.lobby .stat-sub .section-title {
+  font-size: 17px;
+}
+
+.lobby .stats-since {
+  color: var(--lb-muted);
+  font-weight: 600;
+}
+
+/* Вкладки периодов и категорий — объёмные синие кнопки, выбранная золотая. */
+.lobby .tab,
+.lobby .totals-tab {
+  border: 3px solid var(--lb-ink);
+  border-radius: 14px;
+  background: linear-gradient(180deg, #3552b8 0%, #22388f 55%);
+  box-shadow:
+    inset 0 -4px 0 #152a70,
+    inset 0 2px 0 rgba(255, 255, 255, 0.25),
+    0 3px 0 var(--lb-ink);
+  color: #ffffff;
+  font-weight: 700;
+}
+
+.lobby .tab {
+  padding: 6px 16px;
+}
+
+.lobby .totals-tab:hover,
+.lobby .tab:hover {
+  border-color: var(--lb-ink);
+  filter: brightness(1.12);
+}
+
+.lobby .tab[aria-selected="true"],
+.lobby .totals-tab[aria-selected="true"] {
+  border-color: var(--lb-ink);
+  background: linear-gradient(180deg, #ffe066 0%, #ffb800 55%);
+  box-shadow:
+    inset 0 -4px 0 #d98200,
+    inset 0 2px 0 rgba(255, 255, 255, 0.55),
+    0 3px 0 var(--lb-ink);
+  color: var(--lb-ink);
+}
+
+.lobby .totals-tab-value {
+  font-weight: 800;
+}
+
+/* Таблицы и списки на тёмной панели: линии светлые полупрозрачные (токен --line). */
+.lobby .usage-table th,
+.lobby .my-rules thead th {
+  color: var(--lb-muted);
+}
+
+/* Сообщения, ошибки и диалоги окна ребёнка — тоже «Лобби». */
+.shell-child .notice {
+  margin-bottom: 0;
+  border: 3px solid var(--lb-ink);
+  border-left: 8px solid #7cf29b;
+  border-radius: 16px;
+  background: var(--lb-deep);
+  color: #ffffff;
+  font-weight: 600;
+}
+
+.shell-child .notice-warn {
+  border-left-color: #ffb199;
+}
+
+.lb-alert {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.lb-alert .notice {
+  flex: 1 1 320px;
+}
+
+.shell-child .dialog-backdrop {
+  background: rgba(8, 18, 64, 0.72);
+}
+
+.shell-child .dialog {
+  max-width: 520px;
+  border: 3px solid var(--lb-ink);
+  border-radius: 24px;
+  background: var(--lb-panel);
+  box-shadow:
+    inset 0 3px 0 var(--lb-hi),
+    0 6px 0 var(--lb-ink);
+  color: #ffffff;
+}
+
+.shell-child .dialog-title {
+  color: #ffffff;
+  font-size: 24px;
+  font-weight: 900;
+  -webkit-text-stroke: 3px var(--lb-ink);
+  paint-order: stroke fill;
+  text-shadow: 0 2px 0 var(--lb-ink);
+}
+
+.shell-child .panel-text {
+  color: var(--lb-muted);
+}
+
+.shell-child .btn {
+  min-height: 44px;
+  padding: 0 18px;
+  border: 3px solid var(--lb-ink);
+  border-radius: 14px;
+  background: linear-gradient(180deg, #3552b8 0%, #22388f 55%);
+  box-shadow:
+    inset 0 -4px 0 #152a70,
+    inset 0 2px 0 rgba(255, 255, 255, 0.25),
+    0 3px 0 var(--lb-ink);
+  color: #ffffff;
+  font-weight: 800;
+}
+
+.shell-child .btn:hover:not(:disabled) {
+  background: linear-gradient(180deg, #3d5cc8 0%, #2a419c 55%);
+}
+
+.shell-child .btn-primary,
+.shell-child .btn-primary:hover:not(:disabled) {
+  background: linear-gradient(180deg, #ffe066 0%, #ffb800 55%);
+  box-shadow:
+    inset 0 -4px 0 #d98200,
+    inset 0 2px 0 rgba(255, 255, 255, 0.55),
+    0 3px 0 var(--lb-ink);
+  color: var(--lb-ink);
+  opacity: 1;
+}
+
+.shell-child .btn.link {
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  box-shadow: none;
+  color: #ffe066;
+}
+
+.shell-child .field-input {
+  min-height: 44px;
+  border: 3px solid var(--lb-ink);
+  border-radius: 12px;
+  background: #0a1a55;
+  box-shadow: inset 0 0 0 1px #7fb6ff;
+  color: #ffffff;
+  font-weight: 700;
+}
+
+.shell-child .field-input:focus-visible {
+  outline: 3px solid #ffe066;
+  outline-offset: 2px;
+  border-color: var(--lb-ink);
+}
+
+.shell-child .field-input[aria-invalid="true"] {
+  border: 3px solid var(--lb-ink);
+  box-shadow: inset 0 0 0 2px #ffb199;
+}
+
+.shell-child .field-label {
+  color: #ffffff;
+  font-weight: 800;
+}
+
+.lb-promo .promo-redeem-form {
+  align-items: flex-end;
+}
+
+/* «Теперь время за компьютером считается» — панель «Лобби» по центру. */
+.lb-first .first-run {
+  max-width: 640px;
+  margin-inline: auto;
+  padding: 26px 28px;
+}
+
+.lb-first .lb-title {
+  margin-bottom: 18px;
+  font-size: 28px;
+}
+
+.lb-first .first-run-lines {
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.lb-first-done {
+  color: var(--lb-muted);
+  font-weight: 700;
+}
+
+/* Узкое окно (меньше макета 1040): плитки в столбец уже 760 px, талисман меньше (R-9). */
+@media (max-width: 760px) {
+  .shell-child .content {
+    padding: 18px 16px 16px;
+  }
+
+  .lb-tiles {
+    flex-direction: column;
+  }
+
+  .lb-main {
+    padding: 18px 20px 18px 160px;
+  }
+
+  .lb-mascot {
+    top: -14px;
+    left: 4px;
+    width: 150px;
+    height: 150px;
+  }
+
+  .lb-title {
+    font-size: 26px;
+  }
+}
