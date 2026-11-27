@@ -747,7 +747,9 @@ function Save-Screen([string]$Name) {
   $bmp = New-Object System.Drawing.Bitmap $b.Width, $b.Height
   try {
     $g = [System.Drawing.Graphics]::FromImage($bmp)
-    try { $g.CopyFromScreen($b.X, $b.Y, 0, 0, $bmp.Size) } finally { $g.Dispose() }
+    # CaptureBlt: layered-окна стража (сообщение, плашки «Игрового лобби», ТЗ 8.2.4) тоже на снимке.
+    $op = [System.Drawing.CopyPixelOperation]::SourceCopy -bor [System.Drawing.CopyPixelOperation]::CaptureBlt
+    try { $g.CopyFromScreen($b.X, $b.Y, 0, 0, $bmp.Size, $op) } finally { $g.Dispose() }
     $bmp.Save($path, [System.Drawing.Imaging.ImageFormat]::Png)
   } finally { $bmp.Dispose() }
   Write-Log "Снимок: $Name.png ($($b.Width)x$($b.Height))"
@@ -1798,17 +1800,22 @@ function Assert-TabStays([string]$Domain, [double]$Seconds = 6, [string]$NoPlate
 
 # Ждёт плашку о сайте: текст Text (с Regex — регулярное выражение с якорями) и вид Kind (BlockedPlate.Kind:
 # site, adult, videoOver). Возвращает состояние; при провале — разбор сайтов.
-function Wait-SitePlate([string]$Text, [string]$Kind, [double]$Seconds = 5, [switch]$Regex) {
+# Плашка «Игрового лобби» (ТЗ 8.2.5, D-111): Title — заголовок (plateTitle), Sticker — стикер окна плашки
+# (plateSticker), Sound — новый звук схемы Windows после SoundsBefore запрошенных (Get-SystemSounds до события).
+function Wait-SitePlate([string]$Text, [string]$Kind, [double]$Seconds = 5, [switch]$Regex, [string]$Title = "", [string]$Sticker = "", [string]$Sound = "", [int]$SoundsBefore = 0) {
   $sw = [Diagnostics.Stopwatch]::StartNew()
   while ($true) {
     $s = Get-GuardState
     $p = [string]$s.plate
     $hit = if ($Regex) { $p -match $Text } else { $p -eq $Text }
+    if ($hit -and $Title) { $hit = [string]$s.plateTitle -eq $Title }
+    if ($hit -and $Sticker) { $hit = [string]$s.plateSticker -eq $Sticker }
+    if ($hit -and $Sound) { $hit = @(Get-SystemSounds $s | Select-Object -Skip $SoundsBefore | Where-Object { [string]$_.system -eq $Sound }).Count -ge 1 }
     if ($hit) { break }
-    if ($sw.Elapsed.TotalSeconds -gt $Seconds) { throw "За $Seconds с нет плашки «$Text»; $(Get-SiteDiag $s)" }
+    if ($sw.Elapsed.TotalSeconds -gt $Seconds) { throw "За $Seconds с нет плашки «$Text»$(if ($Title) { " с заголовком «$Title», стикером $Sticker и звуком $Sound" }); $(Format-GuardState $s); $(Get-SiteDiag $s)" }
     Start-Sleep -Milliseconds 100
   }
-  Write-Log ("Плашка за {0:N1} с: {1} «{2}»" -f $sw.Elapsed.TotalSeconds, $s.plateKind, $s.plate)
+  Write-Log ("Плашка за {0:N1} с: {1} «{2}» — «{3}», стикер {4}, кадр {5}; звуки схемы после события: {6}" -f $sw.Elapsed.TotalSeconds, $s.plateKind, $s.plateTitle, $s.plate, $s.plateSticker, $s.plateFrame, (Format-SystemSounds @(Get-SystemSounds $s | Select-Object -Skip $SoundsBefore)))
   if ([string]$s.plateKind -ne $Kind) { throw "Вид плашки «$($s.plateKind)», ждали $Kind; $(Get-SiteDiag $s)" }
   return $s
 }
