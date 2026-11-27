@@ -24,7 +24,7 @@
 | `internal/startup` | 5 (2) | startup — чистая логика автозагрузки учёток детей (FR-39, RM5b-1…RM5b-7): разбор |
 | `internal/storage` | 10 (18) | storage — хранилище программы: SQLite в режиме WAL (ТЗ 3.1, 3.4, 4), драйвер на чистом Go. |
 | `internal/systray` | 20 (12) | systray — значок у часов и мини-панель: надпись остатка, подсказка, цвет статуса, |
-| `internal/ui` | 3 (1) | ui — окно программы на Wails: запуск окна и методы, доступные интерфейсу. |
+| `internal/ui` | 3 (2) | ui — окно программы на Wails: запуск окна и методы, доступные интерфейсу. |
 | `internal/version` | 1 (2) | version хранит номер версии программы. |
 | `internal/winsession` | 5 (0) | winsession запускает процессы в интерактивных сеансах Windows: |
 | `tools/adultlist` | 1 (1) | (нет комментария Package) |
@@ -74,6 +74,10 @@
 - `src/components/StartupList.tsx`
 - `src/components/TextField.tsx`
 - `src/components/UndoLine.tsx`
+- `src/components/lobby/Glyph.tsx`
+- `src/components/lobby/LobbyAll.tsx`
+- `src/components/lobby/LobbyToday.tsx`
+- `src/components/lobby/lobbyText.ts`
 - `src/components/usePause.ts`
 - `src/fonts.css`
 - `src/global.d.ts`
@@ -85,6 +89,7 @@
 - `src/lib/journal.ts`
 - `src/lib/limits.ts`
 - `src/lib/lottie.ts`
+- `src/lib/mascot.ts`
 - `src/lib/mytoday.ts`
 - `src/lib/notices.ts`
 - `src/lib/numinput.ts`
