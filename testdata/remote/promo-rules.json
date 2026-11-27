@@ -1,0 +1,1 @@
+[{"in":" ab12 ","ok":true,"code":"AB12"},{"in":"AB","ok":false,"error":"Код от 3 до 16 знаков"},{"in":"ПРИВЕТ","ok":false,"error":"Только латинские буквы A-Z и цифры"},{"in":"AB 12","ok":false,"error":"Только латинские буквы A-Z и цифры"},{"in":"ABCDEFGHIJKLMNOPQ","ok":false,"error":"Код от 3 до 16 знаков"},{"in":"","ok":false,"error":"Введите код"}]

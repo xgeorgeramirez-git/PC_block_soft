@@ -3,6 +3,8 @@ package service
 import (
 	"bytes"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -540,5 +542,37 @@ func TestBonusWindowChangesReportNow(t *testing.T) {
 	h.ok(adminPeer(), tok, ipc.CmdReduceBonus, ipc.ReduceBonusRequest{ChildID: id, Minutes: 10}, nil)
 	if n := changed(); n != 4 {
 		t.Fatalf("начислить и убавить: remoteChanged %d раз, ждали 4", n)
+	}
+}
+
+// Ловит: общая таблица правил кода (testdata/remote/promo-rules.json, её же проверяет телефон)
+// разошлась с ответами «Создать код» окна (протокол 5г: телефон пишет те же тексты, что окно).
+func TestCreatePromoRulesVector(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "..", "testdata", "remote", "promo-rules.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var rules []struct {
+		In    string `json:"in"`
+		OK    bool   `json:"ok"`
+		Code  string `json:"code"`
+		Error string `json:"error"`
+	}
+	if err := json.Unmarshal(raw, &rules); err != nil {
+		t.Fatal(err)
+	}
+	h, tok := remoteHarness(t)
+	for _, r := range rules {
+		if r.OK {
+			var rep ipc.CreatePromoReply
+			h.ok(adminPeer(), tok, ipc.CmdCreatePromo, ipc.CreatePromoRequest{Code: r.In, Minutes: 30}, &rep)
+			if rep.Promo.CodeDisplay != r.Code {
+				t.Errorf("%q: код %q, в таблице %q", r.In, rep.Promo.CodeDisplay, r.Code)
+			}
+			continue
+		}
+		if f := h.fail(adminPeer(), tok, ipc.CmdCreatePromo, ipc.CreatePromoRequest{Code: r.In, Minutes: 30}); f.Error != r.Error {
+			t.Errorf("%q: окно %q, в таблице %q", r.In, f.Error, r.Error)
+		}
 	}
 }

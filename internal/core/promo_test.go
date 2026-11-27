@@ -1,6 +1,12 @@
 package core
 
-import "testing"
+import (
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
 
 // Ловит: неверное сравнение промокода (R26) — регистр и пробелы должны игнорироваться.
 func TestNormalizePromoCode(t *testing.T) {
@@ -80,6 +86,51 @@ func TestPromoCodeLatinOnly(t *testing.T) {
 	for _, in := range []string{"ПРИВЕТ", "ab 12", "a!", "ＡＢ１２", "ﬁx12", "", "   "} {
 		if PromoCodeLatinOnly(in) {
 			t.Errorf("PromoCodeLatinOnly(%q) = true; ожидалось false", in)
+		}
+	}
+}
+
+// promoRule — строка общей таблицы правил кода R26 для Go и Kotlin (testdata/remote/promo-rules.json):
+// ввод, принят ли, код для хранения или текст ошибки окна.
+type promoRule struct {
+	In    string `json:"in"`
+	OK    bool   `json:"ok"`
+	Code  string `json:"code"`
+	Error string `json:"error"`
+}
+
+func readPromoRules(t *testing.T) []promoRule {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join("..", "..", "testdata", "remote", "promo-rules.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var rules []promoRule
+	if err := json.Unmarshal(raw, &rules); err != nil || len(rules) == 0 {
+		t.Fatalf("таблица правил: %v", err)
+	}
+	return rules
+}
+
+// Ловит: правила кода в Go разошлись с общей таблицей, по которой телефон проверяет поле сам
+// (протокол 5г: те же правила и тексты, что окно). Текст ошибки — как у «Создать код» окна:
+// пусто — «Введите код»; только латиница и цифры, но не та длина — «Код от 3 до 16 знаков»;
+// иначе — «Только латинские буквы A-Z и цифры».
+func TestPromoRulesVector(t *testing.T) {
+	for _, r := range readPromoRules(t) {
+		code, ok := CheckNewPromoCode(r.In)
+		errText := ""
+		switch {
+		case ok:
+		case strings.TrimSpace(r.In) == "":
+			errText = "Введите код"
+		case PromoCodeLatinOnly(r.In):
+			errText = "Код от 3 до 16 знаков"
+		default:
+			errText = "Только латинские буквы A-Z и цифры"
+		}
+		if ok != r.OK || ok && code != r.Code || errText != r.Error {
+			t.Errorf("%q: ok %v код %q ошибка %q; в таблице %+v", r.In, ok, code, errText, r)
 		}
 	}
 }
