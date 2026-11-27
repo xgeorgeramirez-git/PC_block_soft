@@ -8,6 +8,9 @@ enum class NoteMark(val resName: String) {
     /** Компьютер принял, ребёнок ещё не видел (queued или отчёта ещё нет). */
     SENT("note_mark_sent"),
 
+    /** Отметки от компьютера ещё нет, и он не на связи (FB-29, D-102): «Ждёт: компьютер не в сети». */
+    WAITING_OFFLINE("note_mark_waiting_offline"),
+
     /** Плашка на экране ребёнка (shown). */
     DELIVERED("note_mark_delivered"),
 
@@ -22,8 +25,14 @@ enum class NoteMark(val resName: String) {
     ;
 
     companion object {
-        fun of(state: Proto.NoteState?, showSec: Int): NoteMark = when (state) {
-            null, Proto.NoteState.QUEUED -> SENT
+        /**
+         * pcOnline — компьютер на связи (Format.Link.Online). Отметки нет и компьютер не на связи —
+         * WAITING_OFFLINE; как только на связи — «Отправлено» или отметка компьютера.
+         * По умолчанию true: прежние вызовы показывают «Отправлено», как до 0.8.4.
+         */
+        fun of(state: Proto.NoteState?, showSec: Int, pcOnline: Boolean = true): NoteMark = when (state) {
+            null -> if (pcOnline) SENT else WAITING_OFFLINE
+            Proto.NoteState.QUEUED -> SENT
             Proto.NoteState.SHOWN -> DELIVERED
             Proto.NoteState.READ -> if (showSec > 0) SHOWN else READ
             Proto.NoteState.EXPIRED -> NOT_DELIVERED

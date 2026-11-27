@@ -319,7 +319,7 @@ class NoteTest {
         assertEquals(NoteMark.SHOWN, NoteMark.of(Proto.NoteState.READ, 10))
         assertEquals(NoteMark.NOT_DELIVERED, NoteMark.of(Proto.NoteState.EXPIRED, 60))
         val texts = NoteMark.values().map { Strings[it.resName] }
-        assertEquals(listOf("Отправлено", "Доставлено", "Прочитано", "Показано", "Не доставлено"), texts)
+        assertEquals(listOf("Отправлено", "Ждёт: компьютер не в сети", "Доставлено", "Прочитано", "Показано", "Не доставлено"), texts)
     }
 
     @Test
@@ -423,5 +423,20 @@ class NoteTest {
         // Через сутки компьютер не присылает n1: отметка остаётся.
         assertFalse(book.apply(emptyList()))
         assertEquals(Proto.NoteState.READ, NoteBook(kv).all().first { it.id == "n1" }.state)
+    }
+
+    /** «Ждёт: компьютер не в сети» (FB-29, D-102): только пока отметки от компьютера нет и он не на связи. */
+    @Test
+    fun waitingOfflineMark() {
+        assertEquals(NoteMark.WAITING_OFFLINE, NoteMark.of(null, 0, pcOnline = false))
+        assertEquals(NoteMark.WAITING_OFFLINE, NoteMark.of(null, 30, pcOnline = false))
+        assertEquals(NoteMark.SENT, NoteMark.of(null, 0, pcOnline = true))
+        assertEquals(NoteMark.SENT, NoteMark.of(Proto.NoteState.QUEUED, 0, pcOnline = false))
+        assertEquals(NoteMark.DELIVERED, NoteMark.of(Proto.NoteState.SHOWN, 0, pcOnline = false))
+        assertEquals(NoteMark.READ, NoteMark.of(Proto.NoteState.READ, 0, pcOnline = false))
+        assertEquals(NoteMark.SHOWN, NoteMark.of(Proto.NoteState.READ, 10, pcOnline = false))
+        assertEquals(NoteMark.NOT_DELIVERED, NoteMark.of(Proto.NoteState.EXPIRED, 0, pcOnline = false))
+        assertEquals("Ждёт: компьютер не в сети", Strings[NoteMark.WAITING_OFFLINE.resName])
+        for (m in NoteMark.values()) assertTrue(m.resName, Strings.all.containsKey(m.resName))
     }
 }

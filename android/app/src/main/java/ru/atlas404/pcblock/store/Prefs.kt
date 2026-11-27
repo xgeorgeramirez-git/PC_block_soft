@@ -31,6 +31,13 @@ class Prefs(context: Context) {
 
     fun savePromos(raw: String, ts: Long) = promos.save(raw, ts)
 
+    /** Последние выбранные стикеры (FR-41, D-103): после принятой компьютером отправки (R-15). */
+    private val stickers = StickerRecents(kv)
+
+    val recentStickers: List<String> get() = stickers.list
+
+    fun pushRecentSticker(id: String) = stickers.push(id)
+
     companion object {
         const val DEFAULT_URL = "https://pcblock.atlas404.ru"
         private const val URL = "url"
@@ -72,6 +79,7 @@ class Prefs(context: Context) {
             .remove(LAST_REPORT)
             .remove(NoteBook.NOTES)
             .remove(PromoCache.KEY)
+            .remove(StickerRecents.KEY)
             .commit()
     }
 
@@ -103,6 +111,7 @@ class Prefs(context: Context) {
             .remove(SEQ).remove(LAST_REPORT_TS).remove(LAST_REPORT)
             .remove(NoteBook.NOTES)
             .remove(PromoCache.KEY)
+            .remove(StickerRecents.KEY)
             .commit()
     }
 }

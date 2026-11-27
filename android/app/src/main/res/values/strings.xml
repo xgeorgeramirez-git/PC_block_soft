@@ -79,6 +79,7 @@
     <string name="note_item_meta">%1$s · %2$s</string>
     <string name="note_item_desc">Сообщение «%1$s», %2$s, %3$s</string>
     <string name="note_mark_sent">Отправлено</string>
+    <string name="note_mark_waiting_offline">Ждёт: компьютер не в сети</string>
     <string name="note_mark_delivered">Доставлено</string>
     <string name="note_mark_read">Прочитано</string>
     <string name="note_mark_shown">Показано</string>
