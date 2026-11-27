@@ -182,7 +182,7 @@ func TestNoteWaitsHiddenOfflineAndForgets(t *testing.T) {
 }
 
 // Сообщение — своя команда (PL-81): не превращается в «Добавлено N минут» и не идёт плашкой notice;
-// звук один раз на показ, номер из сообщения (FR-41): 2 — звук 2, 0 — ни одного вызова плеера, 9 (нет
+// звук один раз на показ, номер из сообщения (FR-41): 2 — звук 2, 0 — ни одного вызова плеера, 99 (нет
 // среди встроенных, телефон новее компьютера) — звук 1; повтор того же показа — без звука; «показано»
 // и «Понял» уходят службе событиями с id; GuardState видит плашку.
 func TestControllerPhoneNote(t *testing.T) {
@@ -215,7 +215,7 @@ func TestControllerPhoneNote(t *testing.T) {
 	r.svc.cmds = []ipc.GuardCommand{
 		{Kind: ipc.GuardCmdNote, Note: &ipc.GuardNote{ID: "n1", Text: "Добавлено 30 минут? Нет, иди ужинать", WaitS: 600, Sticker: "033", Sound: 2}},
 		{Kind: ipc.GuardCmdNote, Note: &ipc.GuardNote{ID: "n2", Text: "Тихо", WaitS: 600, Sound: 0}},
-		{Kind: ipc.GuardCmdNote, Note: &ipc.GuardNote{ID: "n3", Text: "Новый звук", WaitS: 600, Sound: 9}},
+		{Kind: ipc.GuardCmdNote, Note: &ipc.GuardNote{ID: "n3", Text: "Новый звук", WaitS: 600, Sound: 99}},
 	}
 	cmds := ClassifyCommands(r.svc.cmds)
 	if len(cmds.PhoneNotes) != 3 || len(cmds.NoticeMinutes) != 0 || len(cmds.Notices) != 0 {
@@ -244,7 +244,7 @@ func TestControllerPhoneNote(t *testing.T) {
 		t.Fatalf("третье: %+v", v.Note)
 	}
 	if got := playedNow(2); got != "[2 1]" {
-		t.Fatalf("неизвестный звук 9: сыграно %s, ждали [2 1]", got)
+		t.Fatalf("неизвестный звук 99: сыграно %s, ждали [2 1]", got)
 	}
 	r.ctl.Press(ButtonNoteOK, "")
 	r.ctl.View()
@@ -289,7 +289,7 @@ func TestControllerPhoneNote(t *testing.T) {
 // не та (0 — без звука, встроенный — как есть, не встроенный — 1); стикер не сохранён в очереди
 // (он нужен окну, T4a).
 func TestNoteSoundNumber(t *testing.T) {
-	cases := []struct{ in, want int }{{1, 1}, {2, 2}, {5, 5}, {0, 0}, {9, 1}, {99, 1}, {-1, 1}}
+	cases := []struct{ in, want int }{{1, 1}, {2, 2}, {5, 5}, {0, 0}, {98, 1}, {99, 1}, {-1, 1}}
 	for _, c := range cases {
 		m := NewModel()
 		m.OnDecision(t0, runningDecision(3600), false, nil)

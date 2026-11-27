@@ -293,10 +293,10 @@ Invoke-Scenario "S60" "Сообщение с телефона со стикер�
       [void](Close-PhoneNote $n.Id $what)
     }
 
-    Step "(в) стикер 999 и звук 9, которых программа не знает: окно без стикера, звук 1" {
-      $what = "Стикер 999, звук 9"
+    Step "(в) стикер 999 и звук 99, которых программа не знает: окно без стикера, звук 1" {
+      $what = "Стикер 999, звук 99"
       $before = @(Get-NoteSounds (Get-GuardState)).Count
-      $n = Send-PhoneNote "Привет" @("-sticker", "999", "-sound", "9") $what
+      $n = Send-PhoneNote "Привет" @("-sticker", "999", "-sound", "99") $what
       Assert-OneNoteSound $before 1 $what
       $s = Get-GuardState
       Assert-That ($s.noteId -eq $n.Id) "$what`: окно закрылось само: $(Format-GuardState $s)"
