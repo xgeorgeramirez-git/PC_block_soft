@@ -445,7 +445,7 @@ func TestBlockedPlateKeepsFocusAndPresses(t *testing.T) {
 	}()
 	m := NewModel()
 	m.OnDecision(time.Now(), runningDecision(3600), false, nil)
-	m.OnBlocked(time.Now(), ipc.BlockedPlate{Kind: ipc.BlockedUnknown, Text: "Программа «SuperGame» ждёт разрешения родителя", ShowS: 15, Path: `c:\x.exe`, CanAsk: true})
+	m.OnBlocked(time.Now(), ipc.BlockedPlate{Kind: ipc.BlockedUnknown, Text: "Программа «SuperGame» новая. Родитель должен решить, можно ли её запускать", ShowS: 15, Path: `c:\x.exe`, CanAsk: true})
 	w := m.View(time.Now()).Warning
 	before, _, _ := procGetForegroundWin.Call()
 	for i := 0; i < 3; i++ {

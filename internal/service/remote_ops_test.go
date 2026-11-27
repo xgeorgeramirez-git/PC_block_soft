@@ -319,7 +319,7 @@ func TestRemoteDecide(t *testing.T) {
 	if pend, _ := h.store.ListPending(); len(pend) != 0 {
 		t.Fatalf("«Ждут решения»: %+v", pend)
 	}
-	want := []ipc.BlockedPlate{{Kind: ipc.BlockedDecided, Text: "Родитель разрешил «SuperGame»: это игра. Запусти её снова", ShowS: 10, Path: pathSuperGame}}
+	want := []ipc.BlockedPlate{{Kind: ipc.BlockedDecided, Title: "Можно играть!", Text: "Родитель разрешил «SuperGame»: это игра. Запусти её снова", ShowS: 10, Path: pathSuperGame, Allowed: true}}
 	if got := h.decidedPlatesOf(childSession); !reflect.DeepEqual(got, want) {
 		t.Fatalf("плашка: %+v", got)
 	}

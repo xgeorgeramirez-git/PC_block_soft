@@ -91,6 +91,13 @@ func (s *Service) hOpenWindow(c *callCtx) ipc.Reply {
 			return ipc.Fail(textDenyKind)
 		}
 		cs = s.children[ss.childID]
+		if req.Kind == ipc.WindowParent && req.Screen == ipc.ScreenPrograms && req.Path != "" {
+			// «Попросить сейчас»: решение о программе в окне этого сеанса в ближайшие 10 мин —
+			// без плашки решения (8.2.4 п. 2, D-114).
+			if key := s.programKey(req.Path); key != "" {
+				ss.askNow = askNowRec{path: key, until: c.real.Add(askNowLife)}
+			}
+		}
 	}
 	if req.Kind != ipc.WindowParent && cs == nil {
 		return ipc.Fail(textNotAChild)

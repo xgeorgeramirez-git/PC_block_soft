@@ -42,9 +42,9 @@ func TestWatchPlatesAndJournal(t *testing.T) {
 	startManual(w, explorer, pathSuperGame, pathChrome, pathMinecraft)
 	h.watch()
 	want := []ipc.BlockedPlate{
-		{Kind: ipc.BlockedBrowser, Text: "Этот браузер запрещён. Пользуйся Brave", ShowS: 10, Path: pathChrome}, // RM4-8: при любом источнике запрета
-		{Kind: ipc.BlockedGamesOver, Text: "Время на игры на сегодня закончилось", ShowS: 10, Path: pathMinecraft},
-		{Kind: ipc.BlockedUnknown, Text: "Программа «supergame» ждёт разрешения родителя", ShowS: 15, Path: pathSuperGame, CanAsk: true},
+		{Kind: ipc.BlockedBrowser, Title: "Этот браузер запрещён", Text: "Пользуйся Brave", ShowS: 10, Path: pathChrome}, // RM4-8: при любом источнике запрета
+		{Kind: ipc.BlockedGamesOver, Title: "Игры на сегодня всё", Text: "Время на игры на сегодня закончилось", ShowS: 10, Path: pathMinecraft},
+		{Kind: ipc.BlockedUnknown, Title: "Ждёт разрешения", Text: "Программа «supergame» новая. Родитель должен решить, можно ли её запускать", ShowS: 15, Path: pathSuperGame, CanAsk: true},
 	}
 	if got := platesOf(h.poll(activeSample)); jsonOf(t, got) != jsonOf(t, want) {
 		t.Fatalf("плашки:\n got %s\nwant %s", jsonOf(t, got), jsonOf(t, want))
@@ -108,7 +108,7 @@ func TestWatchStudyOnlyAndDisconnected(t *testing.T) {
 	h := watchHarness(t, w, withRules(0, -1, "study_only"))
 	w.start(childSession, pathGeoGebra)
 	h.watch()
-	want := []ipc.BlockedPlate{{Kind: ipc.BlockedStudyOnly, Text: core.StudyOnlyPlateText, ShowS: 10, Path: pathGeoGebra}}
+	want := []ipc.BlockedPlate{{Kind: ipc.BlockedStudyOnly, Title: "Сейчас только учёба", Text: core.StudyOnlyPlateText, ShowS: 10, Path: pathGeoGebra}}
 	if got := platesOf(h.poll(activeSample)); jsonOf(t, got) != jsonOf(t, want) {
 		t.Errorf("плашка «только учёба»: %s, want %s", jsonOf(t, got), jsonOf(t, want))
 	}

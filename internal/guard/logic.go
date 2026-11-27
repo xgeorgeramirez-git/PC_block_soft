@@ -116,6 +116,9 @@ type Action struct {
 	// Plate: нажата кнопка плашки, а не экрана блокировки; отказ службы показывается плашкой
 	// (под экраном блокировки ответ стоит под заголовком экрана).
 	Plate bool
+	// Path — путь программы плашки «Попросить сейчас» (ActOpenPrograms): служба помнит его, и решение
+	// родителя в окне этого сеанса идёт без плашки решения (8.2.4 п. 2, D-114).
+	Path string
 }
 
 // PromoResult — ответ службы на промокод (R26): принят с Minutes минутами или отказ с текстом
@@ -1209,7 +1212,7 @@ func (m *Model) pressPlate(now time.Time, b Button) Action {
 	case ButtonAskNow:
 		// Пароль родителя и решение — в окне родителя (RM3-4); плашка своё сделала.
 		m.blocked = nil
-		return Action{Kind: ActOpenPrograms, Plate: true}
+		return Action{Kind: ActOpenPrograms, Path: p.path, Plate: true}
 	case ButtonPlateSpendBonus:
 		minutes := min(plateBonusMin, m.dec.BonusBalance)
 		return Action{Kind: ActSpendBonus, Minutes: minutes, Plate: true}

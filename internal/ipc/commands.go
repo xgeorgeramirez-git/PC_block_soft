@@ -184,6 +184,9 @@ type OpenWindowRequest struct {
 	// Screen — экран окна родителя, на котором оно откроется (RM3-4): ScreenPrograms; «» — главный.
 	// Другое значение — отказ TextBadRequest.
 	Screen string `json:"screen,omitempty"`
+	// Path — путь программы плашки, с которой нажали «Попросить сейчас» (ТЗ 8.2.4 п. 2, D-114): решение
+	// родителя о ней в окне этого сеанса в ближайшие 10 мин не даёт ребёнку плашку решения.
+	Path string `json:"path,omitempty"`
 }
 
 // OpenWindowReply — ответ OpenWindow.

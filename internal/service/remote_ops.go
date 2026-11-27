@@ -170,7 +170,7 @@ func (h remoteHost) ApplyDecide(gen, seq int64, key, cat string) (string, string
 		return "", remote.ErrCodeNotFound, seq
 	}
 	s.real = s.cfg.RealNow()
-	name, _, _, fail := s.decideProgram(path, cat, extraFromPhone, s.real)
+	name, _, _, fail := s.decideProgram(path, cat, extraFromPhone, 0, s.real)
 	switch {
 	case fail == textNoProgram:
 		return "", remote.ErrCodeNotFound, seq

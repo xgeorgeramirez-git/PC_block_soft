@@ -1869,7 +1869,8 @@
             "kind": "blocked",
             "plate": {
               "kind": "unknown",
-              "text": "Программа «SuperGame» ждёт разрешения родителя",
+              "title": "Ждёт разрешения",
+              "text": "Программа «SuperGame» новая. Родитель должен решить, можно ли её запускать",
               "showS": 10,
               "path": "c:\\users\\миша\\downloads\\supergame.exe",
               "canAsk": true
@@ -1954,6 +1955,7 @@
             "kind": "blocked",
             "plate": {
               "kind": "videoOver",
+              "title": "",
               "text": "Время на видео и соцсети на сегодня закончилось. Общего времени осталось 40 мин",
               "showS": 0,
               "path": "",
@@ -2265,7 +2267,7 @@
         },
         "lockShown": false,
         "lockKind": "",
-        "plate": "Программа «SuperGame» ждёт разрешения родителя",
+        "plate": "Программа «SuperGame» новая. Родитель должен решить, можно ли её запускать",
         "plateKind": "unknown",
         "buttons": [
           "askNow",

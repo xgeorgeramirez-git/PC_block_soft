@@ -506,7 +506,7 @@ func examples() map[string]example {
 			ForegroundPath: `c:\users\миша\downloads\supergame.exe`}}, GuardPollReply{
 			Status: okStatus(), Warnings: []GuardWarning{NewGuardWarningFor(5, core.WarnGames, 300)},
 			Commands: []GuardCommand{{Kind: GuardCmdBlocked, Plate: &BlockedPlate{
-				Kind: BlockedUnknown, Text: "Программа «SuperGame» ждёт разрешения родителя", ShowS: 10,
+				Kind: BlockedUnknown, Title: "Ждёт разрешения", Text: "Программа «SuperGame» новая. Родитель должен решить, можно ли её запускать", ShowS: 10,
 				Path: `c:\users\миша\downloads\supergame.exe`, CanAsk: true,
 			}}},
 		}),
@@ -545,7 +545,7 @@ func examples() map[string]example {
 			Buttons: []string{ButtonParentPassword, ButtonShutdown, ButtonLogoff, ButtonSwitchUser},
 		}),
 		"GuardState#blocked": ok(nil, GuardStateReply{
-			Plate: "Программа «SuperGame» ждёт разрешения родителя", PlateKind: BlockedUnknown,
+			Plate: "Программа «SuperGame» новая. Родитель должен решить, можно ли её запускать", PlateKind: BlockedUnknown,
 			Buttons: []string{"askNow", "plateClose"}, ForegroundPath: `c:\users\миша\downloads\supergame.exe`,
 		}),
 		"GuardState#note": ok(nil, GuardStateReply{

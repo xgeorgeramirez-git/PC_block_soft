@@ -7,7 +7,7 @@
 # (а) Автозапуск: ребёнок 30 с ничего не нажимал, впереди Проводник, msedge.exe запускает PowerShell. Тогда: закрыт
 #     не позже допуска раннера, плашки нет, в журнале «запускалась сама и закрыта», нарушения нет (R13, D-65).
 # (б) Ручной запуск: ребёнок двигает мышь, впереди PowerShell, он запускает msedge.exe, затем chrome.exe. Тогда:
-#     закрыты, плашка «Этот браузер запрещён. Пользуйся Brave», по одному нарушению «попытка открыть запрещённое».
+#     закрыты, плашка «Этот браузер запрещён» — «Пользуйся Brave», по одному нарушению «попытка открыть запрещённое».
 # (в) firefox.exe (решение родителя «Прочее») работает, плашки браузера нет.
 # Настоящий Edge из «Пуска» и его служебные процессы — вручную на запасном ПК. Снимок: s19-browser-plate.png.
 $ErrorActionPreference = "Stop"
@@ -15,7 +15,7 @@ $ErrorActionPreference = "Stop"
 
 # Тексты службы: internal/service/texts.go textPlateBrowser; internal/service/journaltext.go evProgramForbiddenTry,
 # evProgramAutoClosed; виды записей — internal/service/handlers_m3.go; вид плашки — internal/ipc/commands_m4.go BlockedBrowser.
-$script:BrowserPlate = "Этот браузер запрещён. Пользуйся Brave"
+$script:BrowserPlate = "Пользуйся Brave"
 $script:TryKind = "program_forbidden_try"
 $script:AutoKind = "program_auto_closed"
 

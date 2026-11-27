@@ -9,7 +9,7 @@
 #     закрыта не позже допуска раннера, плашки нет, «попытка открыть запрещённое» нет, в журнале одна запись
 #     «программа «X» запускалась сама и закрыта».
 # (б) Ребёнок двигает мышь, на переднем плане PowerShell, он запускает tool.exe (как «Играть» в Steam). Тогда:
-#     закрыта, плашка «Программа «X» запрещена родителем», нарушение «попытка открыть запрещённое: «X»».
+#     закрыта, плашка «Родитель запретил «X». Выбери другую игру», нарушение «попытка открыть запрещённое: «X»».
 # Запуск из самого Проводника (рабочий стол, «Пуск») сценарий не воспроизводит: из скрипта программу запускает
 # не Проводник сеанса. Эту ветку правила (Проводник не в первые 60 с после входа) проверяет тест службы
 # TestWatchForbiddenManualStillWarns (Ruling RF18-1).
@@ -52,7 +52,7 @@ function Assert-NoForbiddenPlate([string]$What, [double]$Seconds = 3) {
   $sw = [Diagnostics.Stopwatch]::StartNew()
   while ($sw.Elapsed.TotalSeconds -lt $Seconds) {
     $g = Get-GuardState
-    if ($g.plateKind -eq "forbidden" -or ([string]$g.plate).Contains("запрещена родителем")) {
+    if ($g.plateKind -eq "forbidden" -or ([string]$g.plate).Contains("Выбери другую игру")) {
       throw "${What}: ребёнку показана плашка о запрещённой программе: $(Format-GuardState $g); журнал службы: $(Get-WatchLog)"
     }
     Start-Sleep -Milliseconds 150
@@ -84,7 +84,7 @@ Invoke-Scenario "S45" "Запрещённая tool.exe: запустилась �
     $script:ToolName = Get-ProgramName $script:ToolPath
     Use-Parent { Assert-Reply (Send-Parent "SetDiag" @{ verbose = $true }) "Подробные логи службы" }
     Write-Log "Название tool.exe из списка программ: «$($script:ToolName)»"
-    $script:PlateText = "Программа «$($script:ToolName)» запрещена родителем"
+    $script:PlateText = "Родитель запретил «$($script:ToolName)». Выбери другую игру"
   }
 
   Step "(а) Ребёнок 30 с ничего не нажимает, на переднем плане Проводник" {

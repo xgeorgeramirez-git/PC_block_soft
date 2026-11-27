@@ -82,9 +82,12 @@ type sessState struct {
 	since time.Time
 	// safeLogged — вход ребёнка в безопасном режиме уже записан (R17е): раз на сеанс.
 	safeLogged bool
-	guard      *supProc
-	tray       *supProc
-	windows    map[string]*supProc
+	// askNow — «Попросить сейчас» со стража этого сеанса (8.2.4 п. 2, D-114): о какой программе и до
+	// какого момента решение в окне этого сеанса идёт без плашки решения.
+	askNow  askNowRec
+	guard   *supProc
+	tray    *supProc
+	windows map[string]*supProc
 }
 
 // OnSession принимает событие сеанса от диспетчера служб: служба сверяет сеансы и запускает
@@ -749,4 +752,18 @@ func (s *Service) killStale() {
 	if err := writeProcRecords(path, nil); err != nil {
 		s.logRate("procs", "не очищена память о запущенных процессах: %v", err)
 	}
+}
+
+// askNowLife — сколько служба помнит «Попросить сейчас» (8.2.4 п. 2, D-114).
+const askNowLife = 10 * time.Minute
+
+// askNowRec — «Попросить сейчас» с плашки: ключ программы и срок.
+type askNowRec struct {
+	path  string
+	until time.Time
+}
+
+// askedNow: из этого сеанса не позже askNowLife назад просили решить о программе path.
+func (ss *sessState) askedNow(path string, real time.Time) bool {
+	return ss.askNow.path != "" && ss.askNow.path == path && real.Before(ss.askNow.until)
 }

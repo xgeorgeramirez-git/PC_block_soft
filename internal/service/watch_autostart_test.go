@@ -158,7 +158,7 @@ func TestWatchForbiddenManualStillWarns(t *testing.T) {
 			if w.alive(p) {
 				t.Fatal("ручной запуск: chrome не закрыта")
 			}
-			want := []ipc.BlockedPlate{{Kind: ipc.BlockedBrowser, Text: "Этот браузер запрещён. Пользуйся Brave", ShowS: 10, Path: pathChrome}}
+			want := []ipc.BlockedPlate{{Kind: ipc.BlockedBrowser, Title: "Этот браузер запрещён", Text: "Пользуйся Brave", ShowS: 10, Path: pathChrome}}
 			if got := forbiddenPlates(h.poll(inputSample(300, k.fg))); jsonOf(t, got) != jsonOf(t, want) {
 				t.Errorf("плашка ручного запуска: %s, want %s", jsonOf(t, got), jsonOf(t, want))
 			}
@@ -357,7 +357,7 @@ func TestWatchForbiddenStoreAppManual(t *testing.T) {
 	if w.alive(p) {
 		t.Fatal("запрещённая игра Магазина не закрыта")
 	}
-	want := []ipc.BlockedPlate{{Kind: ipc.BlockedForbidden, Text: "Программа «Roblox» запрещена родителем", ShowS: 10, Path: svcRoots.StableKey(roblox)}}
+	want := []ipc.BlockedPlate{{Kind: ipc.BlockedForbidden, Title: "Эта программа запрещена", Text: "Родитель запретил «Roblox». Выбери другую игру", ShowS: 10, Path: svcRoots.StableKey(roblox)}}
 	if got := forbiddenPlates(h.poll(activeSample)); jsonOf(t, got) != jsonOf(t, want) {
 		t.Errorf("плашка игры Магазина: %s, want %s", jsonOf(t, got), jsonOf(t, want))
 	}

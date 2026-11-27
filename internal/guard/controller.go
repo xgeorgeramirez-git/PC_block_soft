@@ -888,7 +888,7 @@ func (c *Controller) Run(act Action) {
 		c.model.OnExtraAdded(c.now(), act.Minutes)
 	case ActOpenPrograms:
 		// «Попросить сейчас» (RM3-4): окно родителя на «Программах», пароль спросит окно. Токена нет.
-		req := ipc.OpenWindowRequest{Kind: ipc.WindowParent, Screen: ipc.ScreenPrograms}
+		req := ipc.OpenWindowRequest{Kind: ipc.WindowParent, Screen: ipc.ScreenPrograms, Path: act.Path}
 		if err := ipc.Call(c.call, ipc.CmdOpenWindow, "", req, nil); err != nil {
 			c.fail(act, err, textPlateFailed)
 		}

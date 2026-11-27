@@ -27,7 +27,7 @@ func TestStoreKeyEverywhere(t *testing.T) {
 	h := watchHarness(t, w, withMeta(meta))
 	w.start(childSession, storeTool1)
 	h.watch()
-	want := []ipc.BlockedPlate{{Kind: ipc.BlockedUnknown, Text: "Программа «tool» ждёт разрешения родителя", ShowS: 15, Path: storeTool, CanAsk: true}}
+	want := []ipc.BlockedPlate{{Kind: ipc.BlockedUnknown, Title: "Ждёт разрешения", Text: "Программа «tool» новая. Родитель должен решить, можно ли её запускать", ShowS: 15, Path: storeTool, CanAsk: true}}
 	if got := platesOf(h.poll(activeSample)); jsonOf(t, got) != jsonOf(t, want) {
 		t.Errorf("плашка версии 1:\n got %s\nwant %s", jsonOf(t, got), jsonOf(t, want))
 	}

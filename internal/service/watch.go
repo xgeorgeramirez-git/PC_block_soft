@@ -1041,6 +1041,9 @@ func (s *Service) blockedPlate(session uint32, childID int64, plate ipc.BlockedP
 	if ss == nil || ss.childID != childID || ss.offScreen() {
 		return
 	}
+	if plate.Title == "" {
+		plate.Title = plateTitle(plate.Kind, plate.Allowed)
+	}
 	if !s.watchOnce(fmt.Sprintf("plate|%d|%s", session, plate.Path), plateEvery, real) {
 		return
 	}
@@ -1067,4 +1070,31 @@ func (s *Service) pruneWatchLimits(real time.Time) {
 			delete(s.watchAt, k)
 		}
 	}
+}
+
+// plateTitle — заголовок плашки «Игрового лобби» по её виду (ТЗ 8.2.4, 8.2.5, D-111, D-114); у
+// решения родителя — по тому, разрешил ли он. Незнакомый вид — «» (прежняя плашка).
+func plateTitle(kind string, allowed bool) string {
+	switch kind {
+	case ipc.BlockedUnknown:
+		return textPlateUnknownTitle
+	case ipc.BlockedForbidden:
+		return textPlateForbiddenTitle
+	case ipc.BlockedSite, ipc.BlockedAdult:
+		return textPlateSiteTitle
+	case ipc.BlockedVideoOver:
+		return textPlateVideoTitle
+	case ipc.BlockedBrowser:
+		return textPlateBrowserTitle
+	case ipc.BlockedGamesOver:
+		return textPlateGamesOverTitle
+	case ipc.BlockedStudyOnly:
+		return textPlateStudyOnlyTitle
+	case ipc.BlockedDecided:
+		if allowed {
+			return textPlateAllowedTitle
+		}
+		return textPlateDeniedTitle
+	}
+	return ""
 }
