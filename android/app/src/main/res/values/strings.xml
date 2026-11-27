@@ -151,4 +151,23 @@
     <string name="err_note_pc_offline">Компьютер не на связи. Сообщение не отправлено</string>
     <string name="err_note_pc_offline_since">Компьютер не на связи с %1$s. Сообщение не отправлено</string>
     <string name="err_key">Не удалось создать ключ на телефоне. Повторите</string>
+    <string name="err_promo_exists">Такой код уже есть, придумайте другой</string>
+    <string name="err_promo_gen">Не получилось придумать столько разных кодов. Увеличьте длину</string>
+    <string name="err_promo_gone">Этого кода уже нет. Список обновлён</string>
+    <string name="err_decided_already">Решение уже принято</string>
+    <string name="err_bank_range">Можно от 1 до 600 минут за раз</string>
+    <string name="err_promo_code_empty">Введите код</string>
+    <string name="err_promo_code_len">Код от 3 до 16 знаков</string>
+    <string name="err_promo_code_latin">Только латинские буквы A-Z и цифры</string>
+    <string name="err_promo_minutes">Можно от 1 до 600 минут</string>
+    <string name="err_promo_count">Можно от 1 до 50 кодов</string>
+    <string name="err_promo_len">Длина от 4 до 12 знаков</string>
+    <string name="bank_put">Положить</string>
+    <string name="bank_put_one">Положить %1$d минуту</string>
+    <string name="bank_put_few">Положить %1$d минуты</string>
+    <string name="bank_put_many">Положить %1$d минут</string>
+    <string name="card_pending_one">%1$d программа ждёт решения</string>
+    <string name="card_pending_few">%1$d программы ждут решения</string>
+    <string name="card_pending_many">%1$d программ ждут решения</string>
+    <string name="card_pending_some">Есть программы, ждущие решения</string>
 </resources>

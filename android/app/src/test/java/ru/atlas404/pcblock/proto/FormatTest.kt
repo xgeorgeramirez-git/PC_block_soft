@@ -97,4 +97,18 @@ class FormatTest {
     fun textsHaveNoLongDashes() {
         for ((k, v) in Strings.all) assertTrue("$k: $v", '—' !in v && '–' !in v)
     }
+
+    /** «Копилка Миши» (FR-44): те же правила, что genitiveName окна (frontend/src/lib/format.ts), та же таблица. */
+    @Test
+    fun genitive() {
+        val cases = listOf(
+            "Миша" to "Миши", "Даша" to "Даши", "Маша" to "Маши", "Анна" to "Анны", "Ольга" to "Ольги",
+            "Ника" to "Ники", "Катя" to "Кати", "Ваня" to "Вани", "Мария" to "Марии", "Иван" to "Ивана",
+            "Артём" to "Артёма", "Андрей" to "Андрея", "Игорь" to "Игоря", "Дмитрий" to "Дмитрия",
+            "Тимофей" to "Тимофея", "Женя" to "Жени", "Саша" to "Саши", "Tom" to "Tom",
+            "Лиза Петрова" to "Лиза Петрова", "" to "", "Аня" to "Ани", "Никита" to "Никиты", "John" to "John",
+            " Миша " to "Миши", "Анна-Мария" to "Анна-Марии",
+        )
+        for ((name, want) in cases) assertEquals(name, want, Format.genitive(name))
+    }
 }
