@@ -35,6 +35,7 @@ type fakeStore struct {
 	schedule         map[int64][]core.Interval // интервалы по ребёнку (M2)
 	bonus            map[int64][]BonusRecord   // история копилки по ребёнку (M2)
 	promos           []*fakePromo              // промокоды (R26, D-50)
+	failCreatePromo  bool                      // CreatePromo возвращает ошибку записи (не повтор кода)
 	failCreatePromos bool                      // CreatePromos возвращает ошибку, ничего не создав (RM5-12)
 	failListPromos   bool                      // ListPromos возвращает ошибку
 	failDeletePromo  bool                      // DeletePromo возвращает ошибку (FR-45)
@@ -937,6 +938,9 @@ type fakePromo struct {
 func (f *fakeStore) CreatePromo(codeDisplay string, minutes int) (PromoRecord, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.failCreatePromo {
+		return PromoRecord{}, errFake
+	}
 	norm := core.NormalizePromoCode(codeDisplay)
 	if norm == "" || !core.PromoMinutesValid(minutes) {
 		return PromoRecord{}, errFake

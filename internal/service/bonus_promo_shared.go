@@ -102,7 +102,9 @@ func (s *Service) createPromo(raw string, minutes int, src extraSource) (p Promo
 	if err != nil {
 		// Самая частая причина — такой код уже есть (UNIQUE); показываем у поля кода. Повтор отличаем
 		// от сбоя записи по списку кодов: телефону нужен отказ promo_exists, а не «устарела» (R-6).
-		if s.promoTaken(display) {
+		// Список не прочитан — это сбой хранилища, как и прочий сбой записи (окну textSaveFailed,
+		// телефону stale), а не повтор кода.
+		if taken, ok := s.promoTaken(display); ok && taken {
 			return PromoRecord{}, ipc.FieldCode, textPromoExists, true
 		}
 		s.logRate("createpromo", "не удалось записать промокод: %v", err)
@@ -117,19 +119,19 @@ func (s *Service) createPromo(raw string, minutes int, src extraSource) (p Promo
 }
 
 // promoTaken сообщает, что код с тем же нормализованным видом уже есть в базе (действующий или
-// использованный). Список не прочитался — считаем, что есть: прежний ответ окна (до 0.8.4).
-func (s *Service) promoTaken(code string) bool {
+// использованный); ok == false — список не прочитан, ответа нет (сбой хранилища).
+func (s *Service) promoTaken(code string) (taken, ok bool) {
 	list, err := s.cfg.Store.ListPromos()
 	if err != nil {
-		return true
+		return false, false
 	}
 	norm := core.NormalizePromoCode(code)
 	for _, p := range list {
 		if core.NormalizePromoCode(p.CodeDisplay) == norm {
-			return true
+			return true, true
 		}
 	}
-	return false
+	return false, true
 }
 
 // generatePromos — «Придумать коды» (RM5-12): пределы окна; noCodes — не хватило разных кодов

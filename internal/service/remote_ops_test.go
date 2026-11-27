@@ -576,3 +576,42 @@ func TestCreatePromoRulesVector(t *testing.T) {
 		}
 	}
 }
+
+// Ловит (R-6, ревью 0.8.4 M1): сбой записи кода, когда и список кодов не прочитан, принимается за
+// «такой код уже есть» — телефон получает promo_exists вместо stale, окно — «Такой код уже есть»
+// вместо «Не удалось сохранить».
+func TestCreatePromoStoreDownIsNotExists(t *testing.T) {
+	r := newTestRelay(t)
+	h, tok := remoteHarness(t)
+	ph := opsPhone(h, pairPhone(t, h, tok, r))
+	h.store.mu.Lock()
+	h.store.failCreatePromo, h.store.failListPromos = true, true
+	h.store.mu.Unlock()
+	res := ph.op(1, 0, remote.OpPromoCreate, 0, map[string]string{"code": `"WINTER"`, "min": "30"})
+	if res.OK || res.Error != remote.ErrCodeStale || res.Promos != nil || *res.LastSeq != 1 {
+		t.Fatalf("телефон при сбое базы: %+v", res)
+	}
+	f := h.fail(adminPeer(), tok, ipc.CmdCreatePromo, ipc.CreatePromoRequest{Code: "WINTER", Minutes: 30})
+	if f.Error != "Не удалось сохранить. Попробуйте ещё раз" || f.Field != "" {
+		t.Fatalf("окно при сбое базы: отказ %q у поля %q", f.Error, f.Field)
+	}
+	if n := len(h.store.eventsOf(evPromoCreate)); n != 0 {
+		t.Fatalf("записей создания %d, ждали 0", n)
+	}
+	// Повтор кода при читаемом списке — по-прежнему promo_exists.
+	h.store.mu.Lock()
+	h.store.failListPromos = false
+	h.store.mu.Unlock()
+	if _, err := h.store.CreatePromo("SPRING", 30); err == nil {
+		t.Fatal("фейк при failCreatePromo создал код")
+	}
+	h.store.mu.Lock()
+	h.store.failCreatePromo = false
+	h.store.mu.Unlock()
+	if _, err := h.store.CreatePromo("SPRING", 30); err != nil {
+		t.Fatal(err)
+	}
+	if res := ph.op(2, 0, remote.OpPromoCreate, 0, map[string]string{"code": `"spring"`, "min": "15"}); res.Error != remote.ErrCodePromoExists {
+		t.Fatalf("повтор кода: %+v", res)
+	}
+}
