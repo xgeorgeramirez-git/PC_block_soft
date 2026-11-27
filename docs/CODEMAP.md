@@ -16,8 +16,8 @@
 | `internal/ipc` | 19 (9) | ipc — канал связи службы программы с её окнами, стражем сеанса и значком на том |
 | `internal/launch` | 1 (1) | launch разбирает ключи запуска программы: в каком режиме работает PCBlock.exe. |
 | `internal/programs` | 4 (7) | programs — классификация программ по пути exe (веха M3: R12, R13, RM3-1, RM3-12): |
-| `internal/remote` | 6 (7) | remote — связь компьютера с телефоном родителя через сервер связи (M7, FR-40, |
-| `internal/service` | 42 (66) | service — служба PCBlock: фоновая часть, которая считает время за компьютером, |
+| `internal/remote` | 6 (9) | remote — связь компьютера с телефоном родителя через сервер связи (M7, FR-40, |
+| `internal/service` | 43 (67) | service — служба PCBlock: фоновая часть, которая считает время за компьютером, |
 | `internal/service/winhost` | 34 (13) | winhost — Windows-обвязка службы PCBlock: всё, что внутри internal/service |
 | `internal/sites` | 5 (5) | sites — домены сайтов: нормализация ввода родителя и поля адреса Brave, punycode, свои списки родителя и встроенный список «18+». |
 | `internal/sound` | 3 (1) | sound — звук предупреждения заказчика (D-55, FR-9) и звуки сообщения от родителя (FR-41, |
@@ -58,6 +58,7 @@
 - `src/components/Dialog.tsx`
 - `src/components/FitText.tsx`
 - `src/components/GrantBonusForm.tsx`
+- `src/components/Icon.tsx`
 - `src/components/LimitsTable.tsx`
 - `src/components/Notice.tsx`
 - `src/components/PauseToggle.tsx`
@@ -74,6 +75,7 @@
 - `src/components/TextField.tsx`
 - `src/components/UndoLine.tsx`
 - `src/components/usePause.ts`
+- `src/fonts.css`
 - `src/global.d.ts`
 - `src/guard.tsx`
 - `src/lib/bonus.ts`
@@ -88,6 +90,7 @@
 - `src/lib/numinput.ts`
 - `src/lib/password.ts`
 - `src/lib/programs.ts`
+- `src/lib/remain.ts`
 - `src/lib/remote.ts`
 - `src/lib/rest.ts`
 - `src/lib/schedule.ts`
