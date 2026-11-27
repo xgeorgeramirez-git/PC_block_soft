@@ -128,6 +128,12 @@ Invoke-Scenario "S57" "Сообщение ребёнку с телефона: п
       $g = Wait-LockShown 40 "timeUp"
       Suspend-Clock
       Write-Log "Экран блокировки: $(Format-GuardState $g)"
+      # Место кнопок без сообщения: короткое сообщение 42 px (D-107, FB-35) тоже раздвигает экран блокировки,
+      # поэтому «вернулись на место» сверяется с экраном до первого сообщения, а не с экраном под коротким.
+      Start-Sleep -Milliseconds 700
+      $script:PwdTop = (@(Get-PcbWindowRects -Children | Where-Object { $_.Class -eq "Button" -and $_.Text -eq "Пароль родителя" }) | Select-Object -First 1).Top
+      Assert-That ($null -ne $script:PwdTop) "Кнопки «Пароль родителя» на экране блокировки нет среди окон"
+      Write-Log "«Пароль родителя» без сообщения: верх $($script:PwdTop)"
     }
 
     Step "Сообщение на 10 с при экране блокировки: видно поверх, через 10 с исчезает, отметка «Прочитано»" {
@@ -142,7 +148,6 @@ Invoke-Scenario "S57" "Сообщение ребёнку с телефона: п
       $note = @(Get-PcbWindowRects | Where-Object { $_.Class -eq "PCBlockGuardNote" }) | Select-Object -First 1
       Assert-That ($null -ne $note) "Окно плашки сообщения не видно поверх экрана блокировки"
       $script:ShortNoteH = $note.Bottom - $note.Top
-      $script:PwdTop = (@(Get-PcbWindowRects -Children | Where-Object { $_.Class -eq "Button" -and $_.Text -eq "Пароль родителя" }) | Select-Object -First 1).Top
       foreach ($b in @(Get-PcbWindowRects -Children | Where-Object { $_.Class -eq "Button" })) {
         Assert-That (-not (Test-RectsOverlap $note $b)) "Плашка $(Format-Rect $note) закрывает кнопку «$($b.Text)» $(Format-Rect $b)"
       }

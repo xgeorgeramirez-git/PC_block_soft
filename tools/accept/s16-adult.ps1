@@ -86,9 +86,11 @@ Invoke-Scenario "S16" "Сайт 18+ в Brave: вкладка закрыта, п�
   Step "1. Домен 18+ новой вкладкой: закрыта, активна probe-site.test, плашка без домена" {
     $g0 = Get-GuardState
     Assert-That ([string]$g0.closedTab -ne $script:A) "До открытия closedTab уже «$($g0.closedTab)» (PL-16)"
+    $sb = @(Get-SystemSounds $g0).Count
     $sw = Open-Brave "http://$($script:A)/"
     [void](Wait-TabClosed $script:A $sw)
-    $g = Wait-SitePlate $script:AdultPlate "adult" 5
+    # «Игровое лобби» (ТЗ 8.2.5 п. 2, D-111): «Сайт закрыт», стикер 110, «Восклицание».
+    $g = Wait-SitePlate $script:AdultPlate "adult" 5 -Title "Сайт закрыт" -Sticker "110" -Sound $script:SoundExclamation -SoundsBefore $sb
     Assert-That (-not ([string]$g.plate).Contains($script:A)) "Плашка 18+ показывает домен: «$($g.plate)» (R23, 8.2.5 п. 2)"
     Start-Sleep -Milliseconds 500 # поток окон перерисовывает плашку по своему таймеру
     Save-Screen "s16-adult-plate"

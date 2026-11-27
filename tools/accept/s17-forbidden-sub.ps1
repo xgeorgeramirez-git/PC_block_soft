@@ -58,9 +58,11 @@ Invoke-Scenario "S17" "Поддомен запрещённого сайта за
   Step "(а) Поддомен запрещённого новой вкладкой: закрыта, активна probe-site.test, плашка" {
     $g0 = Get-GuardState
     Assert-That ([string]$g0.closedTab -ne $script:SubDomain) "До открытия closedTab уже «$($g0.closedTab)» (PL-16)"
+    $sb = @(Get-SystemSounds $g0).Count
     $sw = Open-Brave $script:SecretUrl
     [void](Wait-TabClosed $script:SubDomain $sw)
-    [void](Wait-SitePlate $script:SitePlate "site" 5)
+    # «Игровое лобби» (ТЗ 8.2.5 п. 1, D-111): «Сайт закрыт», стикер 110, «Восклицание».
+    [void](Wait-SitePlate $script:SitePlate "site" 5 -Title "Сайт закрыт" -Sticker "110" -Sound $script:SoundExclamation -SoundsBefore $sb)
     Start-Sleep -Milliseconds 500 # поток окон перерисовывает плашку по своему таймеру
     Save-Screen "s17-site-plate"
   }

@@ -14,6 +14,23 @@ Invoke-Scenario "S1" "Установка, мастер и значок «120»" 
     Install-Pcb
   }
 
+  Step "Лицензии рядом с программой: UT1, lottie-web, шрифты Inter и Rubik (SIL OFL, ТЗ 8.0 п. 2)" {
+    $dir = Split-Path -Parent $script:Exe
+    $want = [ordered]@{
+      "LICENSE-UT1.txt"        = ""
+      "LICENSE-lottie-web.txt" = "The MIT License"
+      "LICENSE-Inter.txt"      = "SIL Open Font License"
+      "LICENSE-Rubik.txt"      = "SIL Open Font License"
+    }
+    foreach ($name in $want.Keys) {
+      $f = Join-Path $dir $name
+      Assert-That (Test-Path -LiteralPath $f) "Нет $f рядом с программой (project.nsi)"
+      $text = Get-Content -LiteralPath $f -Raw -Encoding UTF8
+      Write-Log "Лицензия ${name}: $((Get-Item -LiteralPath $f).Length) б"
+      if ($want[$name]) { Assert-That ($text.Contains($want[$name])) "В $f нет «$($want[$name])»" }
+    }
+  }
+
   Step "Служба: автозапуск, система, перезапуск при сбое 5/10/30 с, запись безопасного режима" {
     $cim = Get-CimInstance Win32_Service -Filter "Name='$($script:ServiceName)'"
     Assert-That ($cim.StartMode -eq "Auto") "Тип запуска '$($cim.StartMode)', ждали Auto"

@@ -42,10 +42,19 @@ function Get-StartupLog {
   return ($lines -join ' | ')
 }
 
-function Send-Logon {
+# CloseWindow: первый вход после старта службы открывает окно программы (FR-46, R-13; без отметки первого входа —
+# окно FR-32); сценарий ждёт его не дольше 10 с и закрывает крестиком, как ребёнок, перед своими проверками.
+# Следующие входы без выхода (TestSession logoff) окна не открывают: вход в сеанс уже разобран.
+function Send-Logon([switch]$CloseWindow) {
   $r = Send-Pcb "TestSession" @{ event = "logon"; sessionId = [int]$script:MySession }
   Assert-Reply $r "TestSession logon $($script:MySession)"
   Write-Log "Вход ребёнка (TestSession logon, сеанс $($script:MySession))"
+  if ($CloseWindow) {
+    Wait-Until { @(Get-LogonWindowProcs).Count -ge 1 } 10 "окно программы при входе (FR-46)"
+    Write-Log "Окно при входе: $(Format-LogonWindowProcs)"
+    foreach ($w in @(Get-LogonWindowProcs)) { [void](Close-PcbWindow ([int]$w.ProcessId) "Окно при входе") }
+    Wait-Until { @(Get-LogonWindowProcs).Count -eq 0 } 10 "окно при входе закрыто"
+  }
 }
 
 function Get-Startup([int64]$ChildId, [bool]$Refresh = $false) {
@@ -200,7 +209,7 @@ Invoke-Scenario "S50" "Автозагрузка: новая запись ждё�
   Step "После первой проверки у Миши своя запись PCBNotesTest; вход: «Ждут решения», выключена штатно, значение на месте" {
     New-ItemProperty -LiteralPath $script:RunOwn -Name $script:NotesName -Value "`"$($script:NotesPath)`"" -PropertyType String -Force | Out-Null
     $since = Get-NowMs
-    Send-Logon
+    Send-Logon -CloseWindow
     Use-Parent {
       $script:LastStartup = $null
       Wait-Fresh {
