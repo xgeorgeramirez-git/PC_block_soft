@@ -2,6 +2,7 @@ package service
 
 import (
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -460,6 +461,7 @@ func (s *Service) hGetToday(c *callCtx) ipc.Reply {
 	for _, id := range s.childOrder() {
 		out.Children = append(out.Children, s.cardOf(s.children[id]))
 	}
+	out.PendingNames, out.PendingTotal = s.pendingNames(3)
 	if v, ok, err := s.cfg.Store.GetSetting(settingDBNotice); err == nil && ok && v != "" {
 		out.Notices = append(out.Notices, v)
 		if c.parent != nil {
@@ -467,6 +469,30 @@ func (s *Service) hGetToday(c *callCtx) ipc.Reply {
 		}
 	}
 	return ipc.OK(out)
+}
+
+// pendingNames — до limit названий программ, ждущих решения, новые первыми (8.3.2 п. 3), и сколько их
+// всего. Не прочиталось — [] и 0, ошибка в журнал работы.
+func (s *Service) pendingNames(limit int) ([]string, int) {
+	names := []string{}
+	pend, err := s.cfg.Store.ListPending()
+	if err != nil {
+		s.logRate("pending", "не удалось прочитать «Ждут решения»: %v", err)
+		return names, 0
+	}
+	sort.SliceStable(pend, func(i, j int) bool {
+		if pend[i].LastAttemptAt != pend[j].LastAttemptAt {
+			return pend[i].LastAttemptAt > pend[j].LastAttemptAt
+		}
+		return pend[i].Path < pend[j].Path // тот же порядок, что «Программы» (programsView)
+	})
+	for _, p := range pend {
+		if len(names) == limit {
+			break
+		}
+		names = append(names, programName(p.Name, p.Path))
+	}
+	return names, len(pend)
 }
 
 // childArg находит ребёнка по номеру из запроса; для стража после пароля это ребёнок его
@@ -1020,6 +1046,13 @@ func (s *Service) myTodayOf(cs *childState, period string) ipc.MyTodayReply {
 	st := s.statusOf(cs)
 	out := ipc.MyTodayReply{Status: st, Today: []string{st.Summary, "Использовано " + core.FormatDuration(st.UsedS)}, Rules: []ipc.MyRule{}, Period: period}
 	it := s.fillTotals(cs, period, &out)
+	// Нарушения сегодня — блоку «Сегодня» при любом периоде «Итогов»: тот же расчёт, что период «Сегодня».
+	out.ViolationsToday = len(out.Violations)
+	if period != ipc.PeriodToday {
+		var day ipc.MyTodayReply
+		s.fillTotals(cs, ipc.PeriodToday, &day)
+		out.ViolationsToday = len(day.Violations)
+	}
 	out.Bars, out.BarsBy = buildBars(period, it.from, it.today, it.pd.days, it.pd.live, s.cfg.Loc)
 	spentFrom := it.fromMs
 	if it.pd.resetOK {
