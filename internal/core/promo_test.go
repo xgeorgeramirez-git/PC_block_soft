@@ -34,26 +34,6 @@ func TestPromoMinutesValid(t *testing.T) {
 	}
 }
 
-// Ловит: бонус поднимает копилку выше потолка 600 или уходит в минус (R25, R26).
-func TestAddBonusWithinCeiling(t *testing.T) {
-	cases := []struct {
-		balance, add, want int
-	}{
-		{0, 30, 30},   // влезает целиком
-		{580, 30, 20}, // до потолка только 20
-		{600, 30, 0},  // уже у потолка
-		{650, 10, 0},  // выше потолка (на всякий случай) — ничего
-		{100, -5, 0},  // отрицательное начисление не вычитает
-		{0, 600, 600}, // ровно потолок
-		{0, 700, 600}, // больше потолка — только до 600
-	}
-	for _, c := range cases {
-		if got := AddBonusWithinCeiling(c.balance, c.add); got != c.want {
-			t.Errorf("AddBonusWithinCeiling(%d, %d) = %d, ожидалось %d", c.balance, c.add, got, c.want)
-		}
-	}
-}
-
 // Ловит (R26, D-75, RM5-11): новый код с кириллицей, полноширинными буквами, пробелом или знаками
 // внутри принят; длина вне 3–16; код показан не заглавными.
 func TestCheckNewPromoCode(t *testing.T) {

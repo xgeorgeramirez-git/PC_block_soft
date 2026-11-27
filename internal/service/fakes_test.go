@@ -38,6 +38,7 @@ type fakeStore struct {
 	failCreatePromos bool                      // CreatePromos возвращает ошибку, ничего не создав (RM5-12)
 	failListPromos   bool                      // ListPromos возвращает ошибку
 	failDeletePromo  bool                      // DeletePromo возвращает ошибку (FR-45)
+	failAppendBonus  bool                      // AppendBonus возвращает ошибку записи
 	failGetSetting   bool                      // GetSetting возвращает ошибку
 	setSettingErr    func(key string) error    // не nil: SetSetting сначала спрашивает её (M7)
 
@@ -872,15 +873,15 @@ func (f *fakeStore) SetSchedule(id int64, intervals []core.Interval) error {
 func (f *fakeStore) AppendBonus(id int64, deltaMin int, reason string) (int, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if reason == "" || deltaMin == 0 {
+	if f.failAppendBonus || reason == "" || deltaMin == 0 {
 		return 0, errFake
 	}
 	cur := 0
 	if h := f.bonus[id]; len(h) > 0 {
 		cur = h[len(h)-1].Balance
 	}
-	after := cur + deltaMin
-	if after < 0 || after > 600 {
+	after := cur + deltaMin // предела баланса нет (D-113), как в storage
+	if after < 0 {
 		return 0, errFake
 	}
 	at := timeNowService()
@@ -903,10 +904,7 @@ func (f *fakeStore) GrantDayBonus(id int64, day core.DayState, deltaMin int, rea
 	if h := f.bonus[id]; len(h) > 0 {
 		cur = h[len(h)-1].Balance
 	}
-	after := cur + deltaMin
-	if after > 600 {
-		return 0, errFake
-	}
+	after := cur + deltaMin // предела баланса нет (D-113), как в storage
 	at := timeNowService()
 	if f.now != nil {
 		at = f.now()

@@ -83,45 +83,14 @@ func (s *Service) hGeneratePromos(c *callCtx) ipc.Reply {
 	if c.msg.Into(&req) != nil {
 		return bad()
 	}
-	if req.Count < 1 || req.Count > 50 {
-		return ipc.FailField("Можно от 1 до 50 кодов", ipc.FieldCount)
-	}
-	if req.Length < 4 || req.Length > 12 {
-		return ipc.FailField("Длина от 4 до 12 знаков", ipc.FieldLength)
-	}
-	if _, known := promoAlphabets[req.Charset]; !known {
-		return bad()
-	}
-	if !core.PromoMinutesValid(req.Minutes) {
-		return ipc.FailField("Можно от 1 до 600 минут", ipc.FieldMinutes)
-	}
-	list, err := s.cfg.Store.ListPromos()
-	if err != nil {
-		// Ещё ничего не сохранялось: «Не удалось выполнить», не «сохранить».
-		return ipc.Fail(textRetry)
-	}
-	taken := make(map[string]bool, len(list))
-	for _, p := range list {
-		taken[core.NormalizePromoCode(p.CodeDisplay)] = true
-	}
-	codes, ok := genPromoCodes(promoRand, req.Count, req.Length, req.Charset, taken)
-	if !ok {
-		return ipc.Fail("Не получилось придумать столько разных кодов. Увеличьте длину")
-	}
-	created, err := s.cfg.Store.CreatePromos(codes, req.Minutes)
-	if err != nil {
-		// База могла измениться извне (повтор UNIQUE) — пачка откатилась целиком.
-		s.logRate("genpromos", "не удалось записать придуманные промокоды: %v", err)
-		return ipc.Fail(textRetry)
+	created, field, fail, _ := s.generatePromos(req.Count, req.Length, req.Charset, req.Minutes, extraFromWindow)
+	if fail != "" {
+		return ipc.FailField(fail, field)
 	}
 	views := make([]ipc.PromoView, 0, len(created))
 	for _, p := range created {
 		views = append(views, promoViewOf(p, ""))
 	}
-	s.journal.Write(0, evPromoGenerate, map[string]any{
-		"count": len(created), "minutes": req.Minutes, "codes": codes,
-		"text": promoGenerateText(len(created), req.Minutes),
-	})
 	return ipc.OK(ipc.GeneratePromosReply{
 		Promos:  views,
 		Message: fmt.Sprintf("Готово: %s на %d мин", codesText(len(created)), req.Minutes),

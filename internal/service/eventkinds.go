@@ -31,6 +31,7 @@ const (
 	evPromoCreate         = "promo_create"          // родитель создал промокод (R26)
 	evPromoGenerate       = "promo_generate"        // «Придумать коды» (FR-35, T3b)
 	evPromoHistoryCleared = "promo_history_cleared" // «Очистить историю» промокодов (FR-35, T3b)
+	evPromoDelete         = "promo_delete"          // действующий промокод удалён с телефона (FR-45)
 )
 
 // Программы (R22). Нарушение из них только program_forbidden_try (R13).
@@ -93,7 +94,7 @@ var allEventKinds = []string{
 	// Время и копилка.
 	core.EvExtraTime, evExtraUndone, core.EvPause, core.EvPauseEnd, core.EvNoForbidden, core.EvDayClosed,
 	core.EvBonusSpent, core.EvBonusGranted, evBonusGrant, evBonusUndo, evBonusClear, evBonusReduce,
-	core.EvPromoRedeem, evPromoCreate, evPromoGenerate, evPromoHistoryCleared,
+	core.EvPromoRedeem, evPromoCreate, evPromoGenerate, evPromoHistoryCleared, evPromoDelete,
 	core.EvRestBreak, core.EvRestEnded,
 	// Нарушения.
 	core.EvBypass, evProgramForbiddenTry, evSiteForbiddenTry,

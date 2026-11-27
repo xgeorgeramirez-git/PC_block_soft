@@ -35,7 +35,7 @@ func TestSaveGetSchedule(t *testing.T) {
 	}
 }
 
-// Ловит: начисление в копилку не меняет баланс, не проверяет границу 600 (FR-22).
+// Ловит: начисление в копилку не меняет баланс, не проверяет границу одного начисления 600 (FR-22, D-113).
 func TestGrantBonus(t *testing.T) {
 	h := newHarness(t, configured(), withChild(childSID, "Миша", 120))
 	h.start()
@@ -47,8 +47,8 @@ func TestGrantBonus(t *testing.T) {
 	if rep.BalanceAfter != 30 {
 		t.Fatalf("баланс после начисления = %d, want 30", rep.BalanceAfter)
 	}
-	// Начисление выше 600 — отказ у поля.
-	bad := h.fail(adminPeer(), tok, ipc.CmdGrantBonus, ipc.GrantBonusRequest{ChildID: id, Minutes: 600, Reason: "много"})
+	// Одно начисление выше 600 — отказ у поля.
+	bad := h.fail(adminPeer(), tok, ipc.CmdGrantBonus, ipc.GrantBonusRequest{ChildID: id, Minutes: 601, Reason: "много"})
 	if bad.Field != ipc.FieldMinutes {
 		t.Fatalf("ошибка начисления не у поля minutes: %+v", bad)
 	}
