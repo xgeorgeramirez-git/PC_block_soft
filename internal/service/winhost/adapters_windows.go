@@ -416,6 +416,14 @@ func (a storeAdapter) ClearUsedPromos() (int, error) {
 	return a.s.ClearUsedPromos()
 }
 
+func (a storeAdapter) DeletePromo(code string) (service.PromoRecord, bool, error) {
+	p, ok, err := a.s.DeletePromo(code)
+	if err != nil || !ok {
+		return service.PromoRecord{}, false, err
+	}
+	return promoRecordOf(p), true, nil
+}
+
 // promoRecordOf приводит storage.Promo к service.PromoRecord: указатели used_at/used_by
 // становятся 0 для «ещё не использован».
 func promoRecordOf(p storage.Promo) service.PromoRecord {

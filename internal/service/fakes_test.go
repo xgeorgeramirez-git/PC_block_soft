@@ -37,6 +37,7 @@ type fakeStore struct {
 	promos           []*fakePromo              // промокоды (R26, D-50)
 	failCreatePromos bool                      // CreatePromos возвращает ошибку, ничего не создав (RM5-12)
 	failListPromos   bool                      // ListPromos возвращает ошибку
+	failDeletePromo  bool                      // DeletePromo возвращает ошибку (FR-45)
 	failGetSetting   bool                      // GetSetting возвращает ошибку
 	setSettingErr    func(key string) error    // не nil: SetSetting сначала спрашивает её (M7)
 
@@ -1032,6 +1033,27 @@ func (f *fakeStore) CreatePromos(codesDisplay []string, minutes int) ([]PromoRec
 		out = append(out, p.rec)
 	}
 	return out, nil
+}
+
+// DeletePromo — как storage.DeletePromo: удаляет действующий код по нормализованному виду;
+// использованный или неизвестный — ok = false. failDeletePromo — сбой записи.
+func (f *fakeStore) DeletePromo(code string) (PromoRecord, bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.failDeletePromo {
+		return PromoRecord{}, false, errFake
+	}
+	norm := core.NormalizePromoCode(code)
+	if norm == "" {
+		return PromoRecord{}, false, nil
+	}
+	for i, p := range f.promos {
+		if p.norm == norm && p.rec.UsedAtMs == 0 {
+			f.promos = append(f.promos[:i], f.promos[i+1:]...)
+			return p.rec, true, nil
+		}
+	}
+	return PromoRecord{}, false, nil
 }
 
 // ClearUsedPromos — как storage.ClearUsedPromos: удаляет использованные, число удалённых.

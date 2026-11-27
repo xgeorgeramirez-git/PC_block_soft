@@ -103,6 +103,26 @@ func (s *Store) ClearUsedPromos() (int, error) {
 	return int(n), nil
 }
 
+// DeletePromo удаляет действующий (неиспользованный) промокод по коду (FR-45, D-106): сравнение по
+// core.NormalizePromoCode. Возвращает удалённую запись; кода нет или он использован — ok = false, строки не тронуты.
+// Удалённый код можно создать заново (UNIQUE освобождён).
+func (s *Store) DeletePromo(code string) (p Promo, ok bool, err error) {
+	norm := core.NormalizePromoCode(code)
+	if norm == "" {
+		return Promo{}, false, nil
+	}
+	err = s.db.QueryRow(`DELETE FROM promo_codes WHERE code_norm = ? AND used_at IS NULL
+		RETURNING id, code_norm, code_display, minutes, created_at`, norm).
+		Scan(&p.ID, &p.CodeNorm, &p.CodeDisplay, &p.Minutes, &p.CreatedAtMs)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Promo{}, false, nil
+	}
+	if err != nil {
+		return Promo{}, false, fmt.Errorf("storage: удалить промокод: %w", err)
+	}
+	return p, true, nil
+}
+
 // RedeemPromo одноразово помечает действующий промокод использованным ребёнком childID и
 // возвращает его минуты и отображаемый код (R26, D-50). Поиск и пометка — одним атомарным
 // UPDATE по условию used_at IS NULL, поэтому повторный ввод того же кода (или гонка двух
