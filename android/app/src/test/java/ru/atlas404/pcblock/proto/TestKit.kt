@@ -61,4 +61,17 @@ object Strings {
     }
 
     operator fun get(name: String): String = all[name] ?: error("нет строки $name")
+
+    /** Пункты string-array (например, months_gen). */
+    fun array(name: String): List<String> {
+        val doc = DocumentBuilderFactory.newInstance().newDocumentBuilder().parse(file)
+        val arrays = doc.getElementsByTagName("string-array")
+        for (i in 0 until arrays.length) {
+            val a = arrays.item(i) as org.w3c.dom.Element
+            if (a.getAttribute("name") != name) continue
+            val items = a.getElementsByTagName("item")
+            return (0 until items.length).map { items.item(it).textContent }
+        }
+        error("нет массива $name")
+    }
 }

@@ -14,4 +14,22 @@ object PendingView {
         if (n > 0) return Format.plural(n, tpl)
         return if (r.pendingCount > r.pending.size) some else null
     }
+
+    /**
+     * Кто запускал (экран «Ждут решения»): «Миша, 3 попытки; Аня, 1 попытка». Ребёнка нет среди детей
+     * отчёта — gone («ребёнок удалён»); kids пуст — только общее число попыток.
+     */
+    fun who(p: Proto.Pending, names: Map<Long, String>, tries: Format.Plural, gone: String): String {
+        if (p.kids.isEmpty()) return Format.plural(p.tries, tries)
+        return p.kids.joinToString("; ") { k -> "${names[k.id] ?: gone}, ${Format.plural(k.tries, tries)}" }
+    }
+
+    /** Весь список ждущих (решение действует для всех детей), сверху строки этого ребёнка; порядок отчёта сохраняется. */
+    fun sorted(r: Proto.Report, child: Long): List<Proto.Pending> {
+        val (mine, rest) = r.pending.partition { p -> p.kids.any { it.id == child } }
+        return mine + rest
+    }
+
+    /** Путь программы с точками переноса (U+200B) после каждой «\\»: длинный путь переносится по папкам. */
+    fun breakable(path: String): String = path.replace("\\", "\\\u200B")
 }

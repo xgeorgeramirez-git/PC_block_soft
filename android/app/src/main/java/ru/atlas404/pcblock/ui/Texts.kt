@@ -2,6 +2,7 @@ package ru.atlas404.pcblock.ui
 
 import androidx.annotation.StringRes
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.res.stringArrayResource
 import androidx.compose.ui.res.stringResource
 import ru.atlas404.pcblock.R
 import ru.atlas404.pcblock.proto.Format
@@ -49,6 +50,13 @@ fun Problem.res(): Int = when (this) {
 @Composable
 fun clockText(ms: Long): String =
     Format.clock(ms, System.currentTimeMillis(), ZoneId.systemDefault(), stringResource(R.string.time_other_day))
+
+/** «25 ноября» по местному времени телефона (промокоды, «Ждут решения»). */
+@Composable
+fun dayText(ms: Long): String = Format.dayMonth(ms, ZoneId.systemDefault(), stringArrayResource(R.array.months_gen).toList())
+
+/** «18:40» по местному времени телефона (всегда без даты). */
+fun hmText(ms: Long): String = Format.clock(ms, ms, ZoneId.systemDefault(), "%1\$s %2\$s")
 
 /** Текст ошибки; «компьютер не на связи» с временем, если оно известно. */
 @Composable

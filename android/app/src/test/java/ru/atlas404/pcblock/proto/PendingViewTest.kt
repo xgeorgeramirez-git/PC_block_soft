@@ -42,4 +42,32 @@ class PendingViewTest {
         assertNull(line(rep(2, kid = 4, total = 2), 3))
         assertNull(line(rep(0), 3))
     }
+
+    private val tries = Format.Plural(Strings["pending_tries_one"], Strings["pending_tries_few"], Strings["pending_tries_many"])
+    private val names = mapOf(3L to "Миша", 4L to "Аня")
+
+    /** «Миша, 3 попытки; Аня, 1 попытка» — кто запускал (FR-47); ребёнка нет в отчёте — «ребёнок удалён». */
+    @Test
+    fun who() {
+        val a = Proto.Pending("a", "SuperGame", "", "C:\\a.exe", listOf(Proto.PendingKid(3, 3), Proto.PendingKid(4, 1)), 4, 1)
+        assertEquals("Миша, 3 попытки; Аня, 1 попытка", PendingView.who(a, names, tries, Strings["pending_kid_gone"]))
+        val b = a.copy(kids = listOf(Proto.PendingKid(9, 5)))
+        assertEquals("ребёнок удалён, 5 попыток", PendingView.who(b, names, tries, Strings["pending_kid_gone"]))
+        val c = a.copy(kids = emptyList(), tries = 2)
+        assertEquals("2 попытки", PendingView.who(c, names, tries, Strings["pending_kid_gone"]))
+    }
+
+    /** Весь список ждущих, сверху строки этого ребёнка; внутри групп порядок отчёта. */
+    @Test
+    fun sortedForChild() {
+        val r = Proto.Report(1, emptyList(), pending = listOf(p("a", 4), p("b", 3), p("c", 4, 3), p("d", 5)), pendingCount = 4)
+        assertEquals(listOf("b", "c", "a", "d"), PendingView.sorted(r, 3).map { it.id })
+        assertEquals(listOf("a", "c", "b", "d"), PendingView.sorted(r, 4).map { it.id })
+    }
+
+    /** Путь переносится в любом месте: после каждой «\\» — точка переноса нулевой ширины. */
+    @Test
+    fun breakablePath() {
+        assertEquals("C:\\\u200BUsers\\\u200Bx.exe", PendingView.breakable("C:\\Users\\x.exe"))
+    }
 }

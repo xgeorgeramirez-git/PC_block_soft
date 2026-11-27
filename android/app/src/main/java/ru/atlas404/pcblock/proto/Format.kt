@@ -39,6 +39,16 @@ object Format {
         return if (t.toLocalDate() == now.toLocalDate()) hm else String.format(Locale.ROOT, otherDayTpl, DM.format(t), hm)
     }
 
+    /** «25 ноября» (местное время телефона); months — родительный падеж из strings.xml (months_gen). */
+    fun dayMonth(ms: Long, zone: ZoneId, months: List<String>): String {
+        val t = Instant.ofEpochMilli(ms).atZone(zone)
+        return "${t.dayOfMonth} ${months.getOrElse(t.monthValue - 1) { t.monthValue.toString() }}"
+    }
+
+    /** Один ли день у двух моментов по поясу телефона. */
+    fun sameDay(a: Long, b: Long, zone: ZoneId): Boolean =
+        Instant.ofEpochMilli(a).atZone(zone).toLocalDate() == Instant.ofEpochMilli(b).atZone(zone).toLocalDate()
+
     /** Доступность компьютера по ответу phone/status. */
     sealed interface Link {
         data object Online : Link
