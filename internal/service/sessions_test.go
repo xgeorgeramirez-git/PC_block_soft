@@ -329,7 +329,7 @@ func TestShutdownTerminatesAllProcesses(t *testing.T) {
 func TestProcessMemoryHasPIDAndStamp(t *testing.T) {
 	h := newHarness(t, withChild(childSID, "Миша", 120))
 	h.start()
-	h.childLogsIn()
+	h.childSessionUp()
 	recs := readProcRecords(h.procsFile())
 	if len(recs) != 2 {
 		t.Fatalf("записей %d: %+v", len(recs), recs)
@@ -455,7 +455,7 @@ func TestGuardClearBlockNeedsBinding(t *testing.T) {
 func TestGuardOpensWindowsWithoutPassword(t *testing.T) {
 	h := newHarness(t, withChild(childSID, "Миша", 120), configured())
 	h.start()
-	h.childLogsIn()
+	h.childSessionUp()
 	var ow ipc.OpenWindowReply
 	h.ok(guardPeer(), "", ipc.CmdOpenWindow, ipc.OpenWindowRequest{Kind: ipc.WindowParent, Screen: ipc.ScreenPrograms}, &ow)
 	wins := h.launcher.launched(ProcWindow, childSession)
@@ -505,7 +505,7 @@ func TestGuardOpensWindowsWithoutPassword(t *testing.T) {
 func TestGuardOpensParentWindowWithHandover(t *testing.T) {
 	h := newHarness(t, withChild(childSID, "Миша", 120), configured())
 	h.start()
-	h.childLogsIn()
+	h.childSessionUp()
 	h.guardLogin(goodPassword)
 	var ow ipc.OpenWindowReply
 	h.ok(guardPeer(), "", ipc.CmdOpenWindow, ipc.OpenWindowRequest{Kind: ipc.WindowParent}, &ow)
@@ -541,7 +541,7 @@ func TestHandoverSessionEndsWithWindowAndTimeout(t *testing.T) {
 	open := func(t *testing.T) (*harness, ipc.Peer, string) {
 		h := newHarness(t, withChild(childSID, "Миша", 120), configured())
 		h.start()
-		h.childLogsIn()
+		h.childSessionUp()
 		h.guardLogin(goodPassword)
 		h.ok(guardPeer(), "", ipc.CmdOpenWindow, ipc.OpenWindowRequest{Kind: ipc.WindowParent}, nil)
 		w := h.launcher.launched(ProcWindow, childSession)[0]
@@ -571,7 +571,7 @@ func TestHandoverSessionEndsWithWindowAndTimeout(t *testing.T) {
 func TestParentWindowDeathEndsItsSession(t *testing.T) {
 	h := newHarness(t, withChild(childSID, "Миша", 120), configured())
 	h.start()
-	h.childLogsIn()
+	h.childSessionUp()
 	h.guardLogin(goodPassword)
 	h.ok(guardPeer(), "", ipc.CmdOpenWindow, ipc.OpenWindowRequest{Kind: ipc.WindowParent}, nil)
 	w := h.launcher.launched(ProcWindow, childSession)[0]
@@ -587,7 +587,7 @@ func TestParentWindowDeathEndsItsSession(t *testing.T) {
 func TestWindowKilledInChildSessionReopensAndJournaled(t *testing.T) {
 	h := newHarness(t, withChild(childSID, "Миша", 120))
 	h.start()
-	h.childLogsIn()
+	h.childSessionUp()
 	tray := h.trayPeer(childSession, childSID)
 	h.ok(tray, "", ipc.CmdOpenWindow, ipc.OpenWindowRequest{Kind: ipc.WindowMyStats}, nil)
 	h.launcher.kill(h.launcher.aliveOf(ProcWindow, childSession)[0])
@@ -606,7 +606,7 @@ func TestWindowKilledInChildSessionReopensAndJournaled(t *testing.T) {
 
 	h2 := newHarness(t, withChild(childSID, "Миша", 120))
 	h2.start()
-	h2.childLogsIn()
+	h2.childSessionUp()
 	tray = h2.trayPeer(childSession, childSID)
 	h2.ok(tray, "", ipc.CmdOpenWindow, ipc.OpenWindowRequest{Kind: ipc.WindowMyStats}, nil)
 	win := ipc.Peer{PID: h2.launcher.aliveOf(ProcWindow, childSession)[0].pid, SessionID: childSession, SID: childSID}
@@ -625,7 +625,7 @@ func TestWindowKilledInChildSessionReopensAndJournaled(t *testing.T) {
 func TestOpenWindowTwiceLaunchesOnce(t *testing.T) {
 	h := newHarness(t, withChild(childSID, "Миша", 120))
 	h.start()
-	h.childLogsIn()
+	h.childSessionUp()
 	tray := h.trayPeer(childSession, childSID)
 	for i := 0; i < 3; i++ {
 		var ow ipc.OpenWindowReply

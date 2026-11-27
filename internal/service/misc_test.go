@@ -198,7 +198,7 @@ func TestAuthReadErrorCountsAsConfigured(t *testing.T) {
 func TestGuardHandoverReplacesOpenWindow(t *testing.T) {
 	h := newHarness(t, withChild(childSID, "Миша", 120), configured())
 	h.start()
-	h.childLogsIn()
+	h.childSessionUp()
 	tray := h.trayPeer(childSession, childSID)
 	h.ok(tray, "", ipc.CmdOpenWindow, ipc.OpenWindowRequest{Kind: ipc.WindowParent}, nil)
 	first := h.launcher.aliveOf(ProcWindow, childSession)[0]

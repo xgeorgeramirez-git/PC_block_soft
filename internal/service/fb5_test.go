@@ -20,7 +20,7 @@ const parentSessionFB5 = 1
 func (h *harness) childAwayParentIn() {
 	h.t.Helper()
 	h.launcher.setSessions(SessionInfo{ID: childSession, User: `PC\Миша`, SID: childSID, Screen: ScreenOn})
-	h.svc.OnSession(SessionLogon, childSession, h.real.Now())
+	h.svc.Housekeep(h.real.Now()) // сеанс ребёнка без события входа: окна при входе нет (R-13), считаем только свои окна
 	h.hk(2)
 	h.svc.OnSession(SessionDisconnect, childSession, h.real.Now())
 	h.launcher.setSessions(

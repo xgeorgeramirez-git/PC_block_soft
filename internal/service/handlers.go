@@ -1198,6 +1198,7 @@ func (s *Service) hFirstRunSeen(c *callCtx) ipc.Reply {
 			s.logRate("firstrun", "отметка первого входа не записана: %v", err)
 			return ipc.Fail(textRetry)
 		}
+		s.logonStatsAfterFirstRun(c.peer, c.real) // окно первого входа открыто при входе: дальше статистика (FR-46)
 	}
 	return ipc.OK(ipc.Empty{})
 }
