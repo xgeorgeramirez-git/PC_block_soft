@@ -99,8 +99,9 @@ fun MainScreen(vm: AppViewModel) {
     var askUnpair by rememberSaveable { mutableStateOf(false) }
     var customFor by remember { mutableStateOf<Proto.Child?>(null) }
     val rep = vm.report
-    // Компьютер старше 0.8.4 (в отчёте нет bankMin): «Промокодов» и ждущих нет (протокол, раздел 6).
-    val showNew = rep == null || rep.hasBank
+    // Компьютер старше 0.8.4 (в отчёте нет bankMin) или отчёта ещё нет: «Промокодов» и ждущих нет
+    // (протокол, раздел 6) — иначе promoList ушёл бы старому компьютеру и вернул range.
+    val showNew = Proto.newPcTabs(rep)
     LaunchedEffect(showNew) {
         if (!showNew && vm.tab == Tab.PROMOS) vm.selectTab(Tab.KIDS)
     }

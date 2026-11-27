@@ -433,9 +433,12 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     // ---------- промокоды (протокол, раздел 5г) ----------
 
-    /** Запросить список (вкладка открыта, возврат в приложение). Компьютер не на связи — показываем кэш. */
+    /**
+     * Запросить список (вкладка открыта, возврат в приложение). Компьютер не на связи — показываем кэш.
+     * Отчёта ещё нет или компьютер старше 0.8.4 — не шлём (Proto.newPcTabs).
+     */
     fun loadPromos() {
-        if (!pcOnline || promoBusy != null) return
+        if (!pcOnline || promoBusy != null || !Proto.newPcTabs(report)) return
         runPromo(PromoAct.LIST, Proto.OP_PROMO_LIST) { pr, seq, ts -> Proto.promoListData(pr.pcId, pr.phoneId, seq, ts) }
     }
 

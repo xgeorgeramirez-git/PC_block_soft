@@ -54,6 +54,19 @@ class ReportCompatTest {
         assertFalse(old.hasBank)
     }
 
+    /**
+     * Ловит (ревью 0.8.4 M3): до первого отчёта (report == null) вкладка «Промокоды» была видна и слала
+     * promoList; компьютер 0.8.3 отвечал range — текст ошибки вместо «Обновите программу на компьютере».
+     * Вкладка и запрос списка — только когда отчёт пришёл и компьютер 0.8.4 и новее.
+     */
+    @Test
+    fun promosOnlyAfterNewReport() {
+        assertFalse(Proto.newPcTabs(null))
+        assertFalse(Proto.newPcTabs(Proto.openReport(peer, pcSigned(report("\"children\":[]")), 0)))
+        assertFalse(Proto.newPcTabs(Proto.openReport(peer, Vectors.signed("report"), lastShownTs = 0)))
+        assertTrue(Proto.newPcTabs(Proto.openReport(peer, pcSigned(report("\"children\":[],\"pending\":[],\"pendingCount\":0")), 0)))
+    }
+
     /** Один ребёнок без bankMin (смешанный отчёт) — считаем компьютер старым. */
     @Test
     fun mixedChildrenMeanOld() {
