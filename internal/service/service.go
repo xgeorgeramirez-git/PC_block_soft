@@ -858,10 +858,7 @@ func (s *Service) cardOf(cs *childState) ipc.TodayCard {
 	}
 	noForbidden := state.NoForbidden && state.Day == st.Day
 	presenceNow, presenceText := s.presenceCard(cs)
-	gamesS, videoS := state.GamesS, state.VideoS
-	if state.Day != st.Day && st.Day != "" {
-		gamesS, videoS = 0, 0
-	}
+	gamesS, videoS := s.dayGamesVideo(cs, st)
 	return ipc.TodayCard{
 		ChildID: cs.child.ID, SID: cs.child.SID, Name: cs.child.Name, Status: st,
 		ExtraMin: extra, BonusBalance: bonus, CanClearBlock: bypass != "",
@@ -873,6 +870,16 @@ func (s *Service) cardOf(cs *childState) ipc.TodayCard {
 		PendingPrograms: s.pendingCount(),
 		PresenceNow:     presenceNow, PresenceText: presenceText,
 	}
+}
+
+// dayGamesVideo — игры и видео за день ядра для карточки «Сегодня» и отчёта телефону (одна истина,
+// PL-83): состояние ядра другого дня (полночь, день ещё не сохранён) — 0.
+func (s *Service) dayGamesVideo(cs *childState, st ipc.ChildStatus) (gamesS, videoS int) {
+	state, _ := cs.eng.State()
+	if state.Day != st.Day && st.Day != "" {
+		return 0, 0
+	}
+	return state.GamesS, state.VideoS
 }
 
 // presenceCard — точка присутствия карточки (8.3.2): «За компьютером с 18:20» / «Не за компьютером

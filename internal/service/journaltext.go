@@ -2,6 +2,7 @@ package service
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"pcblock/internal/core"
@@ -243,6 +244,10 @@ func decidedText(d map[string]any) string {
 	subject := "«" + eventProgram(d) + "»"
 	if n := detInt(d, "count"); n > 1 || eventProgram(d) == "" {
 		subject = fmt.Sprintf("%d %s", n, programsWord(n))
+	}
+	if detStr(d, "source") == extraSourcePhone && strings.HasPrefix(subject, "«") {
+		// С телефона — всегда об одной программе: «Решение о «SuperGame» с телефона: игра» (FR-47, 5д).
+		return "решение о " + subject + " с телефона: " + categoryWord[cat]
 	}
 	if cat == programs.CatBlocked {
 		return "вы запретили " + subject

@@ -962,8 +962,10 @@ func (s *Service) recordClosed(cs *childState, a *watchAct, real time.Time) {
 			pendName = programName(p.Name, p.Path)
 		}
 		pend := PendingProgram{Path: a.e.key, Name: pendName, Publisher: a.publisher, Description: a.descr, WasCategory: a.res.WasCategory}
-		if _, err := s.cfg.Store.AddPendingAttempt(pend, cs.child.ID, real.UnixMilli()); err != nil {
+		if n, err := s.cfg.Store.AddPendingAttempt(pend, cs.child.ID, real.UnixMilli()); err != nil {
 			s.logRate("pending-add", "попытка запуска %s не записана в «Ждут решения»: %v", a.e.norm, err)
+		} else if n == 1 {
+			s.remoteChanged() // новая ждущая — телефону сразу (протокол, раздел 6)
 		}
 	case ipc.BlockedForbidden:
 		if a.e.quiet {

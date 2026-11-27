@@ -113,6 +113,7 @@ func (s *Service) hReduceBonus(c *callCtx) ipc.Reply {
 	s.journal.Write(cs.child.ID, evBonusReduce, map[string]any{
 		"minutes": take, "balance": after, "text": fmt.Sprintf("Копилка убавлена родителем на %d мин", take),
 	})
+	s.remoteChanged() // баланс копилки в отчёте телефону (FR-44)
 	return ipc.OK(ipc.BonusChangeReply{
 		BalanceAfter: after, Message: fmt.Sprintf("Убавлено %s. Баланс %d мин", minutesText(take), after),
 	})

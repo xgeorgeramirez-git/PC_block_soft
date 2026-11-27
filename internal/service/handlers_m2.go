@@ -178,6 +178,7 @@ func (s *Service) hUndoBonus(c *callCtx) ipc.Reply {
 	s.journal.Write(cs.child.ID, evBonusUndo, map[string]any{
 		"minutes": rec.minutes, "text": fmt.Sprintf("Начисление копилки отменено: -%d мин", rec.minutes),
 	})
+	s.remoteChanged() // баланс копилки в отчёте телефону (FR-44)
 	return ipc.OK(ipc.UndoBonusReply{BalanceAfter: bal, Message: "Начисление отменено"})
 }
 

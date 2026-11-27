@@ -5,7 +5,6 @@ import (
 	"crypto/ecdsa"
 	"crypto/rand"
 	"encoding/binary"
-	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -78,6 +77,19 @@ type Host interface {
 	// что ApplyCommand: gen не текущий — отказ; seq ≤ LastSeq — replay; иначе записать LastSeq = seq,
 	// затем поставить сообщение в очередь показа. code: "" | replay | no_child | stale | not_paired.
 	ApplyNote(gen int64, n Note) (code string, lastSeq int64)
+	// ApplyBank — копилка (раздел 5в) под одной блокировкой: gen → seq → запись LastSeq → общая
+	// функция окна. op — OpBankAdd (delta 1…600) или OpBankClear.
+	// code: "" | replay | no_child | range | stale | not_paired.
+	ApplyBank(gen, seq, childID int64, op string, delta int) (msg, code string, lastSeq int64)
+	// ApplyPromo — промокоды (раздел 5г): то же, затем список (PromoOutcome.List при "" и при
+	// promo_exists, not_found). code: "" | replay | range | stale | not_paired | promo_exists |
+	// promo_gen | not_found.
+	ApplyPromo(gen int64, c Command) PromoOutcome
+	// ApplyDecide — решение о программе с ключом key (раздел 5д), cat — Cat*.
+	// code: "" | replay | range | stale | not_paired | not_found.
+	ApplyDecide(gen, seq int64, key, cat string) (msg, code string, lastSeq int64)
+	// Pending — ждущие решения для отчёта: по убыванию lastMs, не больше MaxPending, и сколько всего.
+	Pending() (rows []PendingReport, total int)
 	// Children — строки детей для отчёта; withToday — со «Статистикой за сегодня» (только отчёт
 	// pc/report, раздел 6; в ответе на команду и сообщение её нет).
 	Children(withToday bool) []ChildReport
@@ -85,6 +97,15 @@ type Host interface {
 	Notes() []NoteReport
 	Event(kind, detail string)
 	Logf(format string, args ...any)
+}
+
+// PromoOutcome — итог команды промокодов (раздел 5г): сообщение, код отказа, последний номер,
+// список для ответа (при "" и при promo_exists, not_found) и новые коды promoGen.
+type PromoOutcome struct {
+	Msg, Code string
+	LastSeq   int64
+	List      *PromoList
+	Codes     []string
 }
 
 // Config — настройки связи. Нулевые поля — значения по умолчанию.
@@ -1020,16 +1041,26 @@ func (w *worker) onCmd(m Msg, v any, perr error) {
 	if perr == nil {
 		cmd, _, code = CheckCommand(st, s, m.From, now)
 	}
-	lastSeq := st.LastSeq
-	var msg string
-	switch {
-	case code != "":
-	case cmd.Op == OpNoForbidden:
-		msg, code, lastSeq = w.h.ApplyNoForbidden(w.r.gen, cmd.Seq, cmd.Child)
-	default:
-		msg, code, lastSeq = w.h.ApplyCommand(w.r.gen, cmd.Seq, cmd.Child, cmd.Delta)
+	a := answer{kind: KindCmdR, typ: TypeCmdR, seq: cmd.Seq, code: code, lastSeq: st.LastSeq}
+	if code == "" {
+		switch cmd.Op {
+		case OpNoForbidden:
+			a.msg, a.code, a.lastSeq = w.h.ApplyNoForbidden(w.r.gen, cmd.Seq, cmd.Child)
+		case OpBankAdd, OpBankClear:
+			a.msg, a.code, a.lastSeq = w.h.ApplyBank(w.r.gen, cmd.Seq, cmd.Child, cmd.Op, cmd.Delta)
+		case OpPromoList, OpPromoCreate, OpPromoGen, OpPromoDelete:
+			out := w.h.ApplyPromo(w.r.gen, cmd)
+			a.msg, a.code, a.lastSeq, a.codes, a.promo = out.Msg, out.Code, out.LastSeq, out.Codes, true
+			if out.List != nil && (out.Code == "" || out.Code == ErrCodePromoExists || out.Code == ErrCodeNotFound) {
+				a.promos = out.List
+			}
+		case OpDecide:
+			a.msg, a.code, a.lastSeq = w.h.ApplyDecide(w.r.gen, cmd.Seq, cmd.Key, cmd.Cat)
+		default:
+			a.msg, a.code, a.lastSeq = w.h.ApplyCommand(w.r.gen, cmd.Seq, cmd.Child, cmd.Delta)
+		}
 	}
-	w.reply(m, st, s, now, answer{kind: KindCmdR, typ: TypeCmdR, seq: cmd.Seq, code: code, msg: msg, lastSeq: lastSeq})
+	w.reply(m, st, s, now, a)
 }
 
 // onNote — сообщение ребёнку (раздел 5а): проверка как у команды, затем Host.ApplyNote; ответ noter.
@@ -1055,17 +1086,23 @@ func (w *worker) onNote(m Msg, v any, perr error) {
 	w.reply(m, st, s, now, answer{kind: KindNoteR, typ: TypeNoteR, seq: note.Seq, code: code, lastSeq: lastSeq})
 }
 
-// answer — что сказать телефону на команду или сообщение.
+// answer — что сказать телефону на команду или сообщение. promo — команда промокодов: ответ без
+// report, со списком promos (при ok и при promo_exists, not_found) и новыми кодами codes.
 type answer struct {
 	kind, typ string
 	seq       int64
 	code      string
 	msg       string
 	lastSeq   int64
+	promo     bool
+	promos    *PromoList
+	codes     []string
 }
 
 // reply подписывает и отправляет ответ cmdr или noter: cmd — хэш подписанных данных телефона;
-// удачный — с отчётом, отказ — с lastSeq (в журнал работы без подробностей).
+// удачный — с отчётом (у промокодов — со списком), отказ — с lastSeq (в журнал работы без
+// подробностей; promo_exists и not_found — ещё и со списком). Тело ответа ≤ MaxReportBody: данные
+// урезает fitReply по закодированному телу запроса (PL-84).
 func (w *worker) reply(m Msg, st State, s Signed, now time.Time, a answer) {
 	if w.stopped() {
 		return // старое поколение: не отвечаем
@@ -1077,16 +1114,20 @@ func (w *worker) reply(m Msg, st State, s Signed, now time.Time, a answer) {
 	res := CmdResult{V: ProtoVersion, T: a.typ, PC: st.PCID, Phone: m.From, Seq: a.seq, Cmd: hash, TS: now.UnixMilli(), OK: a.code == ""}
 	if res.OK {
 		res.Message = a.msg
-		if rep, ok := w.buildReport(false); ok {
-			res.Report = &rep
+		if !a.promo {
+			if rep, ok := w.buildReport(false); ok {
+				res.Report = &rep
+			}
 		}
+		res.Codes = a.codes
 		w.reportDue = true
 	} else {
 		res.Error = a.code
 		res.LastSeq = &a.lastSeq
 		w.l.logRate(a.kind+"-"+a.code, "связь с телефоном: %s (%s)", rejected(a.kind), a.code)
 	}
-	raw, err := json.Marshal(res)
+	res.Promos = a.promos
+	raw, err := fitReply(res, a.kind, m.ID, m.From, MaxReportBody)
 	if err != nil {
 		return
 	}
@@ -1126,7 +1167,12 @@ func (w *worker) buildReport(withToday bool) (Report, bool) {
 	if ch == nil {
 		ch = []ChildReport{}
 	}
-	return Report{V: ProtoVersion, T: TypeReport, PC: st.PCID, Phone: st.Phone.ID, TS: w.now().UnixMilli(), Children: ch, Notes: w.h.Notes()}, true
+	pend, total := w.h.Pending()
+	if pend == nil {
+		pend = []PendingReport{}
+	}
+	return Report{V: ProtoVersion, T: TypeReport, PC: st.PCID, Phone: st.Phone.ID, TS: w.now().UnixMilli(), Children: ch, Notes: w.h.Notes(),
+		Pending: pend, PendingCount: total}, true
 }
 
 func (w *worker) sendReport() {

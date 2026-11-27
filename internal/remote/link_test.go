@@ -68,6 +68,7 @@ type fakeHost struct {
 	logs       []string
 	children   []ChildReport
 	notes      []NoteReport
+	pending    []PendingReport
 	onApply    func()
 	beforeLock func() // ApplyCommand до блокировки
 	forceStale atomic.Bool
@@ -173,6 +174,82 @@ func (h *fakeHost) ApplyNote(gen int64, n Note) (string, int64) {
 	h.applied = append(h.applied, fmt.Sprintf("%d:note:%s:%s:%d:%s:%d", n.Seq, n.ID, n.Text, n.ShowSec, n.Sticker, n.Sound))
 	h.notes = append(h.notes, NoteReport{ID: n.ID, Child: n.Child, State: NoteQueued, AtMs: 1})
 	return "", n.Seq
+}
+
+// takeSeq — общая часть новых команд фейка: поколение, номер, запись номера до эффекта.
+func (h *fakeHost) takeSeq(gen, seq int64) (string, int64) {
+	if gen != h.link.Gen() {
+		return ErrCodeStale, h.st.LastSeq
+	}
+	if seq <= h.st.LastSeq {
+		return ErrCodeReplay, h.st.LastSeq
+	}
+	h.st.LastSeq = seq
+	return "", seq
+}
+
+func (h *fakeHost) ApplyBank(gen, seq, childID int64, op string, delta int) (string, string, int64) {
+	h.applyEnter.Add(1)
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if code, last := h.takeSeq(gen, seq); code != "" {
+		return "", code, last
+	}
+	if childID != 3 {
+		return "", ErrCodeNoChild, seq
+	}
+	h.applied = append(h.applied, fmt.Sprintf("%d:%s:%d", seq, op, delta))
+	if op == OpBankClear {
+		h.children[0].BankMin = 0
+		return "Копилка обнулена", "", seq
+	}
+	h.children[0].BankMin += delta
+	return fmt.Sprintf("Положено %d минут. В копилке %d мин", delta, h.children[0].BankMin), "", seq
+}
+
+func (h *fakeHost) ApplyPromo(gen int64, c Command) PromoOutcome {
+	h.applyEnter.Add(1)
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if code, last := h.takeSeq(gen, c.Seq); code != "" {
+		return PromoOutcome{Code: code, LastSeq: last}
+	}
+	h.applied = append(h.applied, fmt.Sprintf("%d:%s:%s:%d:%d:%d:%s", c.Seq, c.Op, c.Code, c.Min, c.Count, c.Len, c.Charset))
+	list := &PromoList{Active: []PromoActive{{Code: "SUMMER", Min: 30, CreatedMs: 1}}, Used: []PromoUsed{}}
+	switch {
+	case c.Op == OpPromoCreate && c.Code == "TAKEN":
+		return PromoOutcome{Code: ErrCodePromoExists, LastSeq: c.Seq, List: list}
+	case c.Op == OpPromoDelete && c.Code == "GONE":
+		return PromoOutcome{Code: ErrCodeNotFound, LastSeq: c.Seq, List: list}
+	case c.Op == OpPromoGen && c.Count == 50:
+		return PromoOutcome{Code: ErrCodePromoGen, LastSeq: c.Seq, List: list} // список при promo_gen не уходит
+	case c.Op == OpPromoGen:
+		return PromoOutcome{Msg: "Готово", LastSeq: c.Seq, List: list, Codes: []string{"K7PX", "M3QA"}}
+	}
+	return PromoOutcome{Msg: "ok " + c.Op, LastSeq: c.Seq, List: list}
+}
+
+func (h *fakeHost) ApplyDecide(gen, seq int64, key, cat string) (string, string, int64) {
+	h.applyEnter.Add(1)
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if code, last := h.takeSeq(gen, seq); code != "" {
+		return "", code, last
+	}
+	h.applied = append(h.applied, fmt.Sprintf("%d:decide:%s:%s", seq, key, cat))
+	for i, p := range h.pending {
+		if p.ID == key {
+			h.pending = append(h.pending[:i], h.pending[i+1:]...)
+			return p.Name + ": игра", "", seq
+		}
+	}
+	return "", ErrCodeNotFound, seq
+}
+
+func (h *fakeHost) Pending() ([]PendingReport, int) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return append([]PendingReport(nil), h.pending...), len(h.pending)
 }
 
 func (h *fakeHost) Notes() []NoteReport {
@@ -1358,5 +1435,166 @@ func TestLinkNoForbidden(t *testing.T) {
 	// отсекает проверка).
 	if n := g.h.applyEnter.Load(); n != 4 {
 		t.Fatalf("Host вызван %d раз", n)
+	}
+}
+
+// cmdReply — подписать data ключом key, отправить как cmd и вернуть проверенный подписью
+// компьютера ответ и тело ответа (сырые байты data).
+func (g *rig) cmdReply(key *ecdsa.PrivateKey, pcKey *ecdsa.PrivateKey, raw []byte) (CmdResult, []byte) {
+	g.t.Helper()
+	s, _ := Sign(key, raw)
+	rep, ok := g.r.sendFrom("ph1", KindCmd, s, 2*time.Second)
+	if !ok || rep.Kind != KindCmdR {
+		g.t.Fatalf("нет ответа cmdr на %s", raw)
+	}
+	var sr Signed
+	json.Unmarshal(rep.Body, &sr)
+	data, err := Verify(&pcKey.PublicKey, sr)
+	if err != nil {
+		g.t.Fatal("ответ без подписи компьютера")
+	}
+	var res CmdResult
+	if err := json.Unmarshal(data, &res); err != nil || res.Cmd != HashData(raw) {
+		g.t.Fatalf("ответ не на эту команду: %s", data)
+	}
+	return res, data
+}
+
+// cmdData — data команды ph1 к pc-x: заголовок и поля fields как есть.
+func cmdData(seq, ts, child int64, fields string) []byte {
+	return []byte(fmt.Sprintf(`{"v":1,"t":"cmd","pc":"pc-x","phone":"ph1","seq":%d,"ts":%d,"child":%d,%s}`, seq, ts, child, fields))
+}
+
+// Ловит: новый op уходит в ApplyCommand (доп. время) или в чужой метод Host; метод зовётся дважды;
+// неверный вид поля доходит до Host (номер тратится); разобранные поля не доходят до Host.
+func TestOnCmdRoutesOps(t *testing.T) {
+	phone := mustKey(t)
+	var pcKey *ecdsa.PrivateKey
+	g := newRig(t, func(g *rig) {
+		g.h.st, pcKey = pairedState(t, g.r, phone, 0)
+		g.h.pending = []PendingReport{{ID: PendingKey("p"), Name: "SuperGame", Kids: []PendingKid{}}}
+	})
+	g.start()
+	now := g.clock.Ms()
+	key := PendingKey("p")
+	steps := []struct {
+		child  int64
+		fields string
+		code   string
+	}{
+		{3, `"op":"bankAdd","delta":30`, ""},
+		{3, `"op":"bankClear"`, ""},
+		{0, `"op":"promoList"`, ""},
+		{0, `"op":"promoCreate","code":" summer ","min":30`, ""},
+		{0, `"op":"promoGen","min":15,"count":5,"len":6,"charset":"mixed"`, ""},
+		{0, `"op":"promoDelete","code":"SUMMER"`, ""},
+		{0, `"op":"decide","key":"` + key + `","cat":"games"`, ""},
+		{0, `"op":"promoCreate","code":"SUMMER","min":"30"`, ErrCodeRange},
+		{3, `"op":"bankAdd","delta":601`, ErrCodeRange},
+		{0, `"op":"decide","key":"abc","cat":"games"`, ErrCodeRange},
+		{3, `"delta":15`, ""},
+	}
+	seq := int64(0)
+	for _, st := range steps {
+		seq++
+		res, _ := g.cmdReply(phone, pcKey, cmdData(seq, now, st.child, st.fields))
+		if res.Error != st.code || res.OK != (st.code == "") {
+			t.Fatalf("%s: %+v, нужно %q", st.fields, res, st.code)
+		}
+		if st.code != "" {
+			seq-- // номер не потрачен: следующая команда идёт с тем же
+		}
+	}
+	want := []string{
+		"1:bankAdd:30", "2:bankClear:0", "3:promoList::0:0:0:", "4:promoCreate:SUMMER:30:0:0:",
+		"5:promoGen::15:5:6:mixed", "6:promoDelete:SUMMER:0:0:0:", "7:decide:" + key + ":games", "8:+15",
+	}
+	if _, applied, _, _ := g.h.get(); strings.Join(applied, " ") != strings.Join(want, " ") {
+		t.Fatalf("применены:\n%v\nнужно\n%v", applied, want)
+	}
+	if n := g.h.applyEnter.Load(); n != 8 {
+		t.Fatalf("Host вызван %d раз, нужно 8", n)
+	}
+}
+
+// Ловит: ответ на promo* несёт отчёт о детях (лишний размер, раздел 5г) или не несёт списка;
+// promo_exists и not_found без списка; promo_gen со списком; коды promoGen потеряны; отказ без lastSeq.
+func TestReplyPromosInsteadOfReport(t *testing.T) {
+	phone := mustKey(t)
+	var pcKey *ecdsa.PrivateKey
+	g := newRig(t, func(g *rig) { g.h.st, pcKey = pairedState(t, g.r, phone, 0) })
+	g.start()
+	now := g.clock.Ms()
+	cases := []struct {
+		fields    string
+		code      string
+		withList  bool
+		withCodes bool
+	}{
+		{`"op":"promoList"`, "", true, false},
+		{`"op":"promoGen","min":15,"count":5,"len":6,"charset":"mixed"`, "", true, true},
+		{`"op":"promoCreate","code":"TAKEN","min":30`, ErrCodePromoExists, true, false},
+		{`"op":"promoDelete","code":"GONE"`, ErrCodeNotFound, true, false},
+		{`"op":"promoGen","min":15,"count":50,"len":4,"charset":"digits"`, ErrCodePromoGen, false, false},
+	}
+	for i, c := range cases {
+		seq := int64(i + 1)
+		res, data := g.cmdReply(phone, pcKey, cmdData(seq, now, 0, c.fields))
+		if res.Error != c.code || res.Report != nil || bytes.Contains(data, []byte(`"report"`)) {
+			t.Fatalf("%s: %s", c.fields, data)
+		}
+		if (res.Promos != nil) != c.withList || (len(res.Codes) == 2) != c.withCodes {
+			t.Fatalf("%s: список %v, коды %v: %s", c.fields, res.Promos != nil, res.Codes, data)
+		}
+		if c.withList && (res.Promos.Active[0].Code != "SUMMER" || !bytes.Contains(data, []byte(`"used":[]`))) {
+			t.Fatalf("%s: список %s", c.fields, data)
+		}
+		if c.code != "" && (res.LastSeq == nil || *res.LastSeq != seq) {
+			t.Fatalf("%s: lastSeq %v", c.fields, res.LastSeq)
+		}
+		if c.code == "" && res.Message == "" {
+			t.Fatalf("%s: без сообщения", c.fields)
+		}
+	}
+}
+
+// Ловит: отчёт pc/report и отчёт в ответе на bankAdd без pending, pendingCount и bankMin (телефон
+// 0.8.4 решил бы, что компьютер старый, и спрятал копилку); pending null.
+func TestReportHasPendingAndBank(t *testing.T) {
+	phone := mustKey(t)
+	var pcKey *ecdsa.PrivateKey
+	g := newRig(t, func(g *rig) {
+		g.h.st, pcKey = pairedState(t, g.r, phone, 0)
+		g.h.children[0].BankMin = 45
+		g.h.pending = []PendingReport{{ID: PendingKey("p"), Name: "SuperGame", Path: `C:\p.exe`, Kids: []PendingKid{{ID: 3, Tries: 2}}, Tries: 2, LastMs: 5}}
+	})
+	g.start()
+	res, data := g.cmdReply(phone, pcKey, cmdData(1, g.clock.Ms(), 3, `"op":"bankAdd","delta":30`))
+	if !res.OK || res.Message != "Положено 30 минут. В копилке 75 мин" || res.Report == nil {
+		t.Fatalf("ответ: %s", data)
+	}
+	r := res.Report
+	if r.Children[0].BankMin != 75 || len(r.Pending) != 1 || r.PendingCount != 1 || r.Pending[0].Name != "SuperGame" || r.Children[0].Today != nil {
+		t.Fatalf("отчёт в ответе: %s", data)
+	}
+	var raw []byte
+	waitFor(t, "отчёт pc/report после команды", func() bool {
+		_, _, _, reps := g.r.snapshot()
+		if len(reps) == 0 {
+			return false
+		}
+		raw, _ = Verify(&pcKey.PublicKey, reps[len(reps)-1])
+		return bytes.Contains(raw, []byte(`"bankMin":75`))
+	})
+	if !bytes.Contains(raw, []byte(`"bankMin":75`)) || !bytes.Contains(raw, []byte(`"pendingCount":1`)) || !bytes.Contains(raw, []byte(`"kids":[{"id":3,"tries":2}]`)) {
+		t.Fatalf("pc/report: %s", raw)
+	}
+	// Ждущих нет — pending [], не null.
+	g.h.mu.Lock()
+	g.h.pending = nil
+	g.h.mu.Unlock()
+	_, data = g.cmdReply(phone, pcKey, cmdData(2, g.clock.Ms(), 3, `"op":"bankClear"`))
+	if !bytes.Contains(data, []byte(`"pending":[],"pendingCount":0`)) {
+		t.Fatalf("пустой pending: %s", data)
 	}
 }
