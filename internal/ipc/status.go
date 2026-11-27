@@ -71,6 +71,8 @@ func ChildStatusFrom(name string, d core.Decision) ChildStatus {
 		PauseUntil: d.PauseUntil,
 		Used:       d.Used,
 
+		ForbidState: ForbidStateNone,
+
 		GamesRemainingS: d.GamesRemainingS,
 		GamesLimitS:     d.GamesLimitS,
 		GamesUnlimited:  d.GamesUnlimited,
@@ -179,13 +181,15 @@ func ChildStatusAdmin(name string) ChildStatus {
 	return ChildStatus{
 		Name: name, Status: StatusAdmin, StatusText: statusWords[StatusAdmin], Lock: LockNone,
 		Tooltip: textAdmin, Summary: textAdmin, Unlimited: true, GamesUnlimited: true, VideoUnlimited: true, EndMode: EndModeLock,
+		ForbidState: ForbidStateNone,
 	}
 }
 
 // ChildStatusNotChild — ответ GetChildStatus из сеанса, где работает не ребёнок: значку
 // нечего показывать, кроме пункта «Настройки для родителя».
 func ChildStatusNotChild() ChildStatus {
-	return ChildStatus{Status: StatusNotChild, Lock: LockNone, Unlimited: true, GamesUnlimited: true, VideoUnlimited: true, EndMode: EndModeLock}
+	return ChildStatus{Status: StatusNotChild, Lock: LockNone, Unlimited: true, GamesUnlimited: true, VideoUnlimited: true, EndMode: EndModeLock,
+		ForbidState: ForbidStateNone}
 }
 
 func lockName(k core.LockKind) string {

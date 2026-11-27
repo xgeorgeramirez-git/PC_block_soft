@@ -194,3 +194,16 @@ func TestGuardWarningTexts(t *testing.T) {
 		t.Errorf("нестандартный порог: %+v", w)
 	}
 }
+
+func TestChildStatusForbidStateDefaultsToNone(t *testing.T) {
+	// Запретные часы сегодня заполняет служба (forbidSpan); без неё поле «none», а не пустое (8.3.2).
+	for name, s := range map[string]ChildStatus{
+		"решение ядра":  ChildStatusFrom("Миша", core.Decision{Status: core.StatusOK, RemainingS: 60, LimitS: 120}),
+		"администратор": ChildStatusAdmin("Оля"),
+		"не ребёнок":    ChildStatusNotChild(),
+	} {
+		if s.ForbidState != "none" || s.ForbidFrom != "" || s.ForbidTo != "" {
+			t.Errorf("%s: запрет %q %q–%q, ждали none без интервала", name, s.ForbidState, s.ForbidFrom, s.ForbidTo)
+		}
+	}
+}

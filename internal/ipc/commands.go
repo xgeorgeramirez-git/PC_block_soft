@@ -263,7 +263,21 @@ type ChildStatus struct {
 	RestUntilMs int64  `json:"restUntilMs"` // UTC мс; 0 — перерыва нет
 	RestLeftS   int    `json:"restLeftS"`   // секунды до конца перерыва по часам службы (таймер стража)
 	RestMessage string `json:"restMessage"` // сообщение на экране перерыва (FR-37); «» — перерыва нет
+
+	// Запретные часы сегодня (8.3.2, B-79): одна истина службы (forbidSpan) для карточки окна,
+	// окна ребёнка и отчёта телефону. Строки ForbidState* — те же, что remote.Forbid*.
+	ForbidState string `json:"forbidState"` // ForbidState*: "none" | "ahead" | "active" | "cleared"
+	ForbidFrom  string `json:"forbidFrom"`  // «21:00» — начало интервала (ahead, active); «» при none и cleared
+	ForbidTo    string `json:"forbidTo"`    // «07:00» — его конец (ahead, active); «» при none и cleared
 }
+
+// Запретные часы сегодня (ChildStatus.ForbidState) — те же строки, что remote.Forbid*.
+const (
+	ForbidStateNone    = "none"    // сегодня запретных часов нет (и у администратора, R18)
+	ForbidStateAhead   = "ahead"   // будут сегодня: ближайший интервал, начинающийся до местной полуночи
+	ForbidStateActive  = "active"  // идут сейчас
+	ForbidStateCleared = "cleared" // сняты на сегодня (R24)
+)
 
 // --- Мастер и администратор --------------------------------------------------
 
@@ -378,6 +392,8 @@ type TodayCard struct {
 	GamesText        string      `json:"gamesText"`        // «Игры 40 мин из 1 ч» (8.3.2 п.3); «» — отдельного лимита игр нет
 	PendingPrograms  int         `json:"pendingPrograms"`  // сколько программ ждут решения: ссылка «Ждут решения: N» (8.3.2 п.5)
 	VideoText        string      `json:"videoText"`        // «Видео 10 мин из 20 мин» (M4, R6); «» — отдельного лимита видео нет
+	PresenceNow      bool        `json:"presenceNow"`      // ребёнок сейчас за компьютером (точка зелёная), 8.3.2
+	PresenceText     string      `json:"presenceText"`     // «За компьютером с 18:20» / «Не за компьютером с 17:05»; «» — неизвестно
 }
 
 // GetTodayReply — ответ GetToday. Notices — важные сообщения при входе, например
@@ -385,6 +401,10 @@ type TodayCard struct {
 type GetTodayReply struct {
 	Children []TodayCard `json:"children"`
 	Notices  []string    `json:"notices"`
+	// PendingNames — до 3 названий программ, ждущих решения, новые первыми (8.3.2 п. 3); пусто — [].
+	// PendingTotal — всего программ ждут решения.
+	PendingNames []string `json:"pendingNames"`
+	PendingTotal int      `json:"pendingTotal"`
 }
 
 // ChildRequest — запрос про одного ребёнка (GetChildRules, ClearBlock).
@@ -637,6 +657,8 @@ type MyTodayReply struct {
 	// первый день учёта, иначе сегодня. StatsSinceText — «Статистика ведётся с 11 ноября 2026».
 	StatsSinceDay  string `json:"statsSinceDay"`
 	StatsSinceText string `json:"statsSinceText"`
+	// ViolationsToday — нарушений сегодня: блок «Сегодня» окна ребёнка не зависит от периода «Итогов».
+	ViolationsToday int `json:"violationsToday"`
 }
 
 // Разбивка столбиков «По дням» (RM5-2).
