@@ -94,6 +94,21 @@ describe("Копилка: обнулить и убавить (D-46)", () => {
     await vi.waitFor(() => expect(balanceOf(card)).toBe("Баланс: 0 мин"));
   });
 
+  // Ловит: «Убавить своё» обрезано прежним потолком 600 (D-113: предела баланса нет).
+  it("при балансе 1200 своё число 1000 принимается", async () => {
+    const user = setup({ children: [mockChild({ bonusBalance: 1200 })] });
+    const card = await misha();
+    await user.click(within(card).getByRole("button", { name: "Убавить" }));
+    const dialog = screen.getByRole("dialog", { name: "Убавить копилку?" });
+    await user.click(within(dialog).getByRole("radio", { name: "Своё" }));
+    const own = within(dialog).getByLabelText("Сколько минут убавить");
+    await user.clear(own);
+    await user.type(own, "1000");
+    await user.click(within(dialog).getByRole("button", { name: "Убавить на 1000 мин" }));
+    expect(mock.calls.find((c) => c.command === "ReduceBonus")?.payload).toEqual({ childId: 1, minutes: 1000 });
+    await vi.waitFor(() => expect(balanceOf(card)).toBe("Баланс: 3 ч 20 мин"));
+  });
+
   it("пустая копилка: кнопки недоступны с пояснением", async () => {
     setup({ children: [mockChild({ bonusBalance: 0 })] });
     const card = await misha();

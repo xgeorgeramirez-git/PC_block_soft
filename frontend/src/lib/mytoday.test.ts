@@ -77,6 +77,7 @@ function reply(over: Partial<ChildStatus> = {}, today: string[] = []): MyTodayRe
     bonus: [],
     statsSinceDay: "",
     statsSinceText: "",
+    violationsToday: 0,
   };
 }
 

@@ -317,9 +317,10 @@ function ConfirmDialog({ confirm, onCancel, onApply }: { confirm: Confirm; onCan
             autoComplete="off"
             spellCheck={false}
             pattern="[0-9]*"
-            maxLength={3}
+            maxLength={5}
             value={own}
-            onChange={(e) => setOwn(clampDigits(e.target.value, 600))}
+            // Предела баланса нет (D-113): убавить можно сколько угодно, ниже нуля служба не опустит.
+            onChange={(e) => setOwn(clampDigits(e.target.value, 99999))}
           />
         </label>
       ) : null}

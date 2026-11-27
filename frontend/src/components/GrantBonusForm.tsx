@@ -2,7 +2,7 @@ import { useState } from "react";
 
 interface Props {
   disabled?: boolean;
-  /** Ошибка от службы у поля минут (например «Можно начислить не больше N мин»). */
+  /** Ошибка от службы у поля минут (например «Можно начислить от 1 до 600 минут»). */
   minutesError?: string;
   onGrant: (minutes: number, reason: string) => void;
 }

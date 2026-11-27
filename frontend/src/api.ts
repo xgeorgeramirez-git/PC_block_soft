@@ -219,7 +219,14 @@ export async function logout(): Promise<void> {
 
 export async function getToday(): Promise<GetTodayReply> {
   const r = await call<object, Partial<GetTodayReply>>("GetToday");
-  return { children: r.children ?? [], notices: r.notices ?? [] };
+  // Старая служба без полей 0.8.4: запретных часов «нет», присутствие неизвестно, ждущих нет.
+  const children = (r.children ?? []).map((c) => ({
+    ...c,
+    presenceNow: c.presenceNow ?? false,
+    presenceText: c.presenceText ?? "",
+    status: { ...c.status, forbidState: c.status?.forbidState ?? "none", forbidFrom: c.status?.forbidFrom ?? "", forbidTo: c.status?.forbidTo ?? "" },
+  }));
+  return { children, notices: r.notices ?? [], pendingNames: r.pendingNames ?? [], pendingTotal: r.pendingTotal ?? 0 };
 }
 
 export async function getChildRules(childId: number): Promise<ChildRules> {
@@ -347,6 +354,7 @@ function myTodayOf(r: Partial<MyTodayReply>): MyTodayReply {
     bonus: r.bonus ?? [],
     statsSinceDay: r.statsSinceDay ?? "",
     statsSinceText: r.statsSinceText ?? "",
+    violationsToday: r.violationsToday ?? 0,
   };
 }
 
