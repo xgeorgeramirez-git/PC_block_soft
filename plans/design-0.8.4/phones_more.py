@@ -52,5 +52,6 @@ note = frame('Сообщение', head('Сообщение для Миши') + 
   {bigbtn('Отправить')}
 ''') + card(f'<div style="font-weight: 600; font-size: 15px">Последние сообщения</div><div style="display: flex; flex-direction: column; margin-bottom: -12px">{mrows}</div>') + nav('Дети'), h=900)
 
-for name,title,html in [('PhonePiggy','Телефон: копилка',piggy),('PhonePromos','Телефон: промокоды',promos),('PhoneNote','Телефон: сообщение',note)]:
+if __name__=="__main__":
+  for name,title,html in [('PhonePiggy','Телефон: копилка',piggy),('PhonePromos','Телефон: промокоды',promos),('PhoneNote','Телефон: сообщение',note)]:
     open(f'../project/{name}.dc.html','w',encoding='utf-8').write(page(title,390,900 if name=='PhoneNote' else 844,html))

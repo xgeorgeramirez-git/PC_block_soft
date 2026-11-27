@@ -19,6 +19,7 @@ body=f'''<div style="width: 390px; height: 844px; box-sizing: border-box; paddin
     <div style="display: flex; gap: 14px; font-weight: 500; font-size: 13px; color: {MUTED}; {NUM}"><span>Игры 40 из 60 мин</span><span>Видео 10 из 30 мин</span></div>
     <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px">{chip('+15','plus')}{chip('+30','plus')}{chip('+60','plus')}{chip('Своё','plain')}</div>
     <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px">{chip('−15','minus')}{chip('−30','minus')}{chip('−60','minus')}{chip(coin(18)+' В копилку','gold',40,'padding: 0 6px; display: flex; align-items: center; justify-content: center; gap: 4px; font-size: 13px')}</div>
+    <a href="#" style="min-height: 52px; display: flex; align-items: center; gap: 10px; padding: 0 12px; border-radius: 12px; background: #FFF6E0; border: 1px solid #F3D99A; color: #5A3B00; text-decoration: none">{ic('grid',22,'#8A5A00')}<span style="flex-grow: 1; font-weight: 700; font-size: 15px">1 игра ждёт решения</span>{ic('chev',18,'#8A5A00')}</a>
     <div style="display: flex; flex-direction: column">
       {row('msg','Написать сообщение')}
       {row('chart','Статистика за сегодня')}
