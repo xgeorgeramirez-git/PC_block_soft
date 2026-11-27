@@ -684,6 +684,8 @@ function cardOf(child: MockChild, nowMs: number, pendingPrograms = 0): TodayCard
     videoText: videoTextOf(child, nowMs),
     presenceNow: Boolean(child.presenceNow),
     presenceText: child.presenceText ?? "",
+    gamesUsedS: child.gamesUsedS ?? 0,
+    videoUsedS: child.videoUsedS ?? 0,
   };
 }
 

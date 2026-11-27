@@ -58,7 +58,7 @@ describe("Today: карточка ребёнка", () => {
     expect(within(misha).queryByRole("button", { name: "Снять блокировку" })).toBeNull();
   });
 
-  // ТЗ 8.3.2 п.3: строка игр под остатком, посчитана из остатка и лимита игр.
+  // ТЗ 8.3.2 п.3: строка игр под остатком — потраченное из карточки службы и лимит игр.
   it("«Игры 40 из 60 мин» под остатком", async () => {
     setup({ children: [mockChild({ gamesUsedS: 2400 })] });
     const misha = await screen.findByRole("article", { name: "Миша" });
@@ -607,13 +607,23 @@ describe("Today: взрослый вид карточки (8.3.2 п. 3, D-109)",
     expect(num?.className).toContain("remain-green");
   });
 
-  // Ловит: строки игр и видео не посчитаны из остатка и лимита (8.3.2 п. 3).
+  // Ловит: строки игр и видео не посчитаны из потраченного и лимита (8.3.2 п. 3).
   it("«Игры 40 из 60 мин» и «Видео и соцсети 10 из 30 мин» из статуса", async () => {
     const limits = twoHours.map((l) => ({ ...l, gamesMin: 60, gamesUnlimited: false, videoMin: 30, videoUnlimited: false }));
     setup({ children: [mockChild({ limits, usedS: 2100, gamesUsedS: 2400, videoUsedS: 600 })] });
     const misha = await screen.findByRole("article", { name: "Миша" });
     expect(within(misha).getByText("Игры 40 из 60 мин")).toBeTruthy();
     expect(within(misha).getByText("Видео и соцсети 10 из 30 мин")).toBeTruthy();
+  });
+
+  // Ловит (ревью 0.8.4 M2, класс A): лимит игр уменьшили ниже сыгранного — окно писало «Игры 60 из
+  // 60 мин» (лимит − остаток), телефон из того же отчёта — «Игры 70 из 60 мин». Число одно.
+  it("сыграно больше лимита: «Игры 70 из 60 мин», как на телефоне", async () => {
+    const limits = twoHours.map((l) => ({ ...l, gamesMin: 60, gamesUnlimited: false, videoMin: 30, videoUnlimited: false }));
+    setup({ children: [mockChild({ limits, usedS: 4200, gamesUsedS: 4200, videoUsedS: 2700 })] });
+    const misha = await screen.findByRole("article", { name: "Миша" });
+    expect(within(misha).getByText("Игры 70 из 60 мин")).toBeTruthy();
+    expect(within(misha).getByText("Видео и соцсети 45 из 30 мин")).toBeTruthy();
   });
 
   it("присутствие: зелёная точка и «За компьютером с 18:20»", async () => {

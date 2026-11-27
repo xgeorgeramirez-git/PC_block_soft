@@ -424,8 +424,9 @@ function ChildCard({
   const showStatusChip = presence !== "" && !STATUS_BY_NUMBER.has(s.status);
   const forbid = forbidLine(s);
   const canLift = !card.noForbiddenToday && (s.forbidState === "ahead" || s.forbidState === "active");
-  const games = limitLine("Игры", s.gamesRemainingS, s.gamesLimitS, s.gamesUnlimited);
-  const video = limitLine("Видео и соцсети", s.videoRemainingS ?? 0, s.videoLimitS ?? 0, s.videoUnlimited ?? true);
+  // Потрачено — из карточки службы (то же число, что отчёт телефону), не «лимит − остаток».
+  const games = limitLine("Игры", card.gamesUsedS, s.gamesLimitS, s.gamesUnlimited);
+  const video = limitLine("Видео и соцсети", card.videoUsedS, s.videoLimitS ?? 0, s.videoUnlimited ?? true);
   const share = remainShare(s.remainingS, s.limitS, s.unlimited);
   const paused = s.status === "paused";
 

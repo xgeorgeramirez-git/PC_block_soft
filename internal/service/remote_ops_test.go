@@ -461,6 +461,29 @@ func TestChildrenGamesVideoLimits(t *testing.T) {
 	}
 }
 
+// Ловит (ревью 0.8.4 M2, класс A): родитель уменьшил лимит игр ниже сыгранного — окно считало
+// потраченное как «лимит − остаток» («Игры 60 из 60 мин»), а телефон показывал сыгранное из отчёта
+// («Игры 70 из 60 мин»). Карточка окна несёт то же число секунд, что отчёт телефону.
+func TestCardUsedMatchesReportOverLimit(t *testing.T) {
+	h, tok := remoteHarness(t, withGames(childSID, 60), func(h *harness) {
+		id := h.childID(childSID)
+		h.store.days[dayKey(id, "2026-10-19")] = core.DayState{Day: "2026-10-19", TotalS: 4200, GamesS: 4200, VideoS: 900}
+	})
+	var today ipc.GetTodayReply
+	h.ok(adminPeer(), tok, ipc.CmdGetToday, nil, &today)
+	card := today.Children[0]
+	rep := remoteHost{h.svc}.Children(false)[0]
+	if rep.GamesSec != 4200 || rep.GamesLimSec != 3600 || rep.VideoSec != 900 {
+		t.Fatalf("отчёт: игры %d из %d, видео %d", rep.GamesSec, rep.GamesLimSec, rep.VideoSec)
+	}
+	if card.Status.GamesRemainingS != 0 {
+		t.Fatalf("остаток игр %d, ждали 0 (остаток не бывает < 0)", card.Status.GamesRemainingS)
+	}
+	if card.GamesUsedS != 4200 || card.VideoUsedS != 900 {
+		t.Fatalf("карточка: игры %d с, видео %d с; ждали 4200 и 900, как в отчёте", card.GamesUsedS, card.VideoUsedS)
+	}
+}
+
 // Ловит (ревью T1, замечание «в»): окно (cardOf) раньше отчёта меняет «с какого момента» у телефона:
 // первый вызов без замера ставит «не за компьютером с этого момента», а замер на тике должен
 // двигать момент только при смене состояния.

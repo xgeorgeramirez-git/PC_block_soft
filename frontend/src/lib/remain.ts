@@ -33,13 +33,15 @@ export function remainShare(remainingS: number, limitS: number, unlimited: boole
 }
 
 /**
- * «Игры 40 из 60 мин» (8.3.2 п. 3): потрачено = лимит − остаток (остаток вверх до минуты, как цвет).
+ * «Игры 40 из 60 мин» (8.3.2 п. 3): usedS — потрачено сегодня, с (TodayCard.gamesUsedS/videoUsedS —
+ * то же число, что gamesSec/videoSec отчёта телефону). Минуты — вниз до целой, как у телефона;
+ * больше лимита — как есть («Игры 70 из 60 мин», родитель уменьшил лимит ниже сыгранного).
  * Без отдельного лимита или без лимита на сегодня — «» (строки нет).
  */
-export function limitLine(label: string, remainingS: number, limitS: number, unlimited: boolean): string {
+export function limitLine(label: string, usedS: number, limitS: number, unlimited: boolean): string {
   if (unlimited || limitS <= 0) return "";
-  const limitMin = Math.round(limitS / 60);
-  const used = Math.max(0, limitMin - Math.min(limitMin, remainMinutes(remainingS)));
+  const limitMin = Math.floor(limitS / 60);
+  const used = Math.floor(Math.max(0, usedS) / 60);
   return `${label} ${used} из ${limitMin} мин`;
 }
 

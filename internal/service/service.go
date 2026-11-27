@@ -870,6 +870,7 @@ func (s *Service) cardOf(cs *childState) ipc.TodayCard {
 		VideoText:       ipc.VideoCardText(videoS, st.VideoLimitS, st.VideoUnlimited),
 		PendingPrograms: s.pendingCount(),
 		PresenceNow:     presenceNow, PresenceText: presenceText,
+		GamesUsedS: gamesS, VideoUsedS: videoS,
 	}
 }
 

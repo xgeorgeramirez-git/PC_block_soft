@@ -357,9 +357,9 @@ func (s *Service) forbidToday(cs *childState) (string, time.Time) {
 	return fi.state, time.Time{}
 }
 
-// Children — отчёт телефону: «осталось», копилка, игры и видео и «за компьютером» той же
-// карточкой, что окно родителя (cardOf, dayGamesVideo); withToday — со «Статистикой за сегодня»
-// (todayReport, только отчёт pc/report).
+// Children — отчёт телефону: «осталось», копилка, игры и видео (GamesUsedS, VideoUsedS) и «за
+// компьютером» той же карточкой, что окно родителя (cardOf, dayGamesVideo); withToday — со
+// «Статистикой за сегодня» (todayReport, только отчёт pc/report).
 func (h remoteHost) Children(withToday bool) []remote.ChildReport {
 	s := h.s
 	s.mu.Lock()
@@ -372,12 +372,11 @@ func (h remoteHost) Children(withToday bool) []remote.ChildReport {
 		if c.Status.Unlimited {
 			left = -1 // без лимита сегодня (протокол, раздел 6)
 		}
-		gamesS, videoS := s.dayGamesVideo(cs, c.Status)
 		rep := remote.ChildReport{
 			ID: c.ChildID, Name: c.Name, UsedSec: int64(c.Status.UsedS), LeftSec: left,
 			ExtraMin: c.ExtraMin, Blocked: c.Status.Lock != "" && c.Status.Lock != ipc.LockNone,
-			BankMin: c.BonusBalance, GamesSec: int64(gamesS), GamesLimSec: limitSec(c.Status.GamesLimitS, c.Status.GamesUnlimited),
-			VideoSec: int64(videoS), VideoLimSec: limitSec(c.Status.VideoLimitS, c.Status.VideoUnlimited),
+			BankMin: c.BonusBalance, GamesSec: int64(c.GamesUsedS), GamesLimSec: limitSec(c.Status.GamesLimitS, c.Status.GamesUnlimited),
+			VideoSec: int64(c.VideoUsedS), VideoLimSec: limitSec(c.Status.VideoLimitS, c.Status.VideoUnlimited),
 		}
 		var until time.Time
 		rep.Forbid, until = s.forbidToday(s.children[id])

@@ -397,6 +397,11 @@ type TodayCard struct {
 	VideoText        string      `json:"videoText"`        // «Видео 10 мин из 20 мин» (M4, R6); «» — отдельного лимита видео нет
 	PresenceNow      bool        `json:"presenceNow"`      // ребёнок сейчас за компьютером (точка зелёная), 8.3.2
 	PresenceText     string      `json:"presenceText"`     // «За компьютером с 18:20» / «Не за компьютером с 17:05»; «» — неизвестно
+	// GamesUsedS, VideoUsedS — потрачено сегодня на игры и на видео и соцсети, с: то же число, что
+	// gamesSec/videoSec отчёта телефону (протокол 1.5); может быть больше лимита (родитель уменьшил
+	// лимит ниже сыгранного) — строка «Игры 70 из 60 мин» окна и телефона одна.
+	GamesUsedS int `json:"gamesUsedS"`
+	VideoUsedS int `json:"videoUsedS"`
 }
 
 // GetTodayReply — ответ GetToday. Notices — важные сообщения при входе, например

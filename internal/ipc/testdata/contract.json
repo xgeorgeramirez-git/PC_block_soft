@@ -56,7 +56,9 @@
           "pendingPrograms": 0,
           "videoText": "",
           "presenceNow": false,
-          "presenceText": ""
+          "presenceText": "",
+          "gamesUsedS": 0,
+          "videoUsedS": 0
         },
         "message": "Добавлено 30 минут",
         "extraId": "e-17",
@@ -315,7 +317,9 @@
           "pendingPrograms": 0,
           "videoText": "",
           "presenceNow": false,
-          "presenceText": ""
+          "presenceText": "",
+          "gamesUsedS": 0,
+          "videoUsedS": 0
         },
         "message": "Добавлено 30 минут"
       }
@@ -403,7 +407,9 @@
           "pendingPrograms": 0,
           "videoText": "",
           "presenceNow": false,
-          "presenceText": ""
+          "presenceText": "",
+          "gamesUsedS": 0,
+          "videoUsedS": 0
         },
         "message": "Блокировка снята"
       }
@@ -477,7 +483,9 @@
           "pendingPrograms": 0,
           "videoText": "",
           "presenceNow": false,
-          "presenceText": ""
+          "presenceText": "",
+          "gamesUsedS": 0,
+          "videoUsedS": 0
         },
         "message": "Доп. время убрано",
         "extraId": "e-19",
@@ -825,7 +833,9 @@
           "pendingPrograms": 0,
           "videoText": "",
           "presenceNow": false,
-          "presenceText": ""
+          "presenceText": "",
+          "gamesUsedS": 0,
+          "videoUsedS": 0
         },
         "message": "Перерыв закончен"
       }
@@ -896,7 +906,9 @@
           "pendingPrograms": 0,
           "videoText": "",
           "presenceNow": false,
-          "presenceText": ""
+          "presenceText": "",
+          "gamesUsedS": 0,
+          "videoUsedS": 0
         },
         "message": "Пауза закончилась"
       }
@@ -1504,7 +1516,9 @@
             "pendingPrograms": 2,
             "videoText": "",
             "presenceNow": true,
-            "presenceText": "За компьютером с 18:20"
+            "presenceText": "За компьютером с 18:20",
+            "gamesUsedS": 0,
+            "videoUsedS": 0
           },
           {
             "childId": 1,
@@ -1555,7 +1569,9 @@
             "pendingPrograms": 2,
             "videoText": "",
             "presenceNow": false,
-            "presenceText": "Не за компьютером с 17:05"
+            "presenceText": "Не за компьютером с 17:05",
+            "gamesUsedS": 0,
+            "videoUsedS": 0
           }
         ],
         "notices": [],
@@ -1632,7 +1648,9 @@
             "pendingPrograms": 0,
             "videoText": "",
             "presenceNow": false,
-            "presenceText": ""
+            "presenceText": "",
+            "gamesUsedS": 0,
+            "videoUsedS": 0
           }
         ],
         "notices": [
@@ -3760,7 +3778,9 @@
           "pendingPrograms": 0,
           "videoText": "",
           "presenceNow": false,
-          "presenceText": ""
+          "presenceText": "",
+          "gamesUsedS": 0,
+          "videoUsedS": 0
         },
         "message": "Пауза до 18:30"
       }
@@ -3823,7 +3843,9 @@
           "pendingPrograms": 0,
           "videoText": "",
           "presenceNow": false,
-          "presenceText": ""
+          "presenceText": "",
+          "gamesUsedS": 0,
+          "videoUsedS": 0
         },
         "addedMin": 30,
         "message": "Добавлено 30 минут"
@@ -3911,7 +3933,9 @@
           "pendingPrograms": 0,
           "videoText": "",
           "presenceNow": false,
-          "presenceText": ""
+          "presenceText": "",
+          "gamesUsedS": 0,
+          "videoUsedS": 0
         },
         "message": "Убрано 30 минут",
         "extraId": "e-18",
@@ -4504,7 +4528,9 @@
           "pendingPrograms": 0,
           "videoText": "",
           "presenceNow": false,
-          "presenceText": ""
+          "presenceText": "",
+          "gamesUsedS": 0,
+          "videoUsedS": 0
         },
         "message": "Сохранено. Новые правила уже действуют"
       }
@@ -4655,7 +4681,9 @@
           "pendingPrograms": 0,
           "videoText": "",
           "presenceNow": false,
-          "presenceText": ""
+          "presenceText": "",
+          "gamesUsedS": 0,
+          "videoUsedS": 0
         },
         "message": "Сохранено. Новые правила уже действуют"
       }
@@ -4818,7 +4846,9 @@
           "pendingPrograms": 0,
           "videoText": "",
           "presenceNow": false,
-          "presenceText": ""
+          "presenceText": "",
+          "gamesUsedS": 0,
+          "videoUsedS": 0
         },
         "message": "Сохранено. Новые правила уже действуют"
       }
@@ -4915,7 +4945,9 @@
           "pendingPrograms": 0,
           "videoText": "",
           "presenceNow": false,
-          "presenceText": ""
+          "presenceText": "",
+          "gamesUsedS": 0,
+          "videoUsedS": 0
         },
         "message": "Сохранено. Новые правила уже действуют"
       }
@@ -5148,7 +5180,9 @@
           "pendingPrograms": 0,
           "videoText": "",
           "presenceNow": false,
-          "presenceText": ""
+          "presenceText": "",
+          "gamesUsedS": 0,
+          "videoUsedS": 0
         },
         "message": "Сегодня запретные часы не действуют"
       }
@@ -5658,7 +5692,9 @@
           "pendingPrograms": 0,
           "videoText": "",
           "presenceNow": false,
-          "presenceText": ""
+          "presenceText": "",
+          "gamesUsedS": 0,
+          "videoUsedS": 0
         },
         "message": "Взято из копилки 30 мин",
         "balanceAfter": 15
@@ -5919,7 +5955,9 @@
           "pendingPrograms": 0,
           "videoText": "",
           "presenceNow": false,
-          "presenceText": ""
+          "presenceText": "",
+          "gamesUsedS": 0,
+          "videoUsedS": 0
         },
         "message": "Добавленное время отменено"
       }
