@@ -61,7 +61,8 @@
     <string name="note_sound_title">Звук</string>
     <string name="note_sound_none">Без звука</string>
     <string name="note_sound_n">Звук %1$d</string>
-    <string name="note_sound_play_desc">Прослушать Звук %1$d</string>
+    <string name="note_sound_play_desc">Прослушать «%1$s»</string>
+    <string name="note_sticker_recent">Здесь 7 последних, что вы выбирали</string>
     <string name="note_show_title">Сколько показывать</string>
     <string name="note_show_until">Пока не нажмёт «Понял»</string>
     <string name="note_show_10">10 секунд</string>

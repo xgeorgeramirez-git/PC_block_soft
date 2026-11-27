@@ -26,6 +26,8 @@ import ru.atlas404.pcblock.proto.Problem
 import ru.atlas404.pcblock.proto.PromoRules
 import ru.atlas404.pcblock.proto.Proto
 import ru.atlas404.pcblock.proto.ProtoException
+import ru.atlas404.pcblock.proto.RecentStickers
+import ru.atlas404.pcblock.proto.SoundNames
 import ru.atlas404.pcblock.store.Prefs
 import ru.atlas404.pcblock.store.SavedNote
 import java.security.SecureRandom
@@ -141,6 +143,18 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     /** Когда компьютер последний раз был на связи (для «не на связи с HH:MM» в отказе команды). */
     var lastSeenMs by mutableStateOf(0L)
         private set
+
+    /** Названия звуков (assets/sounds/message/names.json, D-104); нет файла — «Звук N». */
+    val soundNames: Map<Int, String> = runCatching {
+        app.assets.open("${MessageAssets.SOUNDS}/names.json").bufferedReader(Charsets.UTF_8).use { it.readText() }
+    }.map(SoundNames::parse).getOrDefault(emptyMap())
+
+    /** Последние выбранные стикеры (D-103): попадают сюда после принятой отправки (R-15). */
+    var recentStickers by mutableStateOf(prefs.recentStickers)
+        private set
+
+    /** Сетка экрана сообщения: 7 последних, добивка — первые по номеру. */
+    val noteGrid: List<String> get() = RecentStickers.grid(recentStickers, noteStickers)
 
     // ---------- навигация (FR-45) ----------
     var tab by mutableStateOf(Tab.KIDS)
@@ -582,6 +596,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             if (out.repair) needRepair = true
             if (out.saved != null) {
                 notes = prefs.notes.all()
+                recentStickers = prefs.recentStickers
                 fastUntilMs = System.currentTimeMillis() + FAST_WINDOW_MS
                 onSent()
                 if (pollJob?.isActive == true) {
@@ -616,6 +631,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             if (reply.ok) {
                 val n = SavedNote(id, childId, text, showSec, now)
                 prefs.notes.add(n)
+                // R-15: стикер попадает в «7 последних» только после принятой компьютером отправки.
+                if (sticker.isNotEmpty()) prefs.pushRecentSticker(sticker)
                 NoteOutcome(saved = n)
             } else {
                 reply.lastSeq?.let { prefs.raiseSeq(it) }
@@ -665,7 +682,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         resetScreens()
     }
 
-    /** Новая привязка или отключение: вкладки и кэш промокодов — с нуля. */
+    /** Новая привязка или отключение: вкладки, кэш промокодов и последние стикеры — с нуля. */
     private fun resetScreens() {
         tab = Tab.KIDS
         sub = null
@@ -677,6 +694,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         genCodes = emptyList()
         decideBusy = null
         decideNote = null
+        recentStickers = prefs.recentStickers
     }
 
     private fun loadPeer(): Proto.Peer? = try {

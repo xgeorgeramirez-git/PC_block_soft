@@ -78,7 +78,11 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import ru.atlas404.pcblock.R
 import ru.atlas404.pcblock.proto.Format
+import ru.atlas404.pcblock.proto.NoteMark
 import ru.atlas404.pcblock.proto.Proto
+import ru.atlas404.pcblock.proto.RecentStickers
+import ru.atlas404.pcblock.proto.SoundNames
+import ru.atlas404.pcblock.store.SavedNote
 
 /**
  * Главный экран (FR-45, D-109): нижнее меню «Дети», «Промокоды», «Настройки»; вложенные экраны
@@ -321,9 +325,65 @@ private fun CustomDialog(child: Proto.Child, onDismiss: () -> Unit, onSend: (Int
 }
 
 /**
- * «Сообщение для <имя>» (FR-41, план 0.8.3, «UX-сценарий»): текст до 300 знаков, стикер (сетка 4 в ряд:
- * «Без стикера» и первые 11, «Все N» — полный список), звук с прослушиванием, сколько показывать,
- * «Отправить». Отправка и отметки — как раньше (протокол, раздел 5а).
+ * Последние сообщения ребёнка (до 3, макет phones_more.py): текст, время отправки и отметка.
+ * Отметки нет и компьютер не на связи — «Ждёт: компьютер не в сети» (FB-29, D-102).
+ */
+@Composable
+private fun NoteList(notes: List<SavedNote>, pcOnline: Boolean) {
+    AppCard(gap = 0.dp) {
+        Text(
+            stringResource(R.string.note_recent),
+            fontSize = 15.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = Tok.Ink,
+            modifier = Modifier
+                .padding(bottom = 8.dp)
+                .semantics { heading() },
+        )
+        for (n in notes) {
+            val mark = NoteMark.of(n.state, n.showSec, pcOnline)
+            val markText = stringResource(mark.res())
+            val time = clockText(n.sentAtMs)
+            val oneLine = n.text.replace('\n', ' ')
+            val desc = stringResource(R.string.note_item_desc, oneLine, time, markText)
+            HorizontalDivider(thickness = 1.dp, color = Tok.Line)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 10.dp)
+                    .clearAndSetSemantics {
+                        contentDescription = desc
+                        liveRegion = LiveRegionMode.Polite // смена отметки зачитывается сама
+                    },
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text(oneLine, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = Tok.Ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    MutedText(time)
+                }
+                Text(
+                    markText,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    textAlign = TextAlign.End,
+                    color = when (mark) {
+                        NoteMark.NOT_DELIVERED -> Tok.RemainRed
+                        NoteMark.WAITING_OFFLINE -> Tok.Waiting
+                        NoteMark.READ, NoteMark.SHOWN -> Tok.PlusText
+                        else -> Tok.Muted
+                    },
+                    modifier = Modifier.width(150.dp),
+                )
+            }
+        }
+    }
+}
+
+/**
+ * «Сообщение для <имя>» (FR-41): текст до 300 знаков, стикер (сетка 4×2: «Без стикера» и 7 последних
+ * выбранных, D-103; «Все N» — полный список), звук с названием и прослушиванием (D-104), сколько показывать,
+ * «Отправить»; ниже — последние сообщения с отметками (FB-29). Отправка — протокол, раздел 5а.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -413,7 +473,7 @@ private fun NoteScreen(childId: Long, name: String, vm: AppViewModel, onBack: ()
             // ---------- стикер ----------
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                 SectionTitle(stringResource(R.string.note_sticker_title), Modifier.weight(1f))
-                if (vm.noteStickers.size > Proto.STICKER_GRID) {
+                if (vm.noteStickers.size > RecentStickers.SIZE) {
                     val allDesc = stringResource(R.string.note_sticker_all_desc, vm.noteStickers.size)
                     TextButton(
                         onClick = {
@@ -428,7 +488,7 @@ private fun NoteScreen(childId: Long, name: String, vm: AppViewModel, onBack: ()
                 }
             }
             val selected = vm.noteSticker
-            val first = vm.noteStickers.take(Proto.STICKER_GRID)
+            val first = vm.noteGrid
             // Стикер, выбранный из полного списка, виден в сетке первым после «Без стикера».
             val shown = if (selected.isNotEmpty() && selected !in first) listOf(selected) + first.dropLast(1) else first
             Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.selectableGroup()) {
@@ -447,6 +507,7 @@ private fun NoteScreen(childId: Long, name: String, vm: AppViewModel, onBack: ()
                     }
                 }
             }
+            MutedText(stringResource(R.string.note_sticker_recent))
 
             // ---------- звук ----------
             SectionTitle(stringResource(R.string.note_sound_title))
@@ -459,13 +520,15 @@ private fun NoteScreen(childId: Long, name: String, vm: AppViewModel, onBack: ()
                     playDesc = null,
                     onPlay = {},
                 )
+                val soundTpl = stringResource(R.string.note_sound_n)
                 for (n in vm.noteSounds) {
+                    val label = SoundNames.label(n, vm.soundNames, soundTpl)
                     SoundRow(
-                        label = stringResource(R.string.note_sound_n, n),
+                        label = label,
                         selected = vm.noteSound == n,
                         enabled = !busy,
                         onSelect = { vm.chooseSound(n) },
-                        playDesc = stringResource(R.string.note_sound_play_desc, n),
+                        playDesc = stringResource(R.string.note_sound_play_desc, label),
                         onPlay = {
                             // Как на макете: прослушанный звук становится выбранным.
                             if (!busy) vm.chooseSound(n)
@@ -534,6 +597,8 @@ private fun NoteScreen(childId: Long, name: String, vm: AppViewModel, onBack: ()
                 },
                 enabled = !busy,
             )
+            val recent = vm.notes.filter { it.child == childId }.sortedByDescending { it.sentAtMs }.take(3)
+            if (recent.isNotEmpty()) NoteList(recent, vm.pcOnline)
         }
     }
 }
