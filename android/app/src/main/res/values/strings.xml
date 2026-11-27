@@ -21,10 +21,7 @@
     <string name="compare_number_desc">Число для сверки: %1$s</string>
 
     <!-- Главный экран -->
-    <string name="main_title">PC Block</string>
-    <string name="menu_more">Ещё</string>
     <string name="menu_unpair">Отключить телефон</string>
-    <string name="menu_refresh">Обновить</string>
     <string name="pc_online">Компьютер на связи</string>
     <string name="pc_offline_since">Компьютер не на связи с %1$s</string>
     <string name="pc_offline">Компьютер не на связи</string>
@@ -41,7 +38,6 @@
     <string name="btn_sub">−%1$d мин</string>
     <string name="btn_add_desc">Добавить %1$d минут, %2$s</string>
     <string name="btn_sub_desc">Убавить %1$d минут, %2$s</string>
-    <string name="btn_custom">Своё число</string>
     <string name="btn_custom_desc">Своё число минут, %1$s</string>
     <string name="forbid_until">Запретные часы до %1$s</string>
     <string name="btn_no_forbidden">Снять запрет на сегодня</string>
@@ -51,8 +47,6 @@
     <string name="cmd_done">Готово</string>
 
     <!-- Сообщение ребёнку (FR-41) -->
-    <string name="btn_note">Сообщение</string>
-    <string name="btn_note_desc">Написать сообщение, %1$s</string>
     <string name="note_title">Сообщение для %1$s</string>
     <string name="note_back">Назад</string>
     <string name="note_label">Текст</string>
@@ -76,7 +70,6 @@
     <string name="note_send">Отправить</string>
     <string name="note_sending">Отправляем…</string>
     <string name="note_recent">Последние сообщения</string>
-    <string name="note_item_meta">%1$s · %2$s</string>
     <string name="note_item_desc">Сообщение «%1$s», %2$s, %3$s</string>
     <string name="note_mark_sent">Отправлено</string>
     <string name="note_mark_waiting_offline">Ждёт: компьютер не в сети</string>
@@ -87,7 +80,6 @@
 
     <!-- Статистика за сегодня (FR-43) -->
     <string name="btn_stats">Статистика за сегодня</string>
-    <string name="btn_stats_desc">Статистика за сегодня, %1$s</string>
     <string name="stats_title">Статистика за сегодня</string>
     <string name="stats_back">Назад</string>
     <string name="stats_at_pc_since">За компьютером с %1$s</string>
@@ -163,8 +155,6 @@
     <string name="err_promo_minutes">Можно от 1 до 600 минут</string>
     <string name="err_promo_count">Можно от 1 до 50 кодов</string>
     <string name="err_promo_len">Длина от 4 до 12 знаков</string>
-    <string name="err_promo_range">Проверьте код и минуты</string>
-    <string name="err_decide_range">Не удалось отправить решение, обновите список</string>
     <string name="bank_put">Положить</string>
     <string name="bank_put_one">Положить %1$d минуту</string>
     <string name="bank_put_few">Положить %1$d минуты</string>
@@ -173,4 +163,43 @@
     <string name="card_pending_few">%1$d программы ждут решения</string>
     <string name="card_pending_many">%1$d программ ждут решения</string>
     <string name="card_pending_some">Есть программы, ждущие решения</string>
+
+    <!-- Ruling 7 T3: range у промокодов и решения (телефон поля проверил сам) -->
+    <string name="err_promo_range">Проверьте код и минуты</string>
+    <string name="err_decide_range">Не удалось отправить решение, обновите список</string>
+
+    <!-- Нижнее меню (FR-45) -->
+    <string name="tab_kids">Дети</string>
+    <string name="tab_promos">Промокоды</string>
+    <string name="tab_settings">Настройки</string>
+    <string name="kids_title">Дети</string>
+    <string name="update_pc">Обновите программу на компьютере до версии 0.8.4</string>
+    <string name="pc_offline_short">Компьютер не на связи</string>
+
+    <!-- Карточка ребёнка (D-109, макет phone2.py) -->
+    <string name="card_plus">+%1$d</string>
+    <string name="card_minus">−%1$d</string>
+    <string name="card_own">Своё</string>
+    <string name="card_bank_btn">В копилку</string>
+    <string name="card_bank_desc">Положить в копилку, %1$s</string>
+    <string name="card_bank_min">%1$d мин</string>
+    <string name="card_bank_min_desc">В копилке %1$d мин</string>
+    <string name="card_left_of">осталось из %1$s</string>
+    <string name="card_left_desc">Осталось %1$s из %2$s</string>
+    <string name="card_left_short">осталось %1$s</string>
+    <string name="card_open_desc">%1$s, %2$s. Открыть карточку</string>
+    <string name="card_games_of">Игры %1$d из %2$d мин</string>
+    <string name="card_games">Игры %1$d мин</string>
+    <string name="card_video_of">Видео и соцсети %1$d из %2$d мин</string>
+    <string name="card_video">Видео и соцсети %1$d мин</string>
+    <string name="card_note">Написать сообщение</string>
+
+    <!-- Настройки -->
+    <string name="settings_title">Настройки</string>
+    <string name="settings_pc">Компьютер</string>
+    <string name="settings_server">Сервер связи: %1$s</string>
+    <string name="settings_refresh">Обновить</string>
+    <string name="settings_about">О приложении</string>
+    <string name="settings_font">Шрифт Inter: лицензия SIL OFL 1.1</string>
+    <string name="settings_close">Закрыть</string>
 </resources>
