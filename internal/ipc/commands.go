@@ -957,8 +957,14 @@ type GuardStateReply struct {
 	LockKind  string         `json:"lockKind"`  // Lock*
 	Plate     string         `json:"plate"`     // текст видимой плашки или табло предупреждения; пусто — плашки нет
 	PlateKind string         `json:"plateKind"` // вид видимой плашки: Plate* или Blocked*; пусто — плашки нет
-	Buttons   []string       `json:"buttons"`   // видимые кнопки (Button*)
-	Fields    []GuardField   `json:"fields"`    // поля ввода и их текст
+	// PlateTitle — заголовок видимой плашки «Игрового лобби» (ТЗ 8.2.4, 8.2.5); PlateSticker — стикер,
+	// который окно плашки сейчас рисует («031»; пусто — прежняя плашка или спрайт ещё не разобран),
+	// PlateFrame — его кадр (S65).
+	PlateTitle   string       `json:"plateTitle,omitempty"`
+	PlateSticker string       `json:"plateSticker,omitempty"`
+	PlateFrame   int          `json:"plateFrame"`
+	Buttons      []string     `json:"buttons"` // видимые кнопки (Button*)
+	Fields       []GuardField `json:"fields"`  // поля ввода и их текст
 	// Экран перерыва на отдых (LockKind == LockRest, R27): таймер плитками «00:14:59» и сообщение
 	// родителя; у других экранов пусто. Таймер уменьшается вживую (приёмка S43, PL-16).
 	RestTimer   string `json:"restTimer"`

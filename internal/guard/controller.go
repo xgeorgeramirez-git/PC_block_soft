@@ -93,6 +93,12 @@ type Controller struct {
 	// GuardState.NoteSticker, NoteFrame; только тестовый режим).
 	noteSticker string
 	noteFrame   int
+	// plaqueSound — ID плашки «Игрового лобби», для которой звук схемы уже поставлен (D-111: один раз на
+	// плашку); plaqueSticker/plaqueFrame — стикер и кадр, выведенные окном плашки последними
+	// (SetPlaqueShown; GuardState.PlateSticker, PlateFrame; только тестовый режим).
+	plaqueSound   int
+	plaqueSticker string
+	plaqueFrame   int
 
 	// lenWarn/lenMsg - сколько звучит звук предупреждения и звук сообщения с номером (из шапки wav):
 	// после принятого звука исполнитель ждёт его конца (nil или 0 - не ждёт). soundTimer - ожидание
@@ -452,6 +458,7 @@ func (c *Controller) PollOnce() PollResult {
 	// отправляет GuardState сразу после PollOnce, раньше, чем поток окон перерисуется по wake.
 	// Иначе снимок несогласован: порог 1 уже в журнале, а кнопки и звуки от табло «5» (CI S2, S35).
 	c.playDue(now, v.Warning)
+	c.playPlaque(now, v.Warning)
 	c.playNote(now, v.Note)
 	noteEvs := c.model.TakeNoteEvents()
 
@@ -602,6 +609,7 @@ func (c *Controller) View() View {
 	c.model.Tick(now)
 	v := c.model.View(now)
 	c.playDue(now, v.Warning)
+	c.playPlaque(now, v.Warning)
 	c.playNote(now, v.Note)
 	noteEvs := c.model.TakeNoteEvents()
 	c.mu.Lock()
@@ -650,6 +658,23 @@ func (c *Controller) playNote(now time.Time, n *NoteView) {
 	}
 	c.noteSound = n.Seq
 	c.enqueueSoundLocked(ipc.ShownSound{AtMs: now.UnixMilli(), Note: true, NoteSound: n.Sound}, soundItem{kind: soundNote, n: n.Sound})
+}
+
+// playPlaque ставит звук схемы Windows новой плашки «Игрового лобби» (ТЗ 8.2.4, D-111): один раз на
+// плашку — та же плашка, повторённая службой, звука не даёт (класс A); сбой кнопки и предупреждения о
+// времени — не «Лобби».
+func (c *Controller) playPlaque(now time.Time, w *WarningView) {
+	if w == nil || w.Sticker == "" {
+		return
+	}
+	st, ok := PlaqueStyleOf(w.Kind, w.Allowed)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if !ok || w.ID == c.plaqueSound {
+		return
+	}
+	c.plaqueSound = w.ID
+	c.enqueueSoundLocked(ipc.ShownSound{AtMs: now.UnixMilli(), System: st.Sound}, soundItem{kind: soundSystem, alias: st.Sound})
 }
 
 // playSystem ставит в общую очередь звук схемы Windows alias (плашка «Игрового лобби», ТЗ 8.2.4,
@@ -1051,6 +1076,17 @@ func (c *Controller) SetNoteShown(sticker string, frame int) {
 	c.noteSticker, c.noteFrame = sticker, frame
 }
 
+// SetPlaqueShown запоминает, что окно плашки «Игрового лобби» вывело сейчас: стикер ("" — нет) и кадр
+// (GuardState.PlateSticker, PlateFrame, S65). Только в тестовом режиме; зовёт поток окон.
+func (c *Controller) SetPlaqueShown(sticker string, frame int) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if !c.testMode {
+		return
+	}
+	c.plaqueSticker, c.plaqueFrame = sticker, frame
+}
+
 // SetAnimations передаёт модели, включены ли анимации Windows (стикер промокода без движения, R26).
 func (c *Controller) SetAnimations(on bool) { c.model.SetAnimations(on) }
 
@@ -1085,7 +1121,7 @@ func StateFromView(v View, lockKind string, shown []ipc.ShownWarning, sounds []i
 	}
 	if v.Warning != nil {
 		add(v.Warning.Buttons)
-		st.Plate, st.PlateKind = v.Warning.Text, v.Warning.Kind
+		st.Plate, st.PlateKind, st.PlateTitle = v.Warning.Text, v.Warning.Kind, v.Warning.Title
 	}
 	if v.Promo != nil {
 		st.PromoSticker, st.PromoText = v.Promo.Sticker, v.Promo.Text
@@ -1118,6 +1154,9 @@ func (c *Controller) PushState() {
 	st.ClosedTab, st.ClosedTabWay = c.closedTab, c.closedWay
 	if c.last.Note != nil { // окно сообщения могло ещё не узнать, что сообщение закрыто
 		st.NoteSticker, st.NoteFrame = c.noteSticker, c.noteFrame
+	}
+	if c.last.Warning != nil && c.last.Warning.Sticker != "" { // окно плашки могло ещё не узнать, что она закрыта
+		st.PlateSticker, st.PlateFrame = c.plaqueSticker, c.plaqueFrame
 	}
 	c.mu.Unlock()
 	if p, ok := lastPanic.Load().(string); ok {
