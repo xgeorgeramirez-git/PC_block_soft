@@ -397,7 +397,7 @@ func TestChildReportForbidJSON(t *testing.T) {
 		t.Fatalf("пустой статус запрета в отчёте: %s", old)
 	}
 	act, _ := json.Marshal(ChildReport{ID: 3, Name: "Миша", Forbid: ForbidActive, ForbidUntilMs: 1763496000000})
-	if !strings.HasSuffix(string(act), `"blocked":false,"forbid":"active","forbidUntilMs":1763496000000}`) {
+	if !strings.Contains(string(act), `"blocked":false,"forbid":"active","forbidUntilMs":1763496000000,"bankMin":0,`) {
 		t.Fatalf("отчёт с запретом: %s", act)
 	}
 }

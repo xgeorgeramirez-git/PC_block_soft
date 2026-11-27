@@ -207,7 +207,7 @@ func TestFitReportSmallAndEmpty(t *testing.T) {
 	if len(p) != 2 || p[0].Name != "Игра" || p[0].Cat != ItemGame || p[1].Name != "a b c" || got.Children[0].Today.More != (TodayMore{}) {
 		t.Fatalf("короткий список: %+v", got.Children[0].Today)
 	}
-	plain := Report{V: 1, T: TypeReport, PC: "pc", Phone: "ph", TS: 1, Children: []ChildReport{{ID: 3, Name: "Даша"}}}
+	plain := Report{V: 1, T: TypeReport, PC: "pc", Phone: "ph", TS: 1, Children: []ChildReport{{ID: 3, Name: "Даша"}}, Pending: []PendingReport{}}
 	a, _ := fitReport(plain, MaxReportBody)
 	b, _ := json.Marshal(plain)
 	if string(a) != string(b) {

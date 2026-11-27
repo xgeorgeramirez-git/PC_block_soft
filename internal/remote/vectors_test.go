@@ -190,6 +190,21 @@ func writeVectors(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Отчёты и ответы до протокола 1.5 — байты компьютера 0.8.3 (без bankMin, pending): Android
+	// проверяет по ним «компьютер старше 0.8.4». Уже записанные не пересобираются.
+	legacy := func(old string, built []byte) []byte {
+		if old != "" {
+			return []byte(old)
+		}
+		return built
+	}
+	cmdrJSON = legacy(v.CmdrJSON, cmdrJSON)
+	repJSON = legacy(v.ReportJSON, repJSON)
+	noterJSON = legacy(v.NoterJSON, noterJSON)
+	repNJSON = legacy(v.ReportNotesJSON, repNJSON)
+	cmdrNFJSON = legacy(v.CmdrNoForbiddenJSON, cmdrNFJSON)
+	repFJSON = legacy(v.ReportForbidJSON, repFJSON)
+	repTJSON = legacy(v.ReportTodayJSON, repTJSON)
 	out := vectors{
 		Comment:   "Векторы протокола связи (docs/07_Протокол_связи.md). Генерирует go test ./internal/remote -run TestVectors -update. Все base64: base64url без '='.",
 		PCPriv:    pcPriv,
@@ -331,12 +346,15 @@ func TestVectors(t *testing.T) {
 	if c, _, code := CheckCommand(stF, v.CmdNoForbidden, "phone-vector", time.UnixMilli(vectorNoForbidden().TS)); code != "" || c.Op != OpNoForbidden {
 		t.Fatalf("«снять запрет» векторов отклонено: %q %+v", code, c)
 	}
-	// Статистика за сегодня (раздел 6): байты — как отчёт после fitReport, подпись компьютера, поля.
-	repTJSON, _ := fitReport(vectorReportToday(), MaxReportBody)
-	if string(repTJSON) != v.ReportTodayJSON {
-		t.Fatalf("сборка отчёта со статистикой изменилась:\n%s\n%s", repTJSON, v.ReportTodayJSON)
-	}
+	// Статистика за сегодня (раздел 6): байты компьютера 0.8.3 (без bankMin и pending — признак
+	// старого компьютера для телефона 0.8.4), подпись компьютера, поля. Сборку fitReport с полями 1.5
+	// проверяет вектор reportPending.
 	check("reportToday", &v.ReportToday, &pc.PublicKey, v.ReportTodayJSON)
+	for _, old := range []string{v.ReportTodayJSON, v.ReportJSON, v.ReportForbidJSON, v.ReportNotesJSON, v.CmdrJSON, v.NoterJSON, v.CmdrNoForbiddenJSON} {
+		if bytes.Contains([]byte(old), []byte(`"bankMin"`)) || bytes.Contains([]byte(old), []byte(`"pending"`)) {
+			t.Fatalf("вектор компьютера 0.8.3 с полями 1.5: %.120s", old)
+		}
+	}
 	var rt Report
 	if err := json.Unmarshal([]byte(v.ReportTodayJSON), &rt); err != nil || len(rt.Children) != 3 || rt.Children[0].Today == nil ||
 		rt.Children[0].Today.Programs[0].Cat != ItemGame || rt.Children[1].Today.FirstMs != 0 || rt.Children[2].Today != nil ||
