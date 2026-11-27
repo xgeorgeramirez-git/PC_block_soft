@@ -17,6 +17,16 @@
 //	remote-phone notes   -state f.json                        (состояния сообщений из отчёта)
 //	remote-phone forbid-off -state f.json -child 3            (снять запрет на сегодня, FR-42)
 //	remote-phone forge-forbid-off -state f.json -child 3      (подпись чужим ключом)
+//	remote-phone bank    -state f.json -child 3 -min 30       (положить в копилку, FR-44; предел не
+//	                                                          проверяется: -min 601 уходит числом 601)
+//	remote-phone bank-clear -state f.json -child 3            (обнулить копилку)
+//	remote-phone forge-bank -state f.json -child 3 -min 30    (подпись чужим ключом)
+//	remote-phone promos  -state f.json                        (список промокодов, FR-45)
+//	remote-phone promo-create -state f.json -code SUMMER -min 30 [-raw-min '"30"']
+//	                                                          (-raw-min уходит в JSON как есть)
+//	remote-phone promo-gen -state f.json -count 5 -len 6 -charset mixed -min 15
+//	remote-phone promo-delete -state f.json -code SUMMER
+//	remote-phone decide  -state f.json -key <id из pending> -cat games   (решение о программе, FR-47)
 //
 // Вывод — одна строка JSON (с -human у status и today — строки для человека). Код выхода: 0 —
 // удалось, 2 — компьютер ответил отказом (ответ проверен подписью), 1 — любая другая ошибка
@@ -99,14 +109,15 @@ func main() {
 
 func (a *app) run(args []string) int {
 	if len(args) == 0 {
-		return a.emitErr(fail(errUsage, "нужна подкоманда: pair, confirm, cmd, status, today, forge-cmd, replay, note, forge-note, notes, forbid-off, forge-forbid-off"))
+		return a.emitErr(fail(errUsage, "нужна подкоманда: pair, confirm, cmd, status, today, forge-cmd, replay, note, forge-note, notes, forbid-off, forge-forbid-off, "+
+			"bank, bank-clear, forge-bank, promos, promo-create, promo-gen, promo-delete, decide"))
 	}
 	sub, rest := args[0], args[1:]
 	fs := flag.NewFlagSet(sub, flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	statePath := fs.String("state", "remote-phone.json", "файл состояния телефона")
 	rawURL := fs.String("url", "", "адрес сервера связи (pair)")
-	code := fs.String("code", "", "код привязки (pair)")
+	code := fs.String("code", "", "код привязки (pair) или промокод (promo-create, promo-delete)")
 	name := fs.String("name", "Тестовый телефон", "имя телефона (pair)")
 	child := fs.Int64("child", 0, "id ребёнка (cmd, forge-cmd)")
 	delta := fs.Int("delta", 0, "минуты доп. времени, со знаком (cmd, forge-cmd)")
@@ -115,6 +126,14 @@ func (a *app) run(args []string) int {
 	sticker := fs.String("sticker", "", "номер стикера из 3 цифр, уходит строкой как есть; пусто: поля нет (note, forge-note)")
 	sound := fs.String("sound", "", "номер звука, целое, уходит числом как есть (0: без звука); пусто: поля нет (note, forge-note)")
 	human := fs.Bool("human", false, "вывод для человека вместо JSON (status, today)")
+	var op opArgs
+	fs.IntVar(&op.min, "min", 0, "минуты (bank, forge-bank, promo-create, promo-gen)")
+	fs.StringVar(&op.rawMin, "raw-min", "", "поле min как есть, JSON (promo-create; проверка range)")
+	fs.IntVar(&op.count, "count", 0, "сколько кодов (promo-gen)")
+	fs.IntVar(&op.length, "len", 0, "длина кода (promo-gen)")
+	fs.StringVar(&op.charset, "charset", "", "состав: digits, letters, mixed (promo-gen)")
+	fs.StringVar(&op.key, "key", "", "id строки pending (decide)")
+	fs.StringVar(&op.cat, "cat", "", "категория: games, study, other, blocked (decide)")
 	if err := fs.Parse(rest); err != nil {
 		return a.emitErr(fail(errUsage, "%v", err))
 	}
@@ -126,9 +145,11 @@ func (a *app) run(args []string) int {
 		res, err = a.pair(*statePath, *rawURL, *code, *name)
 	case "confirm":
 		res, err = a.confirm(*statePath)
-	case "cmd", "forge-cmd", "replay", "forbid-off", "forge-forbid-off":
+	case "cmd", "forge-cmd", "replay", "forbid-off", "forge-forbid-off",
+		"bank", "bank-clear", "forge-bank", "promos", "promo-create", "promo-gen", "promo-delete", "decide":
 		var r cmdOut
-		r, err = a.command(*statePath, sub, *child, *delta)
+		op.child, op.delta, op.code = *child, *delta, *code
+		r, err = a.command(*statePath, sub, op)
 		res, rejected = r, err == nil && !r.OK
 	case "status":
 		var r statusOut
@@ -411,14 +432,83 @@ type cmdOut struct {
 	// Forbid, ForbidUntilMs — запретные часы ребёнка из отчёта в ответе (раздел 6).
 	Forbid        string `json:"forbid,omitempty"`
 	ForbidUntilMs int64  `json:"forbidUntilMs,omitempty"`
+	// BankMin — копилка ребёнка команды из отчёта в ответе (раздел 5в).
+	BankMin *int `json:"bankMin,omitempty"`
+	// Promos, Codes — список промокодов и новые коды из ответа promo* (раздел 5г); Report — отчёт
+	// в ответе целиком (pending, bankMin всех детей).
+	Promos *remote.PromoList `json:"promos,omitempty"`
+	Codes  []string          `json:"codes,omitempty"`
+	Report *remote.Report    `json:"report,omitempty"`
+}
+
+// opArgs — поля команды из флагов: child и delta (cmd, forbid-off) и поля разделов 5в–5д.
+type opArgs struct {
+	child             int64
+	delta, min        int
+	rawMin, code      string
+	count, length     int
+	charset, key, cat string
+}
+
+// opCommand — данные команды подкоманды sub (без подписи): seq и ts — следующего номера и сейчас.
+// Поля 5г, 5д пишутся сырыми в порядке структуры remote.Command (как у Android и векторов).
+// Пределы не проверяются: неверные значения уходят как есть (приёмка проверяет range).
+func opCommand(sub, pc, phone string, seq, ts int64, op opArgs) (remote.Command, error) {
+	c := remote.Command{V: remote.ProtoVersion, T: remote.TypeCmd, PC: pc, Phone: phone, Seq: seq, TS: ts, Child: op.child}
+	str := func(v string) json.RawMessage { raw, _ := json.Marshal(v); return raw }
+	num := func(n int) json.RawMessage { return json.RawMessage(strconv.Itoa(n)) }
+	switch sub {
+	case "cmd", "forge-cmd":
+		if op.child <= 0 || op.delta == 0 {
+			return c, fail(errUsage, "%s: нужны -child и -delta", sub)
+		}
+		c.Delta = op.delta
+	case "forbid-off", "forge-forbid-off":
+		if op.child <= 0 {
+			return c, fail(errUsage, "%s: нужен -child", sub)
+		}
+		c.Op = remote.OpNoForbidden
+	case "bank", "forge-bank":
+		if op.child <= 0 {
+			return c, fail(errUsage, "%s: нужен -child", sub)
+		}
+		c.Op, c.Delta = remote.OpBankAdd, op.min
+	case "bank-clear":
+		if op.child <= 0 {
+			return c, fail(errUsage, "%s: нужен -child", sub)
+		}
+		c.Op = remote.OpBankClear
+	case "promos":
+		c.Child, c.Op = 0, remote.OpPromoList
+	case "promo-create":
+		c.Child, c.Op, c.CodeRaw, c.MinRaw = 0, remote.OpPromoCreate, str(op.code), num(op.min)
+		if op.rawMin != "" {
+			c.MinRaw = json.RawMessage(op.rawMin)
+		}
+	case "promo-gen":
+		c.Child, c.Op = 0, remote.OpPromoGen
+		c.MinRaw, c.CountRaw, c.LenRaw, c.CharsetRaw = num(op.min), num(op.count), num(op.length), str(op.charset)
+	case "promo-delete":
+		c.Child, c.Op, c.CodeRaw = 0, remote.OpPromoDelete, str(op.code)
+	case "decide":
+		if op.key == "" || op.cat == "" {
+			return c, fail(errUsage, "decide: нужны -key и -cat")
+		}
+		c.Child, c.Op, c.KeyRaw, c.CatRaw = 0, remote.OpDecide, str(op.key), str(op.cat)
+	default:
+		return c, fail(errUsage, "неизвестная подкоманда %q", sub)
+	}
+	return c, nil
 }
 
 // command — cmd: новая команда со следующим seq, подписанная ключом телефона; forge-cmd — та же
 // команда, но подписанная только что созданным чужим ключом (seq не тратится); replay — последняя
 // отправленная команда байт в байт (тот же seq); forbid-off — «снять запрет на сегодня» (op
-// noForbidden, без delta, протокол 5б), forge-forbid-off — она же чужим ключом. Ответ cmdr
-// принимается, только если подпись компьютера верна и cmd — хэш нашей команды.
-func (a *app) command(statePath, sub string, child int64, delta int) (cmdOut, error) {
+// noForbidden, без delta, протокол 5б), forge-forbid-off — она же чужим ключом; bank, bank-clear,
+// forge-bank — копилка (5в); promos, promo-create, promo-gen, promo-delete — промокоды (5г);
+// decide — решение о программе (5д). Ответ cmdr принимается, только если подпись компьютера верна
+// и cmd — хэш нашей команды.
+func (a *app) command(statePath, sub string, op opArgs) (cmdOut, error) {
 	st, err := loadState(statePath)
 	if err != nil {
 		return cmdOut{}, err
@@ -426,6 +516,7 @@ func (a *app) command(statePath, sub string, child int64, delta int) (cmdOut, er
 	if !st.Confirmed {
 		return cmdOut{}, fail(errNotConfirmed, "сначала confirm")
 	}
+	forged := strings.HasPrefix(sub, "forge-")
 	var signed remote.Signed
 	switch sub {
 	case "replay":
@@ -434,17 +525,9 @@ func (a *app) command(statePath, sub string, child int64, delta int) (cmdOut, er
 		}
 		signed = *st.LastCmd
 	default:
-		forbid := sub == "forbid-off" || sub == "forge-forbid-off"
-		switch {
-		case forbid && child <= 0:
-			return cmdOut{}, fail(errUsage, "%s: нужен -child", sub)
-		case !forbid && (child <= 0 || delta == 0):
-			return cmdOut{}, fail(errUsage, "%s: нужны -child и -delta", sub)
-		}
-		c := remote.Command{V: remote.ProtoVersion, T: remote.TypeCmd, PC: st.PCID, Phone: st.PhoneID,
-			Seq: st.Seq + 1, TS: a.now().UnixMilli(), Child: child, Delta: delta}
-		if forbid {
-			c.Delta, c.Op = 0, remote.OpNoForbidden
+		c, err := opCommand(sub, st.PCID, st.PhoneID, st.Seq+1, a.now().UnixMilli(), op)
+		if err != nil {
+			return cmdOut{}, err
 		}
 		data, err := json.Marshal(c)
 		if err != nil {
@@ -454,7 +537,7 @@ func (a *app) command(statePath, sub string, child int64, delta int) (cmdOut, er
 		if err != nil {
 			return cmdOut{}, err
 		}
-		if sub == "forge-cmd" || sub == "forge-forbid-off" {
+		if forged {
 			if key, err = remote.NewKey(); err != nil {
 				return cmdOut{}, err
 			}
@@ -462,7 +545,7 @@ func (a *app) command(statePath, sub string, child int64, delta int) (cmdOut, er
 		if signed, err = remote.Sign(key, data); err != nil {
 			return cmdOut{}, err
 		}
-		if sub == "cmd" || sub == "forbid-off" {
+		if !forged {
 			// seq записан до отправки: повтор (replay) берёт ровно эту команду.
 			st.Seq, st.LastCmd = c.Seq, &signed
 			if err := saveState(statePath, st); err != nil {
@@ -508,17 +591,18 @@ func (a *app) command(statePath, sub string, child int64, delta int) (cmdOut, er
 	if res.T != remote.TypeCmdR || res.PC != st.PCID || res.Phone != st.PhoneID || res.Cmd != remote.HashData(data) {
 		return cmdOut{}, fail(errBadSig, "cmdr не на нашу команду (t=%q, cmd совпал: %v)", res.T, res.Cmd == remote.HashData(data))
 	}
-	out := cmdOut{OK: res.OK, Message: res.Message, Error: res.Error, Ms: ms, Seq: sent.Seq, LastSeq: res.LastSeq}
+	out := cmdOut{OK: res.OK, Message: res.Message, Error: res.Error, Ms: ms, Seq: sent.Seq, LastSeq: res.LastSeq,
+		Promos: res.Promos, Codes: res.Codes, Report: res.Report}
 	if res.Report != nil {
 		for _, ch := range res.Report.Children {
 			if ch.ID == sent.Child {
-				left := ch.LeftSec
-				out.LeftSec = &left
+				left, bank := ch.LeftSec, ch.BankMin
+				out.LeftSec, out.BankMin = &left, &bank
 				out.Forbid, out.ForbidUntilMs = ch.Forbid, ch.ForbidUntilMs
 			}
 		}
 	}
-	if !res.OK && res.LastSeq != nil && *res.LastSeq > st.Seq && (sub == "cmd" || sub == "forbid-off") {
+	if !res.OK && res.LastSeq != nil && *res.LastSeq > st.Seq && sub != "replay" && !forged {
 		// Компьютер помнит больший номер (например, после перезапуска телефона): догоняем.
 		st.Seq = *res.LastSeq
 		_ = saveState(statePath, st)
@@ -536,6 +620,9 @@ type statusOut struct {
 	ReportTS     int64                `json:"reportTs"`
 	Children     []remote.ChildReport `json:"children"`
 	Notes        []remote.NoteReport  `json:"notes"`
+	// Pending, PendingCount — ждущие решения программы (раздел 6); у детей — bankMin.
+	Pending      []remote.PendingReport `json:"pending"`
+	PendingCount int                    `json:"pendingCount"`
 }
 
 // status — GET /v1/phone/status: доступность по pcLastSeenMs и отчёт, проверенный подписью
@@ -559,6 +646,7 @@ func (a *app) status(statePath string) (statusOut, error) {
 	out := statusOut{
 		Online:       resp.PCLastSeenMs > 0 && resp.ServerNowMs-resp.PCLastSeenMs <= 60_000,
 		PCLastSeenMs: resp.PCLastSeenMs, ServerNowMs: resp.ServerNowMs, Children: []remote.ChildReport{}, Notes: []remote.NoteReport{},
+		Pending: []remote.PendingReport{},
 	}
 	if len(resp.Report) == 0 || string(resp.Report) == "null" {
 		return out, nil
@@ -589,6 +677,10 @@ func (a *app) status(statePath string) (statusOut, error) {
 	if rep.Notes != nil {
 		out.Notes = rep.Notes
 	}
+	if rep.Pending != nil {
+		out.Pending = rep.Pending
+	}
+	out.PendingCount = rep.PendingCount
 	return out, nil
 }
 
