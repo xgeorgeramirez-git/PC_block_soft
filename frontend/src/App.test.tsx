@@ -332,7 +332,7 @@ describe("меню окна родителя", () => {
     await user.click(item);
     expect(item.getAttribute("aria-current")).toBe("page");
     const versions = (await screen.findAllByRole("heading", { level: 3 })).map((h) => h.textContent);
-    expect(versions[0]).toBe("Версия 0.8.3. Сообщение со стикером и звуком");
+    expect(versions[0]).toBe("Версия 0.8.4. Новый вид, копилка и промокоды с телефона");
     expect(screen.queryByRole("heading", { name: "Помощь" })).toBeNull();
   });
 
