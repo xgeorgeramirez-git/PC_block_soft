@@ -52,15 +52,15 @@ body=f'''<div style="width: 1040px; height: 680px; box-sizing: border-box; paddi
         <div style="{outl(26,'#D9D3FF',3)}">с 21:00 до 07:00</div>
       </div>
     </div>
-    <div style="width: 330px; display: flex; flex-direction: column; gap: 8px; justify-content: center">
-      <button style="{btn('gold',72,22,24,'width: 100%')}">Попросить ещё</button>
-      <div style="font-weight: 600; font-size: 14px; color: #C7D4FF; text-align: center">родитель введёт пароль, и время добавится</div>
+    <div style="display: flex; gap: 14px; align-items: center">
+      <button style="{btn('green',72,22,21,'width: 250px; padding: 0; display: flex; align-items: center; justify-content: center; gap: 10px')}">{coin(34)}Взять из копилки</button>
+      <button style="{btn('gold',72,22,22,'width: 250px; padding: 0')}">Попросить ещё</button>
     </div>
   </div>
 
   <div style="display: flex; justify-content: space-between; align-items: center">
     <div style="display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 15px">{badge('check','#22B573',28,16)}Нарушений сегодня нет</div>
-    <a href="#" style="font-weight: 800; font-size: 15px">Вся моя статистика</a>
+    <div style="display: flex; gap: 24px"><a href="#" style="font-weight: 800; font-size: 15px">Вся моя статистика</a><a href="#" style="font-weight: 600; font-size: 14px; color: #C7D4FF">Настройки для родителя</a></div>
   </div>
 </div>'''
 open('../project/Lobby.dc.html','w',encoding='utf-8').write(page('Окно ребёнка: игровое лобби',1040,680,body))
