@@ -41,6 +41,8 @@ fun Problem.res(): Int = when (this) {
     Problem.PROMO_MINUTES -> R.string.err_promo_minutes
     Problem.PROMO_COUNT -> R.string.err_promo_count
     Problem.PROMO_LEN -> R.string.err_promo_len
+    Problem.PROMO_RANGE -> R.string.err_promo_range
+    Problem.DECIDE_RANGE -> R.string.err_decide_range
 }
 
 /** «19:05» или «17.11 19:05» по местному времени телефона. */

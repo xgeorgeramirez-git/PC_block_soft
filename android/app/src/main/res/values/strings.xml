@@ -163,6 +163,8 @@
     <string name="err_promo_minutes">Можно от 1 до 600 минут</string>
     <string name="err_promo_count">Можно от 1 до 50 кодов</string>
     <string name="err_promo_len">Длина от 4 до 12 знаков</string>
+    <string name="err_promo_range">Проверьте код и минуты</string>
+    <string name="err_decide_range">Не удалось отправить решение, обновите список</string>
     <string name="bank_put">Положить</string>
     <string name="bank_put_one">Положить %1$d минуту</string>
     <string name="bank_put_few">Положить %1$d минуты</string>

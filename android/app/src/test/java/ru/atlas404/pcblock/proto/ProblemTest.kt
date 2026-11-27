@@ -28,6 +28,18 @@ class ProblemTest {
         assertEquals("Можно от 1 до 240 минут", text("range", Proto.OP_NO_FORBIDDEN))
     }
 
+    /**
+     * Ruling 7 T3: range у промокодов и решения — свои тексты, а не «от 1 до 240 минут». Телефон
+     * проверяет поля сам, range приходит, только если компьютер прочёл поле иначе.
+     */
+    @Test
+    fun rangeOfPromosAndDecide() {
+        for (op in listOf(Proto.OP_PROMO_LIST, Proto.OP_PROMO_CREATE, Proto.OP_PROMO_GEN, Proto.OP_PROMO_DELETE)) {
+            assertEquals(op, "Проверьте код и минуты", text("range", op))
+        }
+        assertEquals("Не удалось отправить решение, обновите список", text("range", Proto.OP_DECIDE))
+    }
+
     @Test
     fun promoRejects() {
         assertEquals("Такой код уже есть, придумайте другой", text("promo_exists", Proto.OP_PROMO_CREATE))
