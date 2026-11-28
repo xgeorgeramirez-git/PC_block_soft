@@ -103,16 +103,27 @@ describe("«Игровое лобби»: текст", () => {
     expect(rule(".shell-child :focus-visible")).toMatch(/outline:\s*3px solid #ffe066/);
   });
 
-  // Ловит (L-17): недоступная «Взять из копилки» выглядит рабочей.
-  it("недоступная кнопка — пунктир и курсор запрета", () => {
+  // Ловит (L-17; возврат T6, п. 3): недоступная «Взять из копилки» выглядит рабочей (зелёной), её текст
+  // бледный (3:1) или пунктир рамки путается с кольцом фокуса.
+  it("недоступная кнопка — тёмно-синяя, не зелёная, текст ≥ 4,5 к каждой точке фона, без пунктира", () => {
     const r = lobby.slice(lobby.indexOf('.lb-btn[aria-disabled="true"],'));
-    const body = r.slice(0, r.indexOf("}"));
-    expect(body).toMatch(/border-style:\s*dashed/);
+    const body = r.slice(0, r.indexOf("}")).toLowerCase();
     expect(body).toMatch(/cursor:\s*not-allowed/);
+    expect(body).not.toMatch(/dashed|dotted/);
+    const v = (name: string) => new RegExp(`--lb-${name}:\\s*(#[0-9a-f]{6})`).exec(body)?.[1] ?? "";
+    const [a, b, t] = [v("a"), v("b"), v("t")];
+    expect([a, b, t].every((c) => c.length === 7), `цвета недоступной кнопки: ${body}`).toBe(true);
+    expect([a, b]).not.toContain("#7cf29b");
+    expect([a, b]).not.toContain("#2fcb5c");
+    expect(ratio(t, a)).toBeGreaterThanOrEqual(4.5);
+    expect(ratio(t, b)).toBeGreaterThanOrEqual(4.5);
   });
 
-  // Ловит (R-9): в окне 640…760 px плитки стоят в ряд и сжимают числа.
-  it("уже 760 px плитки в столбец", () => {
-    expect(lobby).toMatch(/@media \(max-width: 760px\)[\s\S]*\.lb-tiles \{\s*flex-direction: column;/);
+  // Ловит (R-9; возврат T6, п. 4): в окне 640…880 px плитки стоят в ряд и переносят «Без лимита» и
+  // «Видео и соцсети»; в ряд значения трёх плиток на разной высоте.
+  it("уже 880 px плитки в столбец; в ряд — общая сетка строк, значения в одну строку", () => {
+    expect(lobby).toMatch(/@media \(max-width: 880px\) \{\s*\.lb-tiles \{\s*grid-template-columns: minmax\(0, 1fr\);/);
+    expect(rule(".lb-tile")).toMatch(/grid-template-rows:\s*subgrid/);
+    expect(rule(".lb-tile-value")).toMatch(/white-space:\s*nowrap/);
   });
 });

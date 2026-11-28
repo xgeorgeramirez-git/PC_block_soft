@@ -115,6 +115,115 @@ async function bigRemainFits(page: Page, where: string) {
   expect(ok, `${where}: крупное число не целиком ${JSON.stringify(r)}`).toBe(true);
 }
 
+/**
+ * «Сегодня» целиком в клиентской области штатного окна 1000 x 700 (около 1000 x 660 без заголовка и рамки
+ * Windows; возврат T6, п. 2): прокрутки нет, подвал, кнопки и пояснение видны целиком; «потратил … из …»
+ * справа в строке крупного остатка, как во всех состояниях.
+ */
+async function todayFits(page: Page, where: string) {
+  const over = await page.locator("main.content").evaluate((el) => el.scrollHeight - el.clientHeight);
+  expect(over, `${where}: «Сегодня» прокручивается на ${over} px`).toBeLessThanOrEqual(1);
+  const must = [
+    page.locator(".lb-violations"),
+    page.getByRole("button", { name: "Вся моя статистика" }),
+    page.getByRole("button", { name: "Настройки для родителя" }),
+    page.getByRole("button", { name: "Взять из копилки" }),
+    page.getByRole("button", { name: "Попросить ещё" }),
+    page.getByRole("region", { name: "Осталось сегодня" }),
+  ];
+  for (const l of must) await expect(l, where).toBeInViewport({ ratio: 1 });
+  for (const extra of [page.locator(".lb-note"), page.getByRole("region", { name: "Ночью компьютер спит" })]) {
+    if ((await extra.count()) > 0) await expect(extra, where).toBeInViewport({ ratio: 1 });
+  }
+  const g = await page.getByRole("region", { name: "Осталось сегодня" }).evaluate((main) => {
+    const r = (q: string) => main.querySelector(q)!.getBoundingClientRect();
+    const row = r(".lb-main-row");
+    const big = r(".lb-left-value");
+    const spent = main.querySelector(".lb-spent") ? r(".lb-spent") : null;
+    return { rowRight: row.right, bigTop: big.top, bigBottom: big.bottom, spent: spent && { right: spent.right, top: spent.top, bottom: spent.bottom } };
+  });
+  if (g.spent) {
+    expect(Math.abs(g.spent.right - g.rowRight), `${where}: «потратил» не у правого края ${JSON.stringify(g)}`).toBeLessThanOrEqual(1);
+    expect(g.spent.top < g.bigBottom && g.spent.bottom > g.bigTop, `${where}: «потратил» не в строке остатка ${JSON.stringify(g)}`).toBe(true);
+  }
+}
+
+/**
+ * Плитки (возврат T6, п. 4): уже 880 px — столбец (каждая следующая ниже предыдущей); шире — в ряд, значения
+ * трёх плиток на одной высоте и каждое одной строкой («Без лимита» не переносится).
+ */
+async function tilesLayout(page: Page, where: string) {
+  const w = page.viewportSize()!.width;
+  const t = await page.locator(".lb-tiles").evaluate((box) =>
+    [...box.querySelectorAll(".lb-tile")].map((tile) => {
+      const b = tile.getBoundingClientRect();
+      const v = tile.querySelector(".lb-tile-value")!;
+      const vr = v.getBoundingClientRect();
+      const range = document.createRange();
+      range.selectNodeContents(v);
+      const lines = new Set([...range.getClientRects()].map((x) => Math.round(x.top))).size;
+      return { top: b.top, bottom: b.bottom, valueTop: vr.top, lines, sw: (v as HTMLElement).scrollWidth, cw: (v as HTMLElement).clientWidth, text: v.textContent };
+    }),
+  );
+  const bad: string[] = [];
+  if (t.length !== 3) bad.push(`плиток ${t.length}`);
+  t.forEach((x, i) => {
+    if (x.lines !== 1) bad.push(`«${x.text}» в ${x.lines} строки`);
+    if (x.sw > x.cw + 1) bad.push(`«${x.text}» обрезано`);
+    if (w <= 880 && i > 0 && x.top < t[i - 1].bottom - 0.5) bad.push(`плитка ${i} не под плиткой ${i - 1}`);
+    if (w > 880 && Math.abs(x.valueTop - t[0].valueTop) > 1) bad.push(`значение «${x.text}» не на высоте первой плитки`);
+    if (w > 880 && Math.abs(x.top - t[0].top) > 1) bad.push(`плитка ${i} не в ряд`);
+  });
+  expect(bad, `${where}: ${bad.join("; ")} | ${JSON.stringify(t)}`).toEqual([]);
+}
+
+/**
+ * Контраст текста подвала к синему фону окна ребёнка (radial-gradient(ellipse 90% 70% at 50% 25%, #4a86ff 0%,
+ * #2a5ce0 45%, #15318c 100%)): цвет фона в центре текста по формуле градиента, не ниже 4,5:1 (возврат T6, п. 6).
+ */
+async function footContrast(page: Page, where: string) {
+  const bad = await page.evaluate(() => {
+    const shell = document.querySelector(".shell-child")!.getBoundingClientRect();
+    const stops: [number, number[]][] = [
+      [0, [0x4a, 0x86, 0xff]],
+      [0.45, [0x2a, 0x5c, 0xe0]],
+      [1, [0x15, 0x31, 0x8c]],
+    ];
+    const at = (x: number, y: number) => {
+      const t = Math.hypot((x - shell.left - shell.width * 0.5) / (shell.width * 0.9), (y - shell.top - shell.height * 0.25) / (shell.height * 0.7));
+      for (let i = 1; i < stops.length; i++) {
+        if (t <= stops[i][0]) {
+          const k = (t - stops[i - 1][0]) / (stops[i][0] - stops[i - 1][0]);
+          return stops[i - 1][1].map((v, j) => v + (stops[i][1][j] - v) * k);
+        }
+      }
+      return stops[stops.length - 1][1];
+    };
+    const lum = (c: number[]) => {
+      const [r, g, b] = c.map((v) => {
+        const x = v / 255;
+        return x <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4;
+      });
+      return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    };
+    const out: string[] = [];
+    for (const el of document.querySelectorAll(".lb-foot .lb-link, .lb-foot .lb-violations")) {
+      const b = el.getBoundingClientRect();
+      const bg = at(b.left + b.width / 2, b.top + b.height / 2);
+      const fg = getComputedStyle(el).color.match(/\d+/g)!.slice(0, 3).map(Number);
+      const [x, y] = [lum(fg), lum(bg)].sort((p, q) => q - p);
+      const r = (x + 0.05) / (y + 0.05);
+      if (r < 4.5) out.push(`«${el.textContent}» ${r.toFixed(2)}:1 на rgb(${bg.map(Math.round).join(",")})`);
+    }
+    return out;
+  });
+  expect(bad, `${where}: ${bad.join("; ")}`).toEqual([]);
+}
+
+/** Лимит 2 ч, игры 1 ч и видео 30 мин на каждый день — плитки с полосками (child.py). */
+const tilesWeek = () =>
+  [1, 2, 3, 4, 5, 6, 7].map((weekday) => ({ weekday, totalMin: 120, unlimited: false, gamesMin: 60, gamesUnlimited: false, videoMin: 30, videoUnlimited: false }));
+
 /** Лимит 2 ч на каждый день: снимок не зависит от дня недели, в который идёт сборка. */
 const everyDay = (totalMin: number) =>
   [1, 2, 3, 4, 5, 6, 7].map((weekday) => ({ weekday, totalMin, unlimited: false }));
@@ -556,9 +665,10 @@ test("s05 настройки", async ({ page }) => {
 // «Сегодня» — привет и дата, копилка и «Ввести код», остаток с талисманом и шкалой, плитки, ночь, кнопки
 // времени, нарушения и ссылки. Ребёнок видит только своё: ни полей, ни слов окна родителя, ни других детей.
 test("s06 моя статистика ребёнка", async ({ page }) => {
-  await page.setViewportSize({ width: 1000, height: 700 });
+  // Клиентская область штатного окна 1000 x 700 (R-9) без заголовка и рамки Windows.
+  await page.setViewportSize({ width: 1000, height: 660 });
   const kids = family();
-  kids[0] = child({ usedS: 2100, bonusBalance: 45, schedule: nightEveryDay });
+  kids[0] = child({ usedS: 2100, gamesUsedS: 2400, videoUsedS: 600, limits: tilesWeek(), bonusBalance: 45, schedule: nightEveryDay });
   await mockProgram(page, { mode: "mystats", children: kids, myChildId: 1 });
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "Моя статистика", level: 1 })).toBeAttached();
@@ -573,6 +683,15 @@ test("s06 моя статистика ребёнка", async ({ page }) => {
   await expect(mascot).toHaveAttribute("alt", "");
   expect(await mascot.evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 0), "картинка талисмана не загрузилась").toBe(true);
   for (const name of ["Игры", "Видео и соцсети", "Учёба"]) await expect(page.getByRole("region", { name, exact: true })).toBeVisible();
+  // Плитки с лимитом (child.py): «20 мин», полоска, «осталось из 1 часа» / «из 30 минут».
+  const games = page.getByRole("region", { name: "Игры", exact: true });
+  await expect(games.locator(".lb-tile-value")).toHaveText("20 мин");
+  await expect(games.locator(".lb-tile-sub")).toHaveText("осталось из 1 часа");
+  await expect(games.locator(".lb-bar-fill")).toHaveCount(1);
+  const video = page.getByRole("region", { name: "Видео и соцсети", exact: true });
+  await expect(video.locator(".lb-tile-value")).toHaveText("20 мин");
+  await expect(video.locator(".lb-tile-sub")).toHaveText("осталось из 30 минут");
+  await tilesLayout(page, "окно 1000 x 660");
   await expect(page.getByRole("region", { name: "Ночью компьютер спит" }).getByText("с 21:00 до 07:00")).toBeVisible();
   for (const name of ["Ввести код", "Взять из копилки", "Попросить ещё", "Вся моя статистика", "Настройки для родителя"]) {
     await expect(page.getByRole("button", { name, exact: true })).toBeVisible();
@@ -583,24 +702,27 @@ test("s06 моя статистика ребёнка", async ({ page }) => {
   await expect(page.getByRole("textbox")).toHaveCount(0);
   await expect(page.getByText("Родительский контроль")).toHaveCount(0);
   await expect(page.getByText("Даша")).toHaveCount(0);
-  await bigRemainFits(page, "окно 1000 x 700");
+  await bigRemainFits(page, "окно 1000 x 660");
+  await todayFits(page, "окно 1000 x 660");
+  await footContrast(page, "окно 1000 x 660");
   await noHorizontalScroll(page);
   await page.screenshot({ path: `${SCREENS}/s06-my-stats.png` });
-  await wholePage(page);
-  await inFrame(page, page.getByRole("button", { name: "Настройки для родителя" }));
 });
 
 // s06 — талисман по остатку (8.2.6 п. 1, D-112): > 60 мин — 033, 16…60 — 093, 1…15 — 031, время вышло — 048,
-// запретные часы — 104; шкала-энергия своего цвета; по снимку на каждый талисман в окне 1000 x 700.
-for (const [mascot, over, big] of [
-  ["033", { usedS: 2100 }, "1 ч 25 мин"],
-  ["093", { usedS: 5400 }, "30 мин"],
-  ["031", { usedS: 6600 }, "10 мин"],
-  ["048", { usedS: 7200 }, "0 мин"],
-  ["104", { usedS: 2100, forbiddenUntil: "Можно снова: сегодня в 07:00" }, "Сейчас нельзя"],
+// запретные часы — 104, пауза — 033; шкала-энергия своего цвета и по остатку, у 048 и 104 пустая (moods.py);
+// «Взять из копилки» недоступна только в запретные часы (FR-11), после «время вышло» — доступна (FR-6).
+// Весь «Сегодня» без прокрутки в клиентской области 1000 x 660 в каждом состоянии; по снимку на каждое.
+for (const [name, mascot, over, big, fill, spendOff] of [
+  ["033", "033", { usedS: 2100 }, "1 ч 25 мин", "70.8%", false],
+  ["093", "093", { usedS: 5400 }, "30 мин", "25%", false],
+  ["031", "031", { usedS: 6600 }, "10 мин", "8.3%", false],
+  ["048", "048", { usedS: 7200 }, "0 мин", "0%", false],
+  ["104", "104", { usedS: 2100, forbiddenUntil: "Можно снова: сегодня в 07:00" }, "Сейчас нельзя", "0%", true],
+  ["pause", "033", { usedS: 6600, pauseUntil: "18:30" }, "Пауза до 18:30", "8.3%", false],
 ] as const) {
-  test(`s06 моя статистика: талисман ${mascot}`, async ({ page }) => {
-    await page.setViewportSize({ width: 1000, height: 700 });
+  test(`s06 моя статистика: талисман ${name}`, async ({ page }) => {
+    await page.setViewportSize({ width: 1000, height: 660 });
     await mockProgram(page, { mode: "mystats", children: [child({ bonusBalance: 45, schedule: nightEveryDay, ...over })], myChildId: 1 });
     await page.goto("/");
     const left = page.getByRole("region", { name: "Осталось сегодня" });
@@ -609,8 +731,18 @@ for (const [mascot, over, big] of [
     await expect(img).toHaveAttribute("src", new RegExp(`/${mascot}-[^/]*\\.png$`));
     expect(await img.evaluate((el: HTMLImageElement) => el.complete && el.naturalWidth > 0), "картинка талисмана не загрузилась").toBe(true);
     await expect(left.locator(".lb-left-value")).toHaveText(big);
+    await expect(left.locator(".lb-bar-fill")).toHaveAttribute("style", new RegExp(`width: ${fill.replace(".", "\\.")};`));
+    const spend = page.getByRole("button", { name: "Взять из копилки" });
+    if (spendOff) {
+      await expect(spend).toHaveAttribute("aria-disabled", "true");
+      await expect(spend).toHaveAccessibleDescription("Из копилки можно взять с 07:00");
+    } else {
+      await expect(spend).not.toHaveAttribute("aria-disabled", "true");
+      await expect(page.locator(".lb-note")).toHaveCount(0);
+    }
+    await todayFits(page, `талисман ${name}, окно 1000 x 660`);
     await noHorizontalScroll(page);
-    await page.screenshot({ path: `${SCREENS}/s06-my-stats-mascot-${mascot}.png` });
+    await page.screenshot({ path: `${SCREENS}/s06-my-stats-mascot-${name}.png` });
   });
 }
 
@@ -618,9 +750,15 @@ for (const [mascot, over, big] of [
 // «Мои правила»; «← Сегодня» возвращает к остатку.
 test("s06 моя статистика: вся статистика", async ({ page }) => {
   await page.setViewportSize({ width: 1000, height: 700 });
-  await mockProgram(page, { mode: "mystats", children: [child({ usedS: 2100, bonusBalance: 45, schedule: nightEveryDay, programsToday: s39Programs })], myChildId: 1 });
+  // Данные согласованы, как у службы: итоги дня (usedS, gamesUsedS, studyUsedS) = сумма программ дня.
+  await mockProgram(page, { mode: "mystats", children: [{ ...s39Child(), bonusBalance: 45, schedule: nightEveryDay }], myChildId: 1 });
   await page.goto("/");
   await openAllStats(page);
+  const totals = page.getByRole("region", { name: "Итоги" });
+  const value = (name: string) => totals.getByRole("tab", { name, exact: true }).locator(".totals-tab-value");
+  await expect(value("Игры")).toHaveText("17 мин");
+  await expect(value("Учёба")).toHaveText("3 мин");
+  await expect(value("Прочее")).toHaveText("5 мин");
   const back = page.getByRole("button", { name: "Вернуться к «Сегодня»" });
   await expect(back).toBeFocused();
   await expect(page.getByRole("heading", { name: "Вся моя статистика" })).toBeVisible();
@@ -634,7 +772,7 @@ test("s06 моя статистика: вся статистика", async ({ pa
   await inFrame(page, page.getByRole("region", { name: "Мои правила" }));
   await page.screenshot({ path: `${SCREENS}/s06-my-stats-all.png`, fullPage: true });
   await back.click();
-  await expect(page.getByRole("region", { name: "Осталось сегодня" }).locator(".lb-left-value")).toHaveText("1 ч 25 мин");
+  await expect(page.getByRole("region", { name: "Осталось сегодня" }).locator(".lb-left-value")).toHaveText("1 ч 38 мин");
 });
 
 test("s06 первый вход ребёнка", async ({ page }) => {
@@ -646,6 +784,10 @@ test("s06 первый вход ребёнка", async ({ page }) => {
   await expect(page.getByRole("button", { name: "Понятно" })).toBeVisible();
   await expect(page.getByText("Родительский контроль")).toHaveCount(0);
   await expect(page.locator(".lobby.lb-first")).toBeVisible();
+  // Карточка по центру окна и по высоте (возврат T6, п. 6), а не прижата к верху.
+  const [card, area] = await Promise.all([boxOf(page.locator(".first-run")), boxOf(page.locator("main.content"))]);
+  expect(Math.abs(card.top + card.height / 2 - (area.top + area.height / 2)), `карточка не по центру: ${JSON.stringify({ card, area })}`).toBeLessThanOrEqual(12);
+  expect(Math.abs(card.left + card.width / 2 - (area.left + area.width / 2)), "карточка не по центру по ширине").toBeLessThanOrEqual(12);
   await noHorizontalScroll(page);
   await page.screenshot({ path: `${SCREENS}/s06-first-run.png`, fullPage: true });
 });
@@ -783,6 +925,9 @@ test("s06 моя статистика: сегодня с кнопками", asyn
   await page.screenshot({ path: `${SCREENS}/s06-my-stats-today.png`, fullPage: true });
   const dialog = await openPromo(page);
   await expect(dialog.getByRole("button", { name: "Ввести промокод" })).toBeInViewport({ ratio: 1 });
+  // Поле и кнопка по одному левому краю (возврат T6, п. 6).
+  const [field, send] = await Promise.all([boxOf(dialog.getByRole("textbox", { name: "Промокод" })), boxOf(dialog.getByRole("button", { name: "Ввести промокод" }))]);
+  expect(Math.abs(field.left - send.left), `кнопка смещена относительно поля: ${JSON.stringify({ field, send })}`).toBeLessThanOrEqual(1);
   await expect(page.getByRole("textbox")).toHaveCount(1);
   await page.screenshot({ path: `${SCREENS}/s06-my-stats-code.png` });
   await page.keyboard.press("Escape");
@@ -805,7 +950,7 @@ for (const [w, h] of [
     await page.setViewportSize({ width: w, height: h });
     await mockProgram(page, {
       mode: "mystats",
-      children: [child({ usedS: 2100, bonusBalance: 45, schedule: nightEveryDay })],
+      children: [child({ usedS: 2100, gamesUsedS: 2400, videoUsedS: 600, limits: tilesWeek(), bonusBalance: 45, schedule: nightEveryDay })],
       myChildId: 1,
     });
     await page.goto("/");
@@ -854,23 +999,22 @@ for (const [w, h] of [
     await expect(page.locator("header.topbar")).toBeHidden();
     expect(await page.evaluate(() => document.scrollingElement?.scrollTop ?? 0)).toBe(0);
     await bigRemainFits(page, `окно ${w} x ${h}`);
-    // Уже 760 px плитки в столбец (R-9), шире — в ряд.
-    const tiles = await Promise.all(["Игры", "Видео и соцсети", "Учёба"].map((name) => boxOf(page.getByRole("region", { name, exact: true }))));
-    if (w < 760) expect(tiles[1].top, `окно ${w} x ${h}: плитки не в столбец`).toBeGreaterThanOrEqual(tiles[0].bottom - 0.5);
-    else expect(Math.abs(tiles[1].top - tiles[0].top) + Math.abs(tiles[2].top - tiles[0].top), `окно ${w} x ${h}: плитки не в ряд`).toBeLessThanOrEqual(1);
+    // Уже 880 px плитки в столбец (R-9, возврат T6), шире — в ряд со значениями на одной высоте.
+    await tilesLayout(page, `окно ${w} x ${h}`);
+    await footContrast(page, `окно ${w} x ${h}`);
     const max = await scroller.evaluate((el) => el.scrollHeight - el.clientHeight);
-    const shot = (w === 800 && (h === 640 || h === 480)) || w === 1000 ? h : 0;
+    // Имя снимка — настоящий размер окна (ширина x высота).
+    const shot = (w === 800 && (h === 640 || h === 480)) || w === 1000 || w === 640;
     for (const [label, frac] of [["top", 0], ["mid", 0.5], ["bottom", 1]] as const) {
       await scroller.evaluate((el, top) => el.scrollTo(0, top), Math.round(max * frac));
       await noOverlap();
       expect(await page.evaluate(() => document.scrollingElement?.scrollTop ?? 0)).toBe(0);
-      if (shot && (max > 0 || label === "top")) await page.screenshot({ path: `${SCREENS}/s06-my-stats-${w === 1000 ? "1000-" : ""}${shot}-${label}.png` });
+      if (shot && (max > 0 || label === "top")) await page.screenshot({ path: `${SCREENS}/s06-my-stats-${w}x${h}-${label}.png` });
     }
     // Низ: «Настройки для родителя» достижима прокруткой и стоит под всем содержимым.
     await expect(page.getByRole("button", { name: "Настройки для родителя" })).toBeInViewport({ ratio: 1 });
     await expect(page.locator(".lb-violations")).toBeInViewport({ ratio: 1 });
     await noHorizontalScroll(page);
-    if (w === 640) await page.screenshot({ path: `${SCREENS}/s06-my-stats-small.png` });
   });
 }
 
@@ -902,7 +1046,7 @@ for (const dsf of [1, 1.5]) {
           expect(await scroller.evaluate((el) => el.getBoundingClientRect().top)).toBe(top);
         }
         await scroller.evaluate((el) => el.scrollTo(0, 0));
-        if (h === 640) await page.screenshot({ path: `${SCREENS}/s06-my-stats-640-top${dsf === 1 ? "" : "-150"}.png` });
+        if (h === 640 && dsf !== 1) await page.screenshot({ path: `${SCREENS}/s06-my-stats-800x640-top-scale150.png` });
       });
     }
   });
@@ -3285,6 +3429,14 @@ for (const [scheme, w, h] of [
     await expect(barHits(page)).toHaveCount(7);
     await expect(page.getByRole("table", { name: "Программы" }).locator("tbody tr")).toHaveCount(3);
     await expect(page.getByRole("list", { name: "Нарушения" }).getByRole("listitem")).toHaveCount(1);
+    // Строка нарушения — панель лобби со скруглением не больше 16 px, не капсула (возврат T6, п. 6).
+    const radii = await page.getByRole("list", { name: "Нарушения" }).evaluate((list) =>
+      [list, ...list.querySelectorAll("li")].map((el) => {
+        const cs = getComputedStyle(el);
+        return [cs.borderTopLeftRadius, cs.borderBottomRightRadius].map((v) => parseFloat(v) || 0);
+      }),
+    );
+    expect(radii.flat().every((r) => r <= 16), `скругление нарушений ${JSON.stringify(radii)}`).toBe(true);
     await expect(page.getByRole("textbox")).toHaveCount(0);
     await expect(page.getByRole("combobox")).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Очистить статистику" })).toHaveCount(0);
