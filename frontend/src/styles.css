@@ -4934,10 +4934,22 @@ html:has(.shell-child) body {
   opacity: 0.45;
 }
 
-/* Список нарушений — панель лобби (скругление 16), не капсула. */
-.lobby .journal,
-.lobby .journal-item {
-  border-radius: 16px;
+/* «Нарушения» — как остальные списки лобби: без своей рамки и скругления (правило .journal ниже по файлу
+   перекрывало .stat-journal и рисовало капсулу), строки разделены линией, длинный текст переносится. */
+.lobby .stat-journal {
+  max-width: none;
+  border: 0;
+  border-radius: 0;
+  background: none;
+}
+
+.lobby .stat-journal .journal-item {
+  border-radius: 0;
+}
+
+.lobby .stat-journal .journal-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 /* Таблицы и списки на тёмной панели: линии светлые полупрозрачные (токен --line). */
@@ -5099,18 +5111,19 @@ html:has(.shell-child) body {
 }
 
 /* Плитки в ряд тесные уже 880 px («Без лимита», «Видео и соцсети» переносятся): в столбец, по строке на плитку. */
+/* Столбцы плиток общие (subgrid по столбцам): значения трёх плиток с одного левого края. */
 @media (max-width: 880px) {
   .lb-tiles {
-    grid-template-columns: minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1.3fr) max-content minmax(0, 1fr);
     grid-template-rows: none;
     row-gap: 12px;
   }
 
   .lb-tile {
     grid-row: auto;
-    grid-template-columns: minmax(0, 1.3fr) auto minmax(0, 1fr);
+    grid-column: 1 / -1;
+    grid-template-columns: subgrid;
     grid-template-rows: auto auto;
-    column-gap: 16px;
     padding: 10px 16px;
   }
 

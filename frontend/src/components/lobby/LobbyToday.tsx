@@ -140,7 +140,8 @@ function Main({ s }: { s: ChildStatus }) {
         ) : null}
       </div>
       <Energy share={share} ticks={ticks} a={a} b={b} height={40} />
-      {ticks > 0 ? <p className="lb-tick-note">Одно деление: 15 минут</p> : null}
+      {/* Под пустой шкалой (048, 104) объяснять деления незачем. */}
+      {ticks > 0 && share > 0 ? <p className="lb-tick-note">Одно деление: 15 минут</p> : null}
     </section>
   );
 }
