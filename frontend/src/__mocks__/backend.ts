@@ -645,7 +645,7 @@ function statusCore(child: MockChild, nowMs: number): ChildStatus {
       reason: "Время на сегодня закончилось",
       until: "Можно снова: завтра",
       pauseUntil: "",
-      bonusBalance: 0,
+      // Как служба (statusOf): баланс копилки настоящий и после «время вышло» — из копилки можно взять (FR-11, FR-6).
       forbiddenNote: "",
       closeGames: true,
       studyOnly: endMode === "study_only",
