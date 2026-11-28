@@ -38,7 +38,10 @@ func (a *app) runTestAction(t ipc.TestGuardAction) {
 			return
 		}
 		if isPlateButton(b) {
-			// Кнопки текстовой плашки: щелчок мыши в её окне (RM3-4, RM3-5).
+			// Кнопки плашки «Игрового лобби» или текстовой плашки: щелчок мыши в её окне (RM3-4, RM3-5).
+			if a.plaque != nil && a.plaque.click(b) {
+				return
+			}
 			if a.plate != nil {
 				a.plate.click(b)
 			}

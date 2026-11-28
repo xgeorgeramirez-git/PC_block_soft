@@ -67,6 +67,7 @@ type remoteState struct {
 	// Крючки тестов: задаются до запуска связи и дальше не меняются.
 	beforeApplyLock func() // ApplyCommand до s.mu
 	beforeStop      func() // stopLink под s.mu перед Link.Stop
+	onChanged       func() // remoteChanged под s.mu (счёт вызовов в тестах)
 }
 
 // remoteHost — порт remote.Host службы. Каждый метод сам берёт s.mu.
@@ -202,6 +203,9 @@ func (s *Service) unpairLocal() {
 
 // remoteChanged — отчёт телефону вне очереди после изменения в окне (только если связь включена).
 func (s *Service) remoteChanged() {
+	if s.rem.onChanged != nil {
+		s.rem.onChanged()
+	}
 	if s.rem.link != nil {
 		s.rem.link.Changed()
 	}
@@ -342,36 +346,28 @@ const (
 )
 
 // forbidToday — запретные часы ребёнка сегодня для отчёта телефону и команды «снять запрет»
-// (протокол, разделы 5б, 6): тот же источник, что карточка «Сегодня» (forbiddenNote, флаг дня
-// NoForbidden, ядро InForbidden/NextForbiddenStart по часам ядра). until — конец идущего интервала
-// при ForbidActive. «Будут» — начало до местной полуночи: снятие действует только на сегодня.
+// (протокол, разделы 5б, 6): одна истина с карточкой «Сегодня» и окном ребёнка — forbidSpan (B-79).
+// Строки ipc.ForbidState* — те же, что remote.Forbid*; until — конец идущего интервала при
+// ForbidActive.
 func (s *Service) forbidToday(cs *childState) (string, time.Time) {
-	if cs.admin {
-		return remote.ForbidNone, time.Time{} // ограничения не действуют (R18)
+	fi := s.forbidSpan(cs)
+	if fi.state == ipc.ForbidStateActive {
+		return remote.ForbidActive, fi.to
 	}
-	now := s.cfg.Clock.Now().In(s.cfg.Loc)
-	today := now.Format(time.DateOnly)
-	if state, _ := cs.eng.State(); state.NoForbidden && state.Day == today {
-		return remote.ForbidCleared, time.Time{}
-	}
-	if in, end := core.InForbidden(cs.rules, now); in {
-		return remote.ForbidActive, end
-	}
-	if start, ok := core.NextForbiddenStart(cs.rules, now); ok && start.In(s.cfg.Loc).Format(time.DateOnly) == today {
-		return remote.ForbidAhead, time.Time{}
-	}
-	return remote.ForbidNone, time.Time{}
+	return fi.state, time.Time{}
 }
 
-// Children — отчёт телефону: «осталось» и «за компьютером» той же карточкой, что окно родителя;
-// withToday — со «Статистикой за сегодня» (todayReport, только отчёт pc/report).
+// Children — отчёт телефону: «осталось», копилка, игры и видео (GamesUsedS, VideoUsedS) и «за
+// компьютером» той же карточкой, что окно родителя (cardOf, dayGamesVideo); withToday — со
+// «Статистикой за сегодня» (todayReport, только отчёт pc/report).
 func (h remoteHost) Children(withToday bool) []remote.ChildReport {
 	s := h.s
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	out := []remote.ChildReport{}
 	for _, id := range s.childOrder() {
-		c := s.cardOf(s.children[id])
+		cs := s.children[id]
+		c := s.cardOf(cs)
 		left := int64(c.Status.RemainingS)
 		if c.Status.Unlimited {
 			left = -1 // без лимита сегодня (протокол, раздел 6)
@@ -379,6 +375,8 @@ func (h remoteHost) Children(withToday bool) []remote.ChildReport {
 		rep := remote.ChildReport{
 			ID: c.ChildID, Name: c.Name, UsedSec: int64(c.Status.UsedS), LeftSec: left,
 			ExtraMin: c.ExtraMin, Blocked: c.Status.Lock != "" && c.Status.Lock != ipc.LockNone,
+			BankMin: c.BonusBalance, GamesSec: int64(c.GamesUsedS), GamesLimSec: limitSec(c.Status.GamesLimitS, c.Status.GamesUnlimited),
+			VideoSec: int64(c.VideoUsedS), VideoLimSec: limitSec(c.Status.VideoLimitS, c.Status.VideoUnlimited),
 		}
 		var until time.Time
 		rep.Forbid, until = s.forbidToday(s.children[id])
@@ -391,6 +389,14 @@ func (h remoteHost) Children(withToday bool) []remote.ChildReport {
 		out = append(out, rep)
 	}
 	return out
+}
+
+// limitSec — лимит игр или видео дня для отчёта: −1 — отдельного лимита нет (раздел 6).
+func limitSec(limitS int, unlimited bool) int64 {
+	if unlimited {
+		return -1
+	}
+	return int64(limitS)
 }
 
 // todayReport — «Статистика за сегодня» для телефона (FR-43): «Итоги» за сегодня тем же кодом, что

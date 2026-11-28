@@ -65,6 +65,104 @@ type vectors struct {
 	// «Статистика за сегодня» (FR-43, раздел 6): отчёт pc/report с today (подпись ключом компьютера).
 	ReportTodayJSON string `json:"reportTodayJson"`
 	ReportToday     Signed `json:"reportToday"`
+
+	// Протокол 1.5 (разделы 5в, 5г, 5д, 6): команды копилки, промокодов и решения (data байт в байт,
+	// подпись ключом телефона, хэш для cmdr), ответ на promoGen со списком и кодами и отчёт с
+	// bankMin, играми и видео и pending (подписи ключом компьютера). PendingKey — id строки pending
+	// для PendingPath (первые 16 байт SHA-256 от UTF-8 пути, base64url).
+	CmdBankAddJSON     string `json:"cmdBankAddJson"`
+	CmdBankAdd         Signed `json:"cmdBankAdd"`
+	CmdBankAddHash     string `json:"cmdBankAddHash"`
+	CmdBankClearJSON   string `json:"cmdBankClearJson"`
+	CmdBankClear       Signed `json:"cmdBankClear"`
+	CmdBankClearHash   string `json:"cmdBankClearHash"`
+	CmdPromoListJSON   string `json:"cmdPromoListJson"`
+	CmdPromoList       Signed `json:"cmdPromoList"`
+	CmdPromoListHash   string `json:"cmdPromoListHash"`
+	CmdPromoCreateJSON string `json:"cmdPromoCreateJson"`
+	CmdPromoCreate     Signed `json:"cmdPromoCreate"`
+	CmdPromoCreateHash string `json:"cmdPromoCreateHash"`
+	CmdPromoGenJSON    string `json:"cmdPromoGenJson"`
+	CmdPromoGen        Signed `json:"cmdPromoGen"`
+	CmdPromoGenHash    string `json:"cmdPromoGenHash"`
+	CmdPromoDeleteJSON string `json:"cmdPromoDeleteJson"`
+	CmdPromoDelete     Signed `json:"cmdPromoDelete"`
+	CmdPromoDeleteHash string `json:"cmdPromoDeleteHash"`
+	PendingPath        string `json:"pendingPath"`
+	PendingKey         string `json:"pendingKey"`
+	CmdDecideJSON      string `json:"cmdDecideJson"`
+	CmdDecide          Signed `json:"cmdDecide"`
+	CmdDecideHash      string `json:"cmdDecideHash"`
+	CmdrPromosJSON     string `json:"cmdrPromosJson"`
+	CmdrPromos         Signed `json:"cmdrPromos"`
+	ReportPendingJSON  string `json:"reportPendingJson"`
+	ReportPending      Signed `json:"reportPending"`
+}
+
+// vectorPendingPath — путь ждущей программы векторов (ключ решения службы).
+const vectorPendingPath = `C:\Users\Misha\Downloads\SuperGame\game.exe`
+
+// vectorOps — команды протокола 1.5 векторов по порядку: копилка, промокоды, решение (seq 20…26).
+// Поля разделов 5г, 5д — сырые, как их пишет телефон.
+func vectorOps() map[string]Command {
+	c := func(seq, ts, child int64, op string) Command {
+		return Command{V: 1, T: TypeCmd, PC: "pc-vector", Phone: "phone-vector", Seq: seq, TS: ts, Child: child, Op: op}
+	}
+	raw := func(s string) json.RawMessage { return json.RawMessage(s) }
+	add := c(20, 1763490005000, 3, OpBankAdd)
+	add.Delta = 30
+	create := c(23, 1763490008000, 0, OpPromoCreate)
+	create.CodeRaw, create.MinRaw = raw(`"SUMMER"`), raw(`30`)
+	gen := c(24, 1763490009000, 0, OpPromoGen)
+	gen.MinRaw, gen.CountRaw, gen.LenRaw, gen.CharsetRaw = raw(`15`), raw(`5`), raw(`6`), raw(`"mixed"`)
+	del := c(25, 1763490010000, 0, OpPromoDelete)
+	del.CodeRaw = raw(`"SUMMER"`)
+	dec := c(26, 1763490011000, 0, OpDecide)
+	dec.KeyRaw, dec.CatRaw = raw(`"`+PendingKey(vectorPendingPath)+`"`), raw(`"games"`)
+	return map[string]Command{
+		"bankAdd": add, "bankClear": c(21, 1763490006000, 3, OpBankClear), "promoList": c(22, 1763490007000, 0, OpPromoList),
+		"promoCreate": create, "promoGen": gen, "promoDelete": del, "decide": dec,
+	}
+}
+
+// vectorOpsJSON — ожидаемые байты data команд 1.5 (литералы плана T2.5: порядок полей — порядок
+// структуры Command; Kotlin собирает так же).
+func vectorOpsJSON() map[string]string {
+	return map[string]string{
+		"bankAdd":     `{"v":1,"t":"cmd","pc":"pc-vector","phone":"phone-vector","seq":20,"ts":1763490005000,"child":3,"delta":30,"op":"bankAdd"}`,
+		"bankClear":   `{"v":1,"t":"cmd","pc":"pc-vector","phone":"phone-vector","seq":21,"ts":1763490006000,"child":3,"op":"bankClear"}`,
+		"promoList":   `{"v":1,"t":"cmd","pc":"pc-vector","phone":"phone-vector","seq":22,"ts":1763490007000,"child":0,"op":"promoList"}`,
+		"promoCreate": `{"v":1,"t":"cmd","pc":"pc-vector","phone":"phone-vector","seq":23,"ts":1763490008000,"child":0,"op":"promoCreate","code":"SUMMER","min":30}`,
+		"promoGen":    `{"v":1,"t":"cmd","pc":"pc-vector","phone":"phone-vector","seq":24,"ts":1763490009000,"child":0,"op":"promoGen","min":15,"count":5,"len":6,"charset":"mixed"}`,
+		"promoDelete": `{"v":1,"t":"cmd","pc":"pc-vector","phone":"phone-vector","seq":25,"ts":1763490010000,"child":0,"op":"promoDelete","code":"SUMMER"}`,
+		"decide":      `{"v":1,"t":"cmd","pc":"pc-vector","phone":"phone-vector","seq":26,"ts":1763490011000,"child":0,"op":"decide","key":"TgOw4J51Seo0S6yK66bHgw","cat":"games"}`,
+	}
+}
+
+// vectorCmdrPromos — ответ на promoGen векторов: новые коды и список (SUMMER действует, AB12
+// использовал Миша).
+func vectorCmdrPromos(cmdHash string) CmdResult {
+	return CmdResult{V: 1, T: TypeCmdR, PC: "pc-vector", Phone: "phone-vector", Seq: 24, Cmd: cmdHash, TS: 1763490009500, OK: true,
+		Message: "Готово: 2 кода на 15 мин", Codes: []string{"K7PX", "M3QA"},
+		Promos: &PromoList{
+			Active: []PromoActive{{Code: "SUMMER", Min: 30, CreatedMs: 1763490000000}},
+			Used:   []PromoUsed{{Code: "AB12", Min: 30, UsedMs: 1763480000000, Child: 3, ChildName: "Миша"}},
+		}}
+}
+
+// vectorReportPending — отчёт 1.5: Миша — копилка 45, игры 40 из 60 мин, видео 10 из 30 мин;
+// Коля — без лимита видео (−1); одна ждущая без издателя, Миша запускал 3 раза.
+func vectorReportPending() Report {
+	return Report{V: 1, T: TypeReport, PC: "pc-vector", Phone: "phone-vector", TS: 1763490012000,
+		Children: []ChildReport{
+			{ID: 3, Name: "Миша", UsedSec: 3600, LeftSec: 1800, ExtraMin: 15, Forbid: ForbidNone,
+				BankMin: 45, GamesSec: 2400, GamesLimSec: 3600, VideoSec: 600, VideoLimSec: 1800},
+			{ID: 4, Name: "Коля", UsedSec: 600, LeftSec: 3000, Forbid: ForbidNone,
+				BankMin: 0, GamesSec: 300, GamesLimSec: -1, VideoSec: 0, VideoLimSec: -1},
+		},
+		Pending: []PendingReport{{ID: PendingKey(vectorPendingPath), Name: "SuperGame", Pub: "", Path: vectorPendingPath,
+			Kids: []PendingKid{{ID: 3, Tries: 3}}, Tries: 3, LastMs: 1763488000000}},
+		PendingCount: 1}
 }
 
 func vectorCommand() Command {
@@ -190,6 +288,34 @@ func writeVectors(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Отчёты и ответы до протокола 1.5 — байты компьютера 0.8.3 (без bankMin, pending): Android
+	// проверяет по ним «компьютер старше 0.8.4». Уже записанные не пересобираются.
+	legacy := func(old string, built []byte) []byte {
+		if old != "" {
+			return []byte(old)
+		}
+		return built
+	}
+	cmdrJSON = legacy(v.CmdrJSON, cmdrJSON)
+	repJSON = legacy(v.ReportJSON, repJSON)
+	noterJSON = legacy(v.NoterJSON, noterJSON)
+	repNJSON = legacy(v.ReportNotesJSON, repNJSON)
+	cmdrNFJSON = legacy(v.CmdrNoForbiddenJSON, cmdrNFJSON)
+	repFJSON = legacy(v.ReportForbidJSON, repFJSON)
+	repTJSON = legacy(v.ReportTodayJSON, repTJSON)
+	ops := vectorOps()
+	opJSON := map[string][]byte{}
+	for name, c := range ops {
+		opJSON[name], _ = json.Marshal(c)
+	}
+	cmdrP, err := fitReply(vectorCmdrPromos(HashData(opJSON["promoGen"])), KindCmdR, "msg-vector", "phone-vector", MaxReportBody)
+	if err != nil {
+		t.Fatal(err)
+	}
+	repP, err := fitReport(vectorReportPending(), MaxReportBody)
+	if err != nil {
+		t.Fatal(err)
+	}
 	out := vectors{
 		Comment:   "Векторы протокола связи (docs/07_Протокол_связи.md). Генерирует go test ./internal/remote -run TestVectors -update. Все base64: base64url без '='.",
 		PCPriv:    pcPriv,
@@ -210,6 +336,17 @@ func writeVectors(t *testing.T) {
 		CmdrNoForbiddenJSON: string(cmdrNFJSON), CmdrNoForbidden: sign(pc, cmdrNFJSON, v.CmdrNoForbiddenJSON, v.CmdrNoForbidden),
 		ReportForbidJSON: string(repFJSON), ReportForbid: sign(pc, repFJSON, v.ReportForbidJSON, v.ReportForbid),
 		ReportTodayJSON: string(repTJSON), ReportToday: sign(pc, repTJSON, v.ReportTodayJSON, v.ReportToday),
+
+		CmdBankAddJSON: string(opJSON["bankAdd"]), CmdBankAdd: sign(phone, opJSON["bankAdd"], v.CmdBankAddJSON, v.CmdBankAdd), CmdBankAddHash: HashData(opJSON["bankAdd"]),
+		CmdBankClearJSON: string(opJSON["bankClear"]), CmdBankClear: sign(phone, opJSON["bankClear"], v.CmdBankClearJSON, v.CmdBankClear), CmdBankClearHash: HashData(opJSON["bankClear"]),
+		CmdPromoListJSON: string(opJSON["promoList"]), CmdPromoList: sign(phone, opJSON["promoList"], v.CmdPromoListJSON, v.CmdPromoList), CmdPromoListHash: HashData(opJSON["promoList"]),
+		CmdPromoCreateJSON: string(opJSON["promoCreate"]), CmdPromoCreate: sign(phone, opJSON["promoCreate"], v.CmdPromoCreateJSON, v.CmdPromoCreate), CmdPromoCreateHash: HashData(opJSON["promoCreate"]),
+		CmdPromoGenJSON: string(opJSON["promoGen"]), CmdPromoGen: sign(phone, opJSON["promoGen"], v.CmdPromoGenJSON, v.CmdPromoGen), CmdPromoGenHash: HashData(opJSON["promoGen"]),
+		CmdPromoDeleteJSON: string(opJSON["promoDelete"]), CmdPromoDelete: sign(phone, opJSON["promoDelete"], v.CmdPromoDeleteJSON, v.CmdPromoDelete), CmdPromoDeleteHash: HashData(opJSON["promoDelete"]),
+		PendingPath: vectorPendingPath, PendingKey: PendingKey(vectorPendingPath),
+		CmdDecideJSON: string(opJSON["decide"]), CmdDecide: sign(phone, opJSON["decide"], v.CmdDecideJSON, v.CmdDecide), CmdDecideHash: HashData(opJSON["decide"]),
+		CmdrPromosJSON: string(cmdrP), CmdrPromos: sign(pc, cmdrP, v.CmdrPromosJSON, v.CmdrPromos),
+		ReportPendingJSON: string(repP), ReportPending: sign(pc, repP, v.ReportPendingJSON, v.ReportPending),
 	}
 	raw, _ := json.MarshalIndent(out, "", "  ")
 	if err := os.MkdirAll(filepath.Dir(vectorsPath), 0o755); err != nil {
@@ -331,17 +468,92 @@ func TestVectors(t *testing.T) {
 	if c, _, code := CheckCommand(stF, v.CmdNoForbidden, "phone-vector", time.UnixMilli(vectorNoForbidden().TS)); code != "" || c.Op != OpNoForbidden {
 		t.Fatalf("«снять запрет» векторов отклонено: %q %+v", code, c)
 	}
-	// Статистика за сегодня (раздел 6): байты — как отчёт после fitReport, подпись компьютера, поля.
-	repTJSON, _ := fitReport(vectorReportToday(), MaxReportBody)
-	if string(repTJSON) != v.ReportTodayJSON {
-		t.Fatalf("сборка отчёта со статистикой изменилась:\n%s\n%s", repTJSON, v.ReportTodayJSON)
-	}
+	// Статистика за сегодня (раздел 6): байты компьютера 0.8.3 (без bankMin и pending — признак
+	// старого компьютера для телефона 0.8.4), подпись компьютера, поля. Сборку fitReport с полями 1.5
+	// проверяет вектор reportPending.
 	check("reportToday", &v.ReportToday, &pc.PublicKey, v.ReportTodayJSON)
+	for _, old := range []string{v.ReportTodayJSON, v.ReportJSON, v.ReportForbidJSON, v.ReportNotesJSON, v.CmdrJSON, v.NoterJSON, v.CmdrNoForbiddenJSON} {
+		if bytes.Contains([]byte(old), []byte(`"bankMin"`)) || bytes.Contains([]byte(old), []byte(`"pending"`)) {
+			t.Fatalf("вектор компьютера 0.8.3 с полями 1.5: %.120s", old)
+		}
+	}
 	var rt Report
 	if err := json.Unmarshal([]byte(v.ReportTodayJSON), &rt); err != nil || len(rt.Children) != 3 || rt.Children[0].Today == nil ||
 		rt.Children[0].Today.Programs[0].Cat != ItemGame || rt.Children[1].Today.FirstMs != 0 || rt.Children[2].Today != nil ||
 		!bytes.Contains([]byte(v.ReportTodayJSON), []byte(`"programs":[],"sites":[]`)) {
 		t.Fatalf("отчёт со статистикой: %s %v", v.ReportTodayJSON, err)
+	}
+	// Протокол 1.5: data команд байт в байт (литералы), подписи телефона, хэши, разбор компьютером.
+	if v.PendingPath != vectorPendingPath || v.PendingKey != PendingKey(vectorPendingPath) || v.PendingKey != "TgOw4J51Seo0S6yK66bHgw" {
+		t.Fatalf("ключ pending: %q для %q", v.PendingKey, v.PendingPath)
+	}
+	wantOps := vectorOpsJSON()
+	stored := map[string][3]string{
+		"bankAdd":     {v.CmdBankAddJSON, v.CmdBankAddHash},
+		"bankClear":   {v.CmdBankClearJSON, v.CmdBankClearHash},
+		"promoList":   {v.CmdPromoListJSON, v.CmdPromoListHash},
+		"promoCreate": {v.CmdPromoCreateJSON, v.CmdPromoCreateHash},
+		"promoGen":    {v.CmdPromoGenJSON, v.CmdPromoGenHash},
+		"promoDelete": {v.CmdPromoDeleteJSON, v.CmdPromoDeleteHash},
+		"decide":      {v.CmdDecideJSON, v.CmdDecideHash},
+	}
+	signedOps := map[string]*Signed{
+		"bankAdd": &v.CmdBankAdd, "bankClear": &v.CmdBankClear, "promoList": &v.CmdPromoList, "promoCreate": &v.CmdPromoCreate,
+		"promoGen": &v.CmdPromoGen, "promoDelete": &v.CmdPromoDelete, "decide": &v.CmdDecide,
+	}
+	parsed := map[string]Command{}
+	for name, c := range vectorOps() {
+		built, _ := json.Marshal(c)
+		if string(built) != wantOps[name] || stored[name][0] != wantOps[name] {
+			t.Fatalf("%s: сборка data изменилась:\n%s\n%s\n%s", name, built, stored[name][0], wantOps[name])
+		}
+		check(name, signedOps[name], &phone.PublicKey, wantOps[name])
+		if HashData(built) != stored[name][1] {
+			t.Fatalf("%s: хэш не сошёлся", name)
+		}
+		stOp := State{PCID: "pc-vector", Phone: &Phone{ID: "phone-vector", Pub: v.PhonePub}, LastSeq: 19}
+		got, _, code := CheckCommand(stOp, *signedOps[name], "phone-vector", time.UnixMilli(c.TS))
+		if code != "" {
+			t.Fatalf("%s: команда векторов отклонена: %s", name, code)
+		}
+		parsed[name] = got
+	}
+	if p := parsed["bankAdd"]; p.Op != OpBankAdd || p.Delta != 30 || p.Child != 3 {
+		t.Fatalf("bankAdd: %+v", p)
+	}
+	if p := parsed["promoCreate"]; p.Code != "SUMMER" || p.Min != 30 {
+		t.Fatalf("promoCreate: %+v", p)
+	}
+	if p := parsed["promoGen"]; p.Count != 5 || p.Len != 6 || p.Charset != CharsetMixed || p.Min != 15 {
+		t.Fatalf("promoGen: %+v", p)
+	}
+	if p := parsed["decide"]; p.Key != v.PendingKey || p.Cat != CatGames {
+		t.Fatalf("decide: %+v", p)
+	}
+	// Ответ на promoGen: байты — как ответ после fitReply, подпись компьютера, поля.
+	cmdrP, _ := fitReply(vectorCmdrPromos(v.CmdPromoGenHash), KindCmdR, "msg-vector", "phone-vector", MaxReportBody)
+	if string(cmdrP) != v.CmdrPromosJSON {
+		t.Fatalf("сборка ответа promoGen изменилась:\n%s\n%s", cmdrP, v.CmdrPromosJSON)
+	}
+	check("cmdrPromos", &v.CmdrPromos, &pc.PublicKey, v.CmdrPromosJSON)
+	if !bytes.Contains([]byte(v.CmdrPromosJSON), []byte(`"codes":["K7PX","M3QA"],"promos":{"active":[{"code":"SUMMER","min":30,"createdMs":1763490000000}],"used":[{"code":"AB12","min":30,"usedMs":1763480000000,"child":3,"childName":"Миша"}],"moreActive":0,"moreUsed":0}}`)) ||
+		bytes.Contains([]byte(v.CmdrPromosJSON), []byte(`"report"`)) {
+		t.Fatalf("ответ promoGen: %s", v.CmdrPromosJSON)
+	}
+	// Отчёт 1.5: байты — как после fitReport, подпись компьютера, поля.
+	repP, _ := fitReport(vectorReportPending(), MaxReportBody)
+	if string(repP) != v.ReportPendingJSON {
+		t.Fatalf("сборка отчёта 1.5 изменилась:\n%s\n%s", repP, v.ReportPendingJSON)
+	}
+	check("reportPending", &v.ReportPending, &pc.PublicKey, v.ReportPendingJSON)
+	for _, part := range []string{
+		`"bankMin":45,"gamesSec":2400,"gamesLimSec":3600,"videoSec":600,"videoLimSec":1800}`,
+		`"bankMin":0,"gamesSec":300,"gamesLimSec":-1,"videoSec":0,"videoLimSec":-1}`,
+		`"pending":[{"id":"TgOw4J51Seo0S6yK66bHgw","name":"SuperGame","pub":"","path":"C:\\Users\\Misha\\Downloads\\SuperGame\\game.exe","kids":[{"id":3,"tries":3}],"tries":3,"lastMs":1763488000000}],"pendingCount":1}`,
+	} {
+		if !bytes.Contains([]byte(v.ReportPendingJSON), []byte(part)) {
+			t.Fatalf("отчёт 1.5 без %s:\n%s", part, v.ReportPendingJSON)
+		}
 	}
 	// Команда векторов проходит проверку компьютера.
 	st := State{PCID: "pc-vector", Phone: &Phone{ID: "phone-vector", Pub: v.PhonePub}, LastSeq: 16}

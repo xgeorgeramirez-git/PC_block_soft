@@ -3,6 +3,7 @@ package guard
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -10,6 +11,7 @@ import (
 
 	"pcblock/internal/core"
 	"pcblock/internal/ipc"
+	"pcblock/internal/sound"
 )
 
 // ctClock — настоящие часы стража в тестах: время стоит, пока тест его не сдвинет.
@@ -1154,5 +1156,77 @@ func TestClassifyCommandsSplitsAddedAndText(t *testing.T) {
 	}
 	if strings.Join(cmds.Notices, "|") != "Пауза закончилась|Убрано 15 минут" {
 		t.Fatalf("тексты: %q", cmds.Notices)
+	}
+}
+
+// Ловит (R-7, PL-87): системный звук схемы Windows («Восклицание» плашки «Игрового лобби») играет
+// не тем же исполнителем, что предупреждение и сообщение, и начинается, пока играет другой звук,
+// или не пишется в журнал стража. Плеер системного звука блокирует на всю длину звука (SND_SYNC):
+// исполнитель после него следующий не ждёт дольше, но и не играет два звука сразу.
+func TestSystemSoundQueued(t *testing.T) {
+	var mu sync.Mutex
+	var order []string
+	var active, maxActive int
+	enter := func(name string) {
+		mu.Lock()
+		order = append(order, name)
+		active++
+		maxActive = max(maxActive, active)
+		mu.Unlock()
+	}
+	leave := func() {
+		mu.Lock()
+		active--
+		mu.Unlock()
+	}
+	r := newCtRig()
+	r.svc.test = true
+	r.ctl.SetSoundPlayers(
+		func() bool { enter("w"); time.Sleep(20 * time.Millisecond); leave(); return true },
+		func(n int) bool { enter(fmt.Sprint("n", n)); time.Sleep(20 * time.Millisecond); leave(); return true },
+		func(alias string) bool { enter(alias); time.Sleep(300 * time.Millisecond); leave(); return true })
+	r.ctl.SetSoundLengths(func() time.Duration { return 30 * time.Millisecond }, func(int) time.Duration { return 30 * time.Millisecond })
+	t.Cleanup(r.ctl.StopSounds)
+	r.svc.status = ctRunningStatus(300)
+	r.svc.warns = []ipc.GuardWarning{ipc.NewGuardWarning(5)}
+	if v := r.poll(); v.Warning == nil {
+		t.Fatal("нет табло 5 мин")
+	}
+	r.ctl.playSystem(r.clk.Now(), sound.AliasExclamation)
+	r.svc.cmds = []ipc.GuardCommand{{Kind: ipc.GuardCmdNote, Note: &ipc.GuardNote{ID: "n1", Text: "Ужин", WaitS: 600, Sound: 3}}}
+	r.poll()
+	want := "w," + sound.AliasExclamation + ",n3"
+	for end := time.Now().Add(3 * time.Second); time.Now().Before(end); time.Sleep(10 * time.Millisecond) {
+		mu.Lock()
+		got := strings.Join(order, ",")
+		mu.Unlock()
+		if got == want {
+			break
+		}
+	}
+	time.Sleep(50 * time.Millisecond)
+	mu.Lock()
+	got, most := strings.Join(order, ","), maxActive
+	mu.Unlock()
+	if got != want || most != 1 {
+		t.Fatalf("сыграно %q (одновременно %d); ждали %q по одному", got, most, want)
+	}
+	r.ctl.mu.Lock()
+	snd := append([]ipc.ShownSound(nil), r.ctl.sounds...)
+	r.ctl.mu.Unlock()
+	if len(snd) != 3 || snd[1].System != sound.AliasExclamation || !snd[1].OK || snd[0].System != "" || snd[2].System != "" {
+		t.Fatalf("журнал звуков %+v", snd)
+	}
+	// Без плеера системных звуков: не играет и не пишется.
+	r2 := newCtRig()
+	r2.svc.test = true
+	r2.ctl.SetSoundPlayers(func() bool { return true }, nil, nil)
+	t.Cleanup(r2.ctl.StopSounds)
+	r2.ctl.playSystem(r2.clk.Now(), sound.AliasNotify)
+	r2.ctl.mu.Lock()
+	n := len(r2.ctl.sounds)
+	r2.ctl.mu.Unlock()
+	if n != 0 {
+		t.Fatalf("без плеера системных звуков журнал %d", n)
 	}
 }

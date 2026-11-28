@@ -21,10 +21,7 @@
     <string name="compare_number_desc">Число для сверки: %1$s</string>
 
     <!-- Главный экран -->
-    <string name="main_title">PC Block</string>
-    <string name="menu_more">Ещё</string>
     <string name="menu_unpair">Отключить телефон</string>
-    <string name="menu_refresh">Обновить</string>
     <string name="pc_online">Компьютер на связи</string>
     <string name="pc_offline_since">Компьютер не на связи с %1$s</string>
     <string name="pc_offline">Компьютер не на связи</string>
@@ -41,7 +38,6 @@
     <string name="btn_sub">−%1$d мин</string>
     <string name="btn_add_desc">Добавить %1$d минут, %2$s</string>
     <string name="btn_sub_desc">Убавить %1$d минут, %2$s</string>
-    <string name="btn_custom">Своё число</string>
     <string name="btn_custom_desc">Своё число минут, %1$s</string>
     <string name="forbid_until">Запретные часы до %1$s</string>
     <string name="btn_no_forbidden">Снять запрет на сегодня</string>
@@ -51,8 +47,6 @@
     <string name="cmd_done">Готово</string>
 
     <!-- Сообщение ребёнку (FR-41) -->
-    <string name="btn_note">Сообщение</string>
-    <string name="btn_note_desc">Написать сообщение, %1$s</string>
     <string name="note_title">Сообщение для %1$s</string>
     <string name="note_back">Назад</string>
     <string name="note_label">Текст</string>
@@ -67,7 +61,8 @@
     <string name="note_sound_title">Звук</string>
     <string name="note_sound_none">Без звука</string>
     <string name="note_sound_n">Звук %1$d</string>
-    <string name="note_sound_play_desc">Прослушать Звук %1$d</string>
+    <string name="note_sound_play_desc">Прослушать «%1$s»</string>
+    <string name="note_sticker_recent">Здесь 7 последних, что вы выбирали</string>
     <string name="note_show_title">Сколько показывать</string>
     <string name="note_show_until">Пока не нажмёт «Понял»</string>
     <string name="note_show_10">10 секунд</string>
@@ -76,9 +71,9 @@
     <string name="note_send">Отправить</string>
     <string name="note_sending">Отправляем…</string>
     <string name="note_recent">Последние сообщения</string>
-    <string name="note_item_meta">%1$s · %2$s</string>
     <string name="note_item_desc">Сообщение «%1$s», %2$s, %3$s</string>
     <string name="note_mark_sent">Отправлено</string>
+    <string name="note_mark_waiting_offline">Ждёт: компьютер не в сети</string>
     <string name="note_mark_delivered">Доставлено</string>
     <string name="note_mark_read">Прочитано</string>
     <string name="note_mark_shown">Показано</string>
@@ -86,7 +81,6 @@
 
     <!-- Статистика за сегодня (FR-43) -->
     <string name="btn_stats">Статистика за сегодня</string>
-    <string name="btn_stats_desc">Статистика за сегодня, %1$s</string>
     <string name="stats_title">Статистика за сегодня</string>
     <string name="stats_back">Назад</string>
     <string name="stats_at_pc_since">За компьютером с %1$s</string>
@@ -151,4 +145,141 @@
     <string name="err_note_pc_offline">Компьютер не на связи. Сообщение не отправлено</string>
     <string name="err_note_pc_offline_since">Компьютер не на связи с %1$s. Сообщение не отправлено</string>
     <string name="err_key">Не удалось создать ключ на телефоне. Повторите</string>
+    <string name="err_promo_exists">Такой код уже есть, придумайте другой</string>
+    <string name="err_promo_gen">Не получилось придумать столько разных кодов. Увеличьте длину</string>
+    <string name="err_promo_gone">Этого кода уже нет. Список обновлён</string>
+    <string name="err_decided_already">Решение уже принято</string>
+    <string name="err_bank_range">Можно от 1 до 600 минут за раз</string>
+    <string name="err_promo_code_empty">Введите код</string>
+    <string name="err_promo_code_len">Код от 3 до 16 знаков</string>
+    <string name="err_promo_code_latin">Только латинские буквы A-Z и цифры</string>
+    <string name="err_promo_minutes">Можно от 1 до 600 минут</string>
+    <string name="err_promo_count">Можно от 1 до 50 кодов</string>
+    <string name="err_promo_len">Длина от 4 до 12 знаков</string>
+    <string name="bank_put">Положить</string>
+    <string name="bank_put_one">Положить %1$d минуту</string>
+    <string name="bank_put_few">Положить %1$d минуты</string>
+    <string name="bank_put_many">Положить %1$d минут</string>
+    <string name="card_pending_one">%1$d программа ждёт решения</string>
+    <string name="card_pending_few">%1$d программы ждут решения</string>
+    <string name="card_pending_many">%1$d программ ждут решения</string>
+    <string name="card_pending_some">Есть программы, ждущие решения</string>
+
+    <!-- Ruling 7 T3: range у промокодов и решения (телефон поля проверил сам) -->
+    <string name="err_promo_range">Проверьте код и минуты</string>
+    <string name="err_decide_range">Не удалось отправить решение, обновите список</string>
+
+    <!-- Нижнее меню (FR-45) -->
+    <string name="tab_kids">Дети</string>
+    <string name="tab_promos">Промокоды</string>
+    <string name="tab_settings">Настройки</string>
+    <string name="kids_title">Дети</string>
+    <string name="update_pc">Обновите программу на компьютере до версии 0.8.4</string>
+    <string name="pc_offline_short">Компьютер не на связи</string>
+
+    <!-- Карточка ребёнка (D-109, макет phone2.py) -->
+    <string name="card_plus">+%1$d</string>
+    <string name="card_minus">−%1$d</string>
+    <string name="card_own">Своё</string>
+    <string name="card_bank_btn">В копилку</string>
+    <string name="card_bank_desc">Положить в копилку, %1$s</string>
+    <string name="card_bank_min">%1$d мин</string>
+    <string name="card_bank_min_desc">В копилке %1$d мин</string>
+    <string name="card_left_of">осталось из %1$s</string>
+    <string name="card_left_desc">Осталось %1$s из %2$s</string>
+    <string name="card_left_short">осталось %1$s</string>
+    <string name="card_open_desc">%1$s, %2$s. Открыть карточку</string>
+    <string name="card_games_of">Игры %1$d из %2$d мин</string>
+    <string name="card_games">Игры %1$d мин</string>
+    <string name="card_video_of">Видео и соцсети %1$d из %2$d мин</string>
+    <string name="card_video">Видео и соцсети %1$d мин</string>
+    <string name="card_note">Написать сообщение</string>
+
+    <!-- Копилка (FR-44, D-113) -->
+    <string name="bank_title">Копилка %1$s</string>
+    <string name="bank_now">Сейчас в копилке</string>
+    <string name="bank_min">%1$d мин</string>
+    <string name="bank_field">Сколько минут положить</string>
+    <string name="bank_hint">От 1 до 600 минут за раз</string>
+    <string name="bank_clear">Обнулить копилку</string>
+    <string name="bank_clear_text_one">%1$d минута пропадёт. Телефон спросит ещё раз, прежде чем обнулить.</string>
+    <string name="bank_clear_text_few">Все %1$d минуты пропадут. Телефон спросит ещё раз, прежде чем обнулить.</string>
+    <string name="bank_clear_text_many">Все %1$d минут пропадут. Телефон спросит ещё раз, прежде чем обнулить.</string>
+    <string name="bank_clear_confirm">Обнулить копилку %1$s? Пропадут все %2$d мин</string>
+    <string name="bank_clear_yes">Обнулить</string>
+
+    <!-- Промокоды (FR-45, 8.3.10) -->
+    <string name="promo_title">Промокоды</string>
+    <string name="promo_tab_active">Действующие</string>
+    <string name="promo_tab_used">Использованные</string>
+    <string name="promo_min">%1$d мин</string>
+    <string name="promo_created">создан %1$s</string>
+    <string name="promo_used">использован %1$s в %2$s, %3$s</string>
+    <string name="promo_child_gone">ребёнок удалён</string>
+    <string name="promo_delete_desc">Удалить код %1$s</string>
+    <string name="promo_delete_confirm">Удалить код %1$s?</string>
+    <string name="promo_delete_yes">Удалить</string>
+    <string name="promo_more">Ещё %1$d в окне родителя на компьютере</string>
+    <string name="promo_create">Создать код</string>
+    <string name="promo_gen">Придумать коды</string>
+    <string name="promo_hint">Ребёнок вводит код в своём окне на компьютере. Использованный код пропадает отсюда и появляется во вкладке «Использованные»: кто и когда.</string>
+    <string name="promo_empty_active">Действующих кодов нет</string>
+    <string name="promo_empty_used">Использованных кодов нет</string>
+    <string name="promo_none_yet">Список появится, когда компьютер будет на связи</string>
+    <string name="promo_loading">Загружаем список…</string>
+    <string name="promo_field_code">Код</string>
+    <string name="promo_field_min">Минуты</string>
+    <string name="promo_create_btn">Создать</string>
+    <string name="promo_field_count">Сколько</string>
+    <string name="promo_field_len">Длина</string>
+    <string name="promo_field_charset">Из чего</string>
+    <string name="promo_charset_digits">Только цифры</string>
+    <string name="promo_charset_letters">Только буквы</string>
+    <string name="promo_charset_mixed">Буквы и цифры</string>
+    <string name="promo_gen_btn">Придумать</string>
+    <string name="promo_codes_label">Новые коды</string>
+    <string name="promo_copy_all">Скопировать все</string>
+    <string name="promo_copied">Коды скопированы</string>
+
+    <!-- Ждут решения (FR-47, макет phone_pending.py) -->
+    <string name="pending_title">Ждут решения</string>
+    <string name="pending_lead">Решение действует для всех детей. Ребёнок увидит, что вы решили, и сможет запустить программу снова.</string>
+    <string name="pending_no_pub">Без подписи издателя</string>
+    <string name="pending_tries_one">%1$d попытка</string>
+    <string name="pending_tries_few">%1$d попытки</string>
+    <string name="pending_tries_many">%1$d попыток</string>
+    <string name="pending_kid_gone">ребёнок удалён</string>
+    <string name="pending_last_today">%1$s, последняя в %2$s</string>
+    <string name="pending_last_day">%1$s, последняя %2$s в %3$s</string>
+    <string name="pending_game">Игра</string>
+    <string name="pending_study">Учёба</string>
+    <string name="pending_other">Прочее</string>
+    <string name="pending_block">Запретить</string>
+    <string name="pending_decide_desc">%1$s: %2$s</string>
+    <string name="pending_empty">Программ, ждущих решения, нет</string>
+    <string name="pending_sending">Отправляем решение…</string>
+
+    <!-- Настройки -->
+    <string name="settings_title">Настройки</string>
+    <string name="settings_pc">Компьютер</string>
+    <string name="settings_server">Сервер связи: %1$s</string>
+    <string name="settings_refresh">Обновить</string>
+    <string name="settings_about">О приложении</string>
+    <string name="settings_font">Шрифт Inter: лицензия SIL OFL 1.1</string>
+    <string name="settings_close">Закрыть</string>
+
+    <string-array name="months_gen">
+        <item>января</item>
+        <item>февраля</item>
+        <item>марта</item>
+        <item>апреля</item>
+        <item>мая</item>
+        <item>июня</item>
+        <item>июля</item>
+        <item>августа</item>
+        <item>сентября</item>
+        <item>октября</item>
+        <item>ноября</item>
+        <item>декабря</item>
+    </string-array>
 </resources>

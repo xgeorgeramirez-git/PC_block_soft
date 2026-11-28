@@ -171,7 +171,8 @@ func specFor(mode launch.Mode) windowSpec {
 	case launch.ModeParent:
 		return windowSpec{title: "PC Block: настройки для родителя", width: 1200, height: 820, minWidth: 960, minHeight: 620}
 	case launch.ModeMyStats:
-		return windowSpec{title: "Моя статистика", width: 800, height: 640, minWidth: 640, minHeight: 520}
+		// R-9: «Игровое лобби» нарисовано на 1040×680; по умолчанию 1000×700, минимум прежний.
+		return windowSpec{title: "Моя статистика", width: 1000, height: 700, minWidth: 640, minHeight: 520}
 	case launch.ModeFirstRun:
 		return windowSpec{title: "Добро пожаловать в PC Block", width: 700, height: 600, minWidth: 560, minHeight: 480}
 	case launch.ModeWizard:

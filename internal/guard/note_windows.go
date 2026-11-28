@@ -95,6 +95,9 @@ type noteWindow struct {
 	onPress     func(Button)
 	// onShown - что окно вывело: стикер ("" - без) и кадр (Controller.SetNoteShown, тестовый режим).
 	onShown func(sticker string, frame int)
+	// onFit - каким шрифтом (пиксели экрана, 0 - окна нет) окно рисует текст и виден ли он целиком
+	// (NoteTextFits; Controller.SetNoteFit, тестовый режим).
+	onFit func(fontPx int, fits bool)
 
 	key     string
 	title   string
@@ -106,6 +109,7 @@ type noteWindow struct {
 	visible bool
 	geom    rect
 	fit     NoteFit
+	fits    bool // текст виден целиком (NoteTextFits по раскладке и рабочей области)
 
 	hover, down bool
 	tracking    bool
@@ -132,7 +136,7 @@ func newNoteWindow(onPress func(Button)) (*noteWindow, error) {
 		onPress = func(Button) {}
 	}
 	n := &noteWindow{hInst: hInst, dpi: systemDPI(), onPress: onPress, fonts: map[[2]int]uintptr{}, cur: -1,
-		onShown: func(string, int) {}}
+		onShown: func(string, int) {}, onFit: func(int, bool) {}}
 	theNote = n
 	cls, err := registerPlainClass("PCBlockGuardNote", noteProcPtr, hInst, 0)
 	if err != nil {
@@ -210,8 +214,10 @@ func (n *noteWindow) apply(v *NoteView, lock *NoteLock) {
 	n.layout(lock)
 	if !n.paintAll(true) {
 		n.key = "" // буфер рисунка не создан: следующий кадр стража попробует снова
+		n.onFit(0, false)
 		return
 	}
+	n.onFit(int(Scaled(n.fit.FontPx, n.dpi)), n.fits)
 	procSetWindowPos.Call(n.hwnd, hwndTopmost, 0, 0, 0, 0, swpNoMove|swpNoSize|swpNoActivate|swpShowWindow)
 	n.syncAnim()
 }
@@ -237,18 +243,22 @@ func (n *noteWindow) hide() {
 	n.freeSurface()
 	n.sprite, n.cur = nil, -1
 	n.onShown("", 0)
+	n.onFit(0, false)
 }
 
 // layout подбирает окно под место (FitNote: стикер, ширина, плотность, шрифт, сдвиг экрана
 // блокировки): на рабочем столе сверху по центру рабочей области, над экраном блокировки - между
-// заголовком и кнопками. Текст мерится тем шрифтом, которым рисуется (полужирный 600).
+// заголовком и кнопками. Текст мерится тем шрифтом, которым рисуется (полужирный 600); той же меркой
+// проверяется, что он виден целиком (NoteTextFits, приёмка S57).
 func (n *noteWindow) layout(lock *NoteLock) {
 	wa := workArea()
 	hdc, _, _ := procGetDC.Call(n.hwnd)
 	measure := func(px int, width int32, s string) int32 {
 		return measureHeight(hdc, n.font(px, 600), s, width)
 	}
-	n.fit = FitNote(n.dpi, Rect{Left: wa.left, Top: wa.top, Right: wa.right, Bottom: wa.bottom}, lock, n.sticker != "", n.title, n.text, measure)
+	area := Rect{Left: wa.left, Top: wa.top, Right: wa.right, Bottom: wa.bottom}
+	n.fit = FitNote(n.dpi, area, lock, n.sticker != "", n.title, n.text, measure)
+	n.fits = NoteTextFits(n.fit, area, measure)
 	procReleaseDC.Call(n.hwnd, hdc)
 	n.geom, n.visible = toRect(n.fit.Place), true
 }

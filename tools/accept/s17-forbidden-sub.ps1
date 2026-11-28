@@ -5,7 +5,7 @@
 # probe-site.test (T10-2). Все домены в hosts раннера ведут на 127.0.0.1: из сети ничего не грузится.
 # Дано: forbidden-site.test в «Запрещённых», study-site.test в «Учёбе» (до открытия Brave, T10-5).
 # (а) Когда: открыт http://video.forbidden-site.test/pcb-secret-path?q=pcb-secret-query. Тогда: вкладка закрыта не
-#     позже 2 с (допуск раннера 3 с), плашка «Сайт forbidden-site.test закрыт: он в списке запрещённых. Если он нужен, попроси родителей» (запись
+#     позже 2 с (допуск раннера 3 с), плашка «Сайт закрыт» — «forbidden-site.test в списке запрещённых. Если он нужен, попроси родителей» (запись
 #     списка из ответа AddSite), в журнале одна запись «попытка открыть запрещённое: сайт video.forbidden-site.test»
 #     (домен вкладки); ни путь, ни параметры адреса не попали ни в журналы работы, ни в журнал родителя (R23, T10-9).
 # (б) Учёба: 10 мин на study-site.test не тратят общий лимит (R3), идут в учёбу строкой сайта (RM4-7), не закрыты.
@@ -18,7 +18,7 @@
 $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "common.ps1")
 
-# Тексты службы: internal/service/texts.go textPlateSite («Сайт %s закрыт: он в списке запрещённых. Если он нужен, попроси родителей», %s — запись
+# Тексты службы: internal/service/texts.go textPlateSite («%s в списке запрещённых. Если он нужен, попроси родителей», %s — запись
 # списка); internal/service/journaltext.go evSiteForbiddenTry («попытка открыть запрещённое: сайт <домен вкладки>»).
 $script:TryKind = "site_forbidden_try"
 $script:TryPrefix = "попытка открыть запрещённое: сайт "
@@ -48,7 +48,7 @@ Invoke-Scenario "S17" "Поддомен запрещённого сайта за
     $script:S = Add-PcbSite "study-site.test" "study"
     Assert-That ($script:S -eq "study-site.test") "AddSite вернул домен «$($script:S)», ждали study-site.test"
     # Текст плашки — с записью списка из ответа программы (PL-22).
-    $script:SitePlate = "Сайт $($script:F) закрыт: он в списке запрещённых. Если он нужен, попроси родителей"
+    $script:SitePlate = "$($script:F) в списке запрещённых. Если он нужен, попроси родителей"
   }
 
   Step "Brave новым окном на probe-site.test, на переднем плане" {
@@ -58,9 +58,11 @@ Invoke-Scenario "S17" "Поддомен запрещённого сайта за
   Step "(а) Поддомен запрещённого новой вкладкой: закрыта, активна probe-site.test, плашка" {
     $g0 = Get-GuardState
     Assert-That ([string]$g0.closedTab -ne $script:SubDomain) "До открытия closedTab уже «$($g0.closedTab)» (PL-16)"
+    $sb = @(Get-SystemSounds $g0).Count
     $sw = Open-Brave $script:SecretUrl
     [void](Wait-TabClosed $script:SubDomain $sw)
-    [void](Wait-SitePlate $script:SitePlate "site" 5)
+    # «Игровое лобби» (ТЗ 8.2.5 п. 1, D-111): «Сайт закрыт», стикер 110, «Восклицание».
+    [void](Wait-SitePlate $script:SitePlate "site" 5 -Title "Сайт закрыт" -Sticker "110" -Sound $script:SoundExclamation -SoundsBefore $sb)
     Start-Sleep -Milliseconds 500 # поток окон перерисовывает плашку по своему таймеру
     Save-Screen "s17-site-plate"
   }

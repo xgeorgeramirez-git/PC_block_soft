@@ -39,6 +39,16 @@ object Format {
         return if (t.toLocalDate() == now.toLocalDate()) hm else String.format(Locale.ROOT, otherDayTpl, DM.format(t), hm)
     }
 
+    /** «25 ноября» (местное время телефона); months — родительный падеж из strings.xml (months_gen). */
+    fun dayMonth(ms: Long, zone: ZoneId, months: List<String>): String {
+        val t = Instant.ofEpochMilli(ms).atZone(zone)
+        return "${t.dayOfMonth} ${months.getOrElse(t.monthValue - 1) { t.monthValue.toString() }}"
+    }
+
+    /** Один ли день у двух моментов по поясу телефона. */
+    fun sameDay(a: Long, b: Long, zone: ZoneId): Boolean =
+        Instant.ofEpochMilli(a).atZone(zone).toLocalDate() == Instant.ofEpochMilli(b).atZone(zone).toLocalDate()
+
     /** Доступность компьютера по ответу phone/status. */
     sealed interface Link {
         data object Online : Link
@@ -71,6 +81,41 @@ object Format {
 
     /** Число сверки для экрана: «731004» → «731 004». */
     fun sas(s: String): String = if (s.length == 6) s.substring(0, 3) + " " + s.substring(3) else s
+
+    /** Шаблоны числа по-русски («%1$d минуту», «%1$d минуты», «%1$d минут») из strings.xml. */
+    data class Plural(val one: String, val few: String, val many: String)
+
+    /** 1, 21 — one; 2…4, 22…24 — few; 0, 5…20, 11…14 — many. */
+    fun plural(n: Int, p: Plural): String {
+        val a = Math.abs(n)
+        val form = when {
+            a % 10 == 1 && a % 100 != 11 -> p.one
+            a % 10 in 2..4 && a % 100 !in 12..14 -> p.few
+            else -> p.many
+        }
+        return String.format(Locale.ROOT, form, n)
+    }
+
+    /**
+     * Имя в родительном падеже («Копилка Миши») — те же правила, что genitiveName окна
+     * (frontend/src/lib/format.ts): только кириллица и дефис, иначе имя как есть.
+     */
+    fun genitive(name: String): String {
+        val n = name.trim()
+        if (n.isEmpty() || !CYR_NAME.matches(n)) return n
+        val last = n.last().lowercaseChar()
+        val stem = n.dropLast(1)
+        val prev = if (n.length >= 2) n[n.length - 2].lowercaseChar() else ' '
+        return when (last) {
+            'а' -> stem + if (prev in "гкхжчшщ") "и" else "ы"
+            'я' -> stem + "и"
+            'й', 'ь' -> stem + "я"
+            'е', 'и', 'о', 'у', 'ы', 'ю', 'э' -> n
+            else -> n + "а"
+        }
+    }
+
+    private val CYR_NAME = Regex("^[А-ЯЁа-яё-]+$")
 
     /** Своё число минут: 1…240, иначе null. */
     fun minutes(raw: String): Int? {

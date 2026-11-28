@@ -82,6 +82,14 @@ type sessState struct {
 	since time.Time
 	// safeLogged — вход ребёнка в безопасном режиме уже записан (R17е): раз на сеанс.
 	safeLogged bool
+	// askNow — «Попросить сейчас» со стража этого сеанса (8.2.4 п. 2, D-114): о какой программе и до
+	// какого момента решение в окне этого сеанса идёт без плашки решения.
+	askNow askNowRec
+	// logonDone — вход в этом сеансе разобран: окно при входе открыто или его не будет (FR-46,
+	// R-13); сбрасывается выходом из учётки. logonStats — окно при входе было окном первого
+	// входа (FR-32): после «Понятно» открыть «Моя статистика».
+	logonDone  bool
+	logonStats bool
 	guard      *supProc
 	tray       *supProc
 	windows    map[string]*supProc
@@ -111,6 +119,7 @@ func (s *Service) onSession(ev SessionEvent, id uint32, real time.Time) {
 		// сеанс сверка уберёт сама (dropSession снимает его ожидания). Выход запоминается:
 		// гибель рядом с ним в отключённом сеансе ребёнка обходом не считается (FB-5).
 		if id != SessionUnknown {
+			s.forgetLogon(id) // следующий вход в этот сеанс снова откроет окно (FR-46)
 			if ss := s.sessions[id]; ss != nil {
 				s.noteLogoff(ss.sid, real)
 			}
@@ -127,6 +136,11 @@ func (s *Service) onSession(ev SessionEvent, id uint32, real time.Time) {
 	}
 	s.guard("session", nil, func() { s.syncSessions(real) })
 	s.noteSessionState(ev, id)
+	if ev == SessionLogon {
+		// Вход в учётку — окно программы (FR-46). Разблокировка и подключение — не вход.
+		s.noteLogon(id, real)
+	}
+	s.guard("logonwin", nil, func() { s.openLogonWindows(real) })
 }
 
 // noteSessionState запоминает, на экране ли сеанс и заблокирован ли он, по событию Windows
@@ -284,6 +298,7 @@ func (s *Service) sessionOrder() []uint32 {
 func (s *Service) dropSession(ss *sessState) {
 	s.noteLogoff(ss.sid, s.real)
 	s.cancelBypass(ss.id, "сеанс исчез или в нём другой пользователь")
+	delete(s.logonDue, ss.id)
 	s.stopSession(ss)
 	for _, ps := range s.parents {
 		if ps.sessionID == ss.id {
@@ -322,6 +337,7 @@ func (s *Service) stopAllProcs() {
 		s.stopSession(s.sessions[id])
 	}
 	s.sessions = map[uint32]*sessState{}
+	s.logonDue = nil
 	s.parents = map[string]*parentSession{}
 	s.binds = map[uint32]*guardBind{}
 	s.saveProcs()
@@ -749,4 +765,18 @@ func (s *Service) killStale() {
 	if err := writeProcRecords(path, nil); err != nil {
 		s.logRate("procs", "не очищена память о запущенных процессах: %v", err)
 	}
+}
+
+// askNowLife — сколько служба помнит «Попросить сейчас» (8.2.4 п. 2, D-114).
+const askNowLife = 10 * time.Minute
+
+// askNowRec — «Попросить сейчас» с плашки: ключ программы и срок.
+type askNowRec struct {
+	path  string
+	until time.Time
+}
+
+// askedNow: из этого сеанса не позже askNowLife назад просили решить о программе path.
+func (ss *sessState) askedNow(path string, real time.Time) bool {
+	return ss.askNow.path != "" && ss.askNow.path == path && real.Before(ss.askNow.until)
 }

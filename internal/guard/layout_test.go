@@ -293,26 +293,26 @@ func TestNoteLayout(t *testing.T) {
 			}
 		}
 	}
-	// Рабочий стол 1920×1080 при 100 %: окно 552×377 (карточка 520 и тень 16 по бокам), стикер 170
+	// Рабочий стол 1920×1080 при 100 %: окно 552×394 (карточка 520 и тень 16 по бокам), стикер 170
 	// над карточкой, его нижние 56 px на карточке; заголовок через 8 px под стикером.
 	f := FitNote(96, Rect{Left: 0, Top: 0, Right: 1920, Bottom: 1040}, nil, true, textNoteTitle, "Иди ужинать", fakeNoteMeasure(96))
 	l := f.Layout
-	want := NoteLayout{W: 552, H: 377, Card: Rect{16, 114, 536, 355}, Shadow: Rect{0, 104, 552, 377},
+	want := NoteLayout{W: 552, H: 394, Card: Rect{16, 114, 536, 372}, Shadow: Rect{0, 104, 552, 394},
 		Sticker: Rect{191, 0, 361, 170}, StickerPx: 170, Overlap: 56,
-		Title: Rect{48, 178, 504, 200}, Text: Rect{48, 212, 504, 247}, Button: Rect{48, 271, 504, 327},
+		Title: Rect{48, 178, 504, 200}, Text: Rect{48, 212, 504, 264}, Button: Rect{48, 288, 504, 344},
 		Radius: 20, Border: 2, BtnRadius: 6, ShadowDY: 6, ShadowBlur: 16}
 	if l != want {
 		t.Fatalf("раскладка со стикером:\n%+v\nждали\n%+v", l, want)
 	}
-	if p := f.Place; p != (Rect{684, 24, 1236, 401}) || f.Density != NoteNormal || f.FontPx != NoteFontPx || f.Text != "Иди ужинать" {
+	if p := f.Place; p != (Rect{684, 24, 1236, 418}) || f.Density != NoteNormal || f.FontPx != NoteFontPx || f.Text != "Иди ужинать" {
 		t.Fatalf("место %+v, плотность %+v, шрифт %d", p, f.Density, f.FontPx)
 	}
 	// Без стикера: та же карточка без верхнего нахлёста, сверху только тень.
 	f = FitNote(96, Rect{Left: 0, Top: 0, Right: 1920, Bottom: 1040}, nil, false, textNoteTitle, "Иди ужинать", fakeNoteMeasure(96))
-	want = NoteLayout{W: 552, H: 237, Card: Rect{16, 10, 536, 215}, Shadow: Rect{0, 0, 552, 237},
-		Title: Rect{48, 38, 504, 60}, Text: Rect{48, 72, 504, 107}, Button: Rect{48, 131, 504, 187},
+	want = NoteLayout{W: 552, H: 254, Card: Rect{16, 10, 536, 232}, Shadow: Rect{0, 0, 552, 254},
+		Title: Rect{48, 38, 504, 60}, Text: Rect{48, 72, 504, 124}, Button: Rect{48, 148, 504, 204},
 		Radius: 20, Border: 2, BtnRadius: 6, ShadowDY: 6, ShadowBlur: 16}
-	if f.Layout != want || f.Place != (Rect{684, 24, 1236, 261}) {
+	if f.Layout != want || f.Place != (Rect{684, 24, 1236, 278}) {
 		t.Fatalf("без стикера:\n%+v %+v\nждали\n%+v", f.Layout, f.Place, want)
 	}
 }
@@ -428,7 +428,7 @@ func TestNoteLayoutLongText(t *testing.T) {
 			checkNoteWhole(t, fmt.Sprintf("рабочий стол, dpi %d, стикер %v", c.dpi, st), c.dpi, c.area, f, text)
 		}
 	}
-	// Сначала шире плашка, потом мельче шрифт: текст средней длины влезает целиком мельче 28.
+	// Сначала шире плашка, потом мельче шрифт: текст средней длины влезает целиком шрифтом 42.
 	mid := strings.Repeat("Иди ужинать. ", 12)
 	f := FitNote(144, Rect{Left: 0, Top: 0, Right: 1920, Bottom: 1032}, nil, false, textNoteTitle, mid, fakeNoteMeasure(144))
 	if f.Text != mid || f.FontPx != NoteFontPx || f.Layout.Card.Right-f.Layout.Card.Left <= NoteWidth(144, 1920) {
@@ -500,17 +500,24 @@ func checkNoteWhole(t *testing.T, name string, dpi int, area Rect, f NoteFit, te
 // Ловит (S57, снимок s57-note-long-lock.png): длинное сообщение над экраном блокировки показано одной
 // строкой мелким шрифтом и обрезано «…»; окно (с тенью: её пиксели ловят клики) закрывает заголовок
 // или кнопки экрана блокировки (NFR-10); кнопки, сдвинутые вниз ради окна, уходят за экран; шрифт
-// длинного мельче короткого; короткое сообщение без стикера двигает экран.
+// длинного мельче короткого; экран двигается не ради крупного текста (D-107: 42 px важнее
+// неподвижного экрана, но тот же размер без раздвижки - без раздвижки).
 func TestNoteLayoutOverLockScreen(t *testing.T) {
 	short := "Скоро ужин, собирайся"
 	for _, c := range lockCases() {
 		for _, st := range []bool{false, true} {
 			fs := FitNote(c.dpi, c.area, &c.lock, st, textNoteTitle, short, fakeNoteMeasure(c.dpi))
-			if !st && (fs.ShiftUp != 0 || fs.ShiftDown != 0) {
-				t.Fatalf("%s: короткое сообщение двигает экран блокировки: %+v", c.name, fs)
+			fixed := c.lock
+			fixed.MaxUp, fixed.MaxDown = 0, 0
+			if still := FitNote(c.dpi, c.area, &fixed, st, textNoteTitle, short, fakeNoteMeasure(c.dpi)); !st &&
+				(fs.ShiftUp != 0 || fs.ShiftDown != 0) && still.FontPx >= fs.FontPx {
+				t.Fatalf("%s: короткое сообщение двигает экран блокировки без выгоды для шрифта: %+v", c.name, fs)
 			}
-			if w := fs.Layout.Card.Right - fs.Layout.Card.Left; w != NoteWidth(c.dpi, c.area.Right-c.area.Left) {
-				t.Fatalf("%s, стикер %v: короткое сообщение в карточке шириной %d, ждали %d", c.name, st, w, NoteWidth(c.dpi, c.area.Right-c.area.Left))
+			// Карточка шире NoteWidth - только если на NoteWidth тот же текст занял бы больше строк.
+			tw0 := NoteTextWidth(c.dpi, NoteWidth(c.dpi, c.area.Right-c.area.Left), fs.Density)
+			tw := NoteTextWidth(c.dpi, fs.Layout.Card.Right-fs.Layout.Card.Left, fs.Density)
+			if m := fakeNoteMeasure(c.dpi); tw > tw0 && m(fs.FontPx, tw0, short) == m(fs.FontPx, tw, short) {
+				t.Fatalf("%s, стикер %v: короткое сообщение в карточке шире нужного: %d", c.name, st, fs.Layout.Card.Right-fs.Layout.Card.Left)
 			}
 			for _, text := range []string{short, plain300(), longNote()} {
 				name := fmt.Sprintf("%s, стикер %v, %d знаков", c.name, st, len([]rune(text)))
@@ -518,13 +525,14 @@ func TestNoteLayoutOverLockScreen(t *testing.T) {
 				checkNoteWhole(t, name, c.dpi, c.area, f, text)
 				checkNoteOverLock(t, name, c.dpi, c.lock, f)
 			}
-			// Длинное не мельче короткого того же вида: со стикером или без (стикер мог уйти ради текста).
+			// Длинное не крупнее короткого того же вида (D-107: короткое 42, длинное мельче, где не
+			// помещается): со стикером или без (стикер мог уйти ради текста).
 			fl := FitNote(c.dpi, c.area, &c.lock, st, textNoteTitle, plain300(), fakeNoteMeasure(c.dpi))
 			if fl.Layout.StickerPx == 0 {
 				fs = FitNote(c.dpi, c.area, &c.lock, false, textNoteTitle, short, fakeNoteMeasure(c.dpi))
 			}
-			if fl.FontPx < fs.FontPx {
-				t.Fatalf("%s, стикер %v: шрифт длинного сообщения %d мельче короткого %d", c.name, st, fl.FontPx, fs.FontPx)
+			if fl.FontPx > fs.FontPx {
+				t.Fatalf("%s, стикер %v: шрифт длинного сообщения %d крупнее короткого %d", c.name, st, fl.FontPx, fs.FontPx)
 			}
 		}
 	}
@@ -641,5 +649,135 @@ func TestNoteLayoutScreens(t *testing.T) {
 	l := NewNoteLayout(192, NoteNormal, NoteWidth(192, 3840), NoteStickerPx(192), 40, 60)
 	if l.StickerPx != 300 || l.Overlap != 99 || NoteStickerMinPx(192) != 192 || NoteStickerPx(96) != 170 || NoteStickerMinPx(96) != 96 {
 		t.Fatalf("200 %%: стикер %d, нахлёст %d, минимум %d", l.StickerPx, l.Overlap, NoteStickerMinPx(192))
+	}
+}
+
+// Ловит (FB-35, D-107, R-8): текст сообщения не в 1,5 раза крупнее (42 px), лестница размеров не
+// проходит через ориентир длинного текста 21 px или опускается ниже 14.
+func TestNoteFontLadder(t *testing.T) {
+	if NoteFontPx != 42 || NoteFontLongPx != 21 || NoteFontMinPx != 14 {
+		t.Fatalf("шрифт %d, длинный %d, мельчайший %d; ждали 42, 21, 14", NoteFontPx, NoteFontLongPx, NoteFontMinPx)
+	}
+	if noteFontSteps[0] != NoteFontPx || noteFontSteps[len(noteFontSteps)-1] != NoteFontMinPx {
+		t.Fatalf("лестница %v не от %d до %d", noteFontSteps, NoteFontPx, NoteFontMinPx)
+	}
+	has21 := false
+	for i, px := range noteFontSteps {
+		if i > 0 && px >= noteFontSteps[i-1] {
+			t.Fatalf("лестница %v не убывает", noteFontSteps)
+		}
+		has21 = has21 || px == NoteFontLongPx
+	}
+	if !has21 {
+		t.Fatalf("лестница %v без ориентира 21", noteFontSteps)
+	}
+}
+
+// normalScreens — обычные экраны (≥ 1366×768) при 100 %: рабочая область с панелью задач 40 px.
+var normalScreens = []Rect{{0, 0, 1366, 728}, {0, 0, 1920, 1040}}
+
+// Ловит (FB-35, D-107): короткое сообщение показано не 42 px на обычных экранах при 100 % и 150 %,
+// на рабочем столе и поверх экрана блокировки. Исключение - 1366×768 при 150 % поверх экрана
+// блокировки: между заголовком и кнопками (раздвинутыми до предела) 42 px не встаёт, а окно не
+// закрывает ни то, ни другое (8.2) - там крупнейший, что встаёт, и не мельче 21.
+func TestFitNoteShortIs42(t *testing.T) {
+	for _, sz := range [][2]int32{{1366, 768}, {1920, 1080}} {
+		for _, dpi := range []int{96, 144} {
+			area := Rect{0, 0, sz[0], sz[1]}
+			lock := fakeLock(dpi, area)
+			for _, lk := range []*NoteLock{nil, &lock} {
+				for _, st := range []bool{false, true} {
+					f := FitNote(dpi, area, lk, st, textNoteTitle, "Иди ужинать", fakeNoteMeasure(dpi))
+					if low := lk != nil && dpi == 144 && sz[0] == 1366; low && f.FontPx >= NoteFontLongPx {
+						checkNoteOverLock(t, "1366×768 150 %", dpi, lock, f)
+						continue
+					}
+					if f.FontPx != 42 {
+						t.Fatalf("%dx%d dpi %d блокировка %v стикер %v: шрифт %d, ждали 42", sz[0], sz[1], dpi, lk != nil, st, f.FontPx)
+					}
+				}
+			}
+		}
+	}
+}
+
+// Ловит (8.2, R-8): 300 знаков с 5 переводами строк на обычном экране при 100 % мельче 21 px, обрезаны
+// или окно выше 55 % области (Ruling FB28-1).
+func TestFitNoteLongNotBelow21OnNormalScreens(t *testing.T) {
+	for _, area := range normalScreens {
+		for _, text := range []string{longNote(), plain300()} {
+			for _, st := range []bool{false, true} {
+				name := fmt.Sprintf("%+v стикер %v, %d знаков", area, st, len([]rune(text)))
+				f := FitNote(96, area, nil, st, textNoteTitle, text, fakeNoteMeasure(96))
+				if f.FontPx < NoteFontLongPx {
+					t.Fatalf("%s: шрифт %d мельче 21", name, f.FontPx)
+				}
+				checkNoteWhole(t, name, 96, area, f, text)
+			}
+		}
+	}
+}
+
+// Ловит (8.2): 300 знаков на очень низком экране (1024×768 при 150 %) поверх экрана блокировки мельче
+// 14 px, обрезаны или окно заходит на столбец кнопок экрана блокировки (NFR-10).
+func TestFitNoteLongTinyScreen(t *testing.T) {
+	area := Rect{0, 0, 1024, 768}
+	lock := fakeLock(144, area)
+	for _, st := range []bool{false, true} {
+		for _, text := range []string{longNote(), plain300()} {
+			name := fmt.Sprintf("1024×768 150 %% стикер %v, %d знаков", st, len([]rune(text)))
+			f := FitNote(144, area, &lock, st, textNoteTitle, text, fakeNoteMeasure(144))
+			checkNoteWhole(t, name, 144, area, f, text)
+			if f.Place.Bottom > lock.ControlsTop+f.ShiftDown || f.ShiftDown > lock.MaxDown || f.ShiftUp > lock.MaxUp {
+				t.Fatalf("%s: окно %+v заходит на кнопки или сдвиг вне пределов: %+v", name, f.Place, f)
+			}
+		}
+	}
+}
+
+// Ловит (S57, D-107, ТЗ 8.2): признак «текст сообщения поместился целиком» (GuardState.NoteTextFits)
+// врёт: истинен, когда прямоугольник текста ниже высоты, намеренной тем же шрифтом в ту же ширину,
+// когда окно меряет крупнее, чем разложено, или когда запасное тесное широкое окно на крошечном
+// экране выше области и текст уходит за её край; или ложен у обычной раскладки короткого и длинного
+// сообщения поверх экрана блокировки 1024×768 (как у раннера).
+func TestNoteTextFits(t *testing.T) {
+	m := fakeNoteMeasure(96)
+	lc := lockCases()[0]
+	short := FitNote(96, lc.area, &lc.lock, true, textNoteTitle, "Иди ужинать", m)
+	long := FitNote(96, lc.area, &lc.lock, true, textNoteTitle, longNote(), m)
+	if short.FontPx != 42 || long.FontPx >= short.FontPx || long.FontPx < NoteFontMinPx {
+		t.Fatalf("шрифт короткого %d, длинного %d: ждали 42 и мельче, но не мельче 14", short.FontPx, long.FontPx)
+	}
+	if !NoteTextFits(short, lc.area, m) || !NoteTextFits(long, lc.area, m) {
+		t.Fatalf("1024×768: признак ложен у короткого (%v) или длинного (%v)", NoteTextFits(short, lc.area, m), NoteTextFits(long, lc.area, m))
+	}
+	cut := long
+	cut.Layout.Text.Bottom--
+	if NoteTextFits(cut, lc.area, m) {
+		t.Fatal("прямоугольник текста на 1 px ниже меры, а признак истинен")
+	}
+	bigger := func(font int, w int32, s string) int32 { return m(font, w, s) + 1 }
+	if NoteTextFits(long, lc.area, bigger) {
+		t.Fatal("окно меряет текст выше раскладки, а признак истинен")
+	}
+	left := short
+	left.Place.Left, left.Place.Right = lc.area.Left-short.Layout.Text.Right, lc.area.Left-short.Layout.Text.Right+short.Layout.W
+	if NoteTextFits(left, lc.area, m) {
+		t.Fatalf("текст левее области (окно %+v), а признак истинен", left.Place)
+	}
+	tiny := Rect{Left: 0, Top: 0, Right: 320, Bottom: 200}
+	f := FitNote(96, tiny, nil, false, textNoteTitle, longNote(), m)
+	tw := f.Layout.Text.Right - f.Layout.Text.Left
+	if f.FontPx != NoteFontMinPx || f.Density != NoteCompact || f.Layout.Text.Bottom-f.Layout.Text.Top != m(NoteFontMinPx, tw, f.Text) {
+		t.Fatalf("крошечный экран: ждали запасное тесное окно 14 px с текстом по мере, а %+v", f)
+	}
+	if f.Place.Top+f.Layout.Text.Bottom <= tiny.Bottom {
+		t.Fatalf("крошечный экран: текст %d…%d не ушёл за край %d, случай не проверяет край", f.Place.Top+f.Layout.Text.Top, f.Place.Top+f.Layout.Text.Bottom, tiny.Bottom)
+	}
+	if NoteTextFits(f, tiny, m) {
+		t.Fatal("крошечный экран: текст за краем области, а признак истинен")
+	}
+	if NoteTextFits(NoteFit{}, lc.area, m) {
+		t.Fatal("окна нет, а признак истинен")
 	}
 }

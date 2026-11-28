@@ -354,7 +354,7 @@ func boardThenOneMinute(t *testing.T, balance int, buttons string) {
 
 	r := newCtRig()
 	r.svc.test = true
-	r.ctl.SetSoundPlayers(func() bool { return true }, nil)
+	r.ctl.SetSoundPlayers(func() bool { return true }, nil, nil)
 	a := &app{ctl: r.ctl}
 	defer a.shutdown()
 	ctRunningStatus := func(rem int) ipc.ChildStatus {
@@ -445,7 +445,7 @@ func TestBlockedPlateKeepsFocusAndPresses(t *testing.T) {
 	}()
 	m := NewModel()
 	m.OnDecision(time.Now(), runningDecision(3600), false, nil)
-	m.OnBlocked(time.Now(), ipc.BlockedPlate{Kind: ipc.BlockedUnknown, Text: "Программа «SuperGame» ждёт разрешения родителя", ShowS: 15, Path: `c:\x.exe`, CanAsk: true})
+	m.OnBlocked(time.Now(), ipc.BlockedPlate{Kind: ipc.BlockedUnknown, Text: "Программа «SuperGame» новая. Родитель должен решить, можно ли её запускать", ShowS: 15, Path: `c:\x.exe`, CanAsk: true})
 	w := m.View(time.Now()).Warning
 	before, _, _ := procGetForegroundWin.Call()
 	for i := 0; i < 3; i++ {
@@ -565,6 +565,8 @@ func TestNoteWindowOverLockFits(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer n.close()
+	fitPx, fits := -1, false
+	n.onFit = func(px int, ok bool) { fitPx, fits = px, ok } // GuardState.NoteFontPx, NoteTextFits (S57)
 	wa := workArea()
 	text := strings.Repeat(strings.Repeat("Иди ужинать скорее ", 2)+"\n", 5) + strings.Repeat("ж", 110)
 	lock := &NoteLock{Title: Rect{Left: wa.left + 62, Top: wa.top + 65, Right: wa.left + 962, Bottom: wa.top + 115}, ControlsTop: wa.top + 272,
@@ -602,7 +604,13 @@ func TestNoteWindowOverLockFits(t *testing.T) {
 		if n.fit.Text != text || n.fit.FontPx < 14 || need > n.fit.Layout.Text.Bottom-n.fit.Layout.Text.Top {
 			t.Fatalf("текст не целиком: шрифт %d, нужно %d px, место %+v, %q", n.fit.FontPx, need, n.fit.Layout.Text, n.fit.Text)
 		}
+		if fitPx != int(Scaled(n.fit.FontPx, n.dpi)) || !fits {
+			t.Fatalf("окно сообщило шрифт %d, поместился %v; ждали %d и да", fitPx, fits, Scaled(n.fit.FontPx, n.dpi))
+		}
 		n.hide()
+		if fitPx != 0 || fits {
+			t.Fatalf("после скрытия: шрифт %d, поместился %v; ждали 0 и нет", fitPx, fits)
+		}
 	}
 }
 
@@ -802,5 +810,118 @@ func TestNoteWindowStickerOverLock(t *testing.T) {
 	}
 	if f.ShiftUp != 0 || f.ShiftDown != 0 || g.top < lock.Title.Bottom || g.bottom > lock.ControlsTop {
 		t.Fatalf("окно %+v закрывает заголовок %+v или кнопки (с %d), сдвиг %d/%d", g, lock.Title, lock.ControlsTop, f.ShiftUp, f.ShiftDown)
+	}
+}
+
+// plaqueView — плашка «Ждёт разрешения» со стикером 031 и кнопкой «Попросить сейчас» (как у Model).
+func plaqueView(id int) *WarningView {
+	m := NewModel()
+	m.OnDecision(time.Now(), runningDecision(3600), false, nil)
+	m.OnBlocked(time.Now(), ipc.BlockedPlate{Kind: ipc.BlockedUnknown, Title: "Ждёт разрешения",
+		Text: "Программа «SuperGame» новая. Родитель должен решить, можно ли её запускать", ShowS: 15, Path: `c:\x.exe`, CanAsk: true})
+	w := m.View(time.Now()).Warning
+	w.ID = id
+	return w
+}
+
+// showPlaque показывает плашку и ждёт разбора спрайта стикера.
+func showPlaque(t *testing.T, p *plaqueWindow, w *WarningView) {
+	t.Helper()
+	p.apply(w)
+	for end := time.Now().Add(5 * time.Second); p.sprite == nil && time.Now().Before(end); {
+		pump(20 * time.Millisecond)
+	}
+	pump(100 * time.Millisecond)
+	if !p.visible || p.sprite == nil || p.bits == nil {
+		t.Fatalf("плашка не показана: видна %v, спрайт %v, DIB %v", p.visible, p.sprite != nil, p.bits != nil)
+	}
+}
+
+// Ловит (8.2.4, PL-86): прозрачный угол плашки ловит щелчки (под ней ничего не нажать), а панель с
+// текстом не ловит; плашка не в правом нижнем углу рабочей области.
+func TestPlaqueWindowHitTest(t *testing.T) {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	p, err := newPlaqueWindow(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer p.close()
+	showPlaque(t, p, plaqueView(1))
+	wa, l := workArea(), p.lay
+	if p.geom.right != wa.right-Scaled(16, p.dpi) || p.geom.bottom != wa.bottom-Scaled(16, p.dpi) {
+		t.Fatalf("плашка %+v не в правом нижнем углу %+v", p.geom, wa)
+	}
+	alpha := func(x, y int32) byte { return p.bits[(int(y)*int(p.dibW)+int(x))*4+3] }
+	if alpha(0, l.H-1) != 0 {
+		t.Fatal("нижний левый угол окна не прозрачен")
+	}
+	if h := windowAt(p.geom.left, p.geom.bottom-1); h == p.hwnd {
+		t.Fatal("щелчок в прозрачном углу ловит окно плашки")
+	}
+	x, y := (l.Text.Left+l.Text.Right)/2, (l.Text.Top+l.Text.Bottom)/2
+	if a := alpha(x, y); a != 255 {
+		t.Fatalf("текст на панели: альфа %d", a)
+	}
+	if h := windowAt(p.geom.left+x, p.geom.top+y); h != p.hwnd {
+		t.Fatalf("щелчок по панели попадает в окно %#x, а не в плашку %#x", h, p.hwnd)
+	}
+}
+
+// Ловит (RM3-4, 8.2.4): щелчок в «Попросить сейчас» или крестик не доходит до стража нужной кнопкой.
+func TestPlaqueWindowButtons(t *testing.T) {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	var pressed []Button
+	p, err := newPlaqueWindow(func(b Button) { pressed = append(pressed, b) })
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer p.close()
+	showPlaque(t, p, plaqueView(1))
+	if !p.click(ButtonAskNow) || !p.click(ButtonPlateClose) {
+		t.Fatal("кнопки нет на плашке")
+	}
+	pump(100 * time.Millisecond)
+	if len(pressed) != 2 || pressed[0] != ButtonAskNow || pressed[1] != ButtonPlateClose {
+		t.Fatalf("нажато %v, ждали «Попросить сейчас» и крестик", pressed)
+	}
+}
+
+// Ловит (NFR-5, PL-89): тикер стикера идёт после скрытия плашки, спрайт и буферы остаются в памяти,
+// при выключенных анимациях стикер движется.
+func TestPlaqueTickerOnlyVisible(t *testing.T) {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	p, err := newPlaqueWindow(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer p.close()
+	var frames []int
+	p.onShown = func(s string, k int) { frames = append(frames, k) }
+	w := plaqueView(1)
+	showPlaque(t, p, w)
+	if p.anim == nil {
+		t.Fatal("тикер стикера не запущен")
+	}
+	frames = nil
+	pump(time.Second)
+	distinct := map[int]bool{}
+	for _, k := range frames {
+		distinct[k] = true
+	}
+	if len(distinct) < StickerFPS/3 {
+		t.Fatalf("за 1 с %d разных кадров", len(distinct))
+	}
+	still := *w
+	still.Still = true
+	p.apply(&still)
+	if p.anim != nil || p.cur != 0 {
+		t.Fatalf("без анимаций: тикер %v, кадр %d", p.anim != nil, p.cur)
+	}
+	p.apply(nil)
+	if p.anim != nil || p.sprite != nil || p.bits != nil || p.patch != nil || p.dib != 0 {
+		t.Fatalf("после скрытия: тикер %v, спрайт %v, DIB %v", p.anim != nil, p.sprite != nil, p.dib != 0)
 	}
 }

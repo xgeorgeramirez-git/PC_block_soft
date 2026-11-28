@@ -64,13 +64,14 @@ Invoke-Scenario "S12" "Игры 30 мин из 2 ч: предупреждени�
   }
 
   Step "Игры кончились: game.exe закрыта, плашка, экрана нет, notes.exe работает, снимок" {
+    $sb = @(Get-SystemSounds (Get-GuardState)).Count
     $st = Wait-Status { param($st) $st.closeGames } 90 "игры закрыты (closeGames)"
     $since = [Diagnostics.Stopwatch]::StartNew()
     Suspend-Clock
     Write-Log "Игры закрыты: остаток игр $($st.gamesRemainingS) с, общий $($st.remainingS) с; часы остановлены"
     [void](Assert-ClosedFast $script:Game "game.exe в 0 игр" $since)
-    $g = Wait-GuardState { param($s) [string]$s.plate -eq $script:GamesOver } 5 "плашка «$($script:GamesOver)»"
-    Assert-That ($g.plateKind -eq "gamesOver") "Вид плашки «$($g.plateKind)», ждали gamesOver"
+    # «Игровое лобби» (ТЗ 8.2.4, D-114): «Игры на сегодня всё», стикер 048, «Восклицание»; текст — ядра.
+    $g = Wait-LobbyPlate "gamesOver" "Игры на сегодня всё" "048" $script:SoundExclamation $sb "Конец игр" $script:GamesOver 5
     Assert-That (-not $g.lockShown) "Экран блокировки показан, ждали только плашку: $(Format-GuardState $g)"
     Assert-That (@(Get-BigPcbWindows).Count -eq 0) "Окно PC Block на весь экран: $((Get-BigPcbWindows) -join ' ; ')"
     Assert-AppAlive $script:Notes "notes.exe («Прочее») после конца игр"

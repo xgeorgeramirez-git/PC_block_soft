@@ -3,31 +3,16 @@ package ru.atlas404.pcblock.ui
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.layout.BoxWithConstraints
-import androidx.compose.foundation.layout.aspectRatio
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items as gridItems
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.selection.selectable
-import androidx.compose.foundation.selection.selectableGroup
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.RadioButton
-import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.clearAndSetSemantics
-import androidx.compose.ui.text.input.KeyboardCapitalization
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
@@ -35,25 +20,29 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items as gridItems
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -68,28 +57,38 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import ru.atlas404.pcblock.R
 import ru.atlas404.pcblock.proto.Format
 import ru.atlas404.pcblock.proto.NoteMark
 import ru.atlas404.pcblock.proto.Proto
+import ru.atlas404.pcblock.proto.RecentStickers
+import ru.atlas404.pcblock.proto.SoundNames
 import ru.atlas404.pcblock.store.SavedNote
 
 /**
- * Шаг 6: на связи ли компьютер, карточки детей: ±15/±30/±60, «Своё число», «Снять запрет на сегодня»,
- * «Сообщение», «Статистика за сегодня»; меню «Отключить телефон».
+ * Главный экран (FR-45, D-109): нижнее меню «Дети», «Промокоды», «Настройки»; вложенные экраны
+ * (копилка, ждущие программы, сообщение, статистика) — поверх вкладки, меню остаётся видно.
  */
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun MainScreen(vm: AppViewModel) {
     // Обновление раз в 15 с, пока экран виден; при уходе в фон опрос останавливается.
@@ -97,103 +96,43 @@ fun MainScreen(vm: AppViewModel) {
         vm.startPolling()
         onPauseOrDispose { vm.stopPolling() }
     }
-    var menu by remember { mutableStateOf(false) }
     var askUnpair by rememberSaveable { mutableStateOf(false) }
     var customFor by remember { mutableStateOf<Proto.Child?>(null) }
-    var noteFor by rememberSaveable { mutableStateOf<Long?>(null) }
-    var noteName by rememberSaveable { mutableStateOf("") }
-    var statsFor by rememberSaveable { mutableStateOf<Long?>(null) }
-
-    // «Статистика за сегодня» поверх главного экрана: опрос (выше) продолжается, данные обновляются.
-    val statsId = statsFor
-    if (statsId != null) {
-        StatsScreen(child = vm.report?.children?.firstOrNull { it.id == statsId }, onBack = { statsFor = null })
-        return
+    val rep = vm.report
+    // Компьютер старше 0.8.4 (в отчёте нет bankMin) или отчёта ещё нет: «Промокодов» и ждущих нет
+    // (протокол, раздел 6) — иначе promoList ушёл бы старому компьютеру и вернул range.
+    val showNew = Proto.newPcTabs(rep)
+    LaunchedEffect(showNew) {
+        if (!showNew && vm.tab == Tab.PROMOS) vm.selectTab(Tab.KIDS)
     }
-    // «Сообщение для <имя>» (FR-41) — отдельный экран; опрос идёт, отметки обновляются.
-    val noteId = noteFor
-    if (noteId != null) {
-        NoteScreen(
-            childId = noteId,
-            name = vm.report?.children?.firstOrNull { it.id == noteId }?.name ?: noteName,
-            vm = vm,
-            onBack = { if (!vm.noteBusy) noteFor = null },
-            onSent = { noteFor = null },
-        )
-        return
-    }
+    // «Назад» на вкладке «Промокоды» или «Настройки» возвращает к детям.
+    BackHandler(enabled = vm.sub == null && vm.tab != Tab.KIDS) { vm.selectTab(Tab.KIDS) }
 
     Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text(stringResource(R.string.main_title)) },
-                actions = {
-                    Box {
-                        IconButton(onClick = { menu = true }) {
-                            Icon(Icons.Filled.MoreVert, contentDescription = stringResource(R.string.menu_more))
-                        }
-                        DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                            DropdownMenuItem(
-                                text = { Text(stringResource(R.string.menu_refresh)) },
-                                onClick = {
-                                    menu = false
-                                    vm.refreshNow()
-                                },
-                            )
-                            DropdownMenuItem(
-                                text = { Text(stringResource(R.string.menu_unpair)) },
-                                onClick = {
-                                    menu = false
-                                    askUnpair = true
-                                },
-                            )
-                        }
-                    }
-                },
-            )
-        },
+        containerColor = Tok.Ground,
+        bottomBar = { BottomNav(vm.tab, showNew, vm::selectTab) },
     ) { pad ->
-        LazyColumn(
-            modifier = Modifier
+        Box(
+            Modifier
                 .fillMaxSize()
-                .padding(pad),
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+                .padding(pad)
+                .consumeWindowInsets(pad),
         ) {
-            item(key = "status") { StatusBlock(vm, onRepair = { askUnpair = true }) }
-            val rep = vm.report
-            if (rep == null) {
-                item(key = "nodata") {
-                    Text(
-                        stringResource(R.string.no_data),
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(vertical = 8.dp),
-                    )
-                }
-            } else if (rep.children.isEmpty()) {
-                item(key = "nochildren") {
-                    Text(stringResource(R.string.no_children), style = MaterialTheme.typography.bodyLarge)
-                }
-            } else {
-                items(rep.children, key = { it.id }) { c ->
-                    ChildCard(
-                        child = c,
-                        busy = vm.busyChild == c.id,
-                        locked = vm.busyChild != null || vm.noteBusy,
-                        note = vm.note?.takeIf { it.childId == c.id },
-                        lastSeenMs = vm.lastSeenMs,
-                        onDelta = { d -> vm.command(c.id, d) },
-                        onCustom = { customFor = c },
-                        onClearForbidden = { vm.clearForbidden(c.id) },
-                        onStats = { statsFor = c.id },
-                        notes = vm.notes.filter { it.child == c.id }.sortedByDescending { it.sentAtMs }.take(3),
-                        onNote = {
-                            vm.startNote()
-                            noteName = c.name
-                            noteFor = c.id
-                        },
-                    )
+            when (val s = vm.sub) {
+                is Sub.Stats -> StatsScreen(child = rep?.children?.firstOrNull { it.id == s.child }, onBack = { vm.closeSub() })
+                is Sub.Note -> NoteScreen(
+                    childId = s.child,
+                    name = rep?.children?.firstOrNull { it.id == s.child }?.name.orEmpty(),
+                    vm = vm,
+                    onBack = { if (!vm.noteBusy) vm.closeSub() },
+                    onSent = { vm.closeSub(s) },
+                )
+                is Sub.Bank -> BankScreen(vm, s.child)
+                is Sub.Pending -> PendingScreen(vm, s.child)
+                null -> when (vm.tab) {
+                    Tab.KIDS -> KidsTab(vm, onCustom = { customFor = it }, onRepair = { askUnpair = true })
+                    Tab.PROMOS -> PromosScreen(vm)
+                    Tab.SETTINGS -> SettingsScreen(vm, onUnpair = { askUnpair = true })
                 }
             }
         }
@@ -227,222 +166,108 @@ fun MainScreen(vm: AppViewModel) {
     }
 }
 
+/** Вкладка «Дети» (макет phone2.py): заголовок и связь, развёрнутая карточка, остальные — компактно. */
 @Composable
-private fun StatusBlock(vm: AppViewModel, onRepair: () -> Unit) {
-    val link = vm.link
-    val err = vm.mainError
-    val online = link is Format.Link.Online
-    val text = when {
-        err != null -> problemText(err, vm.lastSeenMs)
-        link == null -> stringResource(R.string.pc_checking)
-        link is Format.Link.Offline && link.sinceMs > 0 -> stringResource(R.string.pc_offline_since, clockText(link.sinceMs))
-        link is Format.Link.Offline -> stringResource(R.string.pc_offline)
-        else -> stringResource(R.string.pc_online)
-    }
-    Card(
-        colors = CardDefaults.cardColors(
-            containerColor = if (err != null) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.surfaceContainer,
-        ),
-        modifier = Modifier.fillMaxWidth(),
+private fun KidsTab(vm: AppViewModel, onCustom: (Proto.Child) -> Unit, onRepair: () -> Unit) {
+    val rep = vm.report
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 18.dp, bottom = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                // Точка дублирует текст, а не заменяет его: цвет один не несёт смысла.
-                Box(
-                    Modifier
-                        .size(12.dp)
-                        .background(
-                            if (online) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
-                            CircleShape,
-                        ),
-                )
-                Spacer(Modifier.width(10.dp))
-                Text(
-                    text,
-                    style = MaterialTheme.typography.titleMedium,
-                    color = if (err != null) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
-                )
-            }
-            vm.report?.let { rep ->
-                Text(
-                    stringResource(R.string.data_at, clockText(rep.ts)),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            if (vm.needRepair) {
-                Button(onClick = onRepair, modifier = Modifier.heightIn(min = 48.dp)) {
-                    Text(stringResource(R.string.reconnect))
+        item(key = "head") { KidsHeader(vm) }
+        val err = vm.mainError
+        if (err != null) {
+            item(key = "error") {
+                AppCard(gap = 10.dp) {
+                    Text(
+                        problemText(err, vm.lastSeenMs),
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = Tok.RemainRed,
+                        modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
+                    )
+                    if (vm.needRepair) MainButton(stringResource(R.string.reconnect), onClick = onRepair)
                 }
+            }
+        }
+        when {
+            rep == null -> item(key = "nodata") {
+                Text(stringResource(R.string.no_data), fontSize = 16.sp, color = Tok.Muted, modifier = Modifier.padding(vertical = 8.dp))
+            }
+            rep.children.isEmpty() -> item(key = "nochildren") {
+                Text(stringResource(R.string.no_children), fontSize = 16.sp, color = Tok.Ink)
+            }
+            else -> {
+                if (!rep.hasBank) {
+                    item(key = "old") {
+                        AppCard(gap = 6.dp) {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                Icon(AppIcons.Info, contentDescription = null, tint = Tok.Accent, modifier = Modifier.size(22.dp))
+                                Text(stringResource(R.string.update_pc), fontSize = 15.sp, fontWeight = FontWeight.Medium, color = Tok.Ink)
+                            }
+                        }
+                    }
+                }
+                val open = vm.expandedChild?.takeIf { id -> rep.children.any { it.id == id } } ?: rep.children.first().id
+                itemsIndexed(rep.children, key = { _, c -> c.id }) { i, c ->
+                    if (c.id == open) {
+                        ChildCard(
+                            child = c,
+                            index = i,
+                            report = rep,
+                            busy = vm.busyChild == c.id,
+                            locked = vm.isBusy,
+                            note = vm.note?.takeIf { it.childId == c.id },
+                            lastSeenMs = vm.lastSeenMs,
+                            actions = CardActions(
+                                onDelta = { d -> vm.command(c.id, d) },
+                                onCustom = { onCustom(c) },
+                                onBank = { vm.open(Sub.Bank(c.id)) },
+                                onPending = { vm.open(Sub.Pending(c.id)) },
+                                onNote = { vm.open(Sub.Note(c.id)) },
+                                onStats = { vm.open(Sub.Stats(c.id)) },
+                                onClearForbidden = { vm.clearForbidden(c.id) },
+                            ),
+                        )
+                    } else {
+                        ChildCompact(c, i, rep, onExpand = { vm.expandedChild = c.id })
+                    }
+                }
+                item(key = "at") { MutedText(stringResource(R.string.data_at, clockText(rep.ts))) }
             }
         }
     }
 }
 
+/** «Дети» 26 sp и «Компьютер на связи» с точкой (точка дублирует текст, а не заменяет его). */
 @Composable
-private fun ChildCard(
-    child: Proto.Child,
-    busy: Boolean,
-    locked: Boolean,
-    note: CmdNote?,
-    lastSeenMs: Long,
-    onDelta: (Int) -> Unit,
-    onCustom: () -> Unit,
-    onClearForbidden: () -> Unit,
-    onStats: () -> Unit,
-    notes: List<SavedNote>,
-    onNote: () -> Unit,
-) {
-    Card(
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text(
-                child.name,
-                style = MaterialTheme.typography.titleLarge,
-                modifier = Modifier.semantics { heading() },
+private fun KidsHeader(vm: AppViewModel) {
+    val link = vm.link
+    val online = link is Format.Link.Online
+    val text = when {
+        link == null -> stringResource(R.string.pc_checking)
+        link is Format.Link.Offline && link.sinceMs > 0 -> stringResource(R.string.pc_offline_since, clockText(link.sinceMs))
+        link is Format.Link.Offline -> stringResource(R.string.pc_offline)
+        else -> stringResource(R.string.pc_online)
+    }
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+        ScreenTitle(stringResource(R.string.kids_title), size = 26)
+        Spacer(Modifier.width(12.dp))
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.End,
+            modifier = Modifier
+                .weight(1f)
+                .semantics(mergeDescendants = true) { liveRegion = LiveRegionMode.Polite },
+        ) {
+            Box(
+                Modifier
+                    .size(8.dp)
+                    .background(if (online) Tok.RemainGreen else Tok.Muted, CircleShape),
             )
-            Text(
-                stringResource(R.string.child_used, durationText(child.usedSec)),
-                style = MaterialTheme.typography.bodyLarge,
-            )
-            Text(
-                if (child.leftSec < 0) stringResource(R.string.child_unlimited) else stringResource(R.string.child_left, durationText(child.leftSec)),
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.primary,
-            )
-            if (child.blocked) {
-                Text(
-                    stringResource(R.string.child_blocked),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            if (child.extraMin != 0) {
-                Text(
-                    stringResource(R.string.child_extra, durationText(child.extraMin * 60L)),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            child.activeForbidUntilMs?.let { until ->
-                Text(
-                    stringResource(R.string.forbid_until, clockText(until)),
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.error,
-                )
-            }
-            if (child.forbidView == Proto.ForbidView.CLEARED) {
-                Text(
-                    stringResource(R.string.forbid_cleared),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            Spacer(Modifier.size(4.dp))
-            // Две строки по три: «+15/+30/+60» и «−15/−30/−60» (FR-42), ширина делится поровну.
-            for (sign in listOf(1, -1)) {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                    for (m in Proto.QUICK_ADD) {
-                        val label = stringResource(if (sign > 0) R.string.btn_add else R.string.btn_sub, m)
-                        val desc = stringResource(if (sign > 0) R.string.btn_add_desc else R.string.btn_sub_desc, m, child.name)
-                        val mod = Modifier
-                            .weight(1f)
-                            .heightIn(min = 52.dp)
-                            .semantics { contentDescription = desc }
-                        val content: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit = {
-                            Text(label, maxLines = 1, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
-                        }
-                        if (sign > 0) {
-                            FilledTonalButton(
-                                onClick = { onDelta(m) },
-                                enabled = !locked,
-                                contentPadding = PaddingValues(horizontal = 4.dp),
-                                modifier = mod,
-                                content = content,
-                            )
-                        } else {
-                            OutlinedButton(
-                                onClick = { onDelta(-m) },
-                                enabled = !locked,
-                                contentPadding = PaddingValues(horizontal = 4.dp),
-                                modifier = mod,
-                                content = content,
-                            )
-                        }
-                    }
-                }
-            }
-            val own = stringResource(R.string.btn_custom_desc, child.name)
-            OutlinedButton(
-                onClick = onCustom,
-                enabled = !locked,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = 52.dp)
-                    .semantics { contentDescription = own },
-            ) { Text(stringResource(R.string.btn_custom)) }
-            if (child.forbidView == Proto.ForbidView.BUTTON) {
-                val nfDesc = stringResource(R.string.btn_no_forbidden_desc, child.name)
-                FilledTonalButton(
-                    onClick = onClearForbidden,
-                    enabled = !locked,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(min = 52.dp)
-                        .semantics { contentDescription = nfDesc },
-                ) { Text(stringResource(R.string.btn_no_forbidden), textAlign = androidx.compose.ui.text.style.TextAlign.Center) }
-            }
-            val noteDesc = stringResource(R.string.btn_note_desc, child.name)
-            OutlinedButton(
-                onClick = onNote,
-                enabled = !locked,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = 52.dp)
-                    .semantics { contentDescription = noteDesc },
-            ) { Text(stringResource(R.string.btn_note)) }
-            if (child.today != null) {
-                // Статистика только читается: доступна и пока идёт команда.
-                val statsDesc = stringResource(R.string.btn_stats_desc, child.name)
-                OutlinedButton(
-                    onClick = onStats,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(min = 52.dp)
-                        .semantics { contentDescription = statsDesc },
-                ) { Text(stringResource(R.string.btn_stats)) }
-            }
-            if (notes.isNotEmpty()) NoteList(notes)
-            // Постоянная область итога команды: TalkBack зачитывает её сам.
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = 24.dp)
-                    .semantics { liveRegion = LiveRegionMode.Polite },
-            ) {
-                val problem = note?.problem
-                when {
-                    busy -> {
-                        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
-                        Spacer(Modifier.width(8.dp))
-                        Text(stringResource(R.string.cmd_sending), style = MaterialTheme.typography.bodyLarge)
-                    }
-                    note != null && note.ok -> Text(
-                        note.message.ifEmpty { stringResource(R.string.cmd_done) },
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.primary,
-                    )
-                    problem != null -> Text(
-                        problemText(problem, lastSeenMs),
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.error,
-                    )
-                }
-            }
+            Spacer(Modifier.width(6.dp))
+            Text(text, fontSize = 13.sp, fontWeight = FontWeight.Medium, color = Tok.Muted, textAlign = TextAlign.End)
         }
     }
 }
@@ -500,43 +325,56 @@ private fun CustomDialog(child: Proto.Child, onDismiss: () -> Unit, onSend: (Int
     )
 }
 
-/** Последние сообщения ребёнка (до 3): текст, время отправки и отметка из отчёта компьютера. */
+/**
+ * Последние сообщения ребёнка (до 3, макет phones_more.py): текст, время отправки и отметка.
+ * Отметки нет и компьютер не на связи — «Ждёт: компьютер не в сети» (FB-29, D-102).
+ */
 @Composable
-private fun NoteList(notes: List<SavedNote>) {
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+private fun NoteList(notes: List<SavedNote>, pcOnline: Boolean) {
+    AppCard(gap = 0.dp) {
         Text(
             stringResource(R.string.note_recent),
-            style = MaterialTheme.typography.labelLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontSize = 15.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = Tok.Ink,
+            modifier = Modifier
+                .padding(bottom = 8.dp)
+                .semantics { heading() },
         )
         for (n in notes) {
-            val mark = NoteMark.of(n.state, n.showSec)
+            val mark = NoteMark.of(n.state, n.showSec, pcOnline)
             val markText = stringResource(mark.res())
             val time = clockText(n.sentAtMs)
             val oneLine = n.text.replace('\n', ' ')
             val desc = stringResource(R.string.note_item_desc, oneLine, time, markText)
-            Column(
+            HorizontalDivider(thickness = 1.dp, color = Tok.Line)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
                 modifier = Modifier
                     .fillMaxWidth()
+                    .padding(vertical = 10.dp)
                     .clearAndSetSemantics {
                         contentDescription = desc
                         liveRegion = LiveRegionMode.Polite // смена отметки зачитывается сама
                     },
             ) {
+                Column(Modifier.weight(1f)) {
+                    Text(oneLine, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = Tok.Ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    MutedText(time)
+                }
                 Text(
-                    oneLine,
-                    style = MaterialTheme.typography.bodyLarge,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(
-                    stringResource(R.string.note_item_meta, time, markText),
-                    style = MaterialTheme.typography.bodyMedium,
+                    markText,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    textAlign = TextAlign.End,
                     color = when (mark) {
-                        NoteMark.NOT_DELIVERED -> MaterialTheme.colorScheme.error
-                        NoteMark.READ, NoteMark.SHOWN -> MaterialTheme.colorScheme.primary
-                        else -> MaterialTheme.colorScheme.onSurfaceVariant
+                        NoteMark.NOT_DELIVERED -> Tok.RemainRed
+                        NoteMark.WAITING_OFFLINE -> Tok.Waiting
+                        NoteMark.READ, NoteMark.SHOWN -> Tok.PlusText
+                        else -> Tok.Muted
                     },
+                    modifier = Modifier.width(150.dp),
                 )
             }
         }
@@ -544,9 +382,9 @@ private fun NoteList(notes: List<SavedNote>) {
 }
 
 /**
- * «Сообщение для <имя>» (FR-41, план 0.8.3, «UX-сценарий»): текст до 300 знаков, стикер (сетка 4 в ряд:
- * «Без стикера» и первые 11, «Все N» — полный список), звук с прослушиванием, сколько показывать,
- * «Отправить». Отправка и отметки — как раньше (протокол, раздел 5а).
+ * «Сообщение для <имя>» (FR-41): текст до 300 знаков, стикер (сетка 4×2: «Без стикера» и 7 последних
+ * выбранных, D-103; «Все N» — полный список), звук с названием и прослушиванием (D-104), сколько показывать,
+ * «Отправить»; ниже — последние сообщения с отметками (FB-29). Отправка — протокол, раздел 5а.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -636,7 +474,7 @@ private fun NoteScreen(childId: Long, name: String, vm: AppViewModel, onBack: ()
             // ---------- стикер ----------
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                 SectionTitle(stringResource(R.string.note_sticker_title), Modifier.weight(1f))
-                if (vm.noteStickers.size > Proto.STICKER_GRID) {
+                if (vm.noteStickers.size > RecentStickers.SIZE) {
                     val allDesc = stringResource(R.string.note_sticker_all_desc, vm.noteStickers.size)
                     TextButton(
                         onClick = {
@@ -651,7 +489,7 @@ private fun NoteScreen(childId: Long, name: String, vm: AppViewModel, onBack: ()
                 }
             }
             val selected = vm.noteSticker
-            val first = vm.noteStickers.take(Proto.STICKER_GRID)
+            val first = vm.noteGrid
             // Стикер, выбранный из полного списка, виден в сетке первым после «Без стикера».
             val shown = if (selected.isNotEmpty() && selected !in first) listOf(selected) + first.dropLast(1) else first
             Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.selectableGroup()) {
@@ -670,6 +508,7 @@ private fun NoteScreen(childId: Long, name: String, vm: AppViewModel, onBack: ()
                     }
                 }
             }
+            MutedText(stringResource(R.string.note_sticker_recent))
 
             // ---------- звук ----------
             SectionTitle(stringResource(R.string.note_sound_title))
@@ -682,13 +521,15 @@ private fun NoteScreen(childId: Long, name: String, vm: AppViewModel, onBack: ()
                     playDesc = null,
                     onPlay = {},
                 )
+                val soundTpl = stringResource(R.string.note_sound_n)
                 for (n in vm.noteSounds) {
+                    val label = SoundNames.label(n, vm.soundNames, soundTpl)
                     SoundRow(
-                        label = stringResource(R.string.note_sound_n, n),
+                        label = label,
                         selected = vm.noteSound == n,
                         enabled = !busy,
                         onSelect = { vm.chooseSound(n) },
-                        playDesc = stringResource(R.string.note_sound_play_desc, n),
+                        playDesc = stringResource(R.string.note_sound_play_desc, label),
                         onPlay = {
                             // Как на макете: прослушанный звук становится выбранным.
                             if (!busy) vm.chooseSound(n)
@@ -743,8 +584,9 @@ private fun NoteScreen(childId: Long, name: String, vm: AppViewModel, onBack: ()
                     )
                 }
             }
-            Button(
-                // Кнопка доступна и при неверном тексте: нажатие объясняет, что не так (не «молчит»).
+            // Кнопка доступна и при неверном тексте: нажатие объясняет, что не так (не «молчит»).
+            MainButton(
+                stringResource(R.string.note_send),
                 onClick = {
                     tried = true
                     if (ok) {
@@ -755,10 +597,9 @@ private fun NoteScreen(childId: Long, name: String, vm: AppViewModel, onBack: ()
                     }
                 },
                 enabled = !busy,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = 52.dp),
-            ) { Text(stringResource(R.string.note_send)) }
+            )
+            val recent = vm.notes.filter { it.child == childId }.sortedByDescending { it.sentAtMs }.take(3)
+            if (recent.isNotEmpty()) NoteList(recent, vm.pcOnline)
         }
     }
 }

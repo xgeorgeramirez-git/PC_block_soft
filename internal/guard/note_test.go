@@ -182,7 +182,7 @@ func TestNoteWaitsHiddenOfflineAndForgets(t *testing.T) {
 }
 
 // Сообщение — своя команда (PL-81): не превращается в «Добавлено N минут» и не идёт плашкой notice;
-// звук один раз на показ, номер из сообщения (FR-41): 2 — звук 2, 0 — ни одного вызова плеера, 9 (нет
+// звук один раз на показ, номер из сообщения (FR-41): 2 — звук 2, 0 — ни одного вызова плеера, 99 (нет
 // среди встроенных, телефон новее компьютера) — звук 1; повтор того же показа — без звука; «показано»
 // и «Понял» уходят службе событиями с id; GuardState видит плашку.
 func TestControllerPhoneNote(t *testing.T) {
@@ -195,7 +195,7 @@ func TestControllerPhoneNote(t *testing.T) {
 		played = append(played, n)
 		mu.Unlock()
 		return true
-	})
+	}, nil)
 	playedNow := func(want int) string {
 		for end := time.Now().Add(2 * time.Second); time.Now().Before(end); time.Sleep(5 * time.Millisecond) {
 			mu.Lock()
@@ -215,7 +215,7 @@ func TestControllerPhoneNote(t *testing.T) {
 	r.svc.cmds = []ipc.GuardCommand{
 		{Kind: ipc.GuardCmdNote, Note: &ipc.GuardNote{ID: "n1", Text: "Добавлено 30 минут? Нет, иди ужинать", WaitS: 600, Sticker: "033", Sound: 2}},
 		{Kind: ipc.GuardCmdNote, Note: &ipc.GuardNote{ID: "n2", Text: "Тихо", WaitS: 600, Sound: 0}},
-		{Kind: ipc.GuardCmdNote, Note: &ipc.GuardNote{ID: "n3", Text: "Новый звук", WaitS: 600, Sound: 9}},
+		{Kind: ipc.GuardCmdNote, Note: &ipc.GuardNote{ID: "n3", Text: "Новый звук", WaitS: 600, Sound: 99}},
 	}
 	cmds := ClassifyCommands(r.svc.cmds)
 	if len(cmds.PhoneNotes) != 3 || len(cmds.NoticeMinutes) != 0 || len(cmds.Notices) != 0 {
@@ -244,7 +244,7 @@ func TestControllerPhoneNote(t *testing.T) {
 		t.Fatalf("третье: %+v", v.Note)
 	}
 	if got := playedNow(2); got != "[2 1]" {
-		t.Fatalf("неизвестный звук 9: сыграно %s, ждали [2 1]", got)
+		t.Fatalf("неизвестный звук 99: сыграно %s, ждали [2 1]", got)
 	}
 	r.ctl.Press(ButtonNoteOK, "")
 	r.ctl.View()
@@ -289,7 +289,7 @@ func TestControllerPhoneNote(t *testing.T) {
 // не та (0 — без звука, встроенный — как есть, не встроенный — 1); стикер не сохранён в очереди
 // (он нужен окну, T4a).
 func TestNoteSoundNumber(t *testing.T) {
-	cases := []struct{ in, want int }{{1, 1}, {2, 2}, {5, 5}, {0, 0}, {9, 1}, {99, 1}, {-1, 1}}
+	cases := []struct{ in, want int }{{1, 1}, {2, 2}, {5, 5}, {0, 0}, {98, 1}, {99, 1}, {-1, 1}}
 	for _, c := range cases {
 		m := NewModel()
 		m.OnDecision(t0, runningDecision(3600), false, nil)
@@ -351,7 +351,7 @@ func TestSoundWarningAndNoteOneLoop(t *testing.T) {
 	start := func(warn func() bool, msg func(int) bool) (*ctRig, *fakeSoundTimers) {
 		r := newCtRig()
 		r.svc.test = true
-		r.ctl.SetSoundPlayers(warn, msg)
+		r.ctl.SetSoundPlayers(warn, msg, nil)
 		r.ctl.SetSoundLengths(func() time.Duration { return 2400 * time.Millisecond }, func(n int) time.Duration { return 3840 * time.Millisecond })
 		timers := newFakeSoundTimers(r.ctl)
 		r.svc.status = ctRunningStatus(300)
@@ -466,7 +466,7 @@ func TestSoundWaitsForPreviousToEnd(t *testing.T) {
 	warnOK.Store(true)
 	r := newCtRig()
 	r.svc.test = true
-	r.ctl.SetSoundPlayers(func() bool { return play("w", warnOK.Load()) }, func(n int) bool { return play(fmt.Sprint("n", n), true) })
+	r.ctl.SetSoundPlayers(func() bool { return play("w", warnOK.Load()) }, func(n int) bool { return play(fmt.Sprint("n", n), true) }, nil)
 	r.ctl.SetSoundLengths(func() time.Duration { return 2400 * time.Millisecond },
 		func(n int) time.Duration { return time.Duration(n)*time.Second + 800*time.Millisecond })
 	timers := newFakeSoundTimers(r.ctl)
@@ -514,7 +514,7 @@ func TestSoundWaitsForPreviousToEnd(t *testing.T) {
 	warnOK.Store(false)
 	r = newCtRig()
 	r.svc.test = true
-	r.ctl.SetSoundPlayers(func() bool { return play("w", warnOK.Load()) }, func(n int) bool { return play(fmt.Sprint("n", n), true) })
+	r.ctl.SetSoundPlayers(func() bool { return play("w", warnOK.Load()) }, func(n int) bool { return play(fmt.Sprint("n", n), true) }, nil)
 	r.ctl.SetSoundLengths(func() time.Duration { return 2400 * time.Millisecond }, func(int) time.Duration { return time.Second })
 	timers = newFakeSoundTimers(r.ctl)
 	r.svc.status = ctRunningStatus(300)
@@ -665,5 +665,54 @@ func TestSetNoteShownOnlyInTestMode(t *testing.T) {
 	r.ctl.mu.Unlock()
 	if got != "" || frame != 0 {
 		t.Fatalf("вне тестового режима запомнено %q, кадр %d", got, frame)
+	}
+}
+
+// Ловит (S57, D-107): GuardState не говорит, каким шрифтом окно рисует текст сообщения и поместился ли
+// он целиком (приёмке нечем доказать «не обрезано», кроме высоты окна); или пишет это вне тестового
+// режима; или после «Понял» ещё называет шрифт закрытого сообщения.
+func TestPushStateCarriesNoteFit(t *testing.T) {
+	r := newCtRig()
+	r.ctl.SetNoteFit(42, true) // до приветствия тестовый режим неизвестен: не запоминается
+	r.svc.test = true
+	r.svc.status = ctRunningStatus(3600)
+	r.svc.cmds = []ipc.GuardCommand{{Kind: ipc.GuardCmdNote, Note: &ipc.GuardNote{ID: "n1", Text: "Иди ужинать", WaitS: 600}}}
+	r.poll()
+	r.svc.cmds = nil
+	r.ctl.PushState()
+	if st := lastPushed(t, r); st.NoteFontPx != 0 || st.NoteTextFits || st.NoteID != "n1" {
+		t.Fatalf("до раскладки окна: шрифт %d, поместился %v, сообщение %q", st.NoteFontPx, st.NoteTextFits, st.NoteID)
+	}
+	r.ctl.SetNoteFit(63, true)
+	r.ctl.PushState()
+	if st := lastPushed(t, r); st.NoteFontPx != 63 || !st.NoteTextFits {
+		t.Fatalf("после раскладки: шрифт %d, поместился %v; ждали 63 и да", st.NoteFontPx, st.NoteTextFits)
+	}
+	r.ctl.SetNoteFit(21, false)
+	r.ctl.PushState()
+	if st := lastPushed(t, r); st.NoteFontPx != 21 || st.NoteTextFits {
+		t.Fatalf("текст не поместился: шрифт %d, поместился %v; ждали 21 и нет", st.NoteFontPx, st.NoteTextFits)
+	}
+	r.ctl.SetNoteFit(42, true)
+	r.ctl.Press(ButtonNoteOK, "")
+	r.ctl.View()
+	r.ctl.PushState()
+	if st := lastPushed(t, r); st.NoteFontPx != 0 || st.NoteTextFits || st.Note != "" {
+		t.Fatalf("после «Понял»: шрифт %d, поместился %v, текст %q", st.NoteFontPx, st.NoteTextFits, st.Note)
+	}
+}
+
+// Ловит: вне тестового режима страж запоминает шрифт и признак текста окна сообщения (GuardState
+// только для приёмки).
+func TestSetNoteFitOnlyInTestMode(t *testing.T) {
+	r := newCtRig()
+	r.svc.status = ctRunningStatus(3600)
+	r.poll()
+	r.ctl.SetNoteFit(42, true)
+	r.ctl.mu.Lock()
+	px, fits := r.ctl.noteFontPx, r.ctl.noteTextFits
+	r.ctl.mu.Unlock()
+	if px != 0 || fits {
+		t.Fatalf("вне тестового режима запомнено: шрифт %d, поместился %v", px, fits)
 	}
 }

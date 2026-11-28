@@ -7,7 +7,7 @@
 # (а) Автозапуск: ребёнок 30 с ничего не нажимал, впереди Проводник, msedge.exe запускает PowerShell. Тогда: закрыт
 #     не позже допуска раннера, плашки нет, в журнале «запускалась сама и закрыта», нарушения нет (R13, D-65).
 # (б) Ручной запуск: ребёнок двигает мышь, впереди PowerShell, он запускает msedge.exe, затем chrome.exe. Тогда:
-#     закрыты, плашка «Этот браузер запрещён. Пользуйся Brave», по одному нарушению «попытка открыть запрещённое».
+#     закрыты, плашка «Этот браузер запрещён» — «Пользуйся Brave», по одному нарушению «попытка открыть запрещённое».
 # (в) firefox.exe (решение родителя «Прочее») работает, плашки браузера нет.
 # Настоящий Edge из «Пуска» и его служебные процессы — вручную на запасном ПК. Снимок: s19-browser-plate.png.
 $ErrorActionPreference = "Stop"
@@ -15,7 +15,7 @@ $ErrorActionPreference = "Stop"
 
 # Тексты службы: internal/service/texts.go textPlateBrowser; internal/service/journaltext.go evProgramForbiddenTry,
 # evProgramAutoClosed; виды записей — internal/service/handlers_m3.go; вид плашки — internal/ipc/commands_m4.go BlockedBrowser.
-$script:BrowserPlate = "Этот браузер запрещён. Пользуйся Brave"
+$script:BrowserPlate = "Пользуйся Brave"
 $script:TryKind = "program_forbidden_try"
 $script:AutoKind = "program_auto_closed"
 
@@ -48,7 +48,7 @@ function Assert-NoBrowserPlate([string]$What, [double]$Seconds = 3) {
   $sw = [Diagnostics.Stopwatch]::StartNew()
   while ($sw.Elapsed.TotalSeconds -lt $Seconds) {
     $g = Get-GuardState
-    if ([string]$g.plateKind -eq "browser" -or ([string]$g.plate).Contains("Этот браузер запрещён")) {
+    if ([string]$g.plateKind -eq "browser" -or [string]$g.plateTitle -eq "Этот браузер запрещён" -or [string]$g.plate -eq $script:BrowserPlate) {
       throw "${What}: ребёнку показана плашка о браузере: $(Format-GuardState $g); журнал службы: $(Get-WatchLog)"
     }
     Start-Sleep -Milliseconds 150
@@ -126,9 +126,10 @@ Invoke-Scenario "S19" "Другие браузеры: Edge и Chrome закры�
     Start-Sleep -Seconds 2 # страж успевает прислать снимок с вводом и передним планом
     $g0 = Get-GuardState
     Assert-That ([string]$g0.plate -ne $script:BrowserPlate) "До ручного запуска уже видна плашка «$($g0.plate)» (PL-16)"
+    $sb = @(Get-SystemSounds $g0).Count
     [void](Invoke-BrowserLaunch $script:EdgePath "Ручной запуск msedge")
-    $g = Wait-GuardState { param($s) [string]$s.plate -eq $script:BrowserPlate } 6 "плашка «$($script:BrowserPlate)» (журнал службы: $(Get-WatchLog))"
-    Assert-That ([string]$g.plateKind -eq "browser") "Вид плашки «$($g.plateKind)», ждали browser: $(Format-GuardState $g)"
+    # «Игровое лобби» (ТЗ 8.2.5 п. 4, D-111): «Этот браузер запрещён» — «Пользуйся Brave», стикер 110, «Восклицание».
+    $g = Wait-LobbyPlate "browser" "Этот браузер запрещён" "110" $script:SoundExclamation $sb "Ручной запуск msedge (журнал службы: $(Get-WatchLog))" $script:BrowserPlate 6
     Start-Sleep -Milliseconds 500 # поток окон перерисовывает плашку по своему таймеру
     Save-Screen "s19-browser-plate"
   }

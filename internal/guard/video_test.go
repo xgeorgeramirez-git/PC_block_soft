@@ -89,7 +89,7 @@ func TestVideoBoardCountsVideo(t *testing.T) {
 func TestVideoWarningRearmsAndSounds(t *testing.T) {
 	r := newCtRig()
 	r.svc.test = true
-	r.ctl.SetSoundPlayers(func() bool { return true }, nil)
+	r.ctl.SetSoundPlayers(func() bool { return true }, nil, nil)
 	r.svc.status = ipc.ChildStatusFrom("Миша", videoDecision(5000, 300))
 	r.svc.warns = []ipc.GuardWarning{ipc.NewGuardWarningFor(5, core.WarnVideo, 300)}
 	r.poll()
@@ -139,7 +139,7 @@ func TestMostUrgentRank(t *testing.T) {
 // --- старшинство плашек сайтов (RM4-9, PL-34, T7-8) -------------------------------------------
 
 func sitePlate(showS int) ipc.BlockedPlate {
-	return ipc.BlockedPlate{Kind: ipc.BlockedSite, Text: "Сайт example.com закрыт: он в списке запрещённых", ShowS: showS}
+	return ipc.BlockedPlate{Kind: ipc.BlockedSite, Text: "example.com в списке запрещённых. Если он нужен, попроси родителей", ShowS: showS}
 }
 
 // Ловит (Review Focus 4): плашка сайта, которую служба повторяет раз в 5 с, ложится поверх плашки
@@ -161,7 +161,7 @@ func TestSitePlateWaitsBehindOneMinute(t *testing.T) {
 	}
 	m.OnDecision(at(9*time.Second), runningDecision(1854), false, nil)
 	w = m.View(at(9 * time.Second)).Warning
-	if w == nil || w.Kind != ipc.BlockedSite || w.Text != "Сайт example.com закрыт: он в списке запрещённых" {
+	if w == nil || w.Kind != ipc.BlockedSite || w.Text != "example.com в списке запрещённых. Если он нужен, попроси родителей" {
 		t.Fatalf("после «Добавлено» плашка сайта не видна: %+v", w)
 	}
 	m.OnDecision(at(12*time.Second), runningDecision(1851), false, nil)
@@ -172,7 +172,7 @@ func TestSitePlateWaitsBehindOneMinute(t *testing.T) {
 	// Контроль M3: плашка о программе ложится поверх плашки 1 мин.
 	p := NewModel()
 	p.OnDecision(t0, runningDecision(60), false, []int{1})
-	p.OnBlocked(at(time.Second), ipc.BlockedPlate{Kind: ipc.BlockedForbidden, Text: "Программа «X» запрещена родителем", ShowS: 3, Path: `c:\x.exe`})
+	p.OnBlocked(at(time.Second), ipc.BlockedPlate{Kind: ipc.BlockedForbidden, Text: "Родитель запретил «X». Выбери другую игру", ShowS: 3, Path: `c:\x.exe`})
 	if w := p.View(at(time.Second)).Warning; w == nil || w.Kind != ipc.BlockedForbidden {
 		t.Fatalf("плашка о программе не поверх плашки 1 мин: %+v", w)
 	}

@@ -5,21 +5,23 @@
 # Родительская сессия в сеансе ребёнка прячет плашки (Ruling 19): плашки проверяются до входа родителя,
 # каждая родительская команда — вход, команда, выход (Use-Parent).
 # Дано: программа не в списке. Когда: запуск. Тогда: закрыта не позже 1,5 с, плашка «Программа
-# «superGame» ждёт разрешения родителя» с «Попросить сейчас», в «Ждут решения» одна строка, попыток 1,
+# «superGame» новая. Родитель должен решить, можно ли её запускать» с «Попросить сейчас», в «Ждут решения» одна строка, попыток 1,
 # второй запуск — 2; «Попросить сейчас» открывает окно родителя на «Программах» (--parent
-# --screen=programs); «Игра» — плашка «Родитель разрешил «superGame»: это игра. Запусти её снова»;
-# запуск работает, на переднем плане секунды идут в игры.
+# --screen=programs); «Игра» в этом же сеансе (родитель решил при ребёнке, ТЗ 8.2.4 п. 2, D-114) — плашки
+# решения нет, ребёнок запускает программу снова сам: она работает, на переднем плане секунды идут в игры.
+# Плашка «Игрового лобби»: заголовок «Ждёт разрешения», стикер 031 (ТЗ 8.2.4, D-112).
 # Снимки: s14-pending-plate.png, s14-programs.png (окно родителя, открытое «Попросить сейчас», на запросе
 # пароля: вход паролем в окне приёмка не автоматизирует; экран «Программы» снимает Playwright в ci.yml).
 $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "common.ps1")
 
 # Тексты службы (internal/service/texts.go textPlateUnknown, handlers_m3.go decidedPlateText).
-$script:PendingText = "Программа «superGame» ждёт разрешения родителя"
+$script:PendingText = "Программа «superGame» новая. Родитель должен решить, можно ли её запускать"
 $script:DecidedText = "Родитель разрешил «superGame»: это игра. Запусти её снова"
+$script:PendingTitle = "Ждёт разрешения"
 
 function Wait-PendingPlate([string]$What) {
-  $g = Wait-GuardState { param($s) [string]$s.plate -eq $script:PendingText -and (Test-HasButton $s "askNow") } 6 "$What`: плашка «$($script:PendingText)» с «Попросить сейчас»"
+  $g = Wait-GuardState { param($s) [string]$s.plate -eq $script:PendingText -and [string]$s.plateTitle -eq $script:PendingTitle -and [string]$s.plateSticker -eq "031" -and (Test-HasButton $s "askNow") } 6 "$What`: плашка «$($script:PendingTitle)» — «$($script:PendingText)», стикер 031, с «Попросить сейчас»"
   Assert-That ($g.plateKind -eq "unknown") "Вид плашки «$($g.plateKind)», ждали unknown"
   Assert-That (-not $g.lockShown) "Экран блокировки при незнакомой программе: $(Format-GuardState $g)"
   return $g
@@ -100,11 +102,18 @@ Invoke-Scenario "S14" "Незнакомая программа: закрыта, 
     }
   }
 
-  Step "Родитель: «Игра» — плашка «Родитель разрешил «superGame»: это игра. Запусти её снова»" {
+  Step "Родитель в этом сеансе после «Попросить сейчас»: «Игра» — плашки решения нет (ТЗ 8.2.4 п. 2, D-114)" {
     $rep = Set-ProgramCategory $script:SgPath "games"
     Assert-That ($rep.message -eq "superGame: игра") "Сообщение родителю «$($rep.message)», ждали «superGame: игра»"
-    $g = Wait-GuardState { param($s) [string]$s.plate -eq $script:DecidedText } 6 "плашка «$($script:DecidedText)»"
-    Assert-That ($g.plateKind -eq "decided") "Вид плашки «$($g.plateKind)», ждали decided"
+    # Плашка решения пришла бы со следующим опросом стража (раз в секунду) и держится 10 с: 6 с наблюдения
+    # хватает (PL-16: отсутствие проверяется после события).
+    $sw = [Diagnostics.Stopwatch]::StartNew()
+    while ($sw.Elapsed.TotalSeconds -lt 6) {
+      $g = Get-GuardState
+      Assert-That (-not ([string]$g.plateKind -eq "decided" -or [string]$g.plate -eq $script:DecidedText)) "После «Попросить сейчас» и решения в этом сеансе показана плашка решения: $(Format-GuardState $g)"
+      Start-Sleep -Milliseconds 150
+    }
+    Write-Log "Плашки решения нет 6 с после «Игра»"
     $list = Get-ProgramsList
     Assert-That (@(List $list.pending).Count -eq 0) "После решения в «Ждут решения» строк $(@(List $list.pending).Count), ждали 0"
     $row = @(@(List $list.programs) | Where-Object { ([string]$_.path) -eq $script:SgPath.ToLowerInvariant() })
@@ -142,5 +151,5 @@ Invoke-Scenario "S14" "Незнакомая программа: закрыта, 
     }
   }
 
-  Write-Log "S14: незнакомая закрыта и ждёт решения, попытки 1 и 2, «Попросить сейчас» открыл «Программы», после «Игра» считается игрой"
+  Write-Log "S14: незнакомая закрыта и ждёт решения, попытки 1 и 2, «Попросить сейчас» открыл «Программы», после «Игра» без плашки решения запускается и считается игрой"
 }

@@ -52,7 +52,8 @@ type app struct {
 	lock      *LockWindow
 	ui        *lockUI
 	plate     *plateWindow
-	note      *noteWindow // плашка «Сообщение от родителя» (FR-41), поверх экрана блокировки
+	plaque    *plaqueWindow // плашки «Игрового лобби» про программы и сайты (ТЗ 8.2.4, 8.2.5)
+	note      *noteWindow   // плашка «Сообщение от родителя» (FR-41), поверх экрана блокировки
 	board     *systray.WarningCard
 	boardFail time.Time // когда не удалось создать окно табло; повтор не чаще boardRetry
 	hookTried bool
@@ -168,7 +169,7 @@ func Run(opts launch.Options) error {
 	a.ctl = NewController(NewModel(), caller, time.Now, a.readSensors, func() {
 		procPostMessage.Call(a.host, wmAppRefresh, 0, 0)
 	})
-	a.ctl.SetSoundPlayers(sound.PlayWarning, sound.PlayMessage)
+	a.ctl.SetSoundPlayers(sound.PlayWarning, sound.PlayMessage, sound.PlaySystem)
 	a.ctl.SetSoundLengths(sound.WarningLength, sound.MessageLength)
 	a.ctl.SetTabActor(winTabs{})
 	a.ctl.SetClockSpeed(a.speed)
@@ -387,10 +388,11 @@ func (a *app) animFrame() {
 }
 
 // applyPlate показывает плашку предупреждения или прячет её: табло за 30/15/5 мин — общей
-// карточкой (systray.WarningCard, R-2), плашку 1 мин, «Добавлено N минут» и плашки о закрытых
-// программах — текстовым окном с кнопками.
+// карточкой (systray.WarningCard, R-2), плашки про программы и сайты — окном «Игрового лобби»
+// (PlaqueStyleOf), плашку 1 мин, «Добавлено N минут» и сбой кнопки — текстовым окном с кнопками.
 func (a *app) applyPlate(v View) {
-	board, text := SplitPlate(v.Warning)
+	board, text, plaque := SplitPlaque(v.Warning)
+	a.applyPlaque(plaque)
 	if board == nil {
 		if a.board != nil {
 			a.board.Hide()
@@ -429,6 +431,25 @@ func (a *app) applyPlate(v View) {
 	a.plate.apply(text)
 }
 
+// applyPlaque показывает плашку «Игрового лобби» или прячет её (nil).
+func (a *app) applyPlaque(w *WarningView) {
+	if w == nil {
+		if a.plaque != nil {
+			a.plaque.hide()
+		}
+		return
+	}
+	if a.plaque == nil {
+		p, err := newPlaqueWindow(a.press)
+		if err != nil {
+			return // следующий кадр попробует снова
+		}
+		p.onShown = a.ctl.SetPlaqueShown // тестовый режим: стикер и кадр окна (GuardState, S65)
+		a.plaque = p
+	}
+	a.plaque.apply(w)
+}
+
 // applyNote показывает окно «Сообщение от родителя» или прячет его (FR-41).
 func (a *app) applyNote(v View) {
 	if v.Note == nil {
@@ -446,6 +467,7 @@ func (a *app) applyNote(v View) {
 			return // следующий кадр попробует снова; служба ждёт «показано» и повторит
 		}
 		n.onShown = a.ctl.SetNoteShown // тестовый режим: стикер и кадр окна (GuardState, S60)
+		n.onFit = a.ctl.SetNoteFit     // тестовый режим: шрифт текста и «поместился целиком» (GuardState, S57)
 		a.note = n
 	}
 	var lock *NoteLock
@@ -480,6 +502,9 @@ func (a *app) shutdown() {
 	}
 	if a.plate != nil {
 		a.plate.close()
+	}
+	if a.plaque != nil {
+		a.plaque.close()
 	}
 	if a.note != nil {
 		a.note.close()

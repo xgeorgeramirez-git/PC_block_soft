@@ -6,7 +6,7 @@
 # .test; в hosts раннера он ведёт на 127.0.0.1 (шаг «Brave для пробы и приёмки»): из сети ничего не грузится.
 # Дано: «18+» у ребёнка включён (по умолчанию), домена нет в своих списках родителя (свои списки сильнее, RM4-5).
 # Когда: домен открыт в Brave. Тогда: вкладка закрыта не позже 2 с (допуск раннера 3 с), активна probe-site.test,
-# плашка «Сайт закрыт: он в списке сайтов для взрослых» (без домена), в журнале одна запись «попытка открыть
+# плашка «Сайт закрыт» — «Этот сайт для взрослых» (без домена), в журнале одна запись «попытка открыть
 # запрещённое: сайт для взрослых <домен>». Затем «18+» выключен: тот же домен открывается и не закрывается.
 # Снимок: s16-adult-plate.png.
 $ErrorActionPreference = "Stop"
@@ -14,7 +14,7 @@ $ErrorActionPreference = "Stop"
 
 # Тексты службы: internal/service/texts.go textPlateAdult, textAdultOff; internal/service/journaltext.go
 # (evSiteForbiddenTry с kind adult); вид записи — internal/service/sites_svc.go evSiteForbiddenTry, evSiteAdultFilter.
-$script:AdultPlate = "Сайт закрыт: он в списке сайтов для взрослых"
+$script:AdultPlate = "Этот сайт для взрослых"
 $script:AdultOffText = "сайты 18+ не блокируются"
 $script:TryKind = "site_forbidden_try"
 
@@ -86,9 +86,11 @@ Invoke-Scenario "S16" "Сайт 18+ в Brave: вкладка закрыта, п�
   Step "1. Домен 18+ новой вкладкой: закрыта, активна probe-site.test, плашка без домена" {
     $g0 = Get-GuardState
     Assert-That ([string]$g0.closedTab -ne $script:A) "До открытия closedTab уже «$($g0.closedTab)» (PL-16)"
+    $sb = @(Get-SystemSounds $g0).Count
     $sw = Open-Brave "http://$($script:A)/"
     [void](Wait-TabClosed $script:A $sw)
-    $g = Wait-SitePlate $script:AdultPlate "adult" 5
+    # «Игровое лобби» (ТЗ 8.2.5 п. 2, D-111): «Сайт закрыт», стикер 110, «Восклицание».
+    $g = Wait-SitePlate $script:AdultPlate "adult" 5 -Title "Сайт закрыт" -Sticker "110" -Sound $script:SoundExclamation -SoundsBefore $sb
     Assert-That (-not ([string]$g.plate).Contains($script:A)) "Плашка 18+ показывает домен: «$($g.plate)» (R23, 8.2.5 п. 2)"
     Start-Sleep -Milliseconds 500 # поток окон перерисовывает плашку по своему таймеру
     Save-Screen "s16-adult-plate"

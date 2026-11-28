@@ -166,7 +166,7 @@ func TestDecidePendingProgram(t *testing.T) {
 	if got := h.journal("program_decided"); !reflect.DeepEqual(got, []string{"Вы отнесли «SuperGame» к категории «Игры»"}) {
 		t.Errorf("журнал: %q", got)
 	}
-	want := ipc.BlockedPlate{Kind: ipc.BlockedDecided, Text: "Родитель разрешил «SuperGame»: это игра. Запусти её снова", ShowS: 10, Path: pathSuperGame}
+	want := ipc.BlockedPlate{Kind: ipc.BlockedDecided, Title: "Можно играть!", Text: "Родитель разрешил «SuperGame»: это игра. Запусти её снова", ShowS: 10, Path: pathSuperGame, Allowed: true}
 	if got := h.plates(childSession); !reflect.DeepEqual(got, []ipc.BlockedPlate{want}) {
 		t.Errorf("плашка Мише: %+v", got)
 	}
@@ -194,7 +194,7 @@ func TestDecidePlateOnlyForTriedAndOnScreen(t *testing.T) {
 	if got := h.plates(childSession); len(got) != 0 {
 		t.Errorf("отключённый сеанс Миши получил плашку: %+v", got)
 	}
-	if got := h.plates(child2Session); len(got) != 1 || got[0].Text != "Родитель запретил «SuperGame»" {
+	if got := h.plates(child2Session); len(got) != 1 || got[0].Text != "«SuperGame» запускать нельзя" {
 		t.Errorf("плашка о запрете Коле: %+v", got)
 	}
 }

@@ -2,6 +2,7 @@ package service
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"pcblock/internal/core"
@@ -163,7 +164,26 @@ func eventText(kind, name string, d map[string]any) string {
 		body = "журнал очищен"
 	case evPromoGenerate:
 		// Коды — в подробностях codes, в текст журнала не идут (RM5-12).
-		body = promoGenerateText(detInt(d, "count"), detInt(d, "minutes"))
+		body = promoGenerateText(detInt(d, "count"), detInt(d, "minutes")) + phoneSuffix(d)
+	case evPromoCreate:
+		// С телефона (FR-45): «Промокод SUMMER на 30 мин создан с телефона»; окно — текст записи.
+		body = detStr(d, "text")
+		if detStr(d, "source") == extraSourcePhone {
+			body = fmt.Sprintf("Промокод %s на %d мин создан с телефона", detStr(d, "code"), detInt(d, "minutes"))
+		}
+	case evPromoDelete:
+		body = fmt.Sprintf("Промокод %s на %d мин удалён", detStr(d, "code"), detInt(d, "minutes")) + phoneSuffix(d)
+	case evBonusGrant:
+		// С телефона (FR-44): «Миша: +30 мин в копилку с телефона»; окно — текст записи с причиной.
+		body = detStr(d, "text")
+		if detStr(d, "source") == extraSourcePhone {
+			body = fmt.Sprintf("+%d мин в копилку с телефона", detInt(d, "minutes"))
+		}
+	case evBonusClear:
+		body = detStr(d, "text")
+		if detStr(d, "source") == extraSourcePhone {
+			body = "копилка обнулена с телефона"
+		}
 	case evPromoHistoryCleared:
 		body = fmt.Sprintf("история промокодов очищена (%d)", detInt(d, "count"))
 	case evBraveRestored:
@@ -201,6 +221,14 @@ func eventText(kind, name string, d map[string]any) string {
 	return name + ": " + body
 }
 
+// phoneSuffix — « с телефона» для события с подробностью source: "phone", иначе пусто.
+func phoneSuffix(d map[string]any) string {
+	if detStr(d, "source") == extraSourcePhone {
+		return " с телефона"
+	}
+	return ""
+}
+
 // eventProgram — имя программы события: из подробностей (name), иначе из пути; не длиннее 120 символов.
 func eventProgram(d map[string]any) string {
 	if n := programs.ClipName(detStr(d, "name")); n != "" {
@@ -216,6 +244,10 @@ func decidedText(d map[string]any) string {
 	subject := "«" + eventProgram(d) + "»"
 	if n := detInt(d, "count"); n > 1 || eventProgram(d) == "" {
 		subject = fmt.Sprintf("%d %s", n, programsWord(n))
+	}
+	if detStr(d, "source") == extraSourcePhone && strings.HasPrefix(subject, "«") {
+		// С телефона — всегда об одной программе: «Решение о «SuperGame» с телефона: игра» (FR-47, 5д).
+		return "решение о " + subject + " с телефона: " + categoryWord[cat]
 	}
 	if cat == programs.CatBlocked {
 		return "вы запретили " + subject

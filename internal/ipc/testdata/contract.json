@@ -43,7 +43,10 @@
             "closeVideo": false,
             "restUntilMs": 0,
             "restLeftS": 0,
-            "restMessage": ""
+            "restMessage": "",
+            "forbidState": "none",
+            "forbidFrom": "",
+            "forbidTo": ""
           },
           "extraMin": 30,
           "bonusBalance": 0,
@@ -51,7 +54,11 @@
           "noForbiddenToday": false,
           "gamesText": "Игры 40 мин из 1 ч",
           "pendingPrograms": 0,
-          "videoText": ""
+          "videoText": "",
+          "presenceNow": false,
+          "presenceText": "",
+          "gamesUsedS": 0,
+          "videoUsedS": 0
         },
         "message": "Добавлено 30 минут",
         "extraId": "e-17",
@@ -297,7 +304,10 @@
             "closeVideo": false,
             "restUntilMs": 0,
             "restLeftS": 0,
-            "restMessage": ""
+            "restMessage": "",
+            "forbidState": "none",
+            "forbidFrom": "",
+            "forbidTo": ""
           },
           "extraMin": 30,
           "bonusBalance": 0,
@@ -305,7 +315,11 @@
           "noForbiddenToday": false,
           "gamesText": "Игры 40 мин из 1 ч",
           "pendingPrograms": 0,
-          "videoText": ""
+          "videoText": "",
+          "presenceNow": false,
+          "presenceText": "",
+          "gamesUsedS": 0,
+          "videoUsedS": 0
         },
         "message": "Добавлено 30 минут"
       }
@@ -380,7 +394,10 @@
             "closeVideo": false,
             "restUntilMs": 0,
             "restLeftS": 0,
-            "restMessage": ""
+            "restMessage": "",
+            "forbidState": "none",
+            "forbidFrom": "",
+            "forbidTo": ""
           },
           "extraMin": 0,
           "bonusBalance": 0,
@@ -388,7 +405,11 @@
           "noForbiddenToday": false,
           "gamesText": "Игры 40 мин из 1 ч",
           "pendingPrograms": 0,
-          "videoText": ""
+          "videoText": "",
+          "presenceNow": false,
+          "presenceText": "",
+          "gamesUsedS": 0,
+          "videoUsedS": 0
         },
         "message": "Блокировка снята"
       }
@@ -449,7 +470,10 @@
             "closeVideo": false,
             "restUntilMs": 0,
             "restLeftS": 0,
-            "restMessage": ""
+            "restMessage": "",
+            "forbidState": "none",
+            "forbidFrom": "",
+            "forbidTo": ""
           },
           "extraMin": 0,
           "bonusBalance": 0,
@@ -457,7 +481,11 @@
           "noForbiddenToday": false,
           "gamesText": "Игры 40 мин из 1 ч",
           "pendingPrograms": 0,
-          "videoText": ""
+          "videoText": "",
+          "presenceNow": false,
+          "presenceText": "",
+          "gamesUsedS": 0,
+          "videoUsedS": 0
         },
         "message": "Доп. время убрано",
         "extraId": "e-19",
@@ -792,7 +820,10 @@
             "closeVideo": false,
             "restUntilMs": 0,
             "restLeftS": 0,
-            "restMessage": ""
+            "restMessage": "",
+            "forbidState": "none",
+            "forbidFrom": "",
+            "forbidTo": ""
           },
           "extraMin": 0,
           "bonusBalance": 0,
@@ -800,7 +831,11 @@
           "noForbiddenToday": false,
           "gamesText": "Игры 40 мин из 1 ч",
           "pendingPrograms": 0,
-          "videoText": ""
+          "videoText": "",
+          "presenceNow": false,
+          "presenceText": "",
+          "gamesUsedS": 0,
+          "videoUsedS": 0
         },
         "message": "Перерыв закончен"
       }
@@ -858,7 +893,10 @@
             "closeVideo": false,
             "restUntilMs": 0,
             "restLeftS": 0,
-            "restMessage": ""
+            "restMessage": "",
+            "forbidState": "none",
+            "forbidFrom": "",
+            "forbidTo": ""
           },
           "extraMin": 0,
           "bonusBalance": 0,
@@ -866,7 +904,11 @@
           "noForbiddenToday": false,
           "gamesText": "Игры 40 мин из 1 ч",
           "pendingPrograms": 0,
-          "videoText": ""
+          "videoText": "",
+          "presenceNow": false,
+          "presenceText": "",
+          "gamesUsedS": 0,
+          "videoUsedS": 0
         },
         "message": "Пауза закончилась"
       }
@@ -1113,7 +1155,10 @@
         "closeVideo": false,
         "restUntilMs": 0,
         "restLeftS": 0,
-        "restMessage": ""
+        "restMessage": "",
+        "forbidState": "none",
+        "forbidFrom": "",
+        "forbidTo": ""
       }
     }
   },
@@ -1152,7 +1197,10 @@
         "closeVideo": false,
         "restUntilMs": 0,
         "restLeftS": 0,
-        "restMessage": ""
+        "restMessage": "",
+        "forbidState": "none",
+        "forbidFrom": "",
+        "forbidTo": ""
       }
     }
   },
@@ -1191,7 +1239,10 @@
         "closeVideo": false,
         "restUntilMs": 1760000900000,
         "restLeftS": 900,
-        "restMessage": "Пойди погуляй с собакой"
+        "restMessage": "Пойди погуляй с собакой",
+        "forbidState": "none",
+        "forbidFrom": "",
+        "forbidTo": ""
       }
     }
   },
@@ -1230,7 +1281,10 @@
         "closeVideo": false,
         "restUntilMs": 0,
         "restLeftS": 0,
-        "restMessage": ""
+        "restMessage": "",
+        "forbidState": "none",
+        "forbidFrom": "",
+        "forbidTo": ""
       }
     }
   },
@@ -1436,7 +1490,7 @@
               "pauseUntil": "",
               "used": "Сегодня: 35 мин из 2 ч",
               "bonusBalance": 0,
-              "forbiddenNote": "",
+              "forbiddenNote": "Сегодня нельзя с 21:00 до 07:00",
               "gamesRemainingS": 1200,
               "gamesLimitS": 3600,
               "gamesUnlimited": false,
@@ -1449,7 +1503,10 @@
               "closeVideo": false,
               "restUntilMs": 0,
               "restLeftS": 0,
-              "restMessage": ""
+              "restMessage": "",
+              "forbidState": "ahead",
+              "forbidFrom": "21:00",
+              "forbidTo": "07:00"
             },
             "extraMin": 0,
             "bonusBalance": 0,
@@ -1457,7 +1514,11 @@
             "noForbiddenToday": false,
             "gamesText": "Игры 40 мин из 1 ч",
             "pendingPrograms": 2,
-            "videoText": ""
+            "videoText": "",
+            "presenceNow": true,
+            "presenceText": "За компьютером с 18:20",
+            "gamesUsedS": 0,
+            "videoUsedS": 0
           },
           {
             "childId": 1,
@@ -1495,7 +1556,10 @@
               "closeVideo": false,
               "restUntilMs": 0,
               "restLeftS": 0,
-              "restMessage": ""
+              "restMessage": "",
+              "forbidState": "none",
+              "forbidFrom": "",
+              "forbidTo": ""
             },
             "extraMin": 30,
             "bonusBalance": 0,
@@ -1503,10 +1567,19 @@
             "noForbiddenToday": false,
             "gamesText": "",
             "pendingPrograms": 2,
-            "videoText": ""
+            "videoText": "",
+            "presenceNow": false,
+            "presenceText": "Не за компьютером с 17:05",
+            "gamesUsedS": 0,
+            "videoUsedS": 0
           }
         ],
-        "notices": []
+        "notices": [],
+        "pendingNames": [
+          "Roblox Studio",
+          "Steam"
+        ],
+        "pendingTotal": 2
       }
     }
   },
@@ -1515,7 +1588,9 @@
       "ok": true,
       "payload": {
         "children": [],
-        "notices": []
+        "notices": [],
+        "pendingNames": [],
+        "pendingTotal": 0
       }
     }
   },
@@ -1560,7 +1635,10 @@
               "closeVideo": false,
               "restUntilMs": 0,
               "restLeftS": 0,
-              "restMessage": ""
+              "restMessage": "",
+              "forbidState": "none",
+              "forbidFrom": "",
+              "forbidTo": ""
             },
             "extraMin": 0,
             "bonusBalance": 0,
@@ -1568,12 +1646,18 @@
             "noForbiddenToday": false,
             "gamesText": "",
             "pendingPrograms": 0,
-            "videoText": ""
+            "videoText": "",
+            "presenceNow": false,
+            "presenceText": "",
+            "gamesUsedS": 0,
+            "videoUsedS": 0
           }
         ],
         "notices": [
           "Не удалось прочитать правила, поэтому сейчас ограничения не действуют. Прежние данные сохранены. Задайте правила заново в разделе «Дети»"
-        ]
+        ],
+        "pendingNames": [],
+        "pendingTotal": 0
       }
     }
   },
@@ -1596,12 +1680,12 @@
   "GrantBonus#invalid": {
     "request": {
       "childId": 1,
-      "minutes": 600,
+      "minutes": 601,
       "reason": "много"
     },
     "reply": {
       "ok": false,
-      "error": "Можно начислить не больше 540 мин",
+      "error": "Можно начислить от 1 до 600 минут",
       "field": "minutes"
     }
   },
@@ -1691,7 +1775,10 @@
           "closeVideo": false,
           "restUntilMs": 0,
           "restLeftS": 0,
-          "restMessage": ""
+          "restMessage": "",
+          "forbidState": "none",
+          "forbidFrom": "",
+          "forbidTo": ""
         },
         "warnings": [
           {
@@ -1781,7 +1868,10 @@
           "closeVideo": false,
           "restUntilMs": 0,
           "restLeftS": 0,
-          "restMessage": ""
+          "restMessage": "",
+          "forbidState": "none",
+          "forbidFrom": "",
+          "forbidTo": ""
         },
         "warnings": [
           {
@@ -1797,7 +1887,8 @@
             "kind": "blocked",
             "plate": {
               "kind": "unknown",
-              "text": "Программа «SuperGame» ждёт разрешения родителя",
+              "title": "Ждёт разрешения",
+              "text": "Программа «SuperGame» новая. Родитель должен решить, можно ли её запускать",
               "showS": 10,
               "path": "c:\\users\\миша\\downloads\\supergame.exe",
               "canAsk": true
@@ -1859,7 +1950,10 @@
           "closeVideo": false,
           "restUntilMs": 0,
           "restLeftS": 0,
-          "restMessage": ""
+          "restMessage": "",
+          "forbidState": "none",
+          "forbidFrom": "",
+          "forbidTo": ""
         },
         "warnings": [
           {
@@ -1879,6 +1973,7 @@
             "kind": "blocked",
             "plate": {
               "kind": "videoOver",
+              "title": "",
               "text": "Время на видео и соцсети на сегодня закончилось. Общего времени осталось 40 мин",
               "showS": 0,
               "path": "",
@@ -1941,7 +2036,10 @@
           "closeVideo": false,
           "restUntilMs": 0,
           "restLeftS": 0,
-          "restMessage": ""
+          "restMessage": "",
+          "forbidState": "none",
+          "forbidFrom": "",
+          "forbidTo": ""
         },
         "warnings": [],
         "commands": [
@@ -2004,7 +2102,10 @@
           "closeVideo": false,
           "restUntilMs": 0,
           "restLeftS": 0,
-          "restMessage": ""
+          "restMessage": "",
+          "forbidState": "none",
+          "forbidFrom": "",
+          "forbidTo": ""
         },
         "warnings": [],
         "commands": []
@@ -2080,7 +2181,10 @@
           "closeVideo": false,
           "restUntilMs": 0,
           "restLeftS": 0,
-          "restMessage": ""
+          "restMessage": "",
+          "forbidState": "none",
+          "forbidFrom": "",
+          "forbidTo": ""
         },
         "warnings": [],
         "commands": [
@@ -2139,6 +2243,7 @@
         "lockKind": "timeUp",
         "plate": "",
         "plateKind": "",
+        "plateFrame": 0,
         "buttons": [
           "parentPassword",
           "shutdown",
@@ -2181,8 +2286,9 @@
         },
         "lockShown": false,
         "lockKind": "",
-        "plate": "Программа «SuperGame» ждёт разрешения родителя",
+        "plate": "Программа «SuperGame» новая. Родитель должен решить, можно ли её запускать",
         "plateKind": "unknown",
+        "plateFrame": 0,
         "buttons": [
           "askNow",
           "plateClose"
@@ -2218,6 +2324,7 @@
         "lockKind": "",
         "plate": "",
         "plateKind": "",
+        "plateFrame": 0,
         "buttons": [],
         "fields": [],
         "restTimer": "",
@@ -2250,6 +2357,7 @@
         "lockKind": "",
         "plate": "Время на видео и соцсети на сегодня закончилось. Общего времени осталось 40 мин",
         "plateKind": "videoOver",
+        "plateFrame": 0,
         "buttons": [
           "plateClose"
         ],
@@ -2284,6 +2392,7 @@
         "lockKind": "",
         "plate": "",
         "plateKind": "",
+        "plateFrame": 0,
         "buttons": [],
         "fields": [],
         "restTimer": "",
@@ -2316,6 +2425,7 @@
         "lockKind": "",
         "plate": "",
         "plateKind": "",
+        "plateFrame": 0,
         "buttons": [
           "noteOk"
         ],
@@ -2332,7 +2442,9 @@
         "note": "Иди ужинать",
         "noteId": "AAECAwQFBgcICQoLDA0ODw",
         "noteSticker": "033",
-        "noteFrame": 17
+        "noteFrame": 17,
+        "noteFontPx": 42,
+        "noteTextFits": true
       }
     }
   },
@@ -2351,6 +2463,7 @@
         "lockKind": "timeUp",
         "plate": "",
         "plateKind": "",
+        "plateFrame": 0,
         "buttons": [
           "parentPassword",
           "shutdown",
@@ -2388,6 +2501,7 @@
         "lockKind": "rest",
         "plate": "",
         "plateKind": "",
+        "plateFrame": 0,
         "buttons": [
           "parentPassword",
           "shutdown",
@@ -2867,7 +2981,7 @@
           "pauseUntil": "",
           "used": "Сегодня: 35 мин из 2 ч",
           "bonusBalance": 0,
-          "forbiddenNote": "",
+          "forbiddenNote": "Сегодня нельзя с 21:00 до 07:00",
           "gamesRemainingS": 1200,
           "gamesLimitS": 3600,
           "gamesUnlimited": false,
@@ -2880,7 +2994,10 @@
           "closeVideo": false,
           "restUntilMs": 0,
           "restLeftS": 0,
-          "restMessage": ""
+          "restMessage": "",
+          "forbidState": "ahead",
+          "forbidFrom": "21:00",
+          "forbidTo": "07:00"
         },
         "today": [
           "Сегодня осталось 1 ч 25 мин из 2 ч",
@@ -3000,7 +3117,8 @@
         "violations": [],
         "bonus": [],
         "statsSinceDay": "2026-10-19",
-        "statsSinceText": "Статистика ведётся с 19 октября 2026"
+        "statsSinceText": "Статистика ведётся с 19 октября 2026",
+        "violationsToday": 0
       }
     }
   },
@@ -3043,7 +3161,10 @@
           "closeVideo": false,
           "restUntilMs": 0,
           "restLeftS": 0,
-          "restMessage": ""
+          "restMessage": "",
+          "forbidState": "none",
+          "forbidFrom": "",
+          "forbidTo": ""
         },
         "today": [],
         "rules": [],
@@ -3062,7 +3183,8 @@
         "violations": [],
         "bonus": [],
         "statsSinceDay": "",
-        "statsSinceText": ""
+        "statsSinceText": "",
+        "violationsToday": 0
       }
     }
   },
@@ -3105,7 +3227,10 @@
           "closeVideo": false,
           "restUntilMs": 0,
           "restLeftS": 0,
-          "restMessage": ""
+          "restMessage": "",
+          "forbidState": "none",
+          "forbidFrom": "",
+          "forbidTo": ""
         },
         "today": [
           "Сегодня осталось 1 ч 25 мин из 2 ч",
@@ -3231,7 +3356,8 @@
           }
         ],
         "statsSinceDay": "2026-10-01",
-        "statsSinceText": "Статистика ведётся с 1 октября 2026"
+        "statsSinceText": "Статистика ведётся с 1 октября 2026",
+        "violationsToday": 1
       }
     }
   },
@@ -3305,7 +3431,7 @@
           "pauseUntil": "",
           "used": "Сегодня: 35 мин из 2 ч",
           "bonusBalance": 0,
-          "forbiddenNote": "",
+          "forbiddenNote": "Сегодня нельзя с 21:00 до 07:00",
           "gamesRemainingS": 1200,
           "gamesLimitS": 3600,
           "gamesUnlimited": false,
@@ -3318,7 +3444,10 @@
           "closeVideo": false,
           "restUntilMs": 0,
           "restLeftS": 0,
-          "restMessage": ""
+          "restMessage": "",
+          "forbidState": "ahead",
+          "forbidFrom": "21:00",
+          "forbidTo": "07:00"
         },
         "today": [
           "Сегодня осталось 1 ч 25 мин из 2 ч",
@@ -3428,10 +3557,21 @@
           }
         ],
         "barsBy": "day",
-        "violations": [],
+        "violations": [
+          {
+            "id": 12,
+            "atMs": 1759999400000,
+            "tzOffsetMin": 180,
+            "childId": 1,
+            "childName": "Миша",
+            "kind": "program_forbidden_try",
+            "text": "Миша: попытка запустить запрещённую программу «Chrome»"
+          }
+        ],
         "bonus": [],
         "statsSinceDay": "2026-10-19",
-        "statsSinceText": "Статистика ведётся с 19 октября 2026"
+        "statsSinceText": "Статистика ведётся с 19 октября 2026",
+        "violationsToday": 1
       }
     }
   },
@@ -3475,7 +3615,10 @@
           "closeVideo": false,
           "restUntilMs": 0,
           "restLeftS": 0,
-          "restMessage": ""
+          "restMessage": "",
+          "forbidState": "none",
+          "forbidFrom": "",
+          "forbidTo": ""
         },
         "today": [
           "Сегодня осталось 1 ч 25 мин из 2 ч",
@@ -3575,7 +3718,8 @@
         "violations": [],
         "bonus": [],
         "statsSinceDay": "2026-09-01",
-        "statsSinceText": "Статистика ведётся с 1 сентября 2026"
+        "statsSinceText": "Статистика ведётся с 1 сентября 2026",
+        "violationsToday": 0
       }
     }
   },
@@ -3623,7 +3767,10 @@
             "closeVideo": false,
             "restUntilMs": 0,
             "restLeftS": 0,
-            "restMessage": ""
+            "restMessage": "",
+            "forbidState": "none",
+            "forbidFrom": "",
+            "forbidTo": ""
           },
           "extraMin": 0,
           "bonusBalance": 0,
@@ -3631,7 +3778,11 @@
           "noForbiddenToday": false,
           "gamesText": "Игры 40 мин из 1 ч",
           "pendingPrograms": 0,
-          "videoText": ""
+          "videoText": "",
+          "presenceNow": false,
+          "presenceText": "",
+          "gamesUsedS": 0,
+          "videoUsedS": 0
         },
         "message": "Пауза до 18:30"
       }
@@ -3681,7 +3832,10 @@
             "closeVideo": false,
             "restUntilMs": 0,
             "restLeftS": 0,
-            "restMessage": ""
+            "restMessage": "",
+            "forbidState": "none",
+            "forbidFrom": "",
+            "forbidTo": ""
           },
           "extraMin": 30,
           "bonusBalance": 0,
@@ -3689,7 +3843,11 @@
           "noForbiddenToday": false,
           "gamesText": "Игры 40 мин из 1 ч",
           "pendingPrograms": 0,
-          "videoText": ""
+          "videoText": "",
+          "presenceNow": false,
+          "presenceText": "",
+          "gamesUsedS": 0,
+          "videoUsedS": 0
         },
         "addedMin": 30,
         "message": "Добавлено 30 минут"
@@ -3764,7 +3922,10 @@
             "closeVideo": false,
             "restUntilMs": 0,
             "restLeftS": 0,
-            "restMessage": ""
+            "restMessage": "",
+            "forbidState": "none",
+            "forbidFrom": "",
+            "forbidTo": ""
           },
           "extraMin": 0,
           "bonusBalance": 0,
@@ -3772,7 +3933,11 @@
           "noForbiddenToday": false,
           "gamesText": "Игры 40 мин из 1 ч",
           "pendingPrograms": 0,
-          "videoText": ""
+          "videoText": "",
+          "presenceNow": false,
+          "presenceText": "",
+          "gamesUsedS": 0,
+          "videoUsedS": 0
         },
         "message": "Убрано 30 минут",
         "extraId": "e-18",
@@ -4352,7 +4517,10 @@
             "closeVideo": false,
             "restUntilMs": 0,
             "restLeftS": 0,
-            "restMessage": ""
+            "restMessage": "",
+            "forbidState": "none",
+            "forbidFrom": "",
+            "forbidTo": ""
           },
           "extraMin": 0,
           "bonusBalance": 0,
@@ -4360,7 +4528,11 @@
           "noForbiddenToday": false,
           "gamesText": "Игры 40 мин из 1 ч",
           "pendingPrograms": 0,
-          "videoText": ""
+          "videoText": "",
+          "presenceNow": false,
+          "presenceText": "",
+          "gamesUsedS": 0,
+          "videoUsedS": 0
         },
         "message": "Сохранено. Новые правила уже действуют"
       }
@@ -4498,7 +4670,10 @@
             "closeVideo": false,
             "restUntilMs": 0,
             "restLeftS": 0,
-            "restMessage": ""
+            "restMessage": "",
+            "forbidState": "none",
+            "forbidFrom": "",
+            "forbidTo": ""
           },
           "extraMin": 0,
           "bonusBalance": 0,
@@ -4506,7 +4681,11 @@
           "noForbiddenToday": false,
           "gamesText": "Игры 40 мин из 1 ч",
           "pendingPrograms": 0,
-          "videoText": ""
+          "videoText": "",
+          "presenceNow": false,
+          "presenceText": "",
+          "gamesUsedS": 0,
+          "videoUsedS": 0
         },
         "message": "Сохранено. Новые правила уже действуют"
       }
@@ -4656,7 +4835,10 @@
             "closeVideo": false,
             "restUntilMs": 0,
             "restLeftS": 0,
-            "restMessage": ""
+            "restMessage": "",
+            "forbidState": "none",
+            "forbidFrom": "",
+            "forbidTo": ""
           },
           "extraMin": 0,
           "bonusBalance": 0,
@@ -4664,7 +4846,11 @@
           "noForbiddenToday": false,
           "gamesText": "Игры 40 мин из 1 ч",
           "pendingPrograms": 0,
-          "videoText": ""
+          "videoText": "",
+          "presenceNow": false,
+          "presenceText": "",
+          "gamesUsedS": 0,
+          "videoUsedS": 0
         },
         "message": "Сохранено. Новые правила уже действуют"
       }
@@ -4748,7 +4934,10 @@
             "closeVideo": false,
             "restUntilMs": 0,
             "restLeftS": 0,
-            "restMessage": ""
+            "restMessage": "",
+            "forbidState": "none",
+            "forbidFrom": "",
+            "forbidTo": ""
           },
           "extraMin": 0,
           "bonusBalance": 0,
@@ -4756,7 +4945,11 @@
           "noForbiddenToday": false,
           "gamesText": "Игры 40 мин из 1 ч",
           "pendingPrograms": 0,
-          "videoText": ""
+          "videoText": "",
+          "presenceNow": false,
+          "presenceText": "",
+          "gamesUsedS": 0,
+          "videoUsedS": 0
         },
         "message": "Сохранено. Новые правила уже действуют"
       }
@@ -4976,7 +5169,10 @@
             "closeVideo": false,
             "restUntilMs": 0,
             "restLeftS": 0,
-            "restMessage": ""
+            "restMessage": "",
+            "forbidState": "none",
+            "forbidFrom": "",
+            "forbidTo": ""
           },
           "extraMin": 0,
           "bonusBalance": 0,
@@ -4984,7 +5180,11 @@
           "noForbiddenToday": false,
           "gamesText": "Игры 40 мин из 1 ч",
           "pendingPrograms": 0,
-          "videoText": ""
+          "videoText": "",
+          "presenceNow": false,
+          "presenceText": "",
+          "gamesUsedS": 0,
+          "videoUsedS": 0
         },
         "message": "Сегодня запретные часы не действуют"
       }
@@ -5481,7 +5681,10 @@
             "closeVideo": false,
             "restUntilMs": 0,
             "restLeftS": 0,
-            "restMessage": ""
+            "restMessage": "",
+            "forbidState": "none",
+            "forbidFrom": "",
+            "forbidTo": ""
           },
           "extraMin": 30,
           "bonusBalance": 0,
@@ -5489,7 +5692,11 @@
           "noForbiddenToday": false,
           "gamesText": "Игры 40 мин из 1 ч",
           "pendingPrograms": 0,
-          "videoText": ""
+          "videoText": "",
+          "presenceNow": false,
+          "presenceText": "",
+          "gamesUsedS": 0,
+          "videoUsedS": 0
         },
         "message": "Взято из копилки 30 мин",
         "balanceAfter": 15
@@ -5737,7 +5944,10 @@
             "closeVideo": false,
             "restUntilMs": 0,
             "restLeftS": 0,
-            "restMessage": ""
+            "restMessage": "",
+            "forbidState": "none",
+            "forbidFrom": "",
+            "forbidTo": ""
           },
           "extraMin": 0,
           "bonusBalance": 0,
@@ -5745,7 +5955,11 @@
           "noForbiddenToday": false,
           "gamesText": "Игры 40 мин из 1 ч",
           "pendingPrograms": 0,
-          "videoText": ""
+          "videoText": "",
+          "presenceNow": false,
+          "presenceText": "",
+          "gamesUsedS": 0,
+          "videoUsedS": 0
         },
         "message": "Добавленное время отменено"
       }

@@ -12,19 +12,19 @@
 | `internal/auth` | 2 (1) | auth — пароль родителя: проверка длины и паузы после неверных вводов (R19); только стандартная библиотека. |
 | `internal/auth/pwhash` | 1 (1) | pwhash — хеш пароля родителя Argon2id (NFR-9): память 64 МБ, 3 прохода, строка формата PHC. |
 | `internal/core` | 13 (20) | core — ядро правил и учёта времени: активные секунды, лимиты, предупреждения, блокировка; только стандартная библиотека, всё внешнее через порты. |
-| `internal/guard` | 31 (22) | guard — страж сеанса: нативный экран блокировки Windows, который |
+| `internal/guard` | 34 (23) | guard — страж сеанса: нативный экран блокировки Windows, который |
 | `internal/ipc` | 19 (9) | ipc — канал связи службы программы с её окнами, стражем сеанса и значком на том |
 | `internal/launch` | 1 (1) | launch разбирает ключи запуска программы: в каком режиме работает PCBlock.exe. |
 | `internal/programs` | 4 (7) | programs — классификация программ по пути exe (веха M3: R12, R13, RM3-1, RM3-12): |
-| `internal/remote` | 6 (7) | remote — связь компьютера с телефоном родителя через сервер связи (M7, FR-40, |
-| `internal/service` | 41 (64) | service — служба PCBlock: фоновая часть, которая считает время за компьютером, |
+| `internal/remote` | 6 (9) | remote — связь компьютера с телефоном родителя через сервер связи (M7, FR-40, |
+| `internal/service` | 44 (69) | service — служба PCBlock: фоновая часть, которая считает время за компьютером, |
 | `internal/service/winhost` | 34 (13) | winhost — Windows-обвязка службы PCBlock: всё, что внутри internal/service |
 | `internal/sites` | 5 (5) | sites — домены сайтов: нормализация ввода родителя и поля адреса Brave, punycode, свои списки родителя и встроенный список «18+». |
 | `internal/sound` | 3 (1) | sound — звук предупреждения заказчика (D-55, FR-9) и звуки сообщения от родителя (FR-41, |
 | `internal/startup` | 5 (2) | startup — чистая логика автозагрузки учёток детей (FR-39, RM5b-1…RM5b-7): разбор |
-| `internal/storage` | 10 (17) | storage — хранилище программы: SQLite в режиме WAL (ТЗ 3.1, 3.4, 4), драйвер на чистом Go. |
+| `internal/storage` | 10 (18) | storage — хранилище программы: SQLite в режиме WAL (ТЗ 3.1, 3.4, 4), драйвер на чистом Go. |
 | `internal/systray` | 20 (12) | systray — значок у часов и мини-панель: надпись остатка, подсказка, цвет статуса, |
-| `internal/ui` | 3 (1) | ui — окно программы на Wails: запуск окна и методы, доступные интерфейсу. |
+| `internal/ui` | 3 (2) | ui — окно программы на Wails: запуск окна и методы, доступные интерфейсу. |
 | `internal/version` | 1 (2) | version хранит номер версии программы. |
 | `internal/winsession` | 5 (0) | winsession запускает процессы в интерактивных сеансах Windows: |
 | `tools/adultlist` | 1 (1) | (нет комментария Package) |
@@ -43,6 +43,7 @@
 - `009_sites_m4.sql` — Назначение: веха M4 «Сайты и Brave»: один домен — один список, стартовый набор «Видео и соцсети», браузеры каталога запрещены.
 - `010_stats_m5.sql` — Назначение: веха M5 (FR-38, FR-24): снимок очистки статистики и индексы журнала.
 - `011_startup_m5b.sql` — Назначение: веха M5b (FR-39, D-76, RM5b-4): решения родителя по автозагрузке учёток детей.
+- `012_bonus_no_ceiling.sql` — Назначение: раунд 0.8.4 (D-113): у копилки нет предела баланса — CHECK (balance_after >= 0) вместо 0…600.
 
 ## Интерфейс (frontend/src)
 
@@ -57,6 +58,7 @@
 - `src/components/Dialog.tsx`
 - `src/components/FitText.tsx`
 - `src/components/GrantBonusForm.tsx`
+- `src/components/Icon.tsx`
 - `src/components/LimitsTable.tsx`
 - `src/components/Notice.tsx`
 - `src/components/PauseToggle.tsx`
@@ -72,7 +74,12 @@
 - `src/components/StartupList.tsx`
 - `src/components/TextField.tsx`
 - `src/components/UndoLine.tsx`
+- `src/components/lobby/Glyph.tsx`
+- `src/components/lobby/LobbyAll.tsx`
+- `src/components/lobby/LobbyToday.tsx`
+- `src/components/lobby/lobbyText.ts`
 - `src/components/usePause.ts`
+- `src/fonts.css`
 - `src/global.d.ts`
 - `src/guard.tsx`
 - `src/lib/bonus.ts`
@@ -82,11 +89,13 @@
 - `src/lib/journal.ts`
 - `src/lib/limits.ts`
 - `src/lib/lottie.ts`
+- `src/lib/mascot.ts`
 - `src/lib/mytoday.ts`
 - `src/lib/notices.ts`
 - `src/lib/numinput.ts`
 - `src/lib/password.ts`
 - `src/lib/programs.ts`
+- `src/lib/remain.ts`
 - `src/lib/remote.ts`
 - `src/lib/rest.ts`
 - `src/lib/schedule.ts`

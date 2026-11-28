@@ -184,6 +184,9 @@ type OpenWindowRequest struct {
 	// Screen — экран окна родителя, на котором оно откроется (RM3-4): ScreenPrograms; «» — главный.
 	// Другое значение — отказ TextBadRequest.
 	Screen string `json:"screen,omitempty"`
+	// Path — путь программы плашки, с которой нажали «Попросить сейчас» (ТЗ 8.2.4 п. 2, D-114): решение
+	// родителя о ней в окне этого сеанса в ближайшие 10 мин не даёт ребёнку плашку решения.
+	Path string `json:"path,omitempty"`
 }
 
 // OpenWindowReply — ответ OpenWindow.
@@ -263,7 +266,21 @@ type ChildStatus struct {
 	RestUntilMs int64  `json:"restUntilMs"` // UTC мс; 0 — перерыва нет
 	RestLeftS   int    `json:"restLeftS"`   // секунды до конца перерыва по часам службы (таймер стража)
 	RestMessage string `json:"restMessage"` // сообщение на экране перерыва (FR-37); «» — перерыва нет
+
+	// Запретные часы сегодня (8.3.2, B-79): одна истина службы (forbidSpan) для карточки окна,
+	// окна ребёнка и отчёта телефону. Строки ForbidState* — те же, что remote.Forbid*.
+	ForbidState string `json:"forbidState"` // ForbidState*: "none" | "ahead" | "active" | "cleared"
+	ForbidFrom  string `json:"forbidFrom"`  // «21:00» — начало интервала (ahead, active); «» при none и cleared
+	ForbidTo    string `json:"forbidTo"`    // «07:00» — его конец (ahead, active); «» при none и cleared
 }
+
+// Запретные часы сегодня (ChildStatus.ForbidState) — те же строки, что remote.Forbid*.
+const (
+	ForbidStateNone    = "none"    // сегодня запретных часов нет (и у администратора, R18)
+	ForbidStateAhead   = "ahead"   // будут сегодня: ближайший интервал, начинающийся до местной полуночи
+	ForbidStateActive  = "active"  // идут сейчас
+	ForbidStateCleared = "cleared" // сняты на сегодня (R24)
+)
 
 // --- Мастер и администратор --------------------------------------------------
 
@@ -378,6 +395,13 @@ type TodayCard struct {
 	GamesText        string      `json:"gamesText"`        // «Игры 40 мин из 1 ч» (8.3.2 п.3); «» — отдельного лимита игр нет
 	PendingPrograms  int         `json:"pendingPrograms"`  // сколько программ ждут решения: ссылка «Ждут решения: N» (8.3.2 п.5)
 	VideoText        string      `json:"videoText"`        // «Видео 10 мин из 20 мин» (M4, R6); «» — отдельного лимита видео нет
+	PresenceNow      bool        `json:"presenceNow"`      // ребёнок сейчас за компьютером (точка зелёная), 8.3.2
+	PresenceText     string      `json:"presenceText"`     // «За компьютером с 18:20» / «Не за компьютером с 17:05»; «» — неизвестно
+	// GamesUsedS, VideoUsedS — потрачено сегодня на игры и на видео и соцсети, с: то же число, что
+	// gamesSec/videoSec отчёта телефону (протокол 1.5); может быть больше лимита (родитель уменьшил
+	// лимит ниже сыгранного) — строка «Игры 70 из 60 мин» окна и телефона одна.
+	GamesUsedS int `json:"gamesUsedS"`
+	VideoUsedS int `json:"videoUsedS"`
 }
 
 // GetTodayReply — ответ GetToday. Notices — важные сообщения при входе, например
@@ -385,6 +409,10 @@ type TodayCard struct {
 type GetTodayReply struct {
 	Children []TodayCard `json:"children"`
 	Notices  []string    `json:"notices"`
+	// PendingNames — до 3 названий программ, ждущих решения, новые первыми (8.3.2 п. 3); пусто — [].
+	// PendingTotal — всего программ ждут решения.
+	PendingNames []string `json:"pendingNames"`
+	PendingTotal int      `json:"pendingTotal"`
 }
 
 // ChildRequest — запрос про одного ребёнка (GetChildRules, ClearBlock).
@@ -637,6 +665,8 @@ type MyTodayReply struct {
 	// первый день учёта, иначе сегодня. StatsSinceText — «Статистика ведётся с 11 ноября 2026».
 	StatsSinceDay  string `json:"statsSinceDay"`
 	StatsSinceText string `json:"statsSinceText"`
+	// ViolationsToday — нарушений сегодня: блок «Сегодня» окна ребёнка не зависит от периода «Итогов».
+	ViolationsToday int `json:"violationsToday"`
 }
 
 // Разбивка столбиков «По дням» (RM5-2).
@@ -843,6 +873,8 @@ type TestSessionRequest struct {
 const (
 	TestSessionDisconnect = "disconnect" // смена пользователя: сеанс отключён
 	TestSessionLogoff     = "logoff"     // выход из учётки
+	TestSessionLock       = "lock"       // блокировка сеанса (Win+L): не выход (S63)
+	TestSessionUnlock     = "unlock"     // разблокировка: не вход, окна при входе нет (FR-46, S63)
 )
 
 // TestSeedDayRequest — записать итоги прошлого дня ребёнка и учёт по программам за него (только
@@ -904,6 +936,9 @@ type ShownSound struct {
 	OK        bool  `json:"ok"`
 	Note      bool  `json:"note,omitempty"`      // звук плашки «Сообщение от родителя» (FR-41), не порога
 	NoteSound int   `json:"noteSound,omitempty"` // номер сыгранного звука сообщения (после подмены неизвестного на 1)
+	// System — звук схемы Windows плашки «Игрового лобби» («SystemExclamation», «Notification.Default»;
+	// ТЗ 8.2.4, 8.2.5): что запрошено; OK — принял ли Windows (выключенный в схеме звук - false).
+	System string `json:"system,omitempty"`
 }
 
 // GuardUI — жив ли поток окон стража: момент и число его кадров, последняя паника, пойманная в
@@ -929,8 +964,14 @@ type GuardStateReply struct {
 	LockKind  string         `json:"lockKind"`  // Lock*
 	Plate     string         `json:"plate"`     // текст видимой плашки или табло предупреждения; пусто — плашки нет
 	PlateKind string         `json:"plateKind"` // вид видимой плашки: Plate* или Blocked*; пусто — плашки нет
-	Buttons   []string       `json:"buttons"`   // видимые кнопки (Button*)
-	Fields    []GuardField   `json:"fields"`    // поля ввода и их текст
+	// PlateTitle — заголовок видимой плашки «Игрового лобби» (ТЗ 8.2.4, 8.2.5); PlateSticker — стикер,
+	// который окно плашки сейчас рисует («031»; пусто — прежняя плашка или спрайт ещё не разобран),
+	// PlateFrame — его кадр (S65).
+	PlateTitle   string       `json:"plateTitle,omitempty"`
+	PlateSticker string       `json:"plateSticker,omitempty"`
+	PlateFrame   int          `json:"plateFrame"`
+	Buttons      []string     `json:"buttons"` // видимые кнопки (Button*)
+	Fields       []GuardField `json:"fields"`  // поля ввода и их текст
 	// Экран перерыва на отдых (LockKind == LockRest, R27): таймер плитками «00:14:59» и сообщение
 	// родителя; у других экранов пусто. Таймер уменьшается вживую (приёмка S43, PL-16).
 	RestTimer   string `json:"restTimer"`
@@ -962,6 +1003,12 @@ type GuardStateReply struct {
 	// кадр, выведенный последним (кадры идут по кругу, приёмка S60). Заполняет страж по своему окну.
 	NoteSticker string `json:"noteSticker,omitempty"`
 	NoteFrame   int    `json:"noteFrame"`
+	// NoteFontPx — размер шрифта текста сообщения в пикселях экрана, которым окно его рисует (42 px при
+	// 100 % у короткого, D-107); 0 — окна нет. NoteTextFits — текст виден целиком: высота, намеренная этим
+	// шрифтом в ширину текста, не больше его прямоугольника, и прямоугольник на экране (ТЗ 8.2, приёмка
+	// S57). Заполняет страж по своему окну.
+	NoteFontPx   int  `json:"noteFontPx,omitempty"`
+	NoteTextFits bool `json:"noteTextFits,omitempty"`
 }
 
 // Виды плашек стража для GuardStateReply.PlateKind, кроме плашек о закрытых программах (их вид —

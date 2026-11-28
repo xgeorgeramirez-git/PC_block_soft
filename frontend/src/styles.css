@@ -1,14 +1,41 @@
-/* Токены интерфейса — ТЗ, раздел 8.0. Цвет — только носитель статуса.
-   Без градиентов, стекла, кнопок-«пилюль», кремового фона. */
+/* Токены интерфейса — ТЗ 8.0 п. 9 (D-109): окно родителя — взрослый спокойный вид, всегда светлое
+   (тёмной темы у окна родителя нет, ТЗ 3.3, R-11). Белые карточки с тонкой линией, без градиентов и
+   теней-«пузырей»; цвет — носитель статуса (остаток зелёный, синий, красный; «+» зелёный, «−» оранжевый).
+   Окно ребёнка «Игровое лобби» — своя область стилей .lobby. */
 :root {
-  --bg: #f3f4f6;
+  --bg: #f3f5f9;
   --surface: #ffffff;
-  --line: #d8dce0;
+  --line: #dde3ee;
   --share-bar: #d8dce0; /* полоса доли в «Итогах» */
-  --text: #1b1f23;
-  --text-muted: #59616a;
-  --primary: #2b3138;
+  --text: #1a2238;
+  --text-muted: #5b6680;
+  --primary: #2552d9;
   --primary-text: #ffffff;
+  --primary-hover: #1e45b8;
+  /* Выбранный пункт меню и мягкий синий фон. */
+  --accent-soft: #e6edff;
+  /* Остаток времени (8.0 п. 3): число и полоса. Зелёный крупный (≥ 24 px) — 4,4:1, крупный текст. */
+  --remain-green: #138a4f;
+  --remain-green-bar: #1fa463;
+  --remain-blue: #2552d9;
+  --remain-red: #c81e1e;
+  --remain-red-bar: #e5484d;
+  --remain-track: #e3e8f2;
+  /* Кнопки «+» и «−» (8.0 п. 9): текст на своём фоне не меньше 4,5:1. */
+  --plus-text: #0f7a45;
+  --plus-bg: #e7f5ec;
+  --minus-text: #c2410c;
+  --minus-bg: #fcede6;
+  /* Копилка: монета и золотая кнопка «Начислить в копилку». */
+  --coin: #ffc53a;
+  --gold-text: #5a3b00;
+  --gold-bg: #ffe7ad;
+  /* Блок «N программ ждут решения». */
+  --pending-bg: #fff6e0;
+  --pending-line: #f3d99a;
+  --pending-text: #6b5320;
+  /* Точка «не за компьютером». */
+  --presence-off: #a4aec2;
   --status-warn: #a15c00;
   --status-danger: #b3261e;
   --status-ok: #2c7a4b;
@@ -16,8 +43,8 @@
   /* Столбики «По дням» (D-78): нейтральный графит, не цвет статуса (ТЗ 8.0 п.3); на поверхности 6,2:1. */
   --chart-bar: #59616a;
 
-  --radius-control: 6px;
-  --radius-panel: 8px;
+  --radius-control: 10px;
+  --radius-panel: 18px;
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;
@@ -25,8 +52,9 @@
   --space-6: 24px;
   --space-8: 32px;
 
-  --font: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, sans-serif;
-  --font-display: "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
+  /* Шрифты встроены (fonts.css, ТЗ 8.0 п. 2); системные — запас, пока файл не прочитан. */
+  --font: "Inter", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  --font-display: "Inter", "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
   /* Коды промокодов (8.3.10): моноширинный, чтобы «0» и «O», «1» и «I» не путались. */
   --font-mono: "Cascadia Mono", Consolas, "Courier New", monospace;
 
@@ -35,24 +63,9 @@
   accent-color: var(--primary);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #15181b;
-    --surface: #1f2327;
-    --line: #343a40;
-    --share-bar: #4a525a; /* заметнее линии разделителя, текст на полосе 4.7:1 (B-64) */
-    --text: #eef1f4;
-    --text-muted: #a3abb3;
-    --primary: #eef1f4;
-    --primary-text: #15181b;
-    --field-border: #7d868e;
-    --chart-bar: #a3abb3;
-    /* На тёмном фоне статусные цвета светлее: контраст текста не меньше 4,5:1 (NFR-14). */
-    --status-warn: #e3a23b;
-    --status-danger: #f2877d;
-    --status-ok: #4fb47a;
-    color-scheme: dark;
-  }
+/* Цифры — моноширинные по ширине (8.0 п. 2): числа в столбик не прыгают. */
+.num {
+  font-variant-numeric: tabular-nums;
 }
 
 * {
@@ -265,36 +278,74 @@ input[type="radio"]:disabled {
   flex: none;
 }
 
+/* Меню окна родителя (8.3.2 п. 2, макет parent2.py): 240 px, логотип, пункты 44 px со значками. */
 .menu {
   display: flex;
   flex-direction: column;
-  width: 200px;
+  gap: var(--space-1);
+  width: 240px;
   flex: none;
   overflow-y: auto;
-  padding: var(--space-4) var(--space-3);
+  padding: 22px 14px;
   background: var(--surface);
   border-right: 1px solid var(--line);
 }
 
+.menu-logo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 10px 22px;
+}
+
+.menu-logo-mark {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  background: var(--primary);
+  color: var(--primary-text);
+}
+
+.menu-logo .product {
+  font-size: 19px;
+  font-weight: 800;
+}
+
 .menu-list {
+  display: flex;
   flex: 1;
+  flex-direction: column;
+  gap: var(--space-1);
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
 .menu-item {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
   width: 100%;
-  padding: var(--space-2) var(--space-3);
+  min-height: 44px;
+  padding: 0 14px;
   background: none;
   border: 0;
-  border-left: 3px solid transparent;
   border-radius: var(--radius-control);
   color: var(--text);
   font: inherit;
+  font-size: 16px;
+  font-weight: 500;
   text-align: left;
   cursor: pointer;
+}
+
+.menu-item svg {
+  flex: none;
+  color: var(--text-muted);
 }
 
 .menu-item:hover {
@@ -302,15 +353,59 @@ input[type="radio"]:disabled {
 }
 
 .menu-item[aria-current="page"] {
-  border-left-color: var(--primary);
-  background: var(--bg);
-  font-weight: 600;
+  background: var(--accent-soft);
+  color: var(--primary);
+  font-weight: 700;
 }
 
-/* «Что нового»: внизу меню, отдельно от разделов (ТЗ 8.3.2 п.2). */
+.menu-item[aria-current="page"] svg {
+  color: var(--primary);
+}
+
+/* Окно уже 1100 px (наименьшее окно родителя 960 × 620, PL-26): меню 200 px, место таблицам «Программ». */
+@media (max-width: 1100px) {
+  .menu {
+    width: 200px;
+    padding-inline: 10px;
+  }
+
+  .menu-item {
+    padding: 0 10px;
+  }
+}
+
+/* Низкое окно (наименьшее окно родителя 960 × 620): пункты 38 px и отступы плотнее, чтобы всё меню с
+   «Выйти» и версией помещалось без прокрутки (визуальная приёмка T5); прокрутка меню — запас для 150 %. */
+@media (max-height: 760px) {
+  .menu {
+    padding-block: 14px;
+  }
+
+  .menu-logo {
+    padding-bottom: 12px;
+  }
+
+  .menu-item {
+    min-height: 38px;
+  }
+
+  .menu-foot {
+    margin-top: var(--space-2);
+  }
+}
+
+/* Внизу меню: «Что нового», «Выйти» и номер версии (ТЗ 8.3.2 п.2). */
 .menu-foot {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
   margin-top: var(--space-4);
-  color: var(--text-muted);
+}
+
+.menu-version {
+  padding: var(--space-2) 14px 0;
+  font-size: 13px;
+  font-weight: 500;
 }
 
 .content {
@@ -337,6 +432,12 @@ input[type="radio"]:disabled {
   width: 100%;
   max-width: 1120px;
   margin-inline: auto;
+}
+
+/* Окно родителя без верхней строки (макет): отступы страницы 28 × 32 px, зазор сверху - внутри прокрутки. */
+.shell-parent .content {
+  margin-top: 0;
+  padding: 28px 32px;
 }
 
 .content-centered {
@@ -540,6 +641,15 @@ input[type="radio"]:disabled {
   opacity: 1;
 }
 
+/* Фокус поля (8.0 п. 9): одно кольцо акцента 2 px вплотную к рамке того же цвета, а не обводка цветом
+   текста поверх рамки (двойная тёмная рамка, визуальная приёмка T5). Акцент к фону 5,9:1, к полю 6,4:1. */
+.field-input:focus-visible,
+.child-custom-input:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 0;
+  border-color: var(--primary);
+}
+
 .field-input:disabled {
   background: var(--bg);
   color: var(--text-muted);
@@ -659,14 +769,7 @@ input[type="radio"]:disabled {
   color: var(--text-muted);
 }
 
-/* --- Сегодня ---------------------------------------------------------------------- */
-
-.today-links {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-  margin-bottom: var(--space-4);
-}
+/* --- Сегодня (8.3.2 п. 3, D-109, макет parent2.py) ----------------------------------- */
 
 .cards {
   display: grid;
@@ -674,19 +777,29 @@ input[type="radio"]:disabled {
   gap: var(--space-4);
 }
 
-.child-card {
-  padding: var(--space-4);
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-panel);
+.today-head {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  margin-bottom: 20px;
 }
 
-.child-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: var(--space-3);
-  margin-bottom: var(--space-2);
+.today-title {
+  font-family: var(--font-display);
+  font-size: 30px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.today-head .page-date {
+  font-size: 15px;
+  font-weight: 500;
+}
+
+/* Карточки детей по одной в строку; раскладка карточки — по ширине области (container query). */
+.today-cards {
+  grid-template-columns: minmax(0, 1fr);
+  container-type: inline-size;
 }
 
 .child-name {
@@ -694,8 +807,192 @@ input[type="radio"]:disabled {
   font-weight: 600;
 }
 
-.child-used {
-  margin-bottom: var(--space-1);
+/* Три колонки (макет): кто и что сегодня 200 px, остаток, кнопки 300 px. Уже 860 px - кнопки под ними. */
+.child-card {
+  display: grid;
+  grid-template-columns: 200px minmax(0, 1fr) 300px;
+  grid-template-areas:
+    "who time actions"
+    "fb fb fb";
+  column-gap: 28px;
+  align-items: center;
+  padding: 20px 22px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-panel);
+}
+
+
+.cc-who {
+  grid-area: who;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.cc-id {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.cc-avatar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  color: var(--text);
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.cc-id .child-name {
+  min-width: 0;
+  font-size: 20px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.cc-presence {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.cc-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--presence-off);
+}
+
+.cc-dot-on {
+  background: var(--remain-green);
+}
+
+.cc-coin,
+.cc-forbid {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+}
+
+.cc-coin {
+  font-weight: 600;
+}
+
+.cc-forbid {
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.coin,
+.cc-forbid svg {
+  flex: none;
+}
+
+.cc-time {
+  grid-area: time;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.cc-remain {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: 10px;
+  row-gap: 4px;
+}
+
+/* Крупное число остатка (≥ 24 px, крупный текст WCAG): цвет по порогам 15/60 мин (8.0 п. 3). */
+.remain-num {
+  font-family: var(--font-display);
+  font-size: 44px;
+  font-weight: 800;
+  line-height: 1.1;
+  letter-spacing: -0.5px;
+}
+
+.remain-green {
+  color: var(--remain-green);
+}
+
+.remain-blue {
+  color: var(--remain-blue);
+}
+
+.remain-red {
+  color: var(--remain-red);
+}
+
+.cc-of {
+  color: var(--text-muted);
+  font-size: 15px;
+  font-weight: 500;
+}
+
+/* Полоса остатка 12 px с 8 белыми делениями (макет kit2.bar). */
+.remain-bar {
+  position: relative;
+  height: 12px;
+  overflow: hidden;
+  border-radius: 12px;
+  background: var(--remain-track);
+}
+
+.remain-bar::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: repeating-linear-gradient(
+    90deg,
+    transparent 0,
+    transparent calc(100% / 8 - 2px),
+    var(--surface) calc(100% / 8 - 2px),
+    var(--surface) calc(100% / 8)
+  );
+}
+
+.remain-bar-fill {
+  height: 100%;
+}
+
+.remain-bar-green {
+  background: var(--remain-green-bar);
+}
+
+.remain-bar-blue {
+  background: var(--remain-blue);
+}
+
+.remain-bar-red {
+  background: var(--remain-red-bar);
+}
+
+.cc-limits {
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: 20px;
+  row-gap: 2px;
+  color: var(--text-muted);
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.cc-nolimits {
+  font-size: 15px;
 }
 
 .child-meta {
@@ -703,35 +1000,174 @@ input[type="radio"]:disabled {
   font-size: 14px;
 }
 
-.child-actions {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
-  margin-top: var(--space-4);
-  padding-top: var(--space-3);
-  border-top: 1px solid var(--line);
-}
-
-/* Блок действий с подписью: «Доп. время» и т.п. — вместо кучи кнопок в один ряд (FB-5). */
-.action-group {
+.cc-actions {
+  grid-area: actions;
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
+  min-width: 0;
 }
 
-.action-group-label {
-  font-size: 13px;
-  color: var(--text-muted);
+.cc-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-2);
 }
 
-.action-row {
+/* Уже 860 px: кнопки строкой под остатком — восемь клеток в ряд, копилка и ссылки ниже слева. */
+@container (max-width: 860px) {
+  .child-card {
+    grid-template-columns: 200px minmax(0, 1fr);
+    grid-template-areas:
+      "who time"
+      "actions actions"
+      "fb fb";
+    row-gap: var(--space-4);
+  }
+
+  .cc-grid {
+    grid-template-columns: repeat(8, minmax(0, 1fr));
+  }
+
+  .cc-actions > .chip-gold {
+    align-self: flex-start;
+    padding: 0 var(--space-4);
+  }
+}
+
+@container (max-width: 520px) {
+  .child-card {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      "who"
+      "time"
+      "actions"
+      "fb";
+  }
+
+  .cc-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+/* Кнопки карточки (макет kit2.chip): 40 px, скругление 10, «+» зелёные, «−» оранжевые, копилка золотая. */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 40px;
+  padding: 0 var(--space-2);
+  border-color: var(--line);
+  font-size: 15px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.chip-plus {
+  background: var(--plus-bg);
+  border-color: var(--plus-bg);
+  color: var(--plus-text);
+}
+
+.chip-minus {
+  background: var(--minus-bg);
+  border-color: var(--minus-bg);
+  color: var(--minus-text);
+}
+
+.chip-gold {
+  background: var(--gold-bg);
+  border-color: var(--gold-bg);
+  color: var(--gold-text);
+}
+
+/* Наведение: та же заливка чуть темнее рамкой, цвет текста прежний (контраст не падает). */
+.chip-plus:hover:not(:disabled) {
+  background: var(--plus-bg);
+  border-color: var(--plus-text);
+}
+
+.chip-minus:hover:not(:disabled) {
+  background: var(--minus-bg);
+  border-color: var(--minus-text);
+}
+
+.chip-gold:hover:not(:disabled) {
+  background: var(--gold-bg);
+  border-color: var(--gold-text);
+}
+
+/* Значок паузы - восьмая клетка сетки; во время паузы - вся строка с «Пауза до 18:30». */
+.pause-toggle-compact {
+  display: flex;
+  min-width: 0;
+}
+
+.pause-toggle-compact .pause-toggle {
+  flex: 1;
+  justify-content: center;
+  min-height: 40px;
+  padding: 0 4px;
+  border-color: var(--line);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.pause-toggle-compact[data-paused] {
+  grid-column: 1 / -1;
+}
+
+.pause-toggle-compact[data-paused] .pause-toggle {
+  flex: none;
+  padding: 0 var(--space-3);
+}
+
+.pause-toggle-compact .pause-picker {
+  left: auto;
+  right: 0;
+}
+
+.cc-links {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--space-2);
+  column-gap: var(--space-4);
+  row-gap: var(--space-1);
+  padding-top: 2px;
 }
 
-.action-row-foot {
-  align-items: center;
+/* Ссылка-кнопка: синий текст без рамки (макет: «Весь журнал»), подчёркивание при наведении. */
+.link-btn {
+  padding: 2px 0;
+  background: none;
+  border: 0;
+  color: var(--primary);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.link-btn:hover:not(:disabled) {
+  color: var(--primary-hover);
+  text-decoration: underline;
+}
+
+.link-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.link-danger {
+  color: var(--remain-red);
+}
+
+.link-danger:hover:not(:disabled) {
+  color: var(--remain-red);
+}
+
+.cc-feedback {
+  grid-area: fb;
 }
 
 /* Приглушённая второстепенная кнопка (убавить время): видно, что это не основное действие. */
@@ -747,7 +1183,7 @@ input[type="radio"]:disabled {
   padding: var(--space-3);
   background: var(--bg);
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
 }
 
 .child-custom-label {
@@ -761,7 +1197,7 @@ input[type="radio"]:disabled {
 .child-custom-input {
   width: 72px;
   padding: 6px 8px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--field-border);
   border-radius: 6px;
   background: var(--surface);
   color: var(--text);
@@ -769,11 +1205,104 @@ input[type="radio"]:disabled {
   font-variant-numeric: tabular-nums;
 }
 
+.cc-grant .bonus-grant {
+  width: 100%;
+}
+
 .child-feedback {
   display: flex;
   align-items: center;
   gap: var(--space-3);
   margin-top: var(--space-3);
+  font-size: 14px;
+}
+
+/* Ниже карточек: «N программ ждут решения» (380 px) и «Последние события». */
+.today-below {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: var(--space-4);
+  margin-top: 20px;
+}
+
+.today-block-title {
+  font-size: 17px;
+  font-weight: 700;
+}
+
+.today-pending {
+  display: flex;
+  flex: 0 1 380px;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 260px;
+  padding: 18px 20px;
+  background: var(--pending-bg);
+  border: 1px solid var(--pending-line);
+  border-radius: var(--radius-panel);
+}
+
+.today-pending-text {
+  color: var(--pending-text);
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.today-recent {
+  display: flex;
+  flex: 1 1 320px;
+  flex-direction: column;
+  min-width: 0;
+  padding: 16px 20px 6px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-panel);
+}
+
+.today-recent-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding-bottom: var(--space-2);
+}
+
+.today-recent-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.today-recent-row {
+  display: flex;
+  gap: var(--space-3);
+  padding: 10px 0;
+  border-top: 1px solid var(--line);
+  font-size: 14px;
+}
+
+.today-recent-time {
+  flex: none;
+  min-width: 44px;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.today-recent-text {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.today-recent-text b {
+  font-weight: 600;
+}
+
+.today-recent-empty {
+  padding: 10px 0 12px;
+  border-top: 1px solid var(--line);
+  color: var(--text-muted);
   font-size: 14px;
 }
 
@@ -2682,9 +3211,13 @@ textarea.sites-add-input {
     border-bottom: 1px solid var(--line);
   }
 
+  .menu-logo {
+    padding: 0 var(--space-2) 0 0;
+  }
+
   /* Пункты переносятся на следующую строку, а не уходят за край окна (B-73: «Стат…» в окне 960 при 150 %). */
   .menu-list {
-    display: flex;
+    flex-direction: row;
     flex: 1 1 100%;
     flex-wrap: wrap;
     min-width: 0;
@@ -2693,21 +3226,26 @@ textarea.sites-add-input {
 
   .menu-item {
     width: auto;
-    border-left: 0;
-    border-bottom: 3px solid transparent;
-  }
-
-  .menu-item[aria-current="page"] {
-    border-bottom-color: var(--primary);
+    min-height: 36px;
+    padding: 0 10px;
+    font-size: 15px;
   }
 
   .menu-foot {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
     margin-top: 0;
     margin-left: auto;
   }
 
+  .menu-version {
+    padding: 0 10px;
+  }
+
   .content,
-  .content-centered {
+  .content-centered,
+  .shell-parent .content {
     padding: var(--space-4);
   }
 
@@ -3638,10 +4176,12 @@ textarea.sites-add-input {
   margin-top: var(--space-3);
 }
 
-/* «Подключить другой телефон» и «Отвязать» заполняют ряд: в узкой карточке обе в ряд не входят и
-   встают одна под другой одной ширины, во всю ширину ряда; в широкой делят ряд без пустого хвоста. */
-.phone-pair-actions > .btn {
-  flex: 1 1 auto;
+/* «Подключить другой телефон» и «Отвязать» заполняют ряд: в узкой карточке встают одна под другой
+   одной ширины, во всю ширину ряда; в широкой делят ряд поровну без пустого хвоста. Сетка, а не перенос
+   по ширине текста: со встроенным Inter (ТЗ 8.0 п. 2) обе подписи входят в 340 px разной ширины. */
+.phone-pair-actions {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
 }
 
 /* Недоступная кнопка подключения - серая, как .btn:disabled в остальном окне, но остаётся в Tab-порядке:
@@ -3667,4 +4207,967 @@ textarea.sites-add-input {
 
 .phone-message:empty {
   margin: 0;
+}
+
+/* --- Окно ребёнка «Игровое лобби» (8.0 п. 1, 9) ------------------------------------------------ */
+/* Своя область стилей окна ребёнка (.shell-child, .lobby): окно родителя её не видит. Значения — артборды
+   макета plans/design-0.8.4/kit.py и child.py: синий радиальный фон, тёмно-синие панели с обводкой и бликом,
+   объёмные кнопки, крупные белые цифры с тёмной обводкой, шрифт Rubik. Прежние разделы («Итоги», «Мои
+   правила», диалоги) перекрашены токенами ниже: светлый текст на тёмной панели, контраст не ниже 4,5:1. */
+.shell-child {
+  --lb-ink: #0b1d5c;
+  --lb-panel: #13287a;
+  --lb-hi: #2d4dc0;
+  --lb-muted: #c7d4ff;
+  --lb-deep: #0e1f66;
+  /* Токены прежних разделов внутри окна ребёнка. */
+  --bg: #0e1f66;
+  --surface: #13287a;
+  --line: rgba(199, 212, 255, 0.3);
+  --share-bar: rgba(199, 212, 255, 0.3);
+  --text: #ffffff;
+  --text-muted: #c7d4ff;
+  --primary: #ffe066;
+  --primary-text: #0b1d5c;
+  --primary-hover: #ffd033;
+  --accent-soft: #22388f;
+  --status-warn: #ffd54a;
+  --status-danger: #ffb199;
+  --status-ok: #7cf29b;
+  --field-border: #7fb6ff;
+  --chart-bar: #7fb6ff;
+  --font: "Rubik", "Segoe UI", system-ui, sans-serif;
+  --font-display: "Rubik", "Segoe UI", system-ui, sans-serif;
+  background: radial-gradient(ellipse 90% 70% at 50% 25%, #4a86ff 0%, #2a5ce0 45%, #15318c 100%);
+  color: #ffffff;
+  font-family: var(--font);
+  accent-color: #ffe066;
+  scrollbar-color: #7fb6ff #15318c;
+}
+
+html:has(.shell-child) body {
+  background: #15318c;
+}
+
+/* Шапки «PC Block» в макете окна ребёнка нет: вместо неё «Привет, Миша!» внутри страницы. Страница
+   по-прежнему прокручивается внутри .content (PL-25), окно — нет. */
+.shell-child > .topbar {
+  display: none;
+}
+
+.shell-child .content-frame {
+  padding-top: 0;
+}
+
+/* Отступы окна ужаты против артборда (24/20): весь «Сегодня» без прокрутки в клиентской области окна
+   1000 x 700 (около 1000 x 660 без заголовка и рамки Windows, R-9) во всех состояниях талисмана. */
+.shell-child .content {
+  margin-top: 0;
+  padding: 16px 30px 14px;
+  scroll-padding-top: 16px;
+}
+
+/* Кольцо фокуса видно на синем фоне и на панелях. */
+.shell-child :focus-visible {
+  outline: 3px solid #ffe066;
+  outline-offset: 2px;
+}
+
+.lobby.my-stats,
+.lobby.lb-first {
+  width: 100%;
+  max-width: 1100px;
+}
+
+.lobby.my-stats {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.lb-today,
+.lb-all {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+/* «Сегодня»: промежутки 12 (артборд 18) и обычная высота строки артборда (child.py без line-height). */
+.lb-today {
+  gap: 12px;
+  line-height: 1.2;
+}
+
+/* Крупный текст с обводкой (kit.py outl): обводка под заливкой, тень вниз. Толщина — size / 11. */
+.lb-big {
+  --lb-stroke: 3px;
+  --lb-drop: 2px;
+  color: #ffffff;
+  font-weight: 900;
+  line-height: 1.05;
+  -webkit-text-stroke: var(--lb-stroke) var(--lb-ink);
+  paint-order: stroke fill;
+  text-shadow: 0 var(--lb-drop) 0 var(--lb-ink);
+}
+
+/* Мелкий текст прямо на светлой части фона: тонкая обводка, иначе вторичный цвет ниже 4,5:1. */
+.lb-date,
+.lb-loading,
+.lb-foot,
+.lb-autobonus,
+.lb-all .stats-since {
+  -webkit-text-stroke: 2px var(--lb-ink);
+  paint-order: stroke fill;
+  text-shadow: 0 1px 0 var(--lb-ink);
+}
+
+.lb-title {
+  font-size: 30px;
+}
+
+.lb-loading {
+  color: var(--lb-muted);
+  font-weight: 700;
+}
+
+/* Шапка: аватар-буква, привет и дата; справа копилка и «Ввести код». */
+.lb-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.lb-hello {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+}
+
+.lb-hello-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.lb-avatar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  border: 3px solid var(--lb-ink);
+  border-radius: 50%;
+  background: linear-gradient(180deg, #ffe066, #ffb800);
+  box-shadow: 0 4px 0 var(--lb-ink);
+  font-size: 26px;
+}
+
+.lb-date {
+  color: var(--lb-muted);
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.lb-head-side {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px;
+}
+
+.lb-coins {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 52px;
+  padding: 0 18px 0 8px;
+  border: 3px solid var(--lb-ink);
+  border-radius: 26px;
+  background: var(--lb-deep);
+  box-shadow: inset 0 3px 0 var(--lb-hi);
+}
+
+.lb-coin,
+.lb-glyph {
+  flex: none;
+}
+
+.lb-coins-text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.1;
+}
+
+.lb-coins-label {
+  color: var(--lb-muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.lb-coins-value {
+  color: #ffd54a;
+  font-size: 20px;
+}
+
+/* Кнопки (kit.py btn): обводка, градиент, «дно» снизу, блик сверху; нажатие опускает кнопку. */
+.lb-btn {
+  --lb-a: #7fb6ff;
+  --lb-b: #3d86ff;
+  --lb-c: #225fd1;
+  --lb-t: #ffffff;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 56px;
+  padding: 0 24px;
+  border: 3px solid var(--lb-ink);
+  border-radius: 18px;
+  background: linear-gradient(180deg, var(--lb-a) 0%, var(--lb-b) 55%);
+  box-shadow:
+    inset 0 -6px 0 var(--lb-c),
+    inset 0 3px 0 rgba(255, 255, 255, 0.55),
+    0 4px 0 var(--lb-ink);
+  color: var(--lb-t);
+  font-family: var(--font);
+  font-size: 18px;
+  font-weight: 900;
+  line-height: 1.1;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    transform 120ms ease,
+    box-shadow 120ms ease,
+    filter 120ms ease;
+}
+
+.lb-btn:hover:not(:disabled):not([aria-disabled="true"]) {
+  filter: brightness(1.06);
+}
+
+.lb-btn:active:not(:disabled):not([aria-disabled="true"]) {
+  transform: translateY(3px);
+  box-shadow:
+    inset 0 -3px 0 var(--lb-c),
+    inset 0 3px 0 rgba(255, 255, 255, 0.55),
+    0 1px 0 var(--lb-ink);
+}
+
+.lb-btn-gold {
+  --lb-a: #ffe066;
+  --lb-b: #ffb800;
+  --lb-c: #d98200;
+  --lb-t: #0b1d5c;
+}
+
+.lb-btn-green {
+  --lb-a: #7cf29b;
+  --lb-b: #2fcb5c;
+  --lb-c: #1c9440;
+  --lb-t: #0b1d5c;
+}
+
+.lb-btn-coral {
+  --lb-a: #ffa48a;
+  --lb-b: #ff6a4a;
+  --lb-c: #d9442a;
+}
+
+/* Белый текст на голубой и коралловой — с обводкой (крупный жирный текст на цветной кнопке). */
+.lb-btn-blue,
+.lb-btn-coral {
+  -webkit-text-stroke: 3px var(--lb-ink);
+  paint-order: stroke fill;
+  text-shadow: 0 2px 0 var(--lb-ink);
+}
+
+.lb-btn-code {
+  height: 52px;
+  padding: 0 22px;
+  border-radius: 16px;
+  font-size: 17px;
+}
+
+.lb-btn-main {
+  width: 250px;
+  height: 64px;
+  padding: 0;
+  border-radius: 22px;
+  font-size: 21px;
+}
+
+.lb-btn-gold.lb-btn-main {
+  font-size: 22px;
+}
+
+.lb-btn-small {
+  height: 44px;
+  padding: 0 18px;
+  border-radius: 14px;
+  font-size: 16px;
+}
+
+/* Недоступная кнопка (kit.py navy): тёмно-синяя вместо цветной, белый текст (≥ 4,5:1 к каждой точке
+   градиента), рамка сплошная (пунктир путался с кольцом фокуса), курсор запрета; остаётся в Tab-порядке,
+   пояснение — под кнопками (L-17). */
+.lb-btn[aria-disabled="true"],
+.lb-btn:disabled {
+  --lb-a: #3552b8;
+  --lb-b: #22388f;
+  --lb-c: #152a70;
+  --lb-t: #ffffff;
+  -webkit-text-stroke: 0;
+  text-shadow: none;
+  cursor: not-allowed;
+}
+
+.lb-btn[aria-disabled="true"] .lb-coin {
+  opacity: 0.55;
+  filter: grayscale(0.6);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lb-btn {
+    transition: none;
+  }
+}
+
+/* Панели (kit.py panel). */
+.lb-panel {
+  border: 3px solid var(--lb-ink);
+  border-radius: 22px;
+  background: var(--lb-panel);
+  box-shadow:
+    inset 0 3px 0 var(--lb-hi),
+    0 5px 0 var(--lb-ink);
+  color: #ffffff;
+}
+
+.lb-plain {
+  padding: 18px 22px;
+  font-size: 17px;
+  font-weight: 600;
+}
+
+/* Главный блок: талисман слева с выносом вверх, остаток крупно, шкала-энергия. */
+.lb-main {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+  padding: 14px 30px 14px 204px;
+  border-radius: 28px;
+  background: #132c8a;
+  box-shadow:
+    inset 0 3px 0 #3a5dd6,
+    0 5px 0 var(--lb-ink);
+}
+
+.lb-mascot {
+  position: absolute;
+  top: -16px;
+  left: 6px;
+  width: 190px;
+  height: 190px;
+  object-fit: contain;
+  pointer-events: none;
+  user-select: none;
+}
+
+.lb-main-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 8px 16px;
+}
+
+.lb-main-left {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.lb-left-label {
+  color: #bfd0ff;
+  font-size: 19px;
+  font-weight: 800;
+}
+
+/* 70 px при ширине макета 1040; уже — меньше, чтобы «1 ч 25 мин» стояло одной строкой. */
+.lb-left-value {
+  --lb-stroke: 6px;
+  --lb-drop: 4px;
+  font-size: clamp(40px, 6.8vw, 70px);
+}
+
+/* Слова вместо числа («Сейчас нельзя», «Пауза до 18:30»): мельче, чтобы «потратил» стоял в той же строке. */
+.lb-left-word {
+  --lb-stroke: 5px;
+  --lb-drop: 3px;
+  font-size: clamp(34px, 5vw, 50px);
+}
+
+/* При переносе строки «потратил … из …» остаётся у правого края, как в одну строку. */
+.lb-spent {
+  margin-left: auto;
+  padding-bottom: 8px;
+  color: var(--lb-muted);
+  font-size: 16px;
+  font-weight: 700;
+  text-align: right;
+}
+
+.lb-spent-line {
+  display: block;
+}
+
+.lb-tick-note {
+  color: #a9bcf5;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+/* Шкала (kit.py bar): дорожка с обводкой, заливка с бликом, деления по 15 мин поверх. */
+.lb-bar {
+  position: relative;
+  padding: 4px;
+  border: 3px solid var(--lb-ink);
+  background: #0a1a55;
+}
+
+.lb-bar-fill {
+  height: 100%;
+  box-shadow:
+    inset 0 -4px 0 rgba(0, 0, 0, 0.18),
+    inset 0 3px 0 rgba(255, 255, 255, 0.5);
+}
+
+/* --lb-ticks — лимит / 15 мин, может быть дробным: шаг полосок всегда 15 минут, последнее деление короче. */
+.lb-bar-ticks {
+  position: absolute;
+  inset: 4px;
+  background-image: repeating-linear-gradient(
+    90deg,
+    transparent 0,
+    transparent calc(100% / var(--lb-ticks) - 3px),
+    rgba(11, 29, 92, 0.55) calc(100% / var(--lb-ticks) - 3px),
+    rgba(11, 29, 92, 0.55) calc(100% / var(--lb-ticks))
+  );
+}
+
+/* Плитки «Игры», «Видео и соцсети», «Учёба»: общая сетка строк (subgrid), значения, полоски и подписи
+   трёх плиток на одной высоте, даже если заголовок переносится. */
+.lb-tiles {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-rows: repeat(4, auto);
+  column-gap: 16px;
+}
+
+.lb-tile {
+  display: grid;
+  grid-row: span 4;
+  grid-template-rows: subgrid;
+  row-gap: 6px;
+  align-items: center;
+  min-width: 0;
+  padding: 10px 16px 12px;
+}
+
+.lb-tile-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.lb-badge {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border: 3px solid var(--lb-ink);
+  box-shadow:
+    inset 0 -4px 0 rgba(0, 0, 0, 0.2),
+    inset 0 3px 0 rgba(255, 255, 255, 0.4);
+}
+
+.lb-tile-title {
+  font-size: 19px;
+  font-weight: 800;
+}
+
+.lb-tile-value {
+  font-size: 34px;
+  white-space: nowrap;
+}
+
+.lb-tile-free {
+  display: flex;
+  align-items: center;
+  min-height: 22px;
+  color: #9ff0c4;
+  font-size: 16px;
+  font-weight: 800;
+}
+
+.lb-tile-sub {
+  color: var(--lb-muted);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+/* Запретные часы и главные кнопки. */
+.lb-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: 16px;
+}
+
+.lb-row-fill {
+  flex: 1;
+}
+
+.lb-night {
+  display: flex;
+  flex: 1 1 260px;
+  align-items: center;
+  gap: 16px;
+  padding: 8px 20px;
+  background: #2e2a8f;
+  box-shadow:
+    inset 0 3px 0 #4a44c2,
+    0 5px 0 var(--lb-ink);
+}
+
+.lb-night-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.lb-night-title {
+  font-size: 18px;
+  font-weight: 800;
+}
+
+.lb-night-value {
+  color: #d9d3ff;
+  font-size: 26px;
+}
+
+.lb-actions {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 8px;
+}
+
+.lb-actions-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px;
+}
+
+/* Почему «Взять из копилки» недоступна: заметная строка прямо под кнопками, а не серая подсказка (L-17). */
+.lb-note {
+  align-self: flex-start;
+  padding: 3px 12px;
+  border: 3px solid var(--lb-ink);
+  border-radius: 12px;
+  background: var(--lb-deep);
+  color: #ffe066;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+/* Низ: нарушения и ссылки — обычный блок в конце страницы (ничего не накрывает). */
+.lb-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px 24px;
+}
+
+.lb-violations {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.lb-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 24px;
+}
+
+.lb-link {
+  padding: 4px 0;
+  border: 0;
+  background: none;
+  color: #ffffff;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.lb-link-main {
+  color: #ffe066;
+  font-size: 15px;
+  font-weight: 800;
+}
+
+/* Наведение: золотая ссылка белеет, у белой — толще подчёркивание (цвет тот же, иначе наведения не видно).
+   Кольцо фокуса — общее золотое, здесь не трогается. */
+.lb-link:hover {
+  color: #ffffff;
+  text-decoration-thickness: 3px;
+}
+
+/* «Вся моя статистика»: «← Сегодня», заголовок, прежние разделы в тёмных панелях. */
+.lb-all-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 16px;
+}
+
+.lb-back {
+  height: 48px;
+  padding: 0 18px;
+  border-radius: 16px;
+  font-size: 17px;
+}
+
+.lb-autobonus {
+  color: var(--lb-muted);
+  font-weight: 600;
+}
+
+.lobby .panel {
+  max-width: none;
+  margin-bottom: 0;
+  padding: 20px 22px;
+  border: 3px solid var(--lb-ink);
+  border-radius: 22px;
+  background: var(--lb-panel);
+  box-shadow:
+    inset 0 3px 0 var(--lb-hi),
+    0 5px 0 var(--lb-ink);
+}
+
+.lobby .section-title {
+  color: #ffffff;
+  font-size: 19px;
+  font-weight: 800;
+}
+
+.lobby .stat-sub .section-title {
+  font-size: 17px;
+}
+
+.lobby .stats-since {
+  color: var(--lb-muted);
+  font-weight: 600;
+}
+
+/* Вкладки периодов и категорий — объёмные синие кнопки, выбранная золотая. */
+.lobby .tab,
+.lobby .totals-tab {
+  border: 3px solid var(--lb-ink);
+  border-radius: 14px;
+  background: linear-gradient(180deg, #3552b8 0%, #22388f 55%);
+  box-shadow:
+    inset 0 -4px 0 #152a70,
+    inset 0 2px 0 rgba(255, 255, 255, 0.25),
+    0 3px 0 var(--lb-ink);
+  color: #ffffff;
+  font-weight: 700;
+}
+
+.lobby .tab {
+  padding: 6px 16px;
+}
+
+.lobby .totals-tab:hover,
+.lobby .tab:hover {
+  border-color: var(--lb-ink);
+  filter: brightness(1.12);
+}
+
+.lobby .tab[aria-selected="true"],
+.lobby .totals-tab[aria-selected="true"] {
+  border-color: var(--lb-ink);
+  background: linear-gradient(180deg, #ffe066 0%, #ffb800 55%);
+  box-shadow:
+    inset 0 -4px 0 #d98200,
+    inset 0 2px 0 rgba(255, 255, 255, 0.55),
+    0 3px 0 var(--lb-ink);
+  color: var(--lb-ink);
+}
+
+/* Значение плитки «Итогов» одной строкой («14 ч 08 мин» не переносится): поуже поля и на 1 px мельче. */
+.lobby .totals-tab {
+  padding: 8px 9px;
+}
+
+.lobby .totals-tab-value {
+  font-size: 17px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+/* Полоса доли под строкой «Итогов» видна на тёмной панели (голубая вместо бледно-серой). */
+.lobby .totals-item::before {
+  background: #3d86ff;
+  opacity: 0.45;
+}
+
+/* «Нарушения» — как остальные списки лобби: без своей рамки и скругления (правило .journal ниже по файлу
+   перекрывало .stat-journal и рисовало капсулу), строки разделены линией, длинный текст переносится. */
+.lobby .stat-journal {
+  max-width: none;
+  border: 0;
+  border-radius: 0;
+  background: none;
+}
+
+.lobby .stat-journal .journal-item {
+  border-radius: 0;
+}
+
+.lobby .stat-journal .journal-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* Таблицы и списки на тёмной панели: линии светлые полупрозрачные (токен --line). */
+.lobby .usage-table th,
+.lobby .my-rules thead th {
+  color: var(--lb-muted);
+}
+
+/* Сообщения, ошибки и диалоги окна ребёнка — тоже «Лобби». */
+.shell-child .notice {
+  margin-bottom: 0;
+  border: 3px solid var(--lb-ink);
+  border-left: 8px solid #7cf29b;
+  border-radius: 16px;
+  background: var(--lb-deep);
+  color: #ffffff;
+  font-weight: 600;
+}
+
+.shell-child .notice-warn {
+  border-left-color: #ffb199;
+}
+
+.lb-alert {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.lb-alert .notice {
+  flex: 1 1 320px;
+}
+
+.shell-child .dialog-backdrop {
+  background: rgba(8, 18, 64, 0.72);
+}
+
+.shell-child .dialog {
+  max-width: 520px;
+  border: 3px solid var(--lb-ink);
+  border-radius: 24px;
+  background: var(--lb-panel);
+  box-shadow:
+    inset 0 3px 0 var(--lb-hi),
+    0 6px 0 var(--lb-ink);
+  color: #ffffff;
+}
+
+.shell-child .dialog-title {
+  color: #ffffff;
+  font-size: 24px;
+  font-weight: 900;
+  -webkit-text-stroke: 3px var(--lb-ink);
+  paint-order: stroke fill;
+  text-shadow: 0 2px 0 var(--lb-ink);
+}
+
+.shell-child .panel-text {
+  color: var(--lb-muted);
+}
+
+.shell-child .btn {
+  min-height: 44px;
+  padding: 0 18px;
+  border: 3px solid var(--lb-ink);
+  border-radius: 14px;
+  background: linear-gradient(180deg, #3552b8 0%, #22388f 55%);
+  box-shadow:
+    inset 0 -4px 0 #152a70,
+    inset 0 2px 0 rgba(255, 255, 255, 0.25),
+    0 3px 0 var(--lb-ink);
+  color: #ffffff;
+  font-weight: 800;
+}
+
+.shell-child .btn:hover:not(:disabled) {
+  background: linear-gradient(180deg, #3d5cc8 0%, #2a419c 55%);
+}
+
+.shell-child .btn-primary,
+.shell-child .btn-primary:hover:not(:disabled) {
+  background: linear-gradient(180deg, #ffe066 0%, #ffb800 55%);
+  box-shadow:
+    inset 0 -4px 0 #d98200,
+    inset 0 2px 0 rgba(255, 255, 255, 0.55),
+    0 3px 0 var(--lb-ink);
+  color: var(--lb-ink);
+  opacity: 1;
+}
+
+.shell-child .btn.link {
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  box-shadow: none;
+  color: #ffe066;
+}
+
+.shell-child .field-input {
+  min-height: 44px;
+  border: 3px solid var(--lb-ink);
+  border-radius: 12px;
+  background: #0a1a55;
+  box-shadow: inset 0 0 0 1px #7fb6ff;
+  color: #ffffff;
+  font-weight: 700;
+}
+
+.shell-child .field-input:focus-visible {
+  outline: 3px solid #ffe066;
+  outline-offset: 2px;
+  border-color: var(--lb-ink);
+}
+
+.shell-child .field-input[aria-invalid="true"] {
+  border: 3px solid var(--lb-ink);
+  box-shadow: inset 0 0 0 2px #ffb199;
+}
+
+.shell-child .field-label {
+  color: #ffffff;
+  font-weight: 800;
+}
+
+/* Поле и «Ввести промокод» в диалоге — по левому краю, друг под другом. */
+.lb-promo .promo-redeem-form {
+  align-items: flex-start;
+}
+
+/* «Теперь время за компьютером считается» — панель «Лобби» по центру окна (и по высоте). */
+.lobby.lb-first {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-height: 100%;
+}
+
+.lb-first .first-run {
+  max-width: 640px;
+  margin-inline: auto;
+  padding: 26px 28px;
+}
+
+.lb-first .lb-title {
+  margin-bottom: 18px;
+  font-size: 28px;
+}
+
+.lb-first .first-run-lines {
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.lb-first-done {
+  color: var(--lb-muted);
+  font-weight: 700;
+}
+
+/* Плитки в ряд тесные уже 880 px («Без лимита», «Видео и соцсети» переносятся): в столбец, по строке на плитку. */
+/* Столбцы плиток общие (subgrid по столбцам): значения трёх плиток с одного левого края. */
+@media (max-width: 880px) {
+  .lb-tiles {
+    grid-template-columns: minmax(0, 1.3fr) max-content minmax(0, 1fr);
+    grid-template-rows: none;
+    row-gap: 12px;
+  }
+
+  .lb-tile {
+    grid-row: auto;
+    grid-column: 1 / -1;
+    grid-template-columns: subgrid;
+    grid-template-rows: auto auto;
+    padding: 10px 16px;
+  }
+
+  .lb-tile-head {
+    grid-row: 1 / 3;
+  }
+
+  .lb-tile-value {
+    grid-row: 1 / 3;
+    grid-column: 2;
+  }
+
+  .lb-tile > .lb-bar,
+  .lb-tile-free {
+    grid-column: 3;
+  }
+
+  .lb-tile-sub {
+    grid-column: 3;
+  }
+}
+
+/* Узкое окно (меньше макета 1040): отступы и талисман меньше (R-9). */
+@media (max-width: 760px) {
+  .shell-child .content {
+    padding: 14px 16px 14px;
+  }
+
+  .lb-main {
+    padding: 18px 20px 18px 160px;
+  }
+
+  .lb-mascot {
+    top: -14px;
+    left: 4px;
+    width: 150px;
+    height: 150px;
+  }
+
+  .lb-title {
+    font-size: 26px;
+  }
 }

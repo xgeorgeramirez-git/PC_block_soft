@@ -14,7 +14,7 @@ var journalGroups = map[string][]string{
 	ipc.JournalGroupTime: {
 		core.EvExtraTime, evExtraUndone, core.EvPause, core.EvPauseEnd, core.EvNoForbidden, core.EvDayClosed,
 		core.EvBonusSpent, core.EvBonusGranted, evBonusGrant, evBonusUndo, evBonusClear, evBonusReduce,
-		core.EvPromoRedeem, evPromoCreate, evPromoGenerate, evPromoHistoryCleared,
+		core.EvPromoRedeem, evPromoCreate, evPromoDelete, evPromoGenerate, evPromoHistoryCleared,
 		core.EvRestBreak, core.EvRestEnded,
 		evRemoteNote, // сообщение ребёнку с телефона — рядом с доп. временем с телефона (FR-41)
 	},

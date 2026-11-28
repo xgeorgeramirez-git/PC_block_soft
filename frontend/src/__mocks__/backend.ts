@@ -104,6 +104,10 @@ export interface MockChild {
   adultFilter?: boolean;
   /** Снимок последней «Очистить статистику» (FR-38, RM5-8): момент и счётчики дня на момент очистки. */
   statsReset?: MockStatsReset;
+  /** Сейчас за компьютером (8.3.2 п. 3): зелёная точка на карточке «Сегодня». */
+  presenceNow?: boolean;
+  /** «За компьютером с 18:20» / «Не за компьютером с 17:05»; нет поля - неизвестно. */
+  presenceText?: string;
 }
 
 /** Снимок очистки статистики: сегодня в «Итогах» - счётчики минус снимок, учёт лимита прежний. */
@@ -461,6 +465,23 @@ function forbiddenNoteOf(child: MockChild, nowMs: number): string {
   return until ? `Сегодня нельзя до ${until}` : "";
 }
 
+/**
+ * Запретные часы сегодня (ChildStatus.forbidState, B-79), упрощённо, как forbidSpan службы: сняты (R24),
+ * идут сейчас (forbiddenUntil) или первый интервал дня; у администратора - нет.
+ */
+function forbidOf(child: MockChild, nowMs: number): Pick<ChildStatus, "forbidState" | "forbidFrom" | "forbidTo"> {
+  if (child.admin) return { forbidState: "none", forbidFrom: "", forbidTo: "" };
+  if (child.noForbiddenToday) return { forbidState: "cleared", forbidFrom: "", forbidTo: "" };
+  const wd = weekdayOfMs(nowMs, localOffsetMin(new Date(nowMs)));
+  const iv = (child.schedule ?? []).filter((x) => x.weekday === wd).sort((a, b) => a.startMin - b.startMin)[0];
+  const span = iv ? { forbidFrom: formatHour(iv.startMin), forbidTo: formatHour(iv.endMin) } : null;
+  if (child.forbiddenUntil) {
+    const until = /(\d{1,2}:\d{2})/.exec(child.forbiddenUntil)?.[1] ?? "";
+    return { forbidState: "active", forbidFrom: span?.forbidFrom ?? "", forbidTo: span?.forbidTo ?? until };
+  }
+  return span ? { forbidState: "ahead", ...span } : { forbidState: "none", forbidFrom: "", forbidTo: "" };
+}
+
 /** Статус ребёнка: слова и числа собираются в одном месте, как это делает служба. */
 export function statusOf(child: MockChild, nowMs: number): ChildStatus {
   const st = statusCore(child, nowMs);
@@ -521,6 +542,7 @@ function statusCore(child: MockChild, nowMs: number): ChildStatus {
     pauseUntil: child.pauseUntil ?? "",
     bonusBalance: child.bonusBalance ?? 0,
     forbiddenNote: forbiddenNoteOf(child, nowMs),
+    ...forbidOf(child, nowMs),
     reason: "",
   };
   if (child.admin) {
@@ -623,7 +645,7 @@ function statusCore(child: MockChild, nowMs: number): ChildStatus {
       reason: "Время на сегодня закончилось",
       until: "Можно снова: завтра",
       pauseUntil: "",
-      bonusBalance: 0,
+      // Как служба (statusOf): баланс копилки настоящий и после «время вышло» — из копилки можно взять (FR-11, FR-6).
       forbiddenNote: "",
       closeGames: true,
       studyOnly: endMode === "study_only",
@@ -660,6 +682,10 @@ function cardOf(child: MockChild, nowMs: number, pendingPrograms = 0): TodayCard
     gamesText: gamesTextOf(child, nowMs),
     pendingPrograms,
     videoText: videoTextOf(child, nowMs),
+    presenceNow: Boolean(child.presenceNow),
+    presenceText: child.presenceText ?? "",
+    gamesUsedS: child.gamesUsedS ?? 0,
+    videoUsedS: child.videoUsedS ?? 0,
   };
 }
 
@@ -805,7 +831,15 @@ function myToday(child: MockChild | undefined, nowMs: number, period: StatsPerio
     bonus: (child.bonusLedger ?? []).filter((b) => b.atMs >= fromMs).slice(0, 200),
     statsSinceDay: since,
     statsSinceText: `Статистика ведётся с ${Number(since.slice(8, 10))} ${MONTHS_GEN[Number(since.slice(5, 7)) - 1]} ${since.slice(0, 4)}`,
+    // Нарушения сегодня - от местной полуночи, не от начала периода «Итогов».
+    violationsToday: events.filter((e) => e.childId === child.childId && isViolation(e.kind) && e.atMs >= dayStartOf(nowMs)).length,
   };
+}
+
+/** Местная полночь дня момента, мс. */
+function dayStartOf(ms: number): number {
+  const d = new Date(ms);
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
 }
 
 const MONTHS_SHORT = ["янв", "фев", "мар", "апр", "май", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"];
@@ -1261,8 +1295,17 @@ export function createBackend(opts: MockOptions = {}): MockBackend {
       return okReply();
     },
 
+    // Ждущие программы (8.3.2 п. 3): до 3 названий, новые попытки первыми, и сколько всего.
     GetToday: (_req, now) =>
-      okReply({ children: state.children.map((c) => card(c, now)), notices: [...state.notices] }),
+      okReply({
+        children: state.children.map((c) => card(c, now)),
+        notices: [...state.notices],
+        pendingNames: [...state.pending]
+          .sort((a, b) => b.lastAttemptAt - a.lastAttemptAt)
+          .slice(0, 3)
+          .map((p) => p.name),
+        pendingTotal: state.pending.length,
+      }),
 
     GetChildRules: (req) => {
       const child = childById(req.childId);
@@ -1347,9 +1390,8 @@ export function createBackend(opts: MockOptions = {}): MockBackend {
       const m = req.minutes;
       if (!Number.isInteger(m) || m < 1 || m > 600) return fail("Можно начислить от 1 до 600 минут", "minutes");
       if (!req.reason) return fail("Укажите, за что начисляете", "reason");
-      const cur = child.bonusBalance ?? 0;
-      if (cur + m > 600) return fail(`Можно начислить не больше ${600 - cur} мин`, "minutes");
-      const after = cur + m;
+      // Предела баланса нет (D-113): за раз 1…600 минут, копилка копится сколько угодно.
+      const after = (child.bonusBalance ?? 0) + m;
       child.bonusBalance = after;
       child.bonusLedger = [{ atMs: now, tzOffsetMin: localOffsetMin(new Date(now)), deltaMin: m, reason: req.reason, balanceAfter: after }, ...(child.bonusLedger ?? [])];
       const bonusId = `b-${state.nextExtraId++}`;

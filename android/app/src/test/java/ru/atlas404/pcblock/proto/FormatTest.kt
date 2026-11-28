@@ -34,6 +34,23 @@ class FormatTest {
         assertEquals("18.11 19:05", Format.clock(seen, nextDay, zone, Strings["time_other_day"]))
     }
 
+    /** «25 ноября» для промокодов и «Ждут решения» (8.3.10 п. 1), местное время телефона. */
+    @Test
+    fun dayMonth() {
+        val zone = ZoneId.of("Europe/Moscow")
+        val months = Strings.array("months_gen")
+        assertEquals(12, months.size)
+        val ms = LocalDateTime.of(2026, 11, 25, 0, 30).atZone(zone).toInstant().toEpochMilli()
+        assertEquals("25 ноября", Format.dayMonth(ms, zone, months))
+        val jan = LocalDateTime.of(2027, 1, 1, 23, 59).atZone(zone).toInstant().toEpochMilli()
+        assertEquals("1 января", Format.dayMonth(jan, zone, months))
+        assertEquals("использован 25 ноября в 00:30, Миша", Strings["promo_used"].format("25 ноября", "00:30", "Миша"))
+        // Граница суток — по поясу телефона: 23:59 и 00:00 — разные дни.
+        val late = LocalDateTime.of(2026, 11, 25, 23, 59).atZone(zone).toInstant().toEpochMilli()
+        assertTrue(Format.sameDay(ms, late, zone))
+        assertTrue(!Format.sameDay(late, late + 60_000, zone))
+    }
+
     @Test
     fun onlineWindow() {
         assertEquals(Format.Link.Online, Format.link(1_000_000, 1_000_000 - 60_000))
@@ -96,5 +113,19 @@ class FormatTest {
     @Test
     fun textsHaveNoLongDashes() {
         for ((k, v) in Strings.all) assertTrue("$k: $v", '—' !in v && '–' !in v)
+    }
+
+    /** «Копилка Миши» (FR-44): те же правила, что genitiveName окна (frontend/src/lib/format.ts), та же таблица. */
+    @Test
+    fun genitive() {
+        val cases = listOf(
+            "Миша" to "Миши", "Даша" to "Даши", "Маша" to "Маши", "Анна" to "Анны", "Ольга" to "Ольги",
+            "Ника" to "Ники", "Катя" to "Кати", "Ваня" to "Вани", "Мария" to "Марии", "Иван" to "Ивана",
+            "Артём" to "Артёма", "Андрей" to "Андрея", "Игорь" to "Игоря", "Дмитрий" to "Дмитрия",
+            "Тимофей" to "Тимофея", "Женя" to "Жени", "Саша" to "Саши", "Tom" to "Tom",
+            "Лиза Петрова" to "Лиза Петрова", "" to "", "Аня" to "Ани", "Никита" to "Никиты", "John" to "John",
+            " Миша " to "Миши", "Анна-Мария" to "Анна-Марии",
+        )
+        for ((name, want) in cases) assertEquals(name, want, Format.genitive(name))
     }
 }

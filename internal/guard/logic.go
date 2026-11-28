@@ -116,6 +116,9 @@ type Action struct {
 	// Plate: нажата кнопка плашки, а не экрана блокировки; отказ службы показывается плашкой
 	// (под экраном блокировки ответ стоит под заголовком экрана).
 	Plate bool
+	// Path — путь программы плашки «Попросить сейчас» (ActOpenPrograms): служба помнит его, и решение
+	// родителя в окне этого сеанса идёт без плашки решения (8.2.4 п. 2, D-114).
+	Path string
 }
 
 // PromoResult — ответ службы на промокод (R26): принят с Minutes минутами или отказ с текстом
@@ -192,6 +195,16 @@ type WarningView struct {
 	// (если есть баланс и копилка поможет) и «Попросить ещё», крестика нет (D-55). Плашка о
 	// программе: «Попросить сейчас» (только «ждёт разрешения» с CanAsk) и крестик. «Добавлено»: нет.
 	Buttons []ButtonView
+	// Плашка «Игрового лобби» про программы и сайты (ТЗ 8.2.4, 8.2.5, D-111): Title — заголовок,
+	// Allowed — родитель разрешил, Sticker — стикер (PlaqueStyleOf; "" — прежняя плашка). Кадры стикера
+	// идут StickerFPS в секунду от Started по кругу (Frames в круге); Still — анимации Windows выключены,
+	// стоит первый кадр (PL-89).
+	Title   string
+	Allowed bool
+	Sticker string
+	Frames  int
+	Started time.Time
+	Still   bool
 }
 
 // SoundDue: окну пора сыграть звук для плашки w, если до этого звук играл для плашки lastID.
@@ -364,6 +377,8 @@ type plate struct {
 	// plateBlocked: вид (ipc.Blocked* или ipc.PlateNotice), путь программы, кнопка «Попросить
 	// сейчас» и срок показа.
 	blockedKind string
+	title       string // заголовок плашки «Игрового лобби» (ТЗ 8.2.4); «» — без заголовка
+	allowed     bool   // у решения родителя: разрешил
 	path        string
 	canAsk      bool
 	showFor     time.Duration
@@ -904,7 +919,7 @@ func (m *Model) OnBlocked(now time.Time, pl ipc.BlockedPlate) {
 		}
 	}
 	m.plateSeq++
-	m.blocked = &plate{id: m.plateSeq, kind: plateBlocked, text: pl.Text, shownAt: now,
+	m.blocked = &plate{id: m.plateSeq, kind: plateBlocked, text: pl.Text, shownAt: now, title: pl.Title, allowed: pl.Allowed,
 		blockedKind: pl.Kind, path: pl.Path, canAsk: pl.CanAsk && pl.Kind == ipc.BlockedUnknown, showFor: life}
 }
 
@@ -1209,7 +1224,7 @@ func (m *Model) pressPlate(now time.Time, b Button) Action {
 	case ButtonAskNow:
 		// Пароль родителя и решение — в окне родителя (RM3-4); плашка своё сделала.
 		m.blocked = nil
-		return Action{Kind: ActOpenPrograms, Plate: true}
+		return Action{Kind: ActOpenPrograms, Path: p.path, Plate: true}
 	case ButtonPlateSpendBonus:
 		minutes := min(plateBonusMin, m.dec.BonusBalance)
 		return Action{Kind: ActSpendBonus, Minutes: minutes, Plate: true}
@@ -1441,7 +1456,10 @@ func (m *Model) plateView(now time.Time, p *plate) *WarningView {
 		w.Kind, w.Text = ipc.PlateAdded, addedText(p.minutes)
 		return w
 	case plateBlocked:
-		w.Kind, w.Text = p.blockedKind, p.text
+		w.Kind, w.Text, w.Title, w.Allowed = p.blockedKind, p.text, p.title, p.allowed
+		if st, ok := PlaqueStyleOf(p.blockedKind, p.allowed); ok {
+			w.Sticker, w.Frames, w.Started, w.Still = st.Sticker, stickerFrames(st.Sticker), p.shownAt, m.still
+		}
 		return w
 	case plateRest:
 		w.Kind, w.Text, w.Threshold, w.Sound = ipc.PlateRest, p.text, p.threshold, true

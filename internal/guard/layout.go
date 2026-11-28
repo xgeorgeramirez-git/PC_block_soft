@@ -223,13 +223,18 @@ const (
 	noteLockEdgePx   = 16 // столбец экрана блокировки, раздвинутый ради окна, не ближе к краю экрана
 	noteMaxPct       = 55 // окно с тенью и стикером не выше 55 % рабочей области (Ruling FB28-1)
 
-	// NoteFontPx - текст сообщения при 96 dpi; не помещается и в карточку шириной 80 % (над экраном
-	// блокировки - и раздвинув его) - мельче шагом noteFontStep, не меньше NoteFontMinPx. Текст не
-	// обрезается никогда (FR-41: до 300 знаков и 5 переводов строк видны целиком).
-	NoteFontPx    = 28
-	NoteFontMinPx = 14
-	noteFontStep  = 2
+	// NoteFontPx - текст сообщения при 96 dpi: 42 px (D-107, в 1,5 раза крупнее прежних 28); не
+	// помещается и в карточку шириной 80 % (над экраном блокировки - и раздвинув его) - мельче по
+	// лестнице noteFontSteps. Длинное сообщение на обычном экране не мельче NoteFontLongPx (21), на очень
+	// низком - до NoteFontMinPx (14). Текст не обрезается никогда (FR-41: до 300 знаков и 5 переводов
+	// строк видны целиком).
+	NoteFontPx     = 42
+	NoteFontLongPx = 21
+	NoteFontMinPx  = 14
 )
+
+// noteFontSteps - размеры текста сообщения при 96 dpi по убыванию (R-8): шаг 2 от 42 не попал бы в 21.
+var noteFontSteps = []int{NoteFontPx, 38, 34, 30, 27, 24, NoteFontLongPx, 18, 16, NoteFontMinPx}
 
 // NoteDensity - отступы и размеры окна сообщения при 96 dpi.
 type NoteDensity struct {
@@ -410,11 +415,12 @@ func noteSpot(dpi int, area Rect, lock *NoteLock, h int32, spread bool) (top, up
 
 // FitNote раскладывает окно с заголовком title и текстом text в области area (рабочая область
 // монитора) над экраном блокировки lock (nil - рабочий стол); sticker - у сообщения есть стикер.
-// Порядок ужатия: шрифт текста от NoteFontPx вниз до NoteFontMinPx; на каждом размере - обычное окно со
-// стикером от 170 px до 96 (при 100 %), потом тесное со стикером 96; каждое - с карточкой от NoteWidth
-// шире до 80 % области. Не поместилось - над экраном блокировки то же окно с широкой карточкой и
-// наименьшим стикером, раздвинув экран (начиная со шрифта, которым встаёт одна строка без раздвижки:
-// короткое сообщение экран не двигает, длинное не мельче короткого); и только потом шрифт мельче.
+// Порядок ужатия: шрифт текста по лестнице noteFontSteps от 42 вниз до 14; на каждом размере - обычное
+// окно со стикером от 170 px до 96 (при 100 %), потом тесное со стикером 96; каждое - с карточкой от
+// NoteWidth шире до 80 % области. Не поместилось - над экраном блокировки то же окно с наименьшим
+// стикером, раздвинув экран ровно на нехватку; и только потом шрифт мельче (D-107: размер текста
+// важнее неподвижного экрана блокировки, короткое сообщение - 42 px, где 42 вообще помещается; длинное
+// поэтому не крупнее короткого).
 // Над экраном блокировки стикер остаётся, только если текст с ним не мельче, чем без него; иначе (и
 // если стикер не помещается совсем: низкий экран при 150 %) - окно без стикера тем же порядком: текст и
 // кнопки экрана блокировки важнее картинки. Текст не обрезается. Не поместилось и
@@ -460,22 +466,7 @@ func FitNote(dpi int, area Rect, lock *NoteLock, sticker bool, title, text strin
 		return noteStickerSizes(dpi)
 	}
 	try := func(on bool) (NoteFit, bool) {
-		// Шрифт короткого сообщения (одна строка) на этом месте: экран раздвигается только с него и
-		// мельче, так что длинный текст не мельче короткого, а короткий экран не двигает. Одна строка
-		// не встаёт без раздвижки и мельчайшим - раздвигать с полного шрифта.
-		oneLine := NoteFontPx
-	search:
-		for font := NoteFontPx; font >= NoteFontMinPx; font -= noteFontStep {
-			for _, d := range densities {
-				for _, st := range stickers(on, d) {
-					if _, _, _, ok := noteSpot(dpi, area, lock, build(d, font, widths[0], st, "Ж").H, false); ok {
-						oneLine = font
-						break search
-					}
-				}
-			}
-		}
-		for font := NoteFontPx; font >= NoteFontMinPx; font -= noteFontStep {
+		for _, font := range noteFontSteps {
 			for _, d := range densities {
 				for _, st := range stickers(on, d) {
 					for _, w := range widths {
@@ -486,9 +477,11 @@ func FitNote(dpi int, area Rect, lock *NoteLock, sticker bool, title, text strin
 					}
 				}
 			}
-			if lock == nil || font > oneLine {
+			if lock == nil {
 				continue
 			}
+			var best NoteFit
+			found := false
 			for _, d := range densities {
 				st := stickers(on, d)
 				// Самая узкая карточка с теми же строками, что у самой широкой: раздвижка наименьшая, а
@@ -500,9 +493,14 @@ func FitNote(dpi int, area Rect, lock *NoteLock, sticker bool, title, text strin
 						break
 					}
 				}
-				if top, up, down, ok := noteSpot(dpi, area, lock, l.H, true); ok {
-					return place(NoteFit{Density: d, FontPx: font, Text: text, Layout: l, ShiftUp: up, ShiftDown: down}, top), true
+				// Из обычного и тесного окна - то, что раздвигает экран меньше: экран блокировки
+				// двигается ровно на нехватку.
+				if top, up, down, ok := noteSpot(dpi, area, lock, l.H, true); ok && (!found || up+down < best.ShiftUp+best.ShiftDown) {
+					best, found = place(NoteFit{Density: d, FontPx: font, Text: text, Layout: l, ShiftUp: up, ShiftDown: down}, top), true
 				}
+			}
+			if found {
+				return best, true
 			}
 		}
 		return NoteFit{}, false
@@ -526,4 +524,19 @@ func FitNote(dpi int, area Rect, lock *NoteLock, sticker bool, title, text strin
 	}
 	top = max(area.Top, min(top, area.Bottom-h))
 	return place(f, top)
+}
+
+// NoteTextFits - текст сообщения в раскладке f виден целиком: окно есть (шрифт задан), высота текста,
+// намеренная measure шрифтом f.FontPx в ширину прямоугольника текста, не больше высоты Layout.Text, и
+// прямоугольник текста на месте окна (Place) не выходит за область area. Обычный путь FitNote строит
+// прямоугольник из той же меры, поэтому на деле решает край области: запасное тесное широкое окно на
+// крошечном экране бывает выше области (GuardState.NoteTextFits, приёмка S57).
+func NoteTextFits(f NoteFit, area Rect, measure NoteMeasure) bool {
+	t := f.Layout.Text
+	w, h := t.Right-t.Left, t.Bottom-t.Top
+	if f.FontPx <= 0 || w <= 0 || measure(f.FontPx, w, f.Text) > h {
+		return false
+	}
+	left, top := f.Place.Left+t.Left, f.Place.Top+t.Top
+	return left >= area.Left && left+w <= area.Right && top >= area.Top && top+h <= area.Bottom
 }

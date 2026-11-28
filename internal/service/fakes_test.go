@@ -35,8 +35,11 @@ type fakeStore struct {
 	schedule         map[int64][]core.Interval // интервалы по ребёнку (M2)
 	bonus            map[int64][]BonusRecord   // история копилки по ребёнку (M2)
 	promos           []*fakePromo              // промокоды (R26, D-50)
+	failCreatePromo  bool                      // CreatePromo возвращает ошибку записи (не повтор кода)
 	failCreatePromos bool                      // CreatePromos возвращает ошибку, ничего не создав (RM5-12)
 	failListPromos   bool                      // ListPromos возвращает ошибку
+	failDeletePromo  bool                      // DeletePromo возвращает ошибку (FR-45)
+	failAppendBonus  bool                      // AppendBonus возвращает ошибку записи
 	failGetSetting   bool                      // GetSetting возвращает ошибку
 	setSettingErr    func(key string) error    // не nil: SetSetting сначала спрашивает её (M7)
 
@@ -871,15 +874,15 @@ func (f *fakeStore) SetSchedule(id int64, intervals []core.Interval) error {
 func (f *fakeStore) AppendBonus(id int64, deltaMin int, reason string) (int, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if reason == "" || deltaMin == 0 {
+	if f.failAppendBonus || reason == "" || deltaMin == 0 {
 		return 0, errFake
 	}
 	cur := 0
 	if h := f.bonus[id]; len(h) > 0 {
 		cur = h[len(h)-1].Balance
 	}
-	after := cur + deltaMin
-	if after < 0 || after > 600 {
+	after := cur + deltaMin // предела баланса нет (D-113), как в storage
+	if after < 0 {
 		return 0, errFake
 	}
 	at := timeNowService()
@@ -902,10 +905,7 @@ func (f *fakeStore) GrantDayBonus(id int64, day core.DayState, deltaMin int, rea
 	if h := f.bonus[id]; len(h) > 0 {
 		cur = h[len(h)-1].Balance
 	}
-	after := cur + deltaMin
-	if after > 600 {
-		return 0, errFake
-	}
+	after := cur + deltaMin // предела баланса нет (D-113), как в storage
 	at := timeNowService()
 	if f.now != nil {
 		at = f.now()
@@ -938,6 +938,9 @@ type fakePromo struct {
 func (f *fakeStore) CreatePromo(codeDisplay string, minutes int) (PromoRecord, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.failCreatePromo {
+		return PromoRecord{}, errFake
+	}
 	norm := core.NormalizePromoCode(codeDisplay)
 	if norm == "" || !core.PromoMinutesValid(minutes) {
 		return PromoRecord{}, errFake
@@ -1032,6 +1035,27 @@ func (f *fakeStore) CreatePromos(codesDisplay []string, minutes int) ([]PromoRec
 		out = append(out, p.rec)
 	}
 	return out, nil
+}
+
+// DeletePromo — как storage.DeletePromo: удаляет действующий код по нормализованному виду;
+// использованный или неизвестный — ok = false. failDeletePromo — сбой записи.
+func (f *fakeStore) DeletePromo(code string) (PromoRecord, bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.failDeletePromo {
+		return PromoRecord{}, false, errFake
+	}
+	norm := core.NormalizePromoCode(code)
+	if norm == "" {
+		return PromoRecord{}, false, nil
+	}
+	for i, p := range f.promos {
+		if p.norm == norm && p.rec.UsedAtMs == 0 {
+			f.promos = append(f.promos[:i], f.promos[i+1:]...)
+			return p.rec, true, nil
+		}
+	}
+	return PromoRecord{}, false, nil
 }
 
 // ClearUsedPromos — как storage.ClearUsedPromos: удаляет использованные, число удалённых.

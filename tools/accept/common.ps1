@@ -746,8 +746,30 @@ function Save-Screen([string]$Name) {
   $b = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
   $bmp = New-Object System.Drawing.Bitmap $b.Width, $b.Height
   try {
+    # CaptureBlt: layered-окна стража (сообщение, плашки «Игрового лобби», ТЗ 8.2.4) тоже на снимке.
+    # Через GDI BitBlt: .NET CopyFromScreen не принимает SourceCopy|CaptureBlt (значения нет в перечислении).
+    if (-not ('PcbScreenCap' -as [type])) {
+      Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public static class PcbScreenCap {
+  [DllImport("user32.dll")] static extern IntPtr GetDC(IntPtr h);
+  [DllImport("user32.dll")] static extern int ReleaseDC(IntPtr h, IntPtr dc);
+  [DllImport("gdi32.dll")] static extern bool BitBlt(IntPtr d, int x, int y, int w, int h, IntPtr s, int sx, int sy, uint rop);
+  public static bool Copy(IntPtr dst, int x, int y, int w, int h) {
+    IntPtr scr = GetDC(IntPtr.Zero);
+    try { return BitBlt(dst, 0, 0, w, h, scr, x, y, 0x00CC0020u | 0x40000000u); }
+    finally { ReleaseDC(IntPtr.Zero, scr); }
+  }
+}
+'@
+    }
     $g = [System.Drawing.Graphics]::FromImage($bmp)
-    try { $g.CopyFromScreen($b.X, $b.Y, 0, 0, $bmp.Size) } finally { $g.Dispose() }
+    try {
+      $hdc = $g.GetHdc()
+      try { $copied = [PcbScreenCap]::Copy($hdc, $b.X, $b.Y, $b.Width, $b.Height) } finally { $g.ReleaseHdc($hdc) }
+      if (-not $copied) { $g.CopyFromScreen($b.X, $b.Y, 0, 0, $bmp.Size) }
+    } finally { $g.Dispose() }
     $bmp.Save($path, [System.Drawing.Imaging.ImageFormat]::Png)
   } finally { $bmp.Dispose() }
   Write-Log "Снимок: $Name.png ($($b.Width)x$($b.Height))"
@@ -789,8 +811,10 @@ function Save-ProgramWindow([string]$Name, [string[]]$ArgList, [int]$WaitSeconds
 # Окно родителя на экране Screen после входа (B-63): запускает окно с --screen, вводит пароль родителя
 # с клавиатуры (поле пароля в фокусе при открытии), ждёт раздел и снимает окно. Вход не удался —
 # снимок всё равно делается (на нём экран пароля), сценарий не падает: это снимок, а не проверка.
+# Screen пусто — главный экран «Сегодня» (без --screen).
 function Save-ParentWindow([string]$Name, [string]$Screen, [int]$WaitSeconds = 40) {
-  $p = Start-Process -FilePath $script:Exe -ArgumentList (ConvertTo-ArgString @("--parent", "--screen=$Screen")) -PassThru
+  $wargs = if ($Screen) { @("--parent", "--screen=$Screen") } else { @("--parent") }
+  $p = Start-Process -FilePath $script:Exe -ArgumentList (ConvertTo-ArgString $wargs) -PassThru
   try {
     Wait-Until { $p.Refresh(); $p.HasExited -or ($p.MainWindowHandle -ne [IntPtr]::Zero -and $p.MainWindowTitle -ne "") } $WaitSeconds "окно родителя (PID $($p.Id))"
     Assert-That (-not $p.HasExited) "Окно родителя завершилось само, код $($p.ExitCode)"
@@ -801,7 +825,7 @@ function Save-ParentWindow([string]$Name, [string]$Screen, [int]$WaitSeconds = 4
     try {
       [System.Windows.Forms.SendKeys]::SendWait($script:ParentPassword)
       [System.Windows.Forms.SendKeys]::SendWait("{ENTER}")
-      Write-Log "Окно родителя: пароль введён с клавиатуры, жду раздел «$Screen»"
+      Write-Log "Окно родителя: пароль введён с клавиатуры, жду раздел «$(if ($Screen) { $Screen } else { 'Сегодня' })»"
     } catch {
       Write-Log "Окно родителя: пароль не введён: $_"
     }
@@ -973,7 +997,7 @@ function Format-GuardState($s) {
   $b = (@(List $s.buttons)) -join ","
   $f = (@(List $s.fields) | ForEach-Object { "$($_.id)='$($_.text)'" }) -join ","
   $x = (@(List $s.exits)) -join ","
-  return "экран=$($s.lockShown)/$($s.lockKind); стикер=$($s.promoSticker)'$($s.promoText)'; плашка=$($s.plateKind)'$($s.plate)'; кнопки=[$b]; поля=[$f]; предупреждения=[$w]; выходы=[$x]; передний план='$($s.foregroundPath)'; домен вкладки='$($s.foregroundDomain)'; closedTab='$($s.closedTab)'; closedTabWay='$($s.closedTabWay)'"
+  return "экран=$($s.lockShown)/$($s.lockKind); стикер=$($s.promoSticker)'$($s.promoText)'; плашка=$($s.plateKind)'$($s.plateTitle)'/'$($s.plate)' стикер плашки '$($s.plateSticker)'; кнопки=[$b]; поля=[$f]; предупреждения=[$w]; выходы=[$x]; передний план='$($s.foregroundPath)'; домен вкладки='$($s.foregroundDomain)'; closedTab='$($s.closedTab)'; closedTabWay='$($s.closedTabWay)'"
 }
 
 function Get-WarnThresholds($State) { return @(List $State.warnings | ForEach-Object { [int]$_.threshold }) }
@@ -987,8 +1011,110 @@ function Assert-NoRepeatWarnings($State, [string]$What) {
   }
 }
 
-# Пороги сыгранных звуков предупреждений (GuardState.sounds, D-55): по одному на каждую плашку.
-function Get-SoundThresholds($State) { return @(List $State.sounds | ForEach-Object { [int]$_.threshold }) }
+# Пороги сыгранных звуков предупреждений (GuardState.sounds, D-55): по одному на каждую плашку. Звуки
+# сообщения (note) и схемы Windows у плашек «Игрового лобби» (system) — не пороги, в список не идут.
+function Get-SoundThresholds($State) {
+  return @(List $State.sounds | Where-Object { -not $_.note -and -not [string]$_.system } | ForEach-Object { [int]$_.threshold })
+}
+
+# --- Плашки «Игрового лобби» (ТЗ 8.2.4, 8.2.5, D-111, D-114) -------------------------------------------
+# Звуки схемы Windows (internal/sound AliasExclamation, AliasNotify): «Восклицание» и «Уведомление».
+$script:SoundExclamation = "SystemExclamation"
+$script:SoundNotify = "Notification.Default"
+
+# Звуки схемы Windows, запрошенные плашками «Игрового лобби» (GuardState.sounds с полем system), по порядку.
+function Get-SystemSounds($State) { return @(List $State.sounds | Where-Object { [string]$_.system }) }
+
+function Format-SystemSounds($List) { return ((@($List) | ForEach-Object { "$($_.system) ok=$($_.ok)" }) -join '; ') }
+
+# Ждёт плашку «Игрового лобби» вида Kind с заголовком Title и стикером Sticker (окно плашки разобрало спрайт)
+# и в журнале стража — новый звук схемы Sound после Before запрошенных (Get-SystemSounds до события).
+# Text — текст плашки (пусто: не сверять). Возвращает состояние стража.
+function Wait-LobbyPlate([string]$Kind, [string]$Title, [string]$Sticker, [string]$Sound, [int]$Before, [string]$What, [string]$Text = "", [double]$Seconds = 6) {
+  $g = Wait-GuardState {
+    param($s)
+    [string]$s.plateKind -eq $Kind -and [string]$s.plateTitle -eq $Title -and [string]$s.plateSticker -eq $Sticker -and
+      (-not $Text -or [string]$s.plate -eq $Text) -and
+      @(Get-SystemSounds $s | Select-Object -Skip $Before | Where-Object { [string]$_.system -eq $Sound }).Count -ge 1
+  } $Seconds "${What}: плашка «$Title» ($Kind) со стикером $Sticker и звуком $Sound"
+  $new = @(Get-SystemSounds $g | Select-Object -Skip $Before)
+  Write-Log ("{0}: плашка за {1:N1} с: «{2}» — «{3}», стикер {4}, кадр {5}, кнопки [{6}]; новые звуки схемы: {7}" -f $What, $script:WaitElapsed, $g.plateTitle, $g.plate, $g.plateSticker, $g.plateFrame, ((@(List $g.buttons)) -join ','), (Format-SystemSounds $new))
+  return $g
+}
+
+# --- Окно при входе в Windows (FR-46, R-13) -----------------------------------------------------------
+# Окна программы в сеансе раннера, которые служба открывает при входе: «Моя статистика», первый вход, окно родителя.
+function Get-LogonWindowProcs {
+  return @(Get-PcbProcs | Where-Object { $_.SessionId -eq $script:MySession -and $_.CommandLine -match '--(mystats|firstrun|parent)(\s|$|=)' })
+}
+
+function Format-LogonWindowProcs {
+  $l = @(Get-LogonWindowProcs | ForEach-Object { "$($_.ProcessId): $($_.CommandLine)" })
+  if ($l.Count -eq 0) { return "нет" }
+  return ($l -join ' | ')
+}
+
+# Событие сеанса раннера тестовой командой TestSession (logon, logoff, lock, unlock, disconnect).
+function Send-SessionEvent([string]$Event) {
+  $r = Send-Pcb "TestSession" @{ event = $Event; sessionId = [int]$script:MySession }
+  Assert-Reply $r "TestSession $Event $($script:MySession)"
+  Write-Log "Событие сеанса $($script:MySession): $Event (TestSession)"
+}
+
+# Закрывает окно процесса крестиком (WM_CLOSE, как пользователь) и ждёт выхода; не закрылось за 10 с — снимает.
+# Возвращает $true, если окно закрылось само.
+function Close-PcbWindow([int]$ProcessId, [string]$What) {
+  $p = Get-Process -Id $ProcessId -ErrorAction SilentlyContinue
+  if (-not $p) { Write-Log "${What}: процесса $ProcessId уже нет"; return $true }
+  try {
+    Wait-Until { $p.Refresh(); $p.HasExited -or $p.MainWindowHandle -ne [IntPtr]::Zero } 20 "окно процесса $ProcessId"
+  } catch { Write-Log "${What}: окна у процесса $ProcessId нет за 20 с" }
+  $ok = $false
+  if (-not $p.HasExited) {
+    [void]$p.CloseMainWindow()
+    $ok = $p.WaitForExit(10000)
+    if (-not $ok) { Write-Log "${What}: окно $ProcessId не закрылось крестиком за 10 с, снимаю процесс"; Stop-Process -Id $ProcessId -Force -ErrorAction SilentlyContinue }
+  } else { $ok = $true }
+  Write-Log "${What}: окно $ProcessId закрыто $(if ($ok) { 'крестиком' } else { 'снятием процесса' })"
+  return $ok
+}
+
+# --- Телефон приёмки (S57…S62, S66) ---------------------------------------------------------------------
+# Сервер связи, связь включена, тестовый телефон привязан кодом и сверкой числа («Совпадает» на обоих).
+# Возвращает id первого ребёнка. Нужен запущенный Start-Child или Invoke-Setup; Stop-Relay — в finally сценария.
+function Connect-Phone([string]$Name) {
+  Start-Relay
+  Use-Parent {
+    Assert-Reply (Send-Parent "SetRemote" @{ enabled = $true; url = $script:RelayUrl }) "SetRemote"
+    $v = Wait-RemoteState "online" 30
+    Write-Log "На связи: $(Format-Remote $v)"
+    Assert-Reply (Send-Parent "RemotePairStart") "RemotePairStart"
+    Wait-Until { $script:LastRemote = Get-Remote; $script:LastRemote.pair.stage -eq "code" -and $script:LastRemote.pair.code -match '^\d{6}$' } 10 "код привязки в окне" 300
+  }
+  $r = Invoke-Phone @("pair", "-url", $script:RelayUrl, "-code", [string]$script:LastRemote.pair.code, "-name", $Name)
+  Assert-That ($r.Code -eq 0) "Привязка с телефона не удалась: $($r.Result | ConvertTo-Json -Compress)"
+  $sas = [string]$r.Result.sas
+  $id = Use-Parent {
+    Wait-Until { $script:LastRemote = Get-Remote; $script:LastRemote.pair.stage -eq "compare" } 10 "сверка числа в окне" 300
+    Assert-That ([string]$script:LastRemote.pair.sas -eq $sas) "Число сверки окна '$($script:LastRemote.pair.sas)', у телефона '$sas'"
+    Assert-Reply (Send-Parent "RemotePairConfirm" @{ match = $true }) "RemotePairConfirm"
+    Wait-Until { $script:LastRemote = Get-Remote; $null -ne $script:LastRemote.phone } 10 "телефон подключён" 300
+    Get-ChildId
+  }
+  $c = Invoke-Phone @("confirm")
+  Assert-That ($c.Code -eq 0) "confirm на телефоне: код $($c.Code)"
+  Write-Log "Телефон $Name привязан, ребёнок $id"
+  return [int64]$id
+}
+
+# Подписанный отчёт компьютера новее SinceMs (UTC мс); возвращает вывод status тестового телефона.
+function Wait-PhoneReport([int64]$SinceMs, [double]$Seconds, [string]$What) {
+  Wait-Until {
+    $script:LastPhoneStatus = (Invoke-Phone @("status")).Result
+    $script:LastPhoneStatus.report -and [int64]$script:LastPhoneStatus.reportTs -ge $SinceMs
+  } $Seconds "отчёт компьютера телефону: $What" 1000
+  return $script:LastPhoneStatus
+}
 
 # Ждёт, пока вид стража (GuardState) подойдёт под условие; условие получает состояние первым аргументом.
 # Возвращает последнее состояние; секунды ожидания лежат в $script:WaitElapsed.
@@ -1694,17 +1820,22 @@ function Assert-TabStays([string]$Domain, [double]$Seconds = 6, [string]$NoPlate
 
 # Ждёт плашку о сайте: текст Text (с Regex — регулярное выражение с якорями) и вид Kind (BlockedPlate.Kind:
 # site, adult, videoOver). Возвращает состояние; при провале — разбор сайтов.
-function Wait-SitePlate([string]$Text, [string]$Kind, [double]$Seconds = 5, [switch]$Regex) {
+# Плашка «Игрового лобби» (ТЗ 8.2.5, D-111): Title — заголовок (plateTitle), Sticker — стикер окна плашки
+# (plateSticker), Sound — новый звук схемы Windows после SoundsBefore запрошенных (Get-SystemSounds до события).
+function Wait-SitePlate([string]$Text, [string]$Kind, [double]$Seconds = 5, [switch]$Regex, [string]$Title = "", [string]$Sticker = "", [string]$Sound = "", [int]$SoundsBefore = 0) {
   $sw = [Diagnostics.Stopwatch]::StartNew()
   while ($true) {
     $s = Get-GuardState
     $p = [string]$s.plate
     $hit = if ($Regex) { $p -match $Text } else { $p -eq $Text }
+    if ($hit -and $Title) { $hit = [string]$s.plateTitle -eq $Title }
+    if ($hit -and $Sticker) { $hit = [string]$s.plateSticker -eq $Sticker }
+    if ($hit -and $Sound) { $hit = @(Get-SystemSounds $s | Select-Object -Skip $SoundsBefore | Where-Object { [string]$_.system -eq $Sound }).Count -ge 1 }
     if ($hit) { break }
-    if ($sw.Elapsed.TotalSeconds -gt $Seconds) { throw "За $Seconds с нет плашки «$Text»; $(Get-SiteDiag $s)" }
+    if ($sw.Elapsed.TotalSeconds -gt $Seconds) { throw "За $Seconds с нет плашки «$Text»$(if ($Title) { " с заголовком «$Title», стикером $Sticker и звуком $Sound" }); $(Format-GuardState $s); $(Get-SiteDiag $s)" }
     Start-Sleep -Milliseconds 100
   }
-  Write-Log ("Плашка за {0:N1} с: {1} «{2}»" -f $sw.Elapsed.TotalSeconds, $s.plateKind, $s.plate)
+  Write-Log ("Плашка за {0:N1} с: {1} «{2}» — «{3}», стикер {4}, кадр {5}; звуки схемы после события: {6}" -f $sw.Elapsed.TotalSeconds, $s.plateKind, $s.plateTitle, $s.plate, $s.plateSticker, $s.plateFrame, (Format-SystemSounds @(Get-SystemSounds $s | Select-Object -Skip $SoundsBefore)))
   if ([string]$s.plateKind -ne $Kind) { throw "Вид плашки «$($s.plateKind)», ждали $Kind; $(Get-SiteDiag $s)" }
   return $s
 }

@@ -48,16 +48,17 @@ type Controller struct {
 	mu        sync.Mutex
 	events    []ipc.GuardEvent
 	shown     []ipc.ShownWarning
-	sounds    []ipc.ShownSound // сыгранные звуки (журнал для GuardState, только тестовый режим)
-	soundID   int              // ID плашки, для которой звук уже сыгран
-	noteSound int              // номер показа сообщения с телефона, для которого звук уже сыгран (FR-41)
-	playWarn  func() bool      // проиграть звук предупреждения; true — Windows принял звук
-	playMsg   func(int) bool   // проиграть встроенный звук сообщения с номером; true — Windows принял звук
-	warm      func(string)     // заранее разобрать кадры стикера промокода (не в потоке окон)
-	soundQ    chan soundItem   // очередь исполнителя звука (одна на оба вида); nil — исполнитель не запущен
-	speed     int              // ускорение часов ядра, сообщённое окном; модели передаётся только в тестовом режиме
-	ui        ipc.GuardUI      // диагностика потока окон
-	seenPlate int              // наибольший ID плашки, о которой уже известно (ID растут; вернувшаяся плашка не новая)
+	sounds    []ipc.ShownSound  // сыгранные звуки (журнал для GuardState, только тестовый режим)
+	soundID   int               // ID плашки, для которой звук уже сыгран
+	noteSound int               // номер показа сообщения с телефона, для которого звук уже сыгран (FR-41)
+	playWarn  func() bool       // проиграть звук предупреждения; true — Windows принял звук
+	playMsg   func(int) bool    // проиграть встроенный звук сообщения с номером; true — Windows принял звук
+	playSys   func(string) bool // проиграть звук схемы Windows и дождаться конца (SND_SYNC, R-7); true — принят
+	warm      func(string)      // заранее разобрать кадры стикера промокода (не в потоке окон)
+	soundQ    chan soundItem    // очередь исполнителя звука (одна на все виды); nil — исполнитель не запущен
+	speed     int               // ускорение часов ядра, сообщённое окном; модели передаётся только в тестовом режиме
+	ui        ipc.GuardUI       // диагностика потока окон
+	seenPlate int               // наибольший ID плашки, о которой уже известно (ID растут; вернувшаяся плашка не новая)
 	lockWas   bool
 	lastLock  string
 	last      View
@@ -92,6 +93,16 @@ type Controller struct {
 	// GuardState.NoteSticker, NoteFrame; только тестовый режим).
 	noteSticker string
 	noteFrame   int
+	// noteFontPx/noteTextFits — шрифт текста окна сообщения в пикселях экрана и признак «текст виден
+	// целиком» по последней раскладке (SetNoteFit; GuardState.NoteFontPx, NoteTextFits; только тестовый режим).
+	noteFontPx   int
+	noteTextFits bool
+	// plaqueSound — ID плашки «Игрового лобби», для которой звук схемы уже поставлен (D-111: один раз на
+	// плашку); plaqueSticker/plaqueFrame — стикер и кадр, выведенные окном плашки последними
+	// (SetPlaqueShown; GuardState.PlateSticker, PlateFrame; только тестовый режим).
+	plaqueSound   int
+	plaqueSticker string
+	plaqueFrame   int
 
 	// lenWarn/lenMsg - сколько звучит звук предупреждения и звук сообщения с номером (из шапки wav):
 	// после принятого звука исполнитель ждёт его конца (nil или 0 - не ждёт). soundTimer - ожидание
@@ -145,12 +156,13 @@ func (c *Controller) NoteUITick(now time.Time) {
 	c.mu.Unlock()
 }
 
-// SetSoundPlayers задаёт, чем играть звук предупреждения (окно: sound.PlayWarning) и звук сообщения
-// с телефона по номеру (sound.PlayMessage). Без своего плеера звук этого вида не играет и не пишется
-// в журнал. Вызывать до первого View.
-func (c *Controller) SetSoundPlayers(warning func() bool, message func(n int) bool) {
+// SetSoundPlayers задаёт, чем играть звук предупреждения (окно: sound.PlayWarning), звук сообщения
+// с телефона по номеру (sound.PlayMessage) и звук схемы Windows плашки «Игрового лобби»
+// (sound.PlaySystem: ждёт конца звука, R-7). Без своего плеера звук этого вида не играет и не
+// пишется в журнал. Вызывать до первого View.
+func (c *Controller) SetSoundPlayers(warning func() bool, message func(n int) bool, system func(alias string) bool) {
 	c.mu.Lock()
-	c.playWarn, c.playMsg = warning, message
+	c.playWarn, c.playMsg, c.playSys = warning, message, system
 	c.mu.Unlock()
 }
 
@@ -450,6 +462,7 @@ func (c *Controller) PollOnce() PollResult {
 	// отправляет GuardState сразу после PollOnce, раньше, чем поток окон перерисуется по wake.
 	// Иначе снимок несогласован: порог 1 уже в журнале, а кнопки и звуки от табло «5» (CI S2, S35).
 	c.playDue(now, v.Warning)
+	c.playPlaque(now, v.Warning)
 	c.playNote(now, v.Note)
 	noteEvs := c.model.TakeNoteEvents()
 
@@ -600,6 +613,7 @@ func (c *Controller) View() View {
 	c.model.Tick(now)
 	v := c.model.View(now)
 	c.playDue(now, v.Warning)
+	c.playPlaque(now, v.Warning)
 	c.playNote(now, v.Note)
 	noteEvs := c.model.TakeNoteEvents()
 	c.mu.Lock()
@@ -634,7 +648,7 @@ func (c *Controller) playDue(now time.Time, w *WarningView) {
 		return
 	}
 	c.soundID = w.ID
-	c.enqueueSoundLocked(ipc.ShownSound{AtMs: now.UnixMilli(), Threshold: w.Threshold}, soundItem{})
+	c.enqueueSoundLocked(ipc.ShownSound{AtMs: now.UnixMilli(), Threshold: w.Threshold}, soundItem{kind: soundWarning})
 }
 
 // playNote играет выбранный родителем звук один раз на каждый показ плашки сообщения с телефона
@@ -647,21 +661,59 @@ func (c *Controller) playNote(now time.Time, n *NoteView) {
 		return
 	}
 	c.noteSound = n.Seq
-	c.enqueueSoundLocked(ipc.ShownSound{AtMs: now.UnixMilli(), Note: true, NoteSound: n.Sound}, soundItem{note: true, n: n.Sound})
+	c.enqueueSoundLocked(ipc.ShownSound{AtMs: now.UnixMilli(), Note: true, NoteSound: n.Sound}, soundItem{kind: soundNote, n: n.Sound})
 }
 
-// soundItem — звук в очереди исполнителя: вид (предупреждение или сообщение с номером) и запись
+// playPlaque ставит звук схемы Windows новой плашки «Игрового лобби» (ТЗ 8.2.4, D-111): один раз на
+// плашку — та же плашка, повторённая службой, звука не даёт (класс A); сбой кнопки и предупреждения о
+// времени — не «Лобби».
+func (c *Controller) playPlaque(now time.Time, w *WarningView) {
+	if w == nil || w.Sticker == "" {
+		return
+	}
+	st, ok := PlaqueStyleOf(w.Kind, w.Allowed)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if !ok || w.ID == c.plaqueSound {
+		return
+	}
+	c.plaqueSound = w.ID
+	c.enqueueSoundLocked(ipc.ShownSound{AtMs: now.UnixMilli(), System: st.Sound}, soundItem{kind: soundSystem, alias: st.Sound})
+}
+
+// playSystem ставит в общую очередь звук схемы Windows alias (плашка «Игрового лобби», ТЗ 8.2.4,
+// 8.2.5): тот же исполнитель, что у предупреждений и сообщений, по одному звуку за раз.
+func (c *Controller) playSystem(now time.Time, alias string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.enqueueSoundLocked(ipc.ShownSound{AtMs: now.UnixMilli(), System: alias}, soundItem{kind: soundSystem, alias: alias})
+}
+
+// soundKind — вид звука в очереди исполнителя.
+type soundKind int
+
+const (
+	soundWarning soundKind = iota // звук предупреждения о времени (D-55)
+	soundNote                     // звук сообщения с телефона с номером (FR-41)
+	soundSystem                   // звук схемы Windows плашки «Игрового лобби» (R-7)
+)
+
+// soundItem — звук в очереди исполнителя: вид, номер звука сообщения или имя звука схемы и запись
 // журнала звуков, куда дописать ответ Windows.
 type soundItem struct {
-	note bool // звук сообщения с телефона; иначе звук предупреждения
-	n    int  // номер звука сообщения
-	idx  int  // запись журнала звуков (тестовый режим); -1 — не пишется
+	kind  soundKind
+	n     int    // номер звука сообщения
+	alias string // имя звука схемы Windows
+	idx   int    // запись журнала звуков (тестовый режим); -1 — не пишется
 }
 
 // enqueueSoundLocked отдаёт звук исполнителю (под c.mu); в тестовом режиме пишет его в журнал звуков.
 // Плеер проверяется для своего вида: без плеера сообщений звук предупреждения всё равно играет.
 func (c *Controller) enqueueSoundLocked(rec ipc.ShownSound, it soundItem) {
-	if it.note && c.playMsg == nil || !it.note && c.playWarn == nil {
+	switch {
+	case it.kind == soundNote && c.playMsg == nil,
+		it.kind == soundWarning && c.playWarn == nil,
+		it.kind == soundSystem && (c.playSys == nil || it.alias == ""):
 		return
 	}
 	idx := -1
@@ -684,11 +736,12 @@ func (c *Controller) enqueueSoundLocked(rec ipc.ShownSound, it soundItem) {
 	}
 }
 
-// soundLoop - единственный исполнитель звуков обоих видов: играет их по одному и дописывает ответ
+// soundLoop - единственный исполнитель звуков всех видов: играет их по одному и дописывает ответ
 // Windows в журнал. PlaySoundW с SND_ASYNC возвращается сразу, а следующий вызов обрывает текущий
 // звук, поэтому после принятого звука исполнитель ждёт его длину (SetSoundLengths) и только потом
-// берёт следующий из очереди. stop (StopSounds) прерывает и ожидание: выход стража конца звука не
-// ждёт. Записи журнала могли сдвинуться при обрезке до maxSoundLog: тогда ответ теряется, а не
+// берёт следующий из очереди. Звук схемы Windows играет синхронно (R-7): плеер возвращается после
+// конца звука, ждать дальше нечего. stop (StopSounds) прерывает и ожидание: выход стража конца звука
+// не ждёт. Записи журнала могли сдвинуться при обрезке до maxSoundLog: тогда ответ теряется, а не
 // попадает к чужой записи.
 func (c *Controller) soundLoop(q <-chan soundItem, stop <-chan struct{}, exit chan<- struct{}) {
 	defer close(exit)
@@ -700,20 +753,22 @@ func (c *Controller) soundLoop(q <-chan soundItem, stop <-chan struct{}, exit ch
 		case it = <-q:
 		}
 		c.mu.Lock()
-		warn, msg, lenWarn, lenMsg, timer := c.playWarn, c.playMsg, c.lenWarn, c.lenMsg, c.soundTimer
+		warn, msg, sys, lenWarn, lenMsg, timer := c.playWarn, c.playMsg, c.playSys, c.lenWarn, c.lenMsg, c.soundTimer
 		c.mu.Unlock()
 		ok := false
 		var length time.Duration
 		safely(func() {
 			switch {
-			case it.note && msg != nil:
+			case it.kind == soundNote && msg != nil:
 				if ok = msg(it.n); ok && lenMsg != nil {
 					length = lenMsg(it.n)
 				}
-			case !it.note && warn != nil:
+			case it.kind == soundWarning && warn != nil:
 				if ok = warn(); ok && lenWarn != nil {
 					length = lenWarn()
 				}
+			case it.kind == soundSystem && sys != nil:
+				ok = sys(it.alias) // синхронно: уже доиграл
 			}
 		})
 		c.mu.Lock()
@@ -862,7 +917,7 @@ func (c *Controller) Run(act Action) {
 		c.model.OnExtraAdded(c.now(), act.Minutes)
 	case ActOpenPrograms:
 		// «Попросить сейчас» (RM3-4): окно родителя на «Программах», пароль спросит окно. Токена нет.
-		req := ipc.OpenWindowRequest{Kind: ipc.WindowParent, Screen: ipc.ScreenPrograms}
+		req := ipc.OpenWindowRequest{Kind: ipc.WindowParent, Screen: ipc.ScreenPrograms, Path: act.Path}
 		if err := ipc.Call(c.call, ipc.CmdOpenWindow, "", req, nil); err != nil {
 			c.fail(act, err, textPlateFailed)
 		}
@@ -1025,6 +1080,29 @@ func (c *Controller) SetNoteShown(sticker string, frame int) {
 	c.noteSticker, c.noteFrame = sticker, frame
 }
 
+// SetNoteFit запоминает, как окно сообщения разложило текст: размер шрифта в пикселях экрана (0 — окна
+// нет) и поместился ли текст целиком (NoteTextFits). GuardState.NoteFontPx, NoteTextFits (S57). Только в
+// тестовом режиме; зовёт поток окон после раскладки и при скрытии окна.
+func (c *Controller) SetNoteFit(fontPx int, fits bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if !c.testMode {
+		return
+	}
+	c.noteFontPx, c.noteTextFits = fontPx, fits
+}
+
+// SetPlaqueShown запоминает, что окно плашки «Игрового лобби» вывело сейчас: стикер ("" — нет) и кадр
+// (GuardState.PlateSticker, PlateFrame, S65). Только в тестовом режиме; зовёт поток окон.
+func (c *Controller) SetPlaqueShown(sticker string, frame int) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if !c.testMode {
+		return
+	}
+	c.plaqueSticker, c.plaqueFrame = sticker, frame
+}
+
 // SetAnimations передаёт модели, включены ли анимации Windows (стикер промокода без движения, R26).
 func (c *Controller) SetAnimations(on bool) { c.model.SetAnimations(on) }
 
@@ -1059,7 +1137,7 @@ func StateFromView(v View, lockKind string, shown []ipc.ShownWarning, sounds []i
 	}
 	if v.Warning != nil {
 		add(v.Warning.Buttons)
-		st.Plate, st.PlateKind = v.Warning.Text, v.Warning.Kind
+		st.Plate, st.PlateKind, st.PlateTitle = v.Warning.Text, v.Warning.Kind, v.Warning.Title
 	}
 	if v.Promo != nil {
 		st.PromoSticker, st.PromoText = v.Promo.Sticker, v.Promo.Text
@@ -1092,6 +1170,10 @@ func (c *Controller) PushState() {
 	st.ClosedTab, st.ClosedTabWay = c.closedTab, c.closedWay
 	if c.last.Note != nil { // окно сообщения могло ещё не узнать, что сообщение закрыто
 		st.NoteSticker, st.NoteFrame = c.noteSticker, c.noteFrame
+		st.NoteFontPx, st.NoteTextFits = c.noteFontPx, c.noteTextFits
+	}
+	if c.last.Warning != nil && c.last.Warning.Sticker != "" { // окно плашки могло ещё не узнать, что она закрыта
+		st.PlateSticker, st.PlateFrame = c.plaqueSticker, c.plaqueFrame
 	}
 	c.mu.Unlock()
 	if p, ok := lastPanic.Load().(string); ok {

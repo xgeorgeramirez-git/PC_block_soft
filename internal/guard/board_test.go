@@ -135,7 +135,7 @@ func TestControllerSoundOncePerPlate(t *testing.T) {
 	r := newCtRig()
 	r.svc.test = true
 	var playedN atomic.Int32
-	r.ctl.SetSoundPlayers(func() bool { playedN.Add(1); return false }, nil)
+	r.ctl.SetSoundPlayers(func() bool { playedN.Add(1); return false }, nil, nil)
 	played := func() int { return waitPlayed(&playedN) }
 	r.svc.status = ctRunningStatus(1800)
 	r.svc.warns = []ipc.GuardWarning{ipc.NewGuardWarning(30)}
@@ -214,7 +214,7 @@ func TestBoard5ReplacedByOneMinute(t *testing.T) {
 	r := newCtRig()
 	r.svc.test = true
 	var playedN atomic.Int32
-	r.ctl.SetSoundPlayers(func() bool { playedN.Add(1); return true }, nil)
+	r.ctl.SetSoundPlayers(func() bool { playedN.Add(1); return true }, nil, nil)
 	r.svc.status = ctRunningStatus(300)
 	r.svc.warns = []ipc.GuardWarning{ipc.NewGuardWarning(5)}
 	five := r.poll().Warning
@@ -262,7 +262,7 @@ func TestSoundDoesNotBlockView(t *testing.T) {
 	r.svc.test = true
 	block := make(chan struct{})
 	defer close(block)
-	r.ctl.SetSoundPlayers(func() bool { <-block; return true }, nil)
+	r.ctl.SetSoundPlayers(func() bool { <-block; return true }, nil, nil)
 	r.svc.status = ctRunningStatus(300)
 	r.svc.warns = []ipc.GuardWarning{ipc.NewGuardWarning(5)}
 	r.ctl.PollOnce()
@@ -338,7 +338,7 @@ func lastPushed(t *testing.T, r *ctRig) ipc.GuardStateReply {
 func TestPushStateConsistentWithoutWindowFrame(t *testing.T) {
 	r := newCtRig()
 	r.svc.test = true
-	r.ctl.SetSoundPlayers(func() bool { return true }, nil)
+	r.ctl.SetSoundPlayers(func() bool { return true }, nil, nil)
 	r.svc.status = ctRunningStatus(300)
 	r.svc.warns = []ipc.GuardWarning{ipc.NewGuardWarning(5)}
 	r.ctl.PollOnce()

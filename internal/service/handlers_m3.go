@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"pcblock/internal/core"
 	"pcblock/internal/ipc"
@@ -47,7 +48,7 @@ func decidedPlateText(cat, name string) string {
 	case programs.CatOther:
 		return "Родитель разрешил «" + name + "»: это обычная программа. Запусти её снова"
 	}
-	return "Родитель запретил «" + name + "»"
+	return "«" + name + "» запускать нельзя"
 }
 
 func publisherOrStub(p string) string {
@@ -144,29 +145,54 @@ func (s *Service) hDecideProgram(c *callCtx) ipc.Reply {
 	if path == "" {
 		return ipc.Fail(textNoProgram)
 	}
-	at := c.real.UnixMilli()
+	name, rec, unchanged, fail := s.decideProgram(path, req.Category, extraFromWindow, c.peer.SessionID, c.real)
+	switch {
+	case fail != "":
+		return ipc.Fail(fail)
+	case unchanged:
+		return s.categoryUnchanged()
+	}
+	s.rememberProgramsUndo(rec, c)
+	view, _ := s.programsView()
+	return ipc.OK(ipc.DecideProgramReply{
+		Message: name + ": " + categoryWord[req.Category], UndoID: rec.id, UndoUntilMs: rec.until.UnixMilli(), Programs: view,
+	})
+}
+
+// decideProgram — решение родителя о программе path (FR-20, FR-47) одним путём для окна и телефона
+// (PL-83): запись, «Ждут решения», перечитать программы, журнал evProgramDecided (с телефона —
+// подробность source), плашки решения детям на экране (decidedPlates), отчёт телефону сейчас
+// (remoteChanged). Читает свойства файла вне s.mu (fileMetaUnlocked). rec — для «Отменить» окна (у
+// телефона не используется). failText — словами окна. Телефон решает только о ждущей: пока s.mu
+// была отпущена, её могли решить в окне — тогда textNoProgram (not_found), прежнее решение окна
+// телефон не перезаписывает. fromSession — сеанс окна, где решили (0 — телефон): после «Попросить
+// сейчас» оттуда же плашки решения в нём нет (decidedPlates).
+func (s *Service) decideProgram(path, category string, src extraSource, fromSession uint32, real time.Time) (name string, rec *progUndoRec, unchanged bool, failText string) {
+	at := real.UnixMilli()
 	// Свойства файла (отпечаток, издатель) — вне блокировки службы: сетевой путь читается долго,
 	// а тик, канал и снятие блокировки паролем ждать не должны (NFR-10).
 	metas := s.fileMetaUnlocked([]string{path}, false)
 	if s.stopping {
-		return ipc.Fail(textRetry)
+		return "", nil, false, textRetry
 	}
 	pend, waiting, err := s.cfg.Store.ResolvePending(path)
 	if err != nil {
 		s.logRate("decide", "решение по программе не записано: %v", err)
-		return ipc.Fail(textSaveFailed)
+		return "", nil, false, textSaveFailed
+	}
+	if !waiting && src == extraFromPhone {
+		return "", nil, false, textNoProgram
 	}
 	prev, existed, err := s.cfg.Store.GetProgram(path)
 	if err != nil {
 		s.restorePendingAfterFailure(waiting, pend)
 		s.logRate("decide", "решение по программе не записано: %v", err)
-		return ipc.Fail(textSaveFailed)
+		return "", nil, false, textSaveFailed
 	}
-	rec := &progUndoRec{}
-	var name string
+	rec = &progUndoRec{}
 	switch {
 	case waiting:
-		p := s.decidedProgram(path, pend.Name, pend.Publisher, req.Category, at, metas[path])
+		p := s.decidedProgram(path, pend.Name, pend.Publisher, category, at, metas[path])
 		if existed {
 			if p.Publisher == "" {
 				p.Publisher = prev.Publisher
@@ -179,7 +205,7 @@ func (s *Service) hDecideProgram(c *callCtx) ipc.Reply {
 		if err := s.cfg.Store.UpsertProgram(p); err != nil {
 			s.restorePendingAfterFailure(true, pend)
 			s.logRate("decide", "решение по программе не записано: %v", err)
-			return ipc.Fail(textSaveFailed)
+			return "", nil, false, textSaveFailed
 		}
 		rec.pending = []PendingProgram{pend}
 		if existed {
@@ -189,29 +215,26 @@ func (s *Service) hDecideProgram(c *callCtx) ipc.Reply {
 		}
 		name = displayName(p)
 	case existed:
-		changed, err := s.cfg.Store.SetProgramsCategory([]string{path}, req.Category, at)
+		changed, err := s.cfg.Store.SetProgramsCategory([]string{path}, category, at)
 		if err != nil {
 			s.logRate("decide", "решение по программе не записано: %v", err)
-			return ipc.Fail(textSaveFailed)
+			return "", nil, false, textSaveFailed
 		}
 		if len(changed) == 0 {
-			return s.categoryUnchanged()
+			return "", nil, true, ""
 		}
 		rec.programs = changed
 		name = displayName(prev)
 	default:
-		return ipc.Fail(textNoProgram)
+		return "", nil, false, textNoProgram
 	}
 	s.reloadPrograms()
-	s.journal.Write(0, evProgramDecided, map[string]any{"name": name, "path": path, "category": req.Category, "count": 1})
+	s.journal.Write(0, evProgramDecided, sourceDetails(src, map[string]any{"name": name, "path": path, "category": category, "count": 1}))
 	if waiting {
-		s.decidedPlates(pend, req.Category, name)
+		s.decidedPlates(pend, category, name, fromSession, real)
 	}
-	s.rememberProgramsUndo(rec, c)
-	view, _ := s.programsView()
-	return ipc.OK(ipc.DecideProgramReply{
-		Message: name + ": " + categoryWord[req.Category], UndoID: rec.id, UndoUntilMs: rec.until.UnixMilli(), Programs: view,
-	})
+	s.remoteChanged() // «Ждут решения» в отчёте телефону (протокол, раздел 6)
+	return name, rec, false, ""
 }
 
 // fileMeta — свойства файла, прочитанные заранее вне блокировки службы.
@@ -280,17 +303,29 @@ func (s *Service) restorePendingAfterFailure(waiting bool, p PendingProgram) {
 }
 
 // decidedPlates показывает плашку о решении детям, которые запускали программу и чей сеанс
-// сейчас на экране (8.2.4 п.4): через очередь команд стража, как noticeGuards.
-func (s *Service) decidedPlates(p PendingProgram, category, name string) {
+// сейчас на экране (8.2.4 п.4): через очередь команд стража, как noticeGuards. Кроме сеанса
+// fromSession (окно, где решили; 0 — телефон), если оттуда же не позже 10 мин назад нажали
+// «Попросить сейчас» про эту программу (8.2.4 п. 2, D-114).
+func (s *Service) decidedPlates(p PendingProgram, category, name string, fromSession uint32, real time.Time) {
 	tried := map[int64]bool{p.FirstChildID: p.FirstChildID != 0}
 	for _, ch := range p.Children {
 		tried[ch.ChildID] = true
 	}
-	plate := ipc.BlockedPlate{Kind: ipc.BlockedDecided, Text: decidedPlateText(category, name), ShowS: decidedPlateShowS, Path: p.Path}
+	allowed := category != programs.CatBlocked
+	plate := ipc.BlockedPlate{Kind: ipc.BlockedDecided, Title: plateTitle(ipc.BlockedDecided, allowed), Text: decidedPlateText(category, name),
+		ShowS: decidedPlateShowS, Path: p.Path, Allowed: allowed}
 	for _, id := range s.sessionOrder() {
 		ss := s.sessions[id]
 		if ss.childID == 0 || !tried[ss.childID] || ss.offScreen() {
 			continue
+		}
+		if ss.askedNow(p.Path, real) {
+			// «Попросить сейчас»: родитель решил при ребёнке в окне его сеанса — ребёнок запускает
+			// программу сам, плашка решения не нужна (8.2.4 п. 2, D-114).
+			ss.askNow = askNowRec{}
+			if id == fromSession {
+				continue
+			}
 		}
 		pl := plate
 		s.guardCmd[id] = append(s.guardCmd[id], ipc.GuardCommand{Kind: ipc.GuardCmdBlocked, Plate: &pl})
@@ -565,6 +600,9 @@ func (s *Service) hUndoProgram(c *callCtx) ipc.Reply {
 		}
 	}
 	s.reloadPrograms()
+	if len(rec.pending) > 0 {
+		s.remoteChanged() // программа снова ждёт решения: телефон узнает сразу (протокол, раздел 6)
+	}
 	if failed {
 		return ipc.Fail(textSaveFailed)
 	}

@@ -102,6 +102,19 @@ func card(st ChildStatus, extra int, canClear bool) TodayCard {
 	return c
 }
 
+// forbidAhead — статус с запретными часами сегодня впереди, 21:00–07:00 (8.3.2, B-79).
+func forbidAhead(st ChildStatus) ChildStatus {
+	st.ForbidState, st.ForbidFrom, st.ForbidTo = ForbidStateAhead, "21:00", "07:00"
+	st.ForbiddenNote = "Сегодня нельзя с 21:00 до 07:00"
+	return st
+}
+
+// withPresence — карточка с точкой присутствия ребёнка (8.3.2).
+func withPresence(c TodayCard, now bool, text string) TodayCard {
+	c.PresenceNow, c.PresenceText = now, text
+	return c
+}
+
 // withPending — карточка со ссылкой «Ждут решения: N» (8.3.2 п.5).
 func withPending(c TodayCard, n int) TodayCard {
 	c.PendingPrograms = n
@@ -228,8 +241,13 @@ func examples() map[string]example {
 		CmdLogout:        ok(nil, Empty{}),
 		CmdSessionState:  ok(nil, SessionStateReply{Active: true, ExpiresMs: t0 + 540_000, RemainingS: 540}),
 		CmdGetToday: ok(nil, GetTodayReply{
-			Children: []TodayCard{withPending(card(okStatus(), 0, false), 2), withPending(card(bypassStatus(), 30, true), 2)},
-			Notices:  []string{},
+			Children: []TodayCard{
+				withPresence(withPending(card(forbidAhead(okStatus()), 0, false), 2), true, "За компьютером с 18:20"),
+				withPresence(withPending(card(bypassStatus(), 30, true), 2), false, "Не за компьютером с 17:05"),
+			},
+			Notices:      []string{},
+			PendingNames: []string{"Roblox Studio", "Steam"},
+			PendingTotal: 2,
 		}),
 		"GetToday#notices": ok(nil, GetTodayReply{
 			Children: []TodayCard{card(lockedStatus(), 0, false)},
@@ -386,7 +404,7 @@ func examples() map[string]example {
 		CmdGrantBonus: ok(GrantBonusRequest{ChildID: 1, Minutes: 30, Reason: "за уборку"}, GrantBonusReply{
 			BalanceAfter: 75, Message: "Начислено 30 минут. Баланс 75 мин", BonusID: "b-21", UndoUntilMs: t0 + 10_000,
 		}),
-		"GrantBonus#invalid": fail(GrantBonusRequest{ChildID: 1, Minutes: 600, Reason: "много"}, "Можно начислить не больше 540 мин", FieldMinutes, nil),
+		"GrantBonus#invalid": fail(GrantBonusRequest{ChildID: 1, Minutes: 601, Reason: "много"}, "Можно начислить от 1 до 600 минут", FieldMinutes, nil),
 		CmdUndoBonus:         ok(UndoBonusRequest{ChildID: 1, BonusID: "b-21"}, UndoBonusReply{BalanceAfter: 45, Message: "Начисление отменено"}),
 		CmdGetBonus: ok(GetBonusRequest{ChildID: 1}, GetBonusReply{ChildID: 1, Balance: 45, Entries: []BonusEntry{
 			{AtMs: t0, TzOffset: 180, DeltaMin: 30, Reason: "за уборку", Balance: 45},
@@ -408,7 +426,7 @@ func examples() map[string]example {
 		"SpendBonus#forbidden": fail(SpendBonusRequest{ChildID: 1, Minutes: 30}, "Из копилки можно взять с 07:00", FieldMinutes, nil),
 
 		CmdMyToday: ok(MyTodayRequest{Period: PeriodToday}, MyTodayReply{
-			Status: okStatus(), Today: []string{"Сегодня осталось 1 ч 25 мин из 2 ч", "Использовано 35 мин"}, Rules: myRules(),
+			Status: forbidAhead(okStatus()), Today: []string{"Сегодня осталось 1 ч 25 мин из 2 ч", "Использовано 35 мин"}, Rules: myRules(),
 			Period: PeriodToday, UsedS: 2100, GamesS: 900, StudyS: 180, VideoS: 600, OtherS: 600, AllS: 2280, Programs: myTodaySitePrograms(),
 			Bars:   []DayBar{{Key: "2026-10-19", Label: "пн 19", Title: "пн, 19 октября: 35 мин, учёба 3 мин", TotalS: 2100, StudyS: 180, Today: true}},
 			BarsBy: BarsByDay, Violations: []JournalEntry{}, Bonus: []BonusEntry{},
@@ -427,6 +445,7 @@ func examples() map[string]example {
 			Violations: []JournalEntry{
 				{ID: 9, AtMs: t0 - 3_600_000, TzOffsetMin: 180, ChildID: 1, ChildName: "Миша", Kind: "program_forbidden_try", Text: "Миша: попытка запустить запрещённую программу «Chrome»"},
 			},
+			ViolationsToday: 1,
 			Bonus: []BonusEntry{
 				{AtMs: t0 - 7_200_000, TzOffset: 180, DeltaMin: -15, Reason: "взято из копилки", Balance: 25},
 				{AtMs: t0 - 86_400_000, TzOffset: 180, DeltaMin: 40, Reason: "Бонус за свободное время: 40 мин", Balance: 40},
@@ -435,10 +454,14 @@ func examples() map[string]example {
 		}),
 		"MyToday#empty": ok(MyTodayRequest{Period: PeriodToday}, MyTodayReply{Status: ChildStatusNotChild(), Period: PeriodToday, BarsBy: BarsByDay}),
 		CmdParentStats: ok(ParentStatsRequest{ChildID: 1, Period: PeriodToday}, MyTodayReply{
-			Status: okStatus(), Today: []string{"Сегодня осталось 1 ч 25 мин из 2 ч", "Использовано 35 мин"}, Rules: myRules(),
+			Status: forbidAhead(okStatus()), Today: []string{"Сегодня осталось 1 ч 25 мин из 2 ч", "Использовано 35 мин"}, Rules: myRules(),
 			Period: PeriodToday, UsedS: 2100, GamesS: 900, StudyS: 180, OtherS: 1200, AllS: 2280, Programs: s39Programs(),
 			Bars:   []DayBar{{Key: "2026-10-19", Label: "пн 19", Title: "пн, 19 октября: 35 мин, учёба 3 мин", TotalS: 2100, StudyS: 180, Today: true}},
 			BarsBy: BarsByDay, StatsSinceDay: "2026-10-19", StatsSinceText: "Статистика ведётся с 19 октября 2026",
+			Violations: []JournalEntry{
+				{ID: 12, AtMs: t0 - 600_000, TzOffsetMin: 180, ChildID: 1, ChildName: "Миша", Kind: "program_forbidden_try", Text: "Миша: попытка запустить запрещённую программу «Chrome»"},
+			},
+			ViolationsToday: 1,
 		}),
 		"ParentStats#year": ok(ParentStatsRequest{ChildID: 1, Period: PeriodYear}, MyTodayReply{
 			Status: okStatus(), Today: []string{"Сегодня осталось 1 ч 25 мин из 2 ч", "Использовано 35 мин"}, Rules: myRules(),
@@ -483,7 +506,7 @@ func examples() map[string]example {
 			ForegroundPath: `c:\users\миша\downloads\supergame.exe`}}, GuardPollReply{
 			Status: okStatus(), Warnings: []GuardWarning{NewGuardWarningFor(5, core.WarnGames, 300)},
 			Commands: []GuardCommand{{Kind: GuardCmdBlocked, Plate: &BlockedPlate{
-				Kind: BlockedUnknown, Text: "Программа «SuperGame» ждёт разрешения родителя", ShowS: 10,
+				Kind: BlockedUnknown, Title: "Ждёт разрешения", Text: "Программа «SuperGame» новая. Родитель должен решить, можно ли её запускать", ShowS: 10,
 				Path: `c:\users\миша\downloads\supergame.exe`, CanAsk: true,
 			}}},
 		}),
@@ -522,11 +545,11 @@ func examples() map[string]example {
 			Buttons: []string{ButtonParentPassword, ButtonShutdown, ButtonLogoff, ButtonSwitchUser},
 		}),
 		"GuardState#blocked": ok(nil, GuardStateReply{
-			Plate: "Программа «SuperGame» ждёт разрешения родителя", PlateKind: BlockedUnknown,
+			Plate: "Программа «SuperGame» новая. Родитель должен решить, можно ли её запускать", PlateKind: BlockedUnknown,
 			Buttons: []string{"askNow", "plateClose"}, ForegroundPath: `c:\users\миша\downloads\supergame.exe`,
 		}),
 		"GuardState#note": ok(nil, GuardStateReply{
-			Note: "Иди ужинать", NoteID: "AAECAwQFBgcICQoLDA0ODw", NoteSticker: "033", NoteFrame: 17,
+			Note: "Иди ужинать", NoteID: "AAECAwQFBgcICQoLDA0ODw", NoteSticker: "033", NoteFrame: 17, NoteFontPx: 42, NoteTextFits: true,
 			Buttons: []string{ButtonNoteOK},
 		}),
 		"GuardState#brave": ok(nil, GuardStateReply{

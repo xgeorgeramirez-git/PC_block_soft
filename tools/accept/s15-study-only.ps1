@@ -58,6 +58,7 @@ Invoke-Scenario "S15" "«Оставить только учёбу»: время 
   }
 
   Step "Время вышло: game.exe и notes.exe закрыты, study.exe работает, экрана нет, снимок" {
+    $sb = @(Get-SystemSounds (Get-GuardState)).Count
     $st = Wait-Status { param($st) $st.studyOnly } 30 "режим «только учёба» (studyOnly)"
     $since = [Diagnostics.Stopwatch]::StartNew()
     Suspend-Clock
@@ -65,8 +66,8 @@ Invoke-Scenario "S15" "«Оставить только учёбу»: время 
     [void](Assert-ClosedFast $script:Game "game.exe в режиме «только учёба»" $since)
     [void](Assert-ClosedFast $script:Notes "notes.exe в режиме «только учёба»" $since)
     Assert-AppAlive $script:Study "study.exe («Учёба») после конца времени"
-    $g = Wait-GuardState { param($s) [string]$s.plate -eq $script:StudyOnlyText } 5 "плашка «$($script:StudyOnlyText)»"
-    Assert-That ($g.plateKind -eq "studyOnly") "Вид плашки «$($g.plateKind)», ждали studyOnly"
+    # «Игровое лобби» (ТЗ 8.2.4, D-114): «Сейчас только учёба», стикер 048, «Восклицание»; текст — ядра.
+    $g = Wait-LobbyPlate "studyOnly" "Сейчас только учёба" "048" $script:SoundExclamation $sb "Только учёба" $script:StudyOnlyText 5
     Assert-That (-not $g.lockShown) "Экран блокировки в режиме «только учёба»: $(Format-GuardState $g)"
     Assert-That (@(Get-BigPcbWindows).Count -eq 0) "Окно PC Block на весь экран: $((Get-BigPcbWindows) -join ' ; ')"
     $st = Get-Status

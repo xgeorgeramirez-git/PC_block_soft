@@ -34,9 +34,8 @@ function tokens(block: string): Record<string, string> {
   return out;
 }
 
+// Окно родителя всегда светлое (ТЗ 3.3, R-11): одна палитра :root, тёмной темы нет (styles.theme.test.ts).
 const light = tokens(blockOf(css, /:root\s*\{/));
-const darkOverrides = tokens(blockOf(blockOf(css, /@media\s*\(prefers-color-scheme:\s*dark\)\s*\{/), /:root\s*\{/));
-const dark = { ...light, ...darkOverrides };
 
 function channel(v: number): number {
   const c = v / 255;
@@ -79,14 +78,14 @@ describe("сама формула", () => {
 });
 
 describe("токены палитры (ТЗ 8.0 п.9)", () => {
-  it("светлая палитра не изменена", () => {
+  it("палитра окна родителя (D-109)", () => {
     expect(light).toMatchObject({
-      bg: "#f3f4f6",
+      bg: "#f3f5f9",
       surface: "#ffffff",
-      line: "#d8dce0",
-      text: "#1b1f23",
-      "text-muted": "#59616a",
-      primary: "#2b3138",
+      line: "#dde3ee",
+      text: "#1a2238",
+      "text-muted": "#5b6680",
+      primary: "#2552d9",
       "status-warn": "#a15c00",
       "status-danger": "#b3261e",
       "status-ok": "#2c7a4b",
@@ -97,22 +96,16 @@ describe("токены палитры (ТЗ 8.0 п.9)", () => {
     expect(ratio(light[fg], light[bg])).toBeGreaterThanOrEqual(4.5);
   });
 
-  it.each(TEXT_PAIRS)("тёмная тема: %s на %s не меньше 4,5:1", (fg, bg) => {
-    expect(ratio(dark[fg], dark[bg])).toBeGreaterThanOrEqual(4.5);
-  });
 
   // Рамки полей не текст, но без видимой границы поле не найти (WCAG 1.4.11 требует 3:1).
-  it("рамка поля заметна на поверхности в обеих темах (3:1)", () => {
+  it("рамка поля заметна на поверхности (3:1)", () => {
     expect(ratio(light["field-border"], light.surface)).toBeGreaterThanOrEqual(3);
-    expect(ratio(dark["field-border"], dark.surface)).toBeGreaterThanOrEqual(3);
   });
 
   // Ловит (WCAG 1.4.11): столбики «По дням» сливаются с карточкой; токен не задан в одной из тем.
-  it("столбики заметны на поверхности в обеих темах (3:1)", () => {
+  it("столбики заметны на поверхности (3:1)", () => {
     expect(light["chart-bar"]).toBe("#59616a");
-    expect(dark["chart-bar"]).toBe("#a3abb3");
     expect(ratio(light["chart-bar"], light.surface)).toBeGreaterThanOrEqual(3);
-    expect(ratio(dark["chart-bar"], dark.surface)).toBeGreaterThanOrEqual(3);
   });
 });
 
@@ -127,7 +120,7 @@ function ruleVar(selector: string, prop: string): string {
 
 // Подсказка в пустом поле («A1234» у кода промокода): в тёмной теме цвет браузера по умолчанию
 // почти не виден (визуальная приёмка M5). Одно правило для всех полей: приглушённый текст палитры,
-// не меньше 4,5:1 на фоне поля в обеих темах, без прозрачности браузера.
+// не меньше 4,5:1 на фоне поля, без прозрачности браузера.
 describe("подсказка в пустом поле (placeholder)", () => {
   it("цвет — приглушённый текст, фон поля — поверхность, без прозрачности", () => {
     expect(ruleVar("::placeholder", "color")).toBe("text-muted");
@@ -135,9 +128,8 @@ describe("подсказка в пустом поле (placeholder)", () => {
     expect(blockOf(css, /(^|\n)::placeholder\s*\{/)).toMatch(/opacity\s*:\s*1\s*;/);
   });
 
-  it("не меньше 4,5:1 на поле в обеих темах", () => {
+  it("не меньше 4,5:1 на поле", () => {
     expect(ratio(light["text-muted"], light.surface)).toBeGreaterThanOrEqual(4.5);
-    expect(ratio(dark["text-muted"], dark.surface)).toBeGreaterThanOrEqual(4.5);
   });
 });
 
@@ -150,7 +142,7 @@ describe("кнопка «Запретить» того же вида, что с�
 });
 
 // Приглушённая кнопка (btn btn-muted: «убавить время», «Отмена» в расписании): второстепенный вид,
-// но текст читается не хуже 4,5:1 на её фоне, в покое и при наведении, в обеих темах.
+// но текст читается не хуже 4,5:1 на её фоне, в покое и при наведении,.
 describe("приглушённая второстепенная кнопка", () => {
   const fg = ruleVar(".btn-muted", "color");
   const backs = [ruleVar(".btn", "background"), ruleVar(".btn:hover:not(:disabled)", "background")];
@@ -164,9 +156,6 @@ describe("приглушённая второстепенная кнопка", (
     expect(ratio(light[fg], light[bg])).toBeGreaterThanOrEqual(4.5);
   });
 
-  it.each(backs)("тёмная тема: текст к фону %s не меньше 4,5:1", (bg) => {
-    expect(ratio(dark[fg], dark[bg])).toBeGreaterThanOrEqual(4.5);
-  });
 });
 
 // Флажки и переключатели (ревью окна M5): рамка браузера в тёмной теме ниже 3:1 к карточке. Своё
@@ -184,19 +173,17 @@ describe("флажки и переключатели своим оформлен
     expect(base).toMatch(/background\s*:\s*var\(--surface\)\s*;/);
   });
 
-  it.each(["surface", "bg"])("рамка пустого флажка к фону %s не меньше 3:1 в обеих темах", (bg) => {
+  it.each(["surface", "bg"])("рамка пустого флажка к фону %s не меньше 3:1", (bg) => {
     expect(ratio(light["field-border"], light[bg])).toBeGreaterThanOrEqual(3);
-    expect(ratio(dark["field-border"], dark[bg])).toBeGreaterThanOrEqual(3);
   });
 
-  it("отметка - цвет основной кнопки, не меньше 3:1 к поверхности и фону в обеих темах", () => {
+  it("отметка - цвет основной кнопки, не меньше 3:1 к поверхности и фону", () => {
     expect(checkedBox).toMatch(/background\s*:\s*var\(--primary\)\s*;/);
     expect(checkedBox).toMatch(/border-color\s*:\s*var\(--primary\)\s*;/);
     expect(checkedRadio).toMatch(/border-color\s*:\s*var\(--primary\)\s*;/);
     expect(radioDot).toMatch(/background\s*:\s*var\(--primary\)\s*;/);
     for (const bg of ["surface", "bg"]) {
       expect(ratio(light.primary, light[bg])).toBeGreaterThanOrEqual(3);
-      expect(ratio(dark.primary, dark[bg])).toBeGreaterThanOrEqual(3);
     }
     // Галочка на залитом флажке - цвет текста основной кнопки.
     const tick = blockOf(css, /(^|\n)input\[type="checkbox"\]:checked::before\s*\{/);
@@ -210,7 +197,7 @@ describe("флажки и переключатели своим оформлен
 
 // Выключатель «Автозагрузки» (FR-39, PL-61): дорожка выключенного - рамка поля, включённого -
 // заливка основной кнопки, бегунок включённого - цвет текста на ней; всё не меньше 3:1 к
-// карточке в обеих темах (WCAG 1.4.11), фокус виден.
+// карточке (WCAG 1.4.11), фокус виден.
 describe("выключатель «Автозагрузки»", () => {
   it("цвета дорожки и бегунка - токены палитры", () => {
     expect(blockOf(css, /(^|\n)\.startup-switch-track\s*\{/)).toMatch(/border\s*:\s*2px\s+solid\s+var\(--field-border\)\s*;/);
@@ -221,16 +208,16 @@ describe("выключатель «Автозагрузки»", () => {
   });
 
   // Ловит (ревью T5): при наведении выключатель не меняется; рамка наведения сливается с карточкой.
-  it("наведение - рамка дорожки основным текстом, не меньше 3:1 к карточке и фону в обеих темах", () => {
+  it("наведение - рамка дорожки основным текстом, не меньше 3:1 к карточке и фону", () => {
     expect(ruleVar('.startup-switch:hover:not([aria-disabled="true"]) .startup-switch-track', "border-color")).toBe("text");
-    for (const t of [light, dark]) {
+    for (const t of [light]) {
       expect(ratio(t.text, t.surface)).toBeGreaterThanOrEqual(3);
       expect(ratio(t.text, t.bg)).toBeGreaterThanOrEqual(3);
     }
   });
 
-  it.each(["surface", "bg"])("дорожка и заливка к фону %s не меньше 3:1 в обеих темах", (bg) => {
-    for (const t of [light, dark]) {
+  it.each(["surface", "bg"])("дорожка и заливка к фону %s не меньше 3:1", (bg) => {
+    for (const t of [light]) {
       expect(ratio(t["field-border"], t[bg])).toBeGreaterThanOrEqual(3);
       expect(ratio(t.primary, t[bg])).toBeGreaterThanOrEqual(3);
       expect(ratio(t["primary-text"], t.primary)).toBeGreaterThanOrEqual(3);

@@ -7,7 +7,10 @@ import { firstRunLines } from "../lib/mytoday";
 const RULES_ERROR = "Не удалось получить правила. Попробуй через минуту";
 const DONE_TEXT = "Готово. Это окно можно закрыть.";
 
-/** Окно первого входа ребёнка (FR-32): пересказ правил на сегодня и «Понятно». */
+/**
+ * Окно первого входа ребёнка (FR-32): пересказ правил на сегодня и «Понятно». Оформление — «Игровое лобби»
+ * окна ребёнка (8.0 п. 1): синий фон и тёмная панель с обводкой, золотая главная кнопка.
+ */
 export default function FirstRun() {
   const [lines, setLines] = useState<string[] | null>(null);
   const [loadError, setLoadError] = useState("");
@@ -52,44 +55,47 @@ export default function FirstRun() {
   };
 
   return (
-    <section className="panel first-run" aria-labelledby="first-run-title">
-      <h2 id="first-run-title" className="panel-title">
-        Теперь время за компьютером считается
-      </h2>
-      {loadError ? (
-        <>
-          <Notice tone="warn" urgent>
-            {loadError}
-          </Notice>
-          <p>
-            <button type="button" className="btn btn-small" onClick={() => void load()}>
-              Обновить
-            </button>
+    <div className="lobby lb-first">
+      <section className="lb-panel first-run" aria-labelledby="first-run-title">
+        {/* h1: шапка окна с «PC Block» в окне ребёнка скрыта, заголовок первого уровня — у экрана. */}
+        <h1 id="first-run-title" className="lb-big lb-title">
+          Теперь время за компьютером считается
+        </h1>
+        {loadError ? (
+          <>
+            <Notice tone="warn" urgent>
+              {loadError}
+            </Notice>
+            <p>
+              <button type="button" className="lb-btn lb-btn-blue lb-btn-small" onClick={() => void load()}>
+                Обновить
+              </button>
+            </p>
+          </>
+        ) : lines === null ? (
+          <p className="lb-loading">Загружаю правила…</p>
+        ) : (
+          <div className="first-run-lines">
+            {lines.map((line) => (
+              <p key={line}>{line}</p>
+            ))}
+          </div>
+        )}
+        {error ? (
+          <p className="field-error" role="alert">
+            {error}
           </p>
-        </>
-      ) : lines === null ? (
-        <p className="panel-text">Загружаю правила…</p>
-      ) : (
-        <div className="first-run-lines">
-          {lines.map((line) => (
-            <p key={line}>{line}</p>
-          ))}
-        </div>
-      )}
-      {error ? (
-        <p className="field-error" role="alert">
-          {error}
-        </p>
-      ) : null}
-      {done ? (
-        <p className="panel-text">{DONE_TEXT}</p>
-      ) : (
-        <div className="form-actions">
-          <button type="button" className="btn btn-primary" disabled={busy} onClick={() => void understood()}>
-            Понятно
-          </button>
-        </div>
-      )}
-    </section>
+        ) : null}
+        {done ? (
+          <p className="lb-first-done">{DONE_TEXT}</p>
+        ) : (
+          <div className="form-actions">
+            <button type="button" className="lb-btn lb-btn-gold lb-btn-main" disabled={busy} onClick={() => void understood()}>
+              Понятно
+            </button>
+          </div>
+        )}
+      </section>
+    </div>
   );
 }

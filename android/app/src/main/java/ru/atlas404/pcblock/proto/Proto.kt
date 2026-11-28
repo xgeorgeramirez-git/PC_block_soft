@@ -58,6 +58,42 @@ object Proto {
 
     const val OP_NO_FORBIDDEN = "noForbidden"
 
+    /** Команды протокола 1.5 (разделы 5в–5д): копилка, промокоды, решения о программах. */
+    const val OP_BANK_ADD = "bankAdd"
+    const val OP_BANK_CLEAR = "bankClear"
+    const val OP_PROMO_LIST = "promoList"
+    const val OP_PROMO_CREATE = "promoCreate"
+    const val OP_PROMO_GEN = "promoGen"
+    const val OP_PROMO_DELETE = "promoDelete"
+    const val OP_DECIDE = "decide"
+
+    /** Одно начисление в копилку: 1…600 минут (FR-44, D-113); предела баланса нет. */
+    const val MAX_BANK_ADD = 600
+
+    /** Минуты промокода (R26): 1…600. */
+    const val MAX_PROMO_MIN = 600
+
+    /** «Придумать коды» (8.3.10 п. 3): сколько 1…50, длина 4…12. */
+    const val MAX_PROMO_COUNT = 50
+    const val MIN_PROMO_LEN = 4
+    const val MAX_PROMO_LEN = 12
+
+    /** Код для удаления (R-5): любой непустой до 64 знаков (коды до 0.5.0 могли быть с кириллицей). */
+    const val MAX_DELETE_CODE = 64
+
+    /** Из чего придумывать коды (раздел 5г). */
+    const val CHARSET_DIGITS = "digits"
+    const val CHARSET_LETTERS = "letters"
+    const val CHARSET_MIXED = "mixed"
+    val CHARSETS = listOf(CHARSET_DIGITS, CHARSET_LETTERS, CHARSET_MIXED)
+
+    /** Решение о программе (раздел 5д): «Игра», «Учёба», «Прочее», «Запретить». */
+    const val CAT_GAMES = "games"
+    const val CAT_STUDY = "study"
+    const val CAT_OTHER = "other"
+    const val CAT_BLOCKED = "blocked"
+    val CATS = listOf(CAT_GAMES, CAT_STUDY, CAT_OTHER, CAT_BLOCKED)
+
     /** Запретные часы ребёнка сегодня (раздел 6, поле forbid). */
     enum class Forbid(val wire: String) {
         NONE("none"),
@@ -102,6 +138,8 @@ object Proto {
     /**
      * Строка ребёнка из отчёта. leftSec < 0 — лимита нет. forbid = null — компьютер старой версии
      * (кнопки снятия запрета нет); today = null — статистики за сегодня нет (кнопки нет).
+     * bankMin = null — компьютер старше 0.8.4 (копилки на телефоне нет). gamesSec…videoLimSec = null —
+     * поля нет (карточка в старом виде); лимит −1 — отдельного лимита нет («Игры 40 мин»).
      */
     data class Child(
         val id: Long,
@@ -113,6 +151,11 @@ object Proto {
         val forbid: Forbid? = null,
         val forbidUntilMs: Long = 0,
         val today: Today? = null,
+        val bankMin: Int? = null,
+        val gamesSec: Long? = null,
+        val gamesLimSec: Long? = null,
+        val videoSec: Long? = null,
+        val videoLimSec: Long? = null,
     ) {
         val forbidView: ForbidView
             get() = when (forbid) {
@@ -141,18 +184,70 @@ object Proto {
 
     data class NoteStatus(val id: String, val child: Long, val state: NoteState, val atMs: Long)
 
-    data class Report(val ts: Long, val children: List<Child>, val notes: List<NoteStatus> = emptyList())
+    /** Кто из детей запускал ждущую программу и сколько раз. */
+    data class PendingKid(val id: Long, val tries: Int)
+
+    /**
+     * Незнакомая программа, ждущая решения (раздел 6, pending): id — ключ для decide, pub пусто —
+     * «Без подписи издателя», path может быть урезан посередине, lastMs — последняя попытка.
+     */
+    data class Pending(
+        val id: String,
+        val name: String,
+        val pub: String,
+        val path: String,
+        val kids: List<PendingKid>,
+        val tries: Int,
+        val lastMs: Long,
+    )
+
+    /**
+     * Отчёт компьютера. pending — до 10 ждущих программ, pendingCount — сколько всего.
+     * newPc — в отчёте есть pendingCount (компьютер 0.8.4 и новее шлёт его всегда).
+     */
+    data class Report(
+        val ts: Long,
+        val children: List<Child>,
+        val notes: List<NoteStatus> = emptyList(),
+        val pending: List<Pending> = emptyList(),
+        val pendingCount: Int = 0,
+        val newPc: Boolean = false,
+    ) {
+        /**
+         * Компьютер 0.8.4 и новее: копилка, «Промокоды» и ждущие программы на телефоне есть.
+         * Хоть у одного ребёнка нет bankMin — компьютер старше («Обновите программу на компьютере»).
+         * Детей нет — по полю pendingCount.
+         */
+        val hasBank: Boolean
+            get() = if (children.isEmpty()) newPc else children.all { it.bankMin != null }
+    }
+
+    /** Действующий промокод (раздел 5г). */
+    data class PromoActive(val code: String, val min: Int, val createdMs: Long)
+
+    /** Использованный промокод: childName пусто — ребёнок удалён. */
+    data class PromoUsed(val code: String, val min: Int, val usedMs: Long, val child: Long, val childName: String)
+
+    /** Список промокодов из ответа; moreActive, moreUsed — сколько строк не вошло (смотреть в окне родителя). */
+    data class PromoList(val active: List<PromoActive>, val used: List<PromoUsed>, val moreActive: Int, val moreUsed: Int)
 
     /** Проверенный ответ на сообщение: ok — компьютер принял (ещё не показал). */
     data class NoteReply(val ok: Boolean, val error: String, val lastSeq: Long?)
 
-    /** Проверенный ответ на команду. */
+    /**
+     * Проверенный ответ на команду. ts — время ответа по часам компьютера («данные на HH:MM» у промокодов).
+     * promos — список промокодов (promo* при ok:true, promo_exists, not_found); null — списка нет, телефон
+     * держит прежний. codes — новые коды promoGen («Скопировать все»).
+     */
     data class CmdReply(
         val ok: Boolean,
         val message: String,
         val error: String,
         val lastSeq: Long?,
         val report: Report?,
+        val ts: Long = 0,
+        val promos: PromoList? = null,
+        val codes: List<String> = emptyList(),
     )
 
     // ---------- команда (раздел 5) ----------
@@ -176,6 +271,59 @@ object Proto {
         val json = "{\"v\":$VERSION,\"t\":\"cmd\",\"pc\":${JSONObject.quote(pc)},\"phone\":${JSONObject.quote(phone)}," +
             "\"seq\":$seq,\"ts\":$ts,\"child\":$child,\"op\":\"$OP_NO_FORBIDDEN\"}"
         return json.toByteArray(Charsets.UTF_8)
+    }
+
+    /** Начало data команды до поля child включительно: общий порядок полей Go (v, t, pc, phone, seq, ts, child). */
+    private fun cmdHead(pc: String, phone: String, seq: Long, ts: Long, child: Long): String =
+        "{\"v\":$VERSION,\"t\":\"cmd\",\"pc\":${goQuote(pc)},\"phone\":${goQuote(phone)}," +
+            "\"seq\":$seq,\"ts\":$ts,\"child\":$child"
+
+    /** Копилка (раздел 5в): положить minutes (1…600) в копилку ребёнка; минуты — в поле delta. */
+    fun bankAddData(pc: String, phone: String, seq: Long, ts: Long, child: Long, minutes: Int): ByteArray {
+        require(minutes in 1..MAX_BANK_ADD) { "минуты вне 1…600" }
+        return (cmdHead(pc, phone, seq, ts, child) + ",\"delta\":$minutes,\"op\":\"$OP_BANK_ADD\"}").toByteArray(Charsets.UTF_8)
+    }
+
+    /** Копилка (раздел 5в): обнулить копилку ребёнка, delta нет. */
+    fun bankClearData(pc: String, phone: String, seq: Long, ts: Long, child: Long): ByteArray =
+        (cmdHead(pc, phone, seq, ts, child) + ",\"op\":\"$OP_BANK_CLEAR\"}").toByteArray(Charsets.UTF_8)
+
+    /** Промокоды (раздел 5г): только прочитать список; child 0, номер тратится. */
+    fun promoListData(pc: String, phone: String, seq: Long, ts: Long): ByteArray =
+        (cmdHead(pc, phone, seq, ts, 0) + ",\"op\":\"$OP_PROMO_LIST\"}").toByteArray(Charsets.UTF_8)
+
+    /** Промокоды: создать код (уже проверенный PromoRules.checkCode, заглавными) на min минут. */
+    fun promoCreateData(pc: String, phone: String, seq: Long, ts: Long, code: String, min: Int): ByteArray {
+        require(PromoRules.checkCode(code).let { it.second == null && it.first == code }) { "код не по R26" }
+        require(min in 1..MAX_PROMO_MIN) { "минуты вне 1…600" }
+        return (cmdHead(pc, phone, seq, ts, 0) + ",\"op\":\"$OP_PROMO_CREATE\",\"code\":${goQuote(code)},\"min\":$min}")
+            .toByteArray(Charsets.UTF_8)
+    }
+
+    /** Промокоды: «Придумать коды» — count (1…50) кодов длины len (4…12) из charset на min минут. */
+    fun promoGenData(pc: String, phone: String, seq: Long, ts: Long, count: Int, len: Int, charset: String, min: Int): ByteArray {
+        require(count in 1..MAX_PROMO_COUNT) { "count вне 1…50" }
+        require(len in MIN_PROMO_LEN..MAX_PROMO_LEN) { "len вне 4…12" }
+        require(charset in CHARSETS) { "charset не из digits, letters, mixed" }
+        require(min in 1..MAX_PROMO_MIN) { "минуты вне 1…600" }
+        return (
+            cmdHead(pc, phone, seq, ts, 0) +
+                ",\"op\":\"$OP_PROMO_GEN\",\"min\":$min,\"count\":$count,\"len\":$len,\"charset\":${goQuote(charset)}}"
+            ).toByteArray(Charsets.UTF_8)
+    }
+
+    /** Промокоды: удалить действующий код — как он пришёл в списке (непустой, до 64 знаков). */
+    fun promoDeleteData(pc: String, phone: String, seq: Long, ts: Long, code: String): ByteArray {
+        require(code.isNotBlank() && code.codePointCount(0, code.length) <= MAX_DELETE_CODE) { "код пустой или длиннее 64" }
+        return (cmdHead(pc, phone, seq, ts, 0) + ",\"op\":\"$OP_PROMO_DELETE\",\"code\":${goQuote(code)}}").toByteArray(Charsets.UTF_8)
+    }
+
+    /** Решение о программе (раздел 5д): key — id строки pending, cat — games, study, other, blocked. */
+    fun decideData(pc: String, phone: String, seq: Long, ts: Long, key: String, cat: String): ByteArray {
+        require(key.isNotEmpty()) { "пустой key" }
+        require(cat in CATS) { "cat не из games, study, other, blocked" }
+        return (cmdHead(pc, phone, seq, ts, 0) + ",\"op\":\"$OP_DECIDE\",\"key\":${goQuote(key)},\"cat\":${goQuote(cat)}}")
+            .toByteArray(Charsets.UTF_8)
     }
 
     fun signedToJson(s: Signed): JSONObject = JSONObject().put("data", s.data).put("sig", s.sig)
@@ -218,9 +366,111 @@ object Proto {
                 forbid = Forbid.of(c.optString("forbid", "")),
                 forbidUntilMs = c.optLong("forbidUntilMs", 0),
                 today = parseToday(c.optJSONObject("today"), ts),
+                bankMin = if (c.has("bankMin")) c.optInt("bankMin", 0) else null,
+                gamesSec = optLongOrNull(c, "gamesSec"),
+                gamesLimSec = optLongOrNull(c, "gamesLimSec"),
+                videoSec = optLongOrNull(c, "videoSec"),
+                videoLimSec = optLongOrNull(c, "videoLimSec"),
             )
         }
-        Report(ts, children, parseNotes(o.optJSONArray("notes")))
+        Report(
+            ts = ts,
+            children = children,
+            notes = parseNotes(o.optJSONArray("notes")),
+            pending = parsePending(o.optJSONArray("pending")),
+            pendingCount = maxOf(0, o.optInt("pendingCount", 0)),
+            newPc = o.has("pendingCount"),
+        )
+    }
+
+    private fun optLongOrNull(o: JSONObject, key: String): Long? = if (o.has(key)) o.optLong(key, 0) else null
+
+    /** Строки pending: не объект, без id или кривой kids — строка (или ребёнок в ней) пропускается. */
+    private fun parsePending(arr: JSONArray?): List<Pending> {
+        if (arr == null) return emptyList()
+        val out = ArrayList<Pending>()
+        for (i in 0 until arr.length()) {
+            val p = arr.optJSONObject(i) ?: continue
+            val id = p.optString("id", "")
+            if (id.isEmpty() || p.isNull("id")) continue
+            val kidsArr = p.optJSONArray("kids")
+            val kids = ArrayList<PendingKid>()
+            if (kidsArr != null) {
+                for (k in 0 until kidsArr.length()) {
+                    val kid = kidsArr.optJSONObject(k) ?: continue
+                    if (!kid.has("id")) continue
+                    val kidId = kid.optLong("id", Long.MIN_VALUE)
+                    if (kidId == Long.MIN_VALUE) continue
+                    kids.add(PendingKid(kidId, maxOf(0, kid.optInt("tries", 0))))
+                }
+            }
+            out.add(
+                Pending(
+                    id = id,
+                    name = p.optString("name", ""),
+                    pub = p.optString("pub", ""),
+                    path = p.optString("path", ""),
+                    kids = kids,
+                    tries = maxOf(0, p.optInt("tries", 0)),
+                    lastMs = p.optLong("lastMs", 0),
+                ),
+            )
+        }
+        return out
+    }
+
+    // ---------- список промокодов (раздел 5г) ----------
+
+    /** Поле promos ответа: строки без кода пропускаются; не объект — null (списка нет). */
+    private fun parsePromoList(o: JSONObject?): PromoList? {
+        if (o == null) return null
+        val active = ArrayList<PromoActive>()
+        val a = o.optJSONArray("active")
+        if (a != null) {
+            for (i in 0 until a.length()) {
+                val r = a.optJSONObject(i) ?: continue
+                val code = r.optString("code", "")
+                if (code.isEmpty()) continue
+                active.add(PromoActive(code, r.optInt("min", 0), r.optLong("createdMs", 0)))
+            }
+        }
+        val used = ArrayList<PromoUsed>()
+        val u = o.optJSONArray("used")
+        if (u != null) {
+            for (i in 0 until u.length()) {
+                val r = u.optJSONObject(i) ?: continue
+                val code = r.optString("code", "")
+                if (code.isEmpty()) continue
+                used.add(PromoUsed(code, r.optInt("min", 0), r.optLong("usedMs", 0), r.optLong("child", 0), r.optString("childName", "")))
+            }
+        }
+        return PromoList(active, used, maxOf(0, o.optInt("moreActive", 0)), maxOf(0, o.optInt("moreUsed", 0)))
+    }
+
+    /** Кэш списка промокодов на телефоне (Prefs): JSON того же вида, что поле promos. */
+    fun promosJson(p: PromoList): String {
+        val active = JSONArray()
+        for (a in p.active) active.put(JSONObject().put("code", a.code).put("min", a.min).put("createdMs", a.createdMs))
+        val used = JSONArray()
+        for (u in p.used) {
+            used.put(
+                JSONObject().put("code", u.code).put("min", u.min).put("usedMs", u.usedMs)
+                    .put("child", u.child).put("childName", u.childName),
+            )
+        }
+        return JSONObject().put("active", active).put("used", used)
+            .put("moreActive", p.moreActive).put("moreUsed", p.moreUsed).toString()
+    }
+
+    /** Список из кэша; пусто или кривое — null. */
+    fun parsePromos(raw: String): PromoList? {
+        val t = raw.trim()
+        if (!t.startsWith("{")) return null
+        return try {
+            parsePromoList(JSONObject(t))
+        } catch (e: JSONException) {
+            null
+        }
     }
 
     /** Поле today: кривые строки списков пропускаются; не объект — статистики нет (сам отчёт принят). */
@@ -257,6 +507,13 @@ object Proto {
         }
         return out
     }
+
+    /**
+     * Вкладка «Промокоды» и ждущие программы (и запрос promoList): только когда отчёт пришёл и компьютер
+     * 0.8.4 и новее. До первого отчёта неизвестно, какой компьютер: старый на promoList ответит range,
+     * а нужно «Обновите программу на компьютере до версии 0.8.4» (протокол, раздел 6).
+     */
+    fun newPcTabs(report: Report?): Boolean = report?.hasBank == true
 
     /**
      * Отчёт из ответа на команду (cmdr) today не несёт (раздел 6): у детей без today берётся
@@ -310,8 +567,16 @@ object Proto {
                 error = if (ok) "" else o.optString("error", ""),
                 lastSeq = if (o.has("lastSeq") && !o.isNull("lastSeq")) o.getLong("lastSeq") else null,
                 report = report,
+                ts = o.optLong("ts", 0),
+                promos = parsePromoList(o.optJSONObject("promos")),
+                codes = parseCodes(o.optJSONArray("codes")),
             )
         }
+    }
+
+    private fun parseCodes(arr: JSONArray?): List<String> {
+        if (arr == null) return emptyList()
+        return (0 until arr.length()).mapNotNull { i -> (arr.opt(i) as? String)?.takeIf { it.isNotEmpty() } }
     }
 
     // ---------- сообщение (раздел 5а) ----------

@@ -12,14 +12,31 @@ class Prefs(context: Context) {
     private val sp: SharedPreferences = context.getSharedPreferences("pcblock", Context.MODE_PRIVATE)
 
     /** Отправленные сообщения и выбор показа (раздел 5а протокола). */
-    val notes = NoteBook(object : Kv {
+    private val kv = object : Kv {
         override fun getString(key: String): String? = sp.getString(key, null)
         override fun putString(key: String, value: String?) {
             sp.edit().apply { if (value == null) remove(key) else putString(key, value) }.apply()
         }
         override fun getInt(key: String, def: Int): Int = sp.getInt(key, def)
         override fun putInt(key: String, value: Int) = sp.edit().putInt(key, value).apply()
-    })
+    }
+
+    val notes = NoteBook(kv)
+
+    /** Последний список «Промокодов» и время ответа (FR-45): «данные на HH:MM» и показ без связи. */
+    private val promos = PromoCache(kv)
+
+    val promosRaw: String get() = promos.raw
+    val promosTs: Long get() = promos.ts
+
+    fun savePromos(raw: String, ts: Long) = promos.save(raw, ts)
+
+    /** Последние выбранные стикеры (FR-41, D-103): после принятой компьютером отправки (R-15). */
+    private val stickers = StickerRecents(kv)
+
+    val recentStickers: List<String> get() = stickers.list
+
+    fun pushRecentSticker(id: String) = stickers.push(id)
 
     companion object {
         const val DEFAULT_URL = "https://pcblock.atlas404.ru"
@@ -61,6 +78,8 @@ class Prefs(context: Context) {
             .putLong(LAST_REPORT_TS, 0)
             .remove(LAST_REPORT)
             .remove(NoteBook.NOTES)
+            .remove(PromoCache.KEY)
+            .remove(StickerRecents.KEY)
             .commit()
     }
 
@@ -91,6 +110,8 @@ class Prefs(context: Context) {
             .remove(PC_ID).remove(PHONE_ID).remove(PHONE_TOKEN).remove(PC_PUB)
             .remove(SEQ).remove(LAST_REPORT_TS).remove(LAST_REPORT)
             .remove(NoteBook.NOTES)
+            .remove(PromoCache.KEY)
+            .remove(StickerRecents.KEY)
             .commit()
     }
 }

@@ -3,11 +3,15 @@ package remote
 import (
 	"bytes"
 	"crypto/ecdsa"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"strings"
 	"time"
 	"unicode"
+	"unicode/utf8"
+
+	"pcblock/internal/core"
 )
 
 // Виды сообщений конверта (протокол, разделы 3–5).
@@ -39,10 +43,49 @@ const (
 	NoteExpired = "expired" // 10 минут ждало ребёнка и погасло
 )
 
-// Действия команды (поле "op", раздел 5б). Пустое — доп. время (телефон 0.8.0/0.8.1).
+// Действия команды (поле "op", разделы 5б–5д). Пустое — доп. время (телефон 0.8.0/0.8.1).
 const (
 	OpExtra       = "extra"       // доп. время на delta минут
 	OpNoForbidden = "noForbidden" // снять запретные часы на сегодня (FR-42), delta нет
+	OpBankAdd     = "bankAdd"     // положить delta минут в копилку (раздел 5в), 1…600
+	OpBankClear   = "bankClear"   // обнулить копилку, delta нет
+	OpPromoList   = "promoList"   // прочитать промокоды (5г), child 0
+	OpPromoCreate = "promoCreate" // code, min
+	OpPromoGen    = "promoGen"    // count, len, charset, min
+	OpPromoDelete = "promoDelete" // code
+	OpDecide      = "decide"      // key, cat (5д), child 0
+)
+
+// Состав придуманных кодов (поле charset, раздел 5г) — те же строки, что ipc.Charset*.
+const (
+	CharsetDigits  = "digits"
+	CharsetLetters = "letters"
+	CharsetMixed   = "mixed"
+)
+
+// Категории решения о программе (поле cat, раздел 5д) — те же строки, что programs.Cat*.
+const (
+	CatGames   = "games"
+	CatStudy   = "study"
+	CatOther   = "other"
+	CatBlocked = "blocked"
+)
+
+// Пределы разделов 5в, 5г, 5д и отчёта (раздел 6).
+const (
+	MaxBankAdd         = 600 // одно начисление в копилку, мин (D-113)
+	MinPromoMin        = 1
+	MaxPromoMin        = 600
+	MinPromoCount      = 1
+	MaxPromoCount      = 50
+	MinPromoLen        = 4
+	MaxPromoLen        = 12
+	MaxDeleteCodeRunes = 64  // коды до 0.5.0 могли быть любыми (R26 «действуют как были»)
+	MaxActivePromos    = 200 // строк active в ответе не больше
+	MaxUsedPromos      = 50  // строк used в ответе не больше
+	MaxPending         = 10  // строк pending в отчёте не больше
+	MaxPathRunes       = 120 // путь в pending не длиннее, знаков
+	pendingKeyBytes    = 16
 )
 
 // Запретные часы ребёнка сегодня в отчёте (ChildReport.Forbid, раздел 6).
@@ -68,6 +111,10 @@ const (
 	ErrCodeNoChild   = "no_child"
 	ErrCodeRange     = "range"
 	ErrCodeNotPaired = "not_paired"
+	// Разделы 5г, 5д.
+	ErrCodePromoExists = "promo_exists" // такой код уже есть (действующий или использованный)
+	ErrCodePromoGen    = "promo_gen"    // не хватило разных кодов
+	ErrCodeNotFound    = "not_found"    // кода нет среди действующих / программа уже решена
 )
 
 const (
@@ -125,8 +172,10 @@ type Pair2R struct {
 }
 
 // Command — данные команды телефона (data в Signed). Op пусто или OpExtra — доп. время на Delta
-// минут (раздел 5); OpNoForbidden — снять запрет на сегодня, Delta нет (раздел 5б). Пустые поля в
-// JSON не пишутся: байты команды без op — те же, что у телефона 0.8.0.
+// минут (раздел 5); OpNoForbidden — снять запрет на сегодня, Delta нет (раздел 5б); OpBank* —
+// копилка (5в), OpPromo* — промокоды (5г), OpDecide — решение о программе (5д). Пустые поля в
+// JSON не пишутся: байты команды без op — те же, что у телефона 0.8.0. Порядок полей — порядок
+// JSON векторов и сборки Kotlin.
 type Command struct {
 	V     int    `json:"v"`
 	T     string `json:"t"`
@@ -137,6 +186,24 @@ type Command struct {
 	Child int64  `json:"child"`
 	Delta int    `json:"delta,omitempty"`
 	Op    string `json:"op,omitempty"`
+	// Поля разделов 5г, 5д как пришли (PL-85): неверный JSON-тип даёт range без траты seq, а не
+	// bad_sig; разбирает и проверяет CheckCommand по op.
+	CodeRaw    json.RawMessage `json:"code,omitempty"`
+	MinRaw     json.RawMessage `json:"min,omitempty"`
+	CountRaw   json.RawMessage `json:"count,omitempty"`
+	LenRaw     json.RawMessage `json:"len,omitempty"`
+	CharsetRaw json.RawMessage `json:"charset,omitempty"`
+	KeyRaw     json.RawMessage `json:"key,omitempty"`
+	CatRaw     json.RawMessage `json:"cat,omitempty"`
+	// Разобранные CheckCommand: Code — у promoCreate заглавными (R26), у promoDelete — после
+	// обрезки пробелов; Charset — Charset*; Key — id строки pending; Cat — Cat*.
+	Code    string `json:"-"`
+	Charset string `json:"-"`
+	Key     string `json:"-"`
+	Cat     string `json:"-"`
+	Min     int    `json:"-"`
+	Count   int    `json:"-"`
+	Len     int    `json:"-"`
 }
 
 // CmdResult — данные ответа cmdr. LastSeq — только в отказе.
@@ -153,6 +220,53 @@ type CmdResult struct {
 	Error   string  `json:"error,omitempty"`
 	LastSeq *int64  `json:"lastSeq,omitempty"`
 	Report  *Report `json:"report,omitempty"`
+	// Codes — новые коды promoGen («Скопировать все», не урезаются); Promos — список промокодов у
+	// promo* при ok и при promo_exists, not_found, вместо report (раздел 5г).
+	Codes  []string   `json:"codes,omitempty"`
+	Promos *PromoList `json:"promos,omitempty"`
+}
+
+// PromoList — промокоды в ответе (раздел 5г): active по убыванию createdMs, used — usedMs;
+// More* — сколько строк не вошло (урезание по размеру). Пустые списки — [].
+type PromoList struct {
+	Active     []PromoActive `json:"active"`
+	Used       []PromoUsed   `json:"used"`
+	MoreActive int           `json:"moreActive"`
+	MoreUsed   int           `json:"moreUsed"`
+}
+
+// PromoActive — действующий код.
+type PromoActive struct {
+	Code      string `json:"code"`
+	Min       int    `json:"min"`
+	CreatedMs int64  `json:"createdMs"`
+}
+
+// PromoUsed — использованный код; ChildName — имя на момент ответа («» — ребёнок удалён).
+type PromoUsed struct {
+	Code      string `json:"code"`
+	Min       int    `json:"min"`
+	UsedMs    int64  `json:"usedMs"`
+	Child     int64  `json:"child"`
+	ChildName string `json:"childName"`
+}
+
+// PendingReport — программа, ждущая решения (раздел 6): ID — PendingKey(путь), Name ≤ 60 знаков,
+// Pub «» — без подписи (заглушку пишет телефон), Path — ClipPath, Kids — кто запускал.
+type PendingReport struct {
+	ID     string       `json:"id"`
+	Name   string       `json:"name"`
+	Pub    string       `json:"pub"`
+	Path   string       `json:"path"`
+	Kids   []PendingKid `json:"kids"`
+	Tries  int          `json:"tries"`
+	LastMs int64        `json:"lastMs"`
+}
+
+// PendingKid — ребёнок, запускавший ждущую программу, и сколько раз.
+type PendingKid struct {
+	ID    int64 `json:"id"`
+	Tries int   `json:"tries"`
 }
 
 // Report — отчёт компьютера телефону (протокол, раздел 6).
@@ -165,6 +279,10 @@ type Report struct {
 	Children []ChildReport `json:"children"`
 	// Notes — последние сообщения не старше суток (раздел 5а); пусто — поля нет.
 	Notes []NoteReport `json:"notes,omitempty"`
+	// Pending — ждущие решения программы (раздел 6, не больше MaxPending, [] — нет); PendingCount —
+	// сколько ждёт всего, даже когда Pending урезан.
+	Pending      []PendingReport `json:"pending"`
+	PendingCount int             `json:"pendingCount"`
 }
 
 // ChildReport — строка ребёнка в отчёте; LeftSec — то же «осталось», что в окне родителя; -1 — сегодня без лимита.
@@ -182,6 +300,14 @@ type ChildReport struct {
 	// Today — «Статистика за сегодня» (FR-43, раздел 6): только в отчёте pc/report, в отчёте внутри
 	// cmdr/noter поля нет; нет и у компьютера старой версии.
 	Today *TodayReport `json:"today,omitempty"`
+	// BankMin — баланс копилки, мин (всегда есть: признак компьютера ≥ 0.8.4).
+	BankMin int `json:"bankMin"`
+	// GamesSec, VideoSec — потрачено сегодня на игры и на видео и соцсети, с; GamesLimSec,
+	// VideoLimSec — лимит дня с доп. временем и промокодами, с; −1 — отдельного лимита нет.
+	GamesSec    int64 `json:"gamesSec"`
+	GamesLimSec int64 `json:"gamesLimSec"`
+	VideoSec    int64 `json:"videoSec"`
+	VideoLimSec int64 `json:"videoLimSec"`
 }
 
 // TodayReport — «Итоги» за сегодня окна родителя для телефона (FR-43, раздел 6). Моменты — UTC мс
@@ -380,9 +506,10 @@ func checkSigned(st State, s Signed, from string, now time.Time, typ string, int
 	return h, data, ""
 }
 
-// CheckCommand — проверка команды (протокол, разделы 5, 5б) до применения: подпись ключом
-// привязанного телефона → тип и версия → pc/phone/отправитель → ts ±5 мин → op (неизвестный или
-// delta у «снять запрет» — range, номер не тратится) → seq больше последнего. Подпись — первой:
+// CheckCommand — проверка команды (протокол, разделы 5, 5б–5д) до применения: подпись ключом
+// привязанного телефона → тип и версия → pc/phone/отправитель → ts ±5 мин → op и вид его полей
+// (checkOp: неизвестный op, неверный вид или предел — range, номер не тратится) → seq больше
+// последнего. Подпись — первой:
 // JSON разбирается только из проверенных байтов (раздел 2).
 // Пустой код — команду можно отдать Host.ApplyCommand (он проверит seq ещё раз под своей
 // блокировкой). data — подписанные байты (их хэш идёт в ответ cmdr).
@@ -395,13 +522,7 @@ func CheckCommand(st State, s Signed, from string, now time.Time) (Command, []by
 	if code != "" {
 		return c, data, code
 	}
-	switch c.Op {
-	case "", OpExtra: // предел delta проверяет Host.ApplyCommand (общий путь с окном, R10)
-	case OpNoForbidden:
-		if c.Delta != 0 {
-			return c, data, ErrCodeRange
-		}
-	default:
+	if !checkOp(&c) {
 		return c, data, ErrCodeRange
 	}
 	if h.Seq <= st.LastSeq {
@@ -495,6 +616,109 @@ func noteSound(raw json.RawMessage) (int, bool) {
 		n = n*10 + int(c-'0')
 	}
 	return n, true
+}
+
+// checkOp — вид полей команды по op (разделы 5б–5д), до seq; разобранные поля — в c. false — range.
+// promo* и decide общие для всех детей: child 0 и delta нет. Пределы доп. времени (op extra)
+// проверяет Host.ApplyCommand (общий путь с окном, R10).
+func checkOp(c *Command) bool {
+	switch c.Op {
+	case "", OpExtra:
+		return true
+	case OpNoForbidden, OpBankClear:
+		return c.Delta == 0
+	case OpBankAdd:
+		return c.Delta >= 1 && c.Delta <= MaxBankAdd
+	}
+	if c.Child != 0 || c.Delta != 0 {
+		return false
+	}
+	var ok bool
+	switch c.Op {
+	case OpPromoList:
+		return true
+	case OpPromoCreate:
+		raw, isStr := rawString(c.CodeRaw)
+		if c.Code, ok = core.CheckNewPromoCode(raw); !isStr || !ok {
+			return false
+		}
+		c.Min, ok = rawInt(c.MinRaw, MinPromoMin, MaxPromoMin)
+		return ok
+	case OpPromoGen:
+		var okCount, okLen, okMin, isStr bool
+		c.Count, okCount = rawInt(c.CountRaw, MinPromoCount, MaxPromoCount)
+		c.Len, okLen = rawInt(c.LenRaw, MinPromoLen, MaxPromoLen)
+		c.Min, okMin = rawInt(c.MinRaw, MinPromoMin, MaxPromoMin)
+		c.Charset, isStr = rawString(c.CharsetRaw)
+		known := c.Charset == CharsetDigits || c.Charset == CharsetLetters || c.Charset == CharsetMixed
+		return okCount && okLen && okMin && isStr && known
+	case OpPromoDelete:
+		raw, isStr := rawString(c.CodeRaw)
+		c.Code = strings.TrimSpace(raw)
+		n := utf8.RuneCountInString(c.Code)
+		return isStr && n >= 1 && n <= MaxDeleteCodeRunes
+	case OpDecide:
+		var isKey, isCat bool
+		c.Key, isKey = rawString(c.KeyRaw)
+		c.Cat, isCat = rawString(c.CatRaw)
+		key, err := unb64(c.Key)
+		known := c.Cat == CatGames || c.Cat == CatStudy || c.Cat == CatOther || c.Cat == CatBlocked
+		return isKey && isCat && err == nil && len(key) == pendingKeyBytes && known
+	}
+	return false
+}
+
+// rawString — поле как JSON-строка (нет поля, null, число, массив — false).
+func rawString(raw json.RawMessage) (string, bool) {
+	t := bytes.TrimSpace(raw)
+	var s string
+	if len(t) == 0 || t[0] != '"' || json.Unmarshal(t, &s) != nil {
+		return "", false
+	}
+	return s, true
+}
+
+// rawInt — поле как JSON-число записью целого lo…hi без дробной части и степени (30.0, 3e1, "30",
+// null, нет поля — false). Знак минус допустим (вне пределов отсеет сравнение).
+func rawInt(raw json.RawMessage, lo, hi int) (int, bool) {
+	t := bytes.TrimSpace(raw)
+	digits := t
+	if len(digits) > 0 && digits[0] == '-' {
+		digits = digits[1:]
+	}
+	if len(digits) == 0 || len(digits) > 9 || len(digits) > 1 && digits[0] == '0' {
+		return 0, false
+	}
+	n := 0
+	for _, c := range digits {
+		if c < '0' || c > '9' {
+			return 0, false
+		}
+		n = n*10 + int(c-'0')
+	}
+	if len(t) != len(digits) {
+		n = -n
+	}
+	return n, n >= lo && n <= hi
+}
+
+// PendingKey — id строки pending (раздел 5д): base64url без «=» первых 16 байт SHA-256 от UTF-8
+// пути (ключа решения службы). Путь в отчёте урезан, решение идёт по ключу.
+func PendingKey(path string) string {
+	sum := sha256.Sum256([]byte(path))
+	return b64(sum[:pendingKeyBytes])
+}
+
+// ClipPath — путь для отчёта: не длиннее MaxPathRunes знаков; длиннее — первые 40 знаков, «…» и
+// последние 79 (имя файла видно, PL-26). Режется по знакам, не по байтам.
+func ClipPath(p string) string {
+	r := []rune(p)
+	if len(r) <= MaxPathRunes {
+		return p
+	}
+	const head = 40
+	tail := MaxPathRunes - head - 1
+	return string(r[:head]) + "…" + string(r[len(r)-tail:])
 }
 
 func validShowSec(s int) bool { return s == 0 || s == 10 || s == 30 || s == 60 }

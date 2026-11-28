@@ -235,6 +235,7 @@ func (s *Service) Housekeep(real time.Time) {
 	s.guard("binds", nil, func() { s.expireBinds(real) })
 	s.guard("notes", nil, func() { s.expireNotes(real) })
 	s.guard("sessions", nil, func() { s.syncSessions(real) })
+	s.guard("logonwin", nil, func() { s.openLogonWindows(real) }) // окно при входе (FR-46): после сверки сеансов
 }
 
 // housekeepChild — обслуживание одного ребёнка: проверка R1, повторное чтение правил,

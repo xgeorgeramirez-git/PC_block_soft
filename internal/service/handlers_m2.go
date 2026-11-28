@@ -138,24 +138,19 @@ func (s *Service) hGrantBonus(c *callCtx) ipc.Reply {
 	if cs == nil {
 		return ipc.Fail(textNoSuchChild)
 	}
-	if req.Minutes < 1 || req.Minutes > 600 {
-		return ipc.FailField(textBonusRange, ipc.FieldMinutes)
-	}
-	if req.Reason == "" {
+	// Порядок проверок прежний: минуты, затем причина (FR-22).
+	if bonusMinutesValid(req.Minutes) && req.Reason == "" {
 		return ipc.FailField(textBonusReason, ipc.FieldReason)
 	}
-	bal, err := s.cfg.Store.AppendBonus(cs.child.ID, req.Minutes, req.Reason)
-	if err != nil {
-		// Превышение 600 — объяснить у поля, сколько можно (FR-22).
-		cur, _ := s.cfg.Store.GetBonusBalance(cs.child.ID)
-		return ipc.FailField(fmt.Sprintf("Можно начислить не больше %d мин", 600-cur), ipc.FieldMinutes)
+	bal, fail := s.grantBonus(cs, req.Minutes, req.Reason, extraFromWindow)
+	if fail == textBonusRange {
+		return ipc.FailField(fail, ipc.FieldMinutes)
+	}
+	if fail != "" {
+		return ipc.Fail(fail)
 	}
 	rec := &undoRec{id: s.cfg.Rand(), minutes: req.Minutes, until: c.real.Add(undoLife)}
 	cs.bonusUndo = rec
-	s.journal.Write(cs.child.ID, evBonusGrant, map[string]any{
-		"minutes": req.Minutes, "reason": req.Reason, "balance": bal,
-		"text": fmt.Sprintf("Начислено в копилку +%d мин: %s", req.Minutes, req.Reason),
-	})
 	return ipc.OK(ipc.GrantBonusReply{
 		BalanceAfter: bal, Message: fmt.Sprintf("Начислено %s. Баланс %d мин", minutesText(req.Minutes), bal),
 		BonusID: rec.id, UndoUntilMs: rec.until.UnixMilli(),
@@ -183,6 +178,7 @@ func (s *Service) hUndoBonus(c *callCtx) ipc.Reply {
 	s.journal.Write(cs.child.ID, evBonusUndo, map[string]any{
 		"minutes": rec.minutes, "text": fmt.Sprintf("Начисление копилки отменено: -%d мин", rec.minutes),
 	})
+	s.remoteChanged() // баланс копилки в отчёте телефону (FR-44)
 	return ipc.OK(ipc.UndoBonusReply{BalanceAfter: bal, Message: "Начисление отменено"})
 }
 

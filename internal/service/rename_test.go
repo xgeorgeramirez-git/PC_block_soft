@@ -146,7 +146,7 @@ func TestRenamedNameEverywhere(t *testing.T) {
 		{"сообщение о решении", rep.Message, custom + ": учёба"},
 		{"сообщение о скрытии", hid.Message, custom + " скрыта"},
 		{"журнал: скрытие", lastOf(journalTexts(h, tok, "program_hidden")), "Вы скрыли «" + custom + "»"},
-		{"плашка ребёнку о подменённой", plateText(plates, ipc.BlockedUnknown), "Программа «Супер» ждёт разрешения родителя"},
+		{"плашка ребёнку о подменённой", plateText(plates, ipc.BlockedUnknown), "Программа «Супер» новая. Родитель должен решить, можно ли её запускать"},
 		{"«Ждут решения» — название из файла", firstName(pend), "SuperGame"},
 	}
 	for _, p := range places {

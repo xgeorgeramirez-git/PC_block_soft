@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from "react";
 import { getBonus, myToday, openWindow } from "../api";
 import AskMoreDialog from "../components/AskMoreDialog";
+import Dialog from "../components/Dialog";
 import BonusHistory from "../components/BonusHistory";
 import DayBars from "../components/DayBars";
 import { LineText } from "../components/FitText";
@@ -8,6 +9,8 @@ import Notice from "../components/Notice";
 import PeriodTabs from "../components/PeriodTabs";
 import PromoRedeem from "../components/PromoRedeem";
 import SpendBonusDialog from "../components/SpendBonusDialog";
+import LobbyAll from "../components/lobby/LobbyAll";
+import LobbyToday from "../components/lobby/LobbyToday";
 import { childErrorText } from "../lib/errors";
 import { formatDuration, formatEventTime, formatLimit, weekdayName } from "../lib/format";
 import {
@@ -16,18 +19,16 @@ import {
   TOTALS_TABS,
   periodEmpty,
   periodOf,
-  spendBlockedNote,
   splitRules,
   summaryLines,
   tabRows,
   tabSeconds,
-  todayRows,
   todayRuleWeekday,
   usageRows,
   type TotalsTab,
   type UsageRow,
 } from "../lib/mytoday";
-import type { GetBonusReply, JournalEntry, MyTodayReply, StatsPeriod } from "../types";
+import type { JournalEntry, MyTodayReply, StatsPeriod } from "../types";
 
 const LOAD_ERROR = "Не удалось получить данные. Попробуй через минуту";
 const NO_DATA = "За этот период пока нет данных";
@@ -39,26 +40,50 @@ export const PERIOD_PANEL = "period-panel";
 /** Сколько нарушений показано сразу; остальные - кнопкой «Показать все». */
 const VIOLATIONS_SHOWN = 20;
 
+/** Как часто блок «Сегодня» спрашивает статус, пока окно на виду: талисман меняется без перезапуска (8.2.6 п. 1). */
+export const TODAY_POLL_MS = 10_000;
+
 /**
- * Окно «Моя статистика» (FR-12, R21, сценарий 8.2.6): только просмотр, свои данные. Период (D-61) меняет
- * карточку «Итоги» с разделами «По дням», «Программы», «Сайты», «Нарушения», «Копилка»; остаток, бонусы
- * и «Мои правила» - за сегодня. Ни выбора ребёнка, ни очистки, ни полей статистики (R21, S22).
+ * Окно «Моя статистика» (FR-12, R21, сценарий 8.2.6) в стиле «Игровое лобби» (8.0 п. 1, D-109): сначала
+ * блок «Сегодня» (остаток с талисманом, плитки, копилка, кнопки времени и промокода), по ссылке «Вся моя
+ * статистика» — периоды и разделы. Только просмотр, свои данные (R21, S22). Статус «Сегодня» —
+ * отдельный запрос за сегодня каждые 10 с, пока окно на виду, и при возврате в окно; периоды — только на
+ * «Вся моя статистика».
  */
 export default function MyStats() {
-  const [data, setData] = useState<MyTodayReply | null>(null);
-  const [bonus, setBonus] = useState<GetBonusReply | null>(null);
+  const [view, setView] = useState<"today" | "all">("today");
+  const [today, setToday] = useState<MyTodayReply | null>(null);
+  const [stats, setStats] = useState<MyTodayReply | null>(null);
+  const [childId, setChildId] = useState<number | null>(null);
   const [error, setError] = useState("");
-  const [dialog, setDialog] = useState<"ask" | "spend" | null>(null);
+  const [dialog, setDialog] = useState<"ask" | "spend" | "code" | null>(null);
   const [done, setDone] = useState("");
   const [openError, setOpenError] = useState("");
   const [period, setPeriod] = useState<StatsPeriod>("today");
   const [busy, setBusy] = useState(false);
+  const [now, setNow] = useState(() => new Date());
+  // «Сегодня» показано возвратом из «Вся моя статистика»: фокус — на кнопку, с которой ушли (не на body).
+  const [cameBack, setCameBack] = useState(false);
   const alive = useRef(true);
+  const viewRef = useRef<"today" | "all">("today");
   const periodRef = useRef<StatsPeriod>("today");
-  // Номер последнего запроса: поздний ответ прошлого периода не перекрывает выбранный.
+  // Номер последнего запроса периода: поздний ответ прошлого периода не перекрывает выбранный.
   const seq = useRef(0);
   // Период цифр на экране: при сбое вкладка возвращается к нему, вкладка и цифры - одного периода.
   const shown = useRef<StatsPeriod | null>(null);
+
+  const loadToday = useCallback(async () => {
+    try {
+      const reply = await myToday("today");
+      if (!alive.current) return;
+      setToday(reply);
+      setNow(new Date());
+      setError("");
+    } catch (e) {
+      // Сбой связи говорит «Не удалось получить данные»; слова самой программы оставляем (L-112).
+      if (alive.current) setError(LOAD_ERROR_FOR(e));
+    }
+  }, []);
 
   const loadStats = useCallback(async (p: StatsPeriod) => {
     const my = ++seq.current;
@@ -68,10 +93,9 @@ export default function MyStats() {
       const reply = await myToday(p);
       if (alive.current && my === seq.current) {
         shown.current = reply.period;
-        setData(reply);
+        setStats(reply);
       }
     } catch (e) {
-      // Сбой связи говорит «Не удалось получить данные»; слова самой программы оставляем (L-112).
       if (alive.current && my === seq.current) {
         setError(LOAD_ERROR_FOR(e));
         if (shown.current) {
@@ -84,16 +108,43 @@ export default function MyStats() {
     }
   }, []);
 
-  const load = useCallback(async () => {
-    await loadStats(periodRef.current);
-    // Своя копилка (номер 0 — «моя»): раздел «Бонусы» (R25, R26). Не вышло — раздел без истории.
+  // Номер своего ребёнка для «Попросить ещё» (своя копилка, номер 0 — «моя»). Не вышло — кнопка скажет об этом.
+  const loadChild = useCallback(async () => {
     try {
       const b = await getBonus(0);
-      if (alive.current) setBonus(b);
+      if (alive.current) setChildId(b.childId);
     } catch {
-      if (alive.current) setBonus(null);
+      if (alive.current) setChildId(null);
     }
-  }, [loadStats]);
+  }, []);
+
+  /** Перечитать то, что на экране: «Сегодня» или выбранный период. */
+  const reload = useCallback(async () => {
+    if (viewRef.current === "all") await loadStats(periodRef.current);
+    else await loadToday();
+  }, [loadStats, loadToday]);
+
+  useEffect(() => {
+    alive.current = true;
+    void loadToday();
+    void loadChild();
+    // Окно могло долго лежать открытым: вернулись в него, и цифры должны быть свежими.
+    const onFocus = () => void reload();
+    window.addEventListener("focus", onFocus);
+    return () => {
+      alive.current = false;
+      window.removeEventListener("focus", onFocus);
+    };
+  }, [loadToday, loadChild, reload]);
+
+  // «Сегодня» на виду: статус раз в 10 с (свёрнутое или скрытое окно не спрашивает).
+  useEffect(() => {
+    if (view !== "today") return;
+    const t = setInterval(() => {
+      if (document.visibilityState === "visible") void loadToday();
+    }, TODAY_POLL_MS);
+    return () => clearInterval(t);
+  }, [view, loadToday]);
 
   const choosePeriod = (p: StatsPeriod) => {
     periodRef.current = p;
@@ -101,22 +152,25 @@ export default function MyStats() {
     void loadStats(p);
   };
 
-  useEffect(() => {
-    alive.current = true;
-    void load();
-    // Окно могло долго лежать открытым: вернулись в него, и цифры должны быть свежими.
-    const onFocus = () => void load();
-    window.addEventListener("focus", onFocus);
-    return () => {
-      alive.current = false;
-      window.removeEventListener("focus", onFocus);
-    };
-  }, [load]);
+  const openAll = () => {
+    viewRef.current = "all";
+    setView("all");
+    setCameBack(false);
+    setDone("");
+    void loadStats(periodRef.current);
+  };
+
+  const backToday = () => {
+    viewRef.current = "today";
+    setView("today");
+    setCameBack(true);
+    void loadToday();
+  };
 
   const finish = (message: string) => {
     setDialog(null);
     setDone(message);
-    void load();
+    void loadToday();
   };
 
   const openParent = async () => {
@@ -128,55 +182,62 @@ export default function MyStats() {
     }
   };
 
+  const data = view === "all" ? stats : today;
   return (
-    <div className="my-stats">
-      <div className="page-head">
-        <h2 className="panel-title">Моя статистика</h2>
-        <span className="read-only-badge">Только просмотр</span>
-        {data?.status.name ? <span className="page-date">{data.status.name}</span> : null}
-        <span className="topbar-spacer" />
-        <button type="button" className="btn btn-small" onClick={() => void load()}>
-          Обновить
-        </button>
-      </div>
-
+    <div className="lobby my-stats">
+      <h1 className="visually-hidden">Моя статистика</h1>
       {error ? (
-        <Notice tone="warn" urgent>
-          {error}
-        </Notice>
+        <div className="lb-alert">
+          <Notice tone="warn" urgent>
+            {error}
+          </Notice>
+          <button type="button" className="lb-btn lb-btn-blue lb-btn-small" onClick={() => void reload()}>
+            Обновить
+          </button>
+        </div>
       ) : null}
-
-      {done ? <Notice tone="ok">{done}</Notice> : null}
+      {done && view === "today" ? <Notice tone="ok">{done}</Notice> : null}
       {openError ? (
         <Notice tone="warn" urgent>
           {openError}
         </Notice>
       ) : null}
 
-      {data === null ? (
-        error ? null : <p className="panel-text">Загружаю данные…</p>
+      {view === "today" ? (
+        today === null ? (
+          error ? null : <p className="lb-loading">Загружаю данные…</p>
+        ) : (
+          <LobbyToday
+            data={today}
+            now={now}
+            onAsk={() => setDialog("ask")}
+            onSpend={() => setDialog("spend")}
+            onCode={() => setDialog("code")}
+            onAll={openAll}
+            focusAll={cameBack}
+            onParent={() => void openParent()}
+          />
+        )
       ) : (
-        <>
-          {data.status.status === "notChild" ? null : (
-            <Remaining data={data} onAsk={() => setDialog("ask")} onSpend={() => setDialog("spend")} />
+        <LobbyAll onBack={backToday} onParent={() => void openParent()}>
+          {data === null ? (
+            error ? null : <p className="lb-loading">Загружаю данные…</p>
+          ) : (
+            <>
+              <StatsSince data={data} />
+              {/* Вкладки периодов - внутри «Итогов», рядом с данными, которые они меняют (UX-аудит FB-13). */}
+              <Totals data={data} busy={busy} periods={{ value: period, onChange: choosePeriod }} />
+              <Rules data={data} />
+            </>
           )}
-          <StatsSince data={data} />
-          {/* Вкладки периодов - внутри «Итогов», рядом с данными, которые они меняют (UX-аудит FB-13). */}
-          <Totals data={data} busy={busy} periods={{ value: period, onChange: choosePeriod }} />
-          {data.status.status === "notChild" ? null : <Bonuses bonus={bonus} onChange={() => void load()} />}
-          <Rules data={data} />
-          <p className="my-foot">
-            <button type="button" className="btn link" onClick={() => void openParent()}>
-              Настройки для родителя
-            </button>
-          </p>
-        </>
+        </LobbyAll>
       )}
 
-      {dialog === "ask" ? <AskMoreDialog childId={bonus?.childId ?? null} onDone={finish} onClose={() => setDialog(null)} /> : null}
-      {dialog === "spend" && data ? (
-        <SpendBonusDialog balance={data.status.bonusBalance} onDone={finish} onClose={() => setDialog(null)} />
+      {dialog === "ask" ? <AskMoreDialog childId={childId} onDone={finish} onClose={() => setDialog(null)} /> : null}
+      {dialog === "spend" && today ? (
+        <SpendBonusDialog balance={today.status.bonusBalance} onDone={finish} onClose={() => setDialog(null)} />
       ) : null}
+      {dialog === "code" ? <PromoDialog onRedeemed={() => void loadToday()} onClose={() => setDialog(null)} /> : null}
     </div>
   );
 }
@@ -188,52 +249,30 @@ function LOAD_ERROR_FOR(e: unknown): string {
 }
 
 /**
- * «Сколько осталось» и кнопки «Попросить ещё» / «Взять из копилки» (ТЗ 8.2.6 п.1, FR-10, FR-11, D-53).
- * Недоступная кнопка остаётся на месте и объясняет почему (урок L-17).
+ * «Ввести код» (8.2.6 п. 1, п. 11, R26, D-50): поле промокода со стикером ответа — единственное поле окна.
+ * Фокус — сразу в поле (диалог сам ставит его на кнопку, поэтому после него).
  */
-export function Remaining({ data, onAsk, onSpend }: { data: MyTodayReply; onAsk: () => void; onSpend: () => void }) {
-  const rows = todayRows(data.status);
-  const note = spendBlockedNote(data.status, data.status.bonusBalance);
+function PromoDialog({ onRedeemed, onClose }: { onRedeemed: () => void; onClose: () => void }) {
+  const body = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const t = setTimeout(() => body.current?.querySelector<HTMLInputElement>("input")?.focus(), 0);
+    return () => clearTimeout(t);
+  }, []);
   return (
-    <>
-      <section className="panel stat-panel" aria-labelledby="my-left">
-        <h3 id="my-left" className="section-title">
-          Сколько осталось
-        </h3>
-        <dl className="stat-list">
-          {rows.map((r, i) => (
-            <div key={r.label} className={i === 0 ? "stat-row stat-row-lead" : "stat-row"}>
-              <dt>{r.label}</dt>
-              <dd>{r.value}</dd>
-            </div>
-          ))}
-        </dl>
-      </section>
-      <section className="panel stat-panel" aria-labelledby="my-more">
-        <h3 id="my-more" className="section-title">
-          Нужно больше времени?
-        </h3>
-        <div className="action-row">
-          <button type="button" className="btn btn-primary" onClick={onAsk}>
-            Попросить ещё
-          </button>
-          <button
-            type="button"
-            className="btn"
-            aria-disabled={note ? "true" : undefined}
-            aria-describedby={note ? "spend-note" : undefined}
-            onClick={note ? undefined : onSpend}
-          >
-            Взять из копилки
-          </button>
-        </div>
-        {note ? (
-          <p id="spend-note" className="spend-note" role="note">
-            {note}
-          </p>
-        ) : null}
-      </section>
-    </>
+    <Dialog
+      title="Ввести код"
+      onClose={onClose}
+      actions={
+        <button type="button" className="btn" onClick={onClose}>
+          Закрыть
+        </button>
+      }
+    >
+      <div ref={body} className="lb-promo">
+        <p className="panel-text">Если родитель дал тебе промокод, введи его здесь: время сразу добавится к сегодняшнему дню.</p>
+        <PromoRedeem onRedeemed={onRedeemed} />
+      </div>
+    </Dialog>
   );
 }
 
@@ -393,26 +432,6 @@ export function Totals({
       ) : (
         content
       )}
-    </section>
-  );
-}
-
-/**
- * «Бонусы» (R25, R26, D-49, D-50): баланс копилки, как приходит автобонус, и поле промокода —
- * единственное поле окна «Моя статистика». История копилки - в разделе «Копилка» за период (одно место).
- */
-export function Bonuses({ bonus, onChange }: { bonus: GetBonusReply | null; onChange: () => void }) {
-  return (
-    <section className="panel stat-panel" aria-labelledby="my-bonuses">
-      <h3 id="my-bonuses" className="section-title">
-        Бонусы
-      </h3>
-      {bonus ? <p className="stat-lead">{`Копилка: ${formatLimit(bonus.balance)}`}</p> : null}
-      <p className="panel-text">
-        В полночь в копилку приходит бонус за неизрасходованное за день время. Если родитель дал тебе промокод,
-        введи его здесь: время сразу добавится к сегодняшнему дню.
-      </p>
-      <PromoRedeem onRedeemed={onChange} />
     </section>
   );
 }

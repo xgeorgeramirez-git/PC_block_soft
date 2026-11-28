@@ -84,8 +84,8 @@ func TestBonusCatchUpS51(t *testing.T) {
 }
 
 // Ловит (R25): за полностью запретный день бонус начислен; день не помечен (каждый запуск
-// пересчитывает его заново); потолок копилки 600 не соблюдён.
-func TestBonusCatchUpForbiddenAndCeiling(t *testing.T) {
+// пересчитывает его заново); бонус обрезан старым пределом копилки 600 (D-113, R-4).
+func TestBonusCatchUpForbiddenNoCeiling(t *testing.T) {
 	st, id := catchupStore(t)
 	st.schedule[id] = []core.Interval{{Weekday: core.Tuesday, StartMin: 0, EndMin: 0}} // весь день
 	startAt(t, st, thu1000)
@@ -99,11 +99,11 @@ func TestBonusCatchUpForbiddenAndCeiling(t *testing.T) {
 	st, id = catchupStore(t)
 	st.bonus[id] = []BonusRecord{{AtMs: 1, DeltaMin: 590, Reason: "Подарено родителем", Balance: 590}}
 	startAt(t, st, thu1000)
-	if bal, evs := bonusOf(t, st, id); bal != 600 || len(evs) != 1 || detInt(evs[0].Details, "minutes") != 10 {
-		t.Errorf("копилка 590: стало %d, записи %+v; want 600 и +10 (потолок)", bal, evs)
+	if bal, evs := bonusOf(t, st, id); bal != 630 || len(evs) != 1 || detInt(evs[0].Details, "minutes") != 40 {
+		t.Errorf("копилка 590: стало %d, записи %+v; want 630 и +40 (предела нет, D-113)", bal, evs)
 	}
 	if !st.days[dayKey(id, tue24)].BonusGranted {
-		t.Error("вторник не помечен после начисления до потолка")
+		t.Error("вторник не помечен после начисления")
 	}
 }
 

@@ -68,7 +68,7 @@ func TestDeathInLiveSessionIsJournaledAfterFiveSeconds(t *testing.T) {
 		t.Run(d.name, func(t *testing.T) {
 			h := newHarness(t, withChild(childSID, "Миша", 120))
 			h.start()
-			h.childLogsIn()
+			h.childSessionUp()
 			d.prepare(h)
 			d.kill(h)
 			h.hk(1) // служба заметила гибель

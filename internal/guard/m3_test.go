@@ -106,7 +106,7 @@ func TestForegroundOverrideInTestMode(t *testing.T) {
 // --- плашки о закрытых программах (FR-13, 8.2.4) ---------------------------------------------
 
 func unknownPlate() ipc.BlockedPlate {
-	return ipc.BlockedPlate{Kind: ipc.BlockedUnknown, Text: "Программа «SuperGame» ждёт разрешения родителя",
+	return ipc.BlockedPlate{Kind: ipc.BlockedUnknown, Text: "Программа «SuperGame» новая. Родитель должен решить, можно ли её запускать",
 		ShowS: 15, Path: `c:\users\миша\downloads\supergame.exe`, CanAsk: true}
 }
 
@@ -132,8 +132,8 @@ func TestBlockedPlateShowsForItsTime(t *testing.T) {
 		buttons string
 	}{
 		{"ждёт разрешения", unknownPlate(), 15 * time.Second, TargetAskNow + "," + TargetPlateClose},
-		{"ждёт разрешения без CanAsk", ipc.BlockedPlate{Kind: ipc.BlockedUnknown, Text: "Программа «X» ждёт разрешения родителя", Path: `c:\x.exe`}, 8 * time.Second, TargetPlateClose},
-		{"запрещена", ipc.BlockedPlate{Kind: ipc.BlockedForbidden, Text: "Программа «X» запрещена родителем", ShowS: 10, Path: `c:\x.exe`, CanAsk: true}, 10 * time.Second, TargetPlateClose},
+		{"ждёт разрешения без CanAsk", ipc.BlockedPlate{Kind: ipc.BlockedUnknown, Text: "Программа «X» новая. Родитель должен решить, можно ли её запускать", Path: `c:\x.exe`}, 8 * time.Second, TargetPlateClose},
+		{"запрещена", ipc.BlockedPlate{Kind: ipc.BlockedForbidden, Text: "Родитель запретил «X». Выбери другую игру", ShowS: 10, Path: `c:\x.exe`, CanAsk: true}, 10 * time.Second, TargetPlateClose},
 		{"игры кончились, срок по умолчанию", ipc.BlockedPlate{Kind: ipc.BlockedGamesOver, Text: "Время на игры на сегодня закончилось", Path: `c:\g.exe`}, 8 * time.Second, TargetPlateClose},
 		{"решение родителя, срок по умолчанию", ipc.BlockedPlate{Kind: ipc.BlockedDecided, Text: "Родитель разрешил «X»: это игра. Запусти её снова", Path: `c:\x.exe`}, 10 * time.Second, TargetPlateClose},
 	}
@@ -190,7 +190,7 @@ func TestBlockedPlateDuplicatesAndReplacement(t *testing.T) {
 	if w := m.View(at(17 * time.Second)).Warning; w == nil || w.Text != decided.Text || buttonNames(w) != TargetPlateClose {
 		t.Fatalf("решение родителя не сменило плашку той же программы: %+v", w)
 	}
-	other := ipc.BlockedPlate{Kind: ipc.BlockedForbidden, Text: "Программа «Y» запрещена родителем", ShowS: 10, Path: `c:\y.exe`}
+	other := ipc.BlockedPlate{Kind: ipc.BlockedForbidden, Text: "Родитель запретил «Y». Выбери другую игру", ShowS: 10, Path: `c:\y.exe`}
 	m.OnBlocked(at(18*time.Second), other)
 	if w := m.View(at(18 * time.Second)).Warning; w == nil || w.Text != other.Text {
 		t.Fatalf("плашка другой программы: %+v", w)
@@ -241,8 +241,8 @@ func TestBlockedPlateButtons(t *testing.T) {
 	m := NewModel()
 	m.OnDecision(t0, runningDecision(3600), false, nil)
 	m.OnBlocked(t0, unknownPlate())
-	if a := m.Press(t0, ButtonAskNow, ""); a.Kind != ActOpenPrograms {
-		t.Fatalf("«Попросить сейчас»: %+v", a)
+	if a := m.Press(t0, ButtonAskNow, ""); a.Kind != ActOpenPrograms || a.Path != unknownPlate().Path {
+		t.Fatalf("«Попросить сейчас» без пути программы (D-114): %+v", a)
 	}
 	if w := m.View(t0).Warning; w != nil {
 		t.Fatalf("после «Попросить сейчас» плашка осталась: %+v", *w)
@@ -251,7 +251,7 @@ func TestBlockedPlateButtons(t *testing.T) {
 		t.Fatalf("второе нажатие без плашки: %+v", a)
 	}
 
-	m.OnBlocked(at(time.Second), ipc.BlockedPlate{Kind: ipc.BlockedForbidden, Text: "Программа «X» запрещена родителем", Path: `c:\x.exe`, CanAsk: true})
+	m.OnBlocked(at(time.Second), ipc.BlockedPlate{Kind: ipc.BlockedForbidden, Text: "Родитель запретил «X». Выбери другую игру", Path: `c:\x.exe`, CanAsk: true})
 	if a := m.Press(at(time.Second), ButtonAskNow, ""); a.Kind != ActNone {
 		t.Fatalf("«Попросить сейчас» у запрещённой: %+v", a)
 	}
@@ -272,7 +272,7 @@ func TestBlockedPlateAndWarningShareCorner(t *testing.T) {
 	m := NewModel()
 	m.OnDecision(t0, runningDecision(60), false, []int{1})
 	one := m.View(t0).Warning
-	m.OnBlocked(t0, ipc.BlockedPlate{Kind: ipc.BlockedForbidden, Text: "Программа «X» запрещена родителем", ShowS: 3, Path: `c:\x.exe`})
+	m.OnBlocked(t0, ipc.BlockedPlate{Kind: ipc.BlockedForbidden, Text: "Родитель запретил «X». Выбери другую игру", ShowS: 3, Path: `c:\x.exe`})
 	if w := m.View(t0).Warning; w == nil || w.Kind != ipc.BlockedForbidden {
 		t.Fatalf("новая плашка о программе не сверху: %+v", w)
 	}
@@ -297,11 +297,11 @@ func TestBlockedPlateAndWarningShareCorner(t *testing.T) {
 	// Контроллер: вернувшаяся плашка 1 мин не пишется показанной второй раз и звук не повторяет.
 	r := newCtRig()
 	r.svc.test = true
-	r.ctl.SetSoundPlayers(func() bool { return true }, nil)
+	r.ctl.SetSoundPlayers(func() bool { return true }, nil, nil)
 	r.svc.status = ctRunningStatus(60)
 	r.svc.warns = []ipc.GuardWarning{ipc.NewGuardWarning(1)}
 	r.poll()
-	p := ipc.BlockedPlate{Kind: ipc.BlockedForbidden, Text: "Программа «X» запрещена родителем", ShowS: 2, Path: `c:\x.exe`}
+	p := ipc.BlockedPlate{Kind: ipc.BlockedForbidden, Text: "Родитель запретил «X». Выбери другую игру", ShowS: 2, Path: `c:\x.exe`}
 	r.svc.cmds = []ipc.GuardCommand{{Kind: ipc.GuardCmdBlocked, Plate: &p}}
 	r.poll()
 	for i := 0; i < 3; i++ {
@@ -347,7 +347,7 @@ func TestControllerAskNowOpensPrograms(t *testing.T) {
 	r.ctl.Run(act)
 	calls := r.svc.called(ipc.CmdOpenWindow)
 	var req ipc.OpenWindowRequest
-	if len(calls) != 1 || calls[0].Into(&req) != nil || req != (ipc.OpenWindowRequest{Kind: ipc.WindowParent, Screen: ipc.ScreenPrograms}) || calls[0].Token != "" {
+	if len(calls) != 1 || calls[0].Into(&req) != nil || req != (ipc.OpenWindowRequest{Kind: ipc.WindowParent, Screen: ipc.ScreenPrograms, Path: p.Path}) || calls[0].Token != "" {
 		t.Fatalf("OpenWindow: %+v (%+v)", calls, req)
 	}
 	r.poll()
@@ -596,7 +596,7 @@ func TestGamesAndLimitInOnePoll(t *testing.T) {
 
 	r := newCtRig()
 	r.svc.test = true
-	r.ctl.SetSoundPlayers(func() bool { return true }, nil)
+	r.ctl.SetSoundPlayers(func() bool { return true }, nil, nil)
 	r.svc.status = ipc.ChildStatusFrom("Миша", gamesDecision(5000, 300))
 	r.svc.warns = []ipc.GuardWarning{ipc.NewGuardWarningFor(5, core.WarnGames, 300)}
 	r.poll()

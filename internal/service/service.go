@@ -229,8 +229,9 @@ type Service struct {
 	safeMode bool       // Windows запущена в безопасном режиме (R17е): читается раз в Start
 	tz       tzState    // часовой пояс (M6, tzguard.go)
 
-	bypassWait []pendingBypass // гибель стража, значка или окна, о которой ещё не решено, обход ли это (FB-1)
-	logoffs    []logoffMark    // недавние выходы из учёток: гибель рядом с ними в отключённом сеансе ребёнка не обход (FB-5)
+	bypassWait []pendingBypass      // гибель стража, значка или окна, о которой ещё не решено, обход ли это (FB-1)
+	logoffs    []logoffMark         // недавние выходы из учёток: гибель рядом с ними в отключённом сеансе ребёнка не обход (FB-5)
+	logonDue   map[uint32]time.Time // сеансы, где ждёт окно при входе: момент события входа (FR-46, R-13; logonwin.go)
 
 	// Сайты (M4, sites_svc.go): свои списки родителя в памяти, прочитаны ли они в последний раз,
 	// когда пробовали; список «18+»; правила Brave надо переписать (braveDue, T5); в какой день
@@ -761,26 +762,84 @@ func (s *Service) statusOf(cs *childState) ipc.ChildStatus {
 	if bal, err := s.cfg.Store.GetBonusBalance(cs.child.ID); err == nil {
 		st.BonusBalance = bal
 	}
-	st.ForbiddenNote = s.forbiddenNote(cs)
+	fi := s.forbidSpan(cs)
+	st.ForbiddenNote = forbiddenNoteOf(fi)
+	st.ForbidState = fi.state
+	if !fi.from.IsZero() {
+		st.ForbidFrom, st.ForbidTo = core.FormatClock(fi.from.In(s.cfg.Loc)), core.FormatClock(fi.to.In(s.cfg.Loc))
+	}
 	st.EndMode = cs.rules.EndMode.String() // правило ребёнка (R8); решение ядра его не несёт
 	return st
 }
 
-// forbiddenNote — строка о ближайшем запретном интервале сегодня для мини-панели (ТЗ 8.2.1):
-// «Сегодня нельзя с 21:00 до 07:00». Пусто, если интервалов сегодня впереди нет.
-func (s *Service) forbiddenNote(cs *childState) string {
+// forbidInfo — запретные часы ребёнка сегодня: одна истина для карточки окна, окна ребёнка и отчёта
+// телефону (B-79, PL-83). state — remote.Forbid* (те же строки — ipc.ForbidState*); from/to — интервал
+// (ahead — ближайший, начинающийся сегодня до местной полуночи; active — идущий). Администратор — none (R18).
+type forbidInfo struct {
+	state    string
+	from, to time.Time
+}
+
+// forbidSpan — запретные часы сегодня по часам ядра: флаг дня NoForbidden (R24), ядро InForbidden и
+// NextForbiddenStart. Интервал, который начнётся после местной полуночи, — не «сегодня» (B-79).
+func (s *Service) forbidSpan(cs *childState) forbidInfo {
+	if cs.admin {
+		return forbidInfo{state: ipc.ForbidStateNone} // ограничения не действуют (R18)
+	}
 	now := s.cfg.Clock.Now().In(s.cfg.Loc)
-	// Родитель снял запретные часы на сегодня (R24, D-51): не пугать «Сейчас нельзя» (класс A).
-	if state, _ := cs.eng.State(); state.NoForbidden && state.Day == now.Format(time.DateOnly) {
-		return "Сегодня запретные часы не действуют"
+	today := now.Format(time.DateOnly)
+	if state, _ := cs.eng.State(); state.NoForbidden && state.Day == today {
+		return forbidInfo{state: ipc.ForbidStateCleared}
 	}
 	if in, end := core.InForbidden(cs.rules, now); in {
-		return "Сейчас нельзя до " + core.FormatClock(end)
+		return forbidInfo{state: ipc.ForbidStateActive, from: forbidStartOf(cs.rules, now, end), to: end}
 	}
-	if start, ok := core.NextForbiddenStart(cs.rules, now); ok {
+	if start, ok := core.NextForbiddenStart(cs.rules, now); ok && start.In(s.cfg.Loc).Format(time.DateOnly) == today {
 		// Конец интервала, начинающегося в start: момент внутри интервала даёт его конец.
 		_, end := core.InForbidden(cs.rules, start.Add(time.Second))
-		return "Сегодня нельзя с " + core.FormatClock(start) + " до " + core.FormatClock(end)
+		return forbidInfo{state: ipc.ForbidStateAhead, from: start, to: end}
+	}
+	return forbidInfo{state: ipc.ForbidStateNone}
+}
+
+// forbidStartOf — начало идущего запретного интервала, который кончается в end (core.InForbidden):
+// интервал дня недели сегодня или вчера (через полночь), отсчёт минут от местной полуночи, как в ядре.
+// Не нашлось (не бывает при in = true) — now.
+func forbidStartOf(r core.Rules, now, end time.Time) time.Time {
+	midnight := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	for _, iv := range r.Schedule {
+		dur := iv.EndMin - iv.StartMin
+		if dur <= 0 {
+			dur += 24 * 60 // через полночь; начало = конец — сутки целиком
+		}
+		for _, back := range []int{0, 1} {
+			day := midnight.AddDate(0, 0, -back)
+			if core.WeekdayOf(day) != iv.Weekday {
+				continue
+			}
+			start := day.Add(time.Duration(iv.StartMin) * time.Minute)
+			if stop := start.Add(time.Duration(dur) * time.Minute); !now.Before(start) && now.Before(stop) && stop.Equal(end) {
+				return start
+			}
+		}
+	}
+	return now
+}
+
+// forbiddenNote — строка о запретных часах сегодня для мини-панели (ТЗ 8.2.1): «Сегодня нельзя с
+// 21:00 до 07:00». Пусто, если интервалов сегодня нет.
+func (s *Service) forbiddenNote(cs *childState) string { return forbiddenNoteOf(s.forbidSpan(cs)) }
+
+// forbiddenNoteOf — строка мини-панели из forbidSpan: снято (R24, D-51: не пугать «Сейчас нельзя»),
+// идёт, будет сегодня, нет.
+func forbiddenNoteOf(fi forbidInfo) string {
+	switch fi.state {
+	case ipc.ForbidStateCleared:
+		return "Сегодня запретные часы не действуют"
+	case ipc.ForbidStateActive:
+		return "Сейчас нельзя до " + core.FormatClock(fi.to)
+	case ipc.ForbidStateAhead:
+		return "Сегодня нельзя с " + core.FormatClock(fi.from) + " до " + core.FormatClock(fi.to)
 	}
 	return ""
 }
@@ -799,10 +858,8 @@ func (s *Service) cardOf(cs *childState) ipc.TodayCard {
 		bonus = 0
 	}
 	noForbidden := state.NoForbidden && state.Day == st.Day
-	gamesS, videoS := state.GamesS, state.VideoS
-	if state.Day != st.Day && st.Day != "" {
-		gamesS, videoS = 0, 0
-	}
+	presenceNow, presenceText := s.presenceCard(cs)
+	gamesS, videoS := s.dayGamesVideo(cs, st)
 	return ipc.TodayCard{
 		ChildID: cs.child.ID, SID: cs.child.SID, Name: cs.child.Name, Status: st,
 		ExtraMin: extra, BonusBalance: bonus, CanClearBlock: bypass != "",
@@ -812,7 +869,33 @@ func (s *Service) cardOf(cs *childState) ipc.TodayCard {
 		// «Видео 10 мин из 20 мин» (R6): так же по лимиту видео решения ядра.
 		VideoText:       ipc.VideoCardText(videoS, st.VideoLimitS, st.VideoUnlimited),
 		PendingPrograms: s.pendingCount(),
+		PresenceNow:     presenceNow, PresenceText: presenceText,
+		GamesUsedS: gamesS, VideoUsedS: videoS,
 	}
+}
+
+// dayGamesVideo — игры и видео за день ядра для карточки «Сегодня» и отчёта телефону (одна истина,
+// PL-83): состояние ядра другого дня (полночь, день ещё не сохранён) — 0.
+func (s *Service) dayGamesVideo(cs *childState, st ipc.ChildStatus) (gamesS, videoS int) {
+	state, _ := cs.eng.State()
+	if state.Day != st.Day && st.Day != "" {
+		return 0, 0
+	}
+	return state.GamesS, state.VideoS
+}
+
+// presenceCard — точка присутствия карточки (8.3.2): «За компьютером с 18:20» / «Не за компьютером
+// с 17:05» тем же расчётом, что отчёт телефону (presenceToday); момент неизвестен — «».
+func (s *Service) presenceCard(cs *childState) (bool, string) {
+	_, at, sinceMs := s.presenceToday(cs)
+	if sinceMs == 0 {
+		return at, ""
+	}
+	since := core.FormatClock(time.UnixMilli(sinceMs).In(s.cfg.Loc))
+	if at {
+		return true, "За компьютером с " + since
+	}
+	return false, "Не за компьютером с " + since
 }
 
 // pendingCount — сколько программ ждут решения родителя (ссылка «Ждут решения: N», 8.3.2 п.5).

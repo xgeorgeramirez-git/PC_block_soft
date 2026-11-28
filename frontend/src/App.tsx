@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { finish, hello, login, logout, mode as readMode, sessionState, startScreen, version as readVersion } from "./api";
+import { Icon, type IconName } from "./components/Icon";
 import Notice from "./components/Notice";
 import { SaveBarSlotContext } from "./components/SaveBar";
 import { UnsavedGuardProvider, useAttemptNavigation } from "./guard";
@@ -60,8 +61,8 @@ async function bootstrap(): Promise<Boot> {
 
 type VersionState = { kind: "loading" } | { kind: "ready"; value: string } | { kind: "failed" };
 
-/** Заголовок окна. В окнах ребёнка слов «Родительский контроль» нет: он видит только название и версию. */
-function Topbar({ onLogout, childWindow = false }: { onLogout?: () => void; childWindow?: boolean }) {
+/** Номер версии от программы: «Версия 0.8.4». */
+function useVersion(): VersionState {
   const [version, setVersion] = useState<VersionState>({ kind: "loading" });
   useEffect(() => {
     let alive = true;
@@ -73,21 +74,30 @@ function Topbar({ onLogout, childWindow = false }: { onLogout?: () => void; chil
       alive = false;
     };
   }, []);
+  return version;
+}
+
+function VersionText({ version }: { version: VersionState }) {
+  return (
+    <>
+      {version.kind === "loading" && "Узнаю версию"}
+      {version.kind === "ready" && `Версия ${version.value}`}
+      {version.kind === "failed" && "Версию узнать не удалось"}
+    </>
+  );
+}
+
+/** Заголовок окон без меню (вход, мастер, окна ребёнка). В окнах ребёнка слов «Родительский контроль» нет. */
+function Topbar({ childWindow = false }: { childWindow?: boolean }) {
+  const version = useVersion();
   return (
     <header className="topbar">
       <h1 className="product">PC Block</h1>
       {childWindow ? null : <span className="product-note">Родительский контроль</span>}
       <span className="topbar-spacer" />
       <span className="product-version">
-        {version.kind === "loading" && "Узнаю версию"}
-        {version.kind === "ready" && `Версия ${version.value}`}
-        {version.kind === "failed" && "Версию узнать не удалось"}
+        <VersionText version={version} />
       </span>
-      {onLogout ? (
-        <button type="button" className="btn btn-small" onClick={onLogout}>
-          Выйти
-        </button>
-      ) : null}
     </header>
   );
 }
@@ -194,17 +204,17 @@ function SimpleScreen({ mode }: { mode: "reset-password" | "uninstall-gate" | "m
 
 type Screen = "today" | "children" | "programs" | "sites" | "bonus" | "promos" | "stats" | "journal" | "settings" | "whatsnew";
 
-/** Основные разделы меню; «Что нового» стоит отдельно внизу (ТЗ 8.3.2 п.2). */
-const MENU: { id: Screen; label: string }[] = [
-  { id: "today", label: "Сегодня" },
-  { id: "children", label: "Дети" },
-  { id: "programs", label: "Программы" },
-  { id: "sites", label: "Сайты" },
-  { id: "bonus", label: "Копилка" },
-  { id: "promos", label: "Промокоды" },
-  { id: "stats", label: "Статистика" },
-  { id: "journal", label: "Журнал" },
-  { id: "settings", label: "Настройки" },
+/** Основные разделы меню; «Что нового» стоит отдельно внизу (ТЗ 8.3.2 п.2). Значки — макет kit2.py. */
+const MENU: { id: Screen; label: string; icon: IconName }[] = [
+  { id: "today", label: "Сегодня", icon: "home" },
+  { id: "children", label: "Дети", icon: "kids" },
+  { id: "programs", label: "Программы", icon: "grid" },
+  { id: "sites", label: "Сайты", icon: "globe" },
+  { id: "bonus", label: "Копилка", icon: "bank" },
+  { id: "promos", label: "Промокоды", icon: "key" },
+  { id: "stats", label: "Статистика", icon: "chart" },
+  { id: "journal", label: "Журнал", icon: "list" },
+  { id: "settings", label: "Настройки", icon: "gear" },
 ];
 
 type Go = (next: Screen, opts?: { violations?: boolean; childId?: number; filter?: ProgramFilter }) => void;
@@ -227,6 +237,7 @@ function ParentWindow({ initialScreen, onLoggedOut }: { initialScreen: Screen; o
   const [saveSlot, setSaveSlot] = useState<HTMLElement | null>(null);
   const attempt = useAttemptNavigation();
   const { view, extend, restart } = useSessionWatcher();
+  const version = useVersion();
 
   const go: Go = (next, opts = {}) =>
     attempt(() => {
@@ -248,10 +259,16 @@ function ParentWindow({ initialScreen, onLoggedOut }: { initialScreen: Screen; o
 
   return (
     <SaveBarSlotContext.Provider value={saveSlot}>
-      <div className="shell">
-        <Topbar onLogout={leave} />
+      <div className="shell shell-parent">
         <div className="shell-body" inert={ended}>
+          {/* Меню слева (8.3.2 п. 2, макет parent2.py): логотип, разделы, внизу «Что нового», «Выйти» и версия. */}
           <nav className="menu" aria-label="Разделы">
+            <div className="menu-logo">
+              <span className="menu-logo-mark" aria-hidden="true">
+                <Icon name="shield" size={18} strokeWidth={2} />
+              </span>
+              <h1 className="product">PC Block</h1>
+            </div>
             <ul className="menu-list">
               {MENU.map((item) => (
                 <li key={item.id}>
@@ -261,19 +278,30 @@ function ParentWindow({ initialScreen, onLoggedOut }: { initialScreen: Screen; o
                     aria-current={screen === item.id ? "page" : undefined}
                     onClick={() => go(item.id)}
                   >
+                    <Icon name={item.icon} />
                     {item.label}
                   </button>
                 </li>
               ))}
             </ul>
-            <button
-              type="button"
-              className="menu-item menu-foot"
-              aria-current={screen === "whatsnew" ? "page" : undefined}
-              onClick={() => go("whatsnew")}
-            >
-              Что нового
-            </button>
+            <div className="menu-foot">
+              <button
+                type="button"
+                className="menu-item"
+                aria-current={screen === "whatsnew" ? "page" : undefined}
+                onClick={() => go("whatsnew")}
+              >
+                <Icon name="star" />
+                Что нового
+              </button>
+              <button type="button" className="menu-item" onClick={leave}>
+                <Icon name="logout" />
+                Выйти
+              </button>
+              <p className="menu-version product-version">
+                <VersionText version={version} />
+              </p>
+            </div>
           </nav>
           <div className="main-col">
             <main className="content">
@@ -302,7 +330,9 @@ function ParentWindow({ initialScreen, onLoggedOut }: { initialScreen: Screen; o
               {screen === "bonus" ? <Bonus onOpenPromos={() => go("promos")} /> : null}
               {screen === "promos" ? <Promos /> : null}
               {screen === "stats" ? <ParentStats key={childToOpen} initialChildId={childToOpen} /> : null}
-              {screen === "journal" ? <Journal key={String(violationsOnly)} violationsOnly={violationsOnly} /> : null}
+              {screen === "journal" ? (
+                <Journal key={`${violationsOnly}-${childToOpen ?? 0}`} violationsOnly={violationsOnly} initialChildId={childToOpen} />
+              ) : null}
               {screen === "settings" ? <Settings onOpenChildren={() => go("children")} /> : null}
               {screen === "whatsnew" ? <WhatsNew /> : null}
             </main>

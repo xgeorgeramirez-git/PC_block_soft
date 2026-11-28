@@ -17,7 +17,7 @@ const (
 )
 
 // Ловит (RM4-8, 8.2.5 п. 4, R13, D-65): ребёнку о запрещённом браузере приходит плашка
-// «Программа «chrome» запрещена родителем» вместо «Этот браузер запрещён. Пользуйся Brave»;
+// «Родитель запретил «chrome»» вместо «Этот браузер запрещён» — «Пользуйся Brave»;
 // браузер не закрыт или не записан нарушением; плашку браузера получает запрещённая родителем
 // программа; автозапуск браузера даёт плашку или нарушение.
 func TestBrowserPlate(t *testing.T) {
@@ -26,7 +26,7 @@ func TestBrowserPlate(t *testing.T) {
 	explorer := h.manualReady(w)
 	procs := startManual(w, explorer, pathChrome) // chrome запрещён каталогом, не родителем
 	h.watch()
-	want := []ipc.BlockedPlate{{Kind: "browser", Text: "Этот браузер запрещён. Пользуйся Brave", ShowS: 10, Path: pathChrome}}
+	want := []ipc.BlockedPlate{{Kind: "browser", Title: "Этот браузер запрещён", Text: "Пользуйся Brave", ShowS: 10, Path: pathChrome}}
 	if got := platesOf(h.poll(activeSample)); jsonOf(t, got) != jsonOf(t, want) {
 		t.Errorf("плашка браузера:\n got %s\nwant %s", jsonOf(t, got), jsonOf(t, want))
 	}
@@ -42,7 +42,7 @@ func TestBrowserPlate(t *testing.T) {
 	h.poll(activeSample) // ребёнок только что нажал клавишу
 	procs = startManual(w, explorer, pathGeoGebra)
 	h.watch()
-	want = []ipc.BlockedPlate{{Kind: ipc.BlockedForbidden, Text: "Программа «GeoGebra Classic» запрещена родителем", ShowS: 10, Path: pathGeoGebra}}
+	want = []ipc.BlockedPlate{{Kind: ipc.BlockedForbidden, Title: "Эта программа запрещена", Text: "Родитель запретил «GeoGebra Classic». Выбери другую игру", ShowS: 10, Path: pathGeoGebra}}
 	if got := platesOf(h.poll(activeSample)); jsonOf(t, got) != jsonOf(t, want) {
 		t.Errorf("плашка запрещённой программы:\n got %s\nwant %s", jsonOf(t, got), jsonOf(t, want))
 	}

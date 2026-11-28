@@ -47,14 +47,26 @@ describe("call: сбои связи говорят простыми словам
 describe("массивы в ответах: null становится пустым списком (L-22)", () => {
   it("getToday", async () => {
     const mock = installBackend({ sessionActive: true });
-    mock.override("GetToday", { ok: true, payload: { children: null, notices: null } });
-    expect(await api.getToday()).toEqual({ children: [], notices: [] });
+    mock.override("GetToday", { ok: true, payload: { children: null, notices: null, pendingNames: null } });
+    expect(await api.getToday()).toEqual({ children: [], notices: [], pendingNames: [], pendingTotal: 0 });
   });
 
   it("getToday: пустой ответ без полей", async () => {
     const mock = installBackend({ sessionActive: true });
     mock.override("GetToday", { ok: true });
-    expect(await api.getToday()).toEqual({ children: [], notices: [] });
+    expect(await api.getToday()).toEqual({ children: [], notices: [], pendingNames: [], pendingTotal: 0 });
+  });
+
+  // Ловит: окно 0.8.4 со службой 0.8.3 (нет полей запрета, присутствия и ждущих) падает или рисует «undefined».
+  it("getToday: карточка старой службы без полей 0.8.4", async () => {
+    const mock = installBackend({ sessionActive: true });
+    mock.override("GetToday", {
+      ok: true,
+      payload: { children: [{ childId: 1, name: "Миша", status: { name: "Миша", status: "ok" } }], notices: [] },
+    });
+    const today = await api.getToday();
+    expect(today.children[0]).toMatchObject({ presenceNow: false, presenceText: "", status: { forbidState: "none", forbidFrom: "", forbidTo: "" } });
+    expect(today).toMatchObject({ pendingNames: [], pendingTotal: 0 });
   });
 
   it("listEvents", async () => {

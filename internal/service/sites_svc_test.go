@@ -278,7 +278,7 @@ func TestSiteTabClosedWithPlate(t *testing.T) {
 	if len(cmds) != 2 || cmds[0].Kind != ipc.GuardCmdCloseTab || cmds[0].Domain != "m.example.com" || cmds[1].Kind != ipc.GuardCmdBlocked {
 		t.Fatalf("команды %s, want closeTab{m.example.com}, затем плашка", jsonOf(t, cmds))
 	}
-	wantPlate := []ipc.BlockedPlate{{Kind: "site", Text: "Сайт example.com закрыт: он в списке запрещённых. Если он нужен, попроси родителей", ShowS: 10, Path: ""}}
+	wantPlate := []ipc.BlockedPlate{{Kind: "site", Title: "Сайт закрыт", Text: "example.com в списке запрещённых. Если он нужен, попроси родителей", ShowS: 10, Path: ""}}
 	if got := platesOf(rep); jsonOf(t, got) != jsonOf(t, wantPlate) {
 		t.Errorf("плашка %s, want %s", jsonOf(t, got), jsonOf(t, wantPlate))
 	}
@@ -311,7 +311,7 @@ func TestSiteTabClosedWithPlate(t *testing.T) {
 	if c := closes(rep); len(c) != 1 || c[0].Domain != "adult-probe.test" {
 		t.Errorf("18+: закрытия %s, want closeTab{adult-probe.test}", jsonOf(t, c))
 	}
-	wantAdult := []ipc.BlockedPlate{{Kind: "adult", Text: "Сайт закрыт: он в списке сайтов для взрослых", ShowS: 10}}
+	wantAdult := []ipc.BlockedPlate{{Kind: "adult", Title: "Сайт закрыт", Text: "Этот сайт для взрослых", ShowS: 10}}
 	if got := platesOf(rep); jsonOf(t, got) != jsonOf(t, wantAdult) {
 		t.Errorf("плашка 18+ %s, want %s (плашка запрещённого сайта её не глушит)", jsonOf(t, got), jsonOf(t, wantAdult))
 	}
@@ -336,7 +336,7 @@ func TestSiteVideoOverClosesOnlyVideo(t *testing.T) {
 	if c := closes(rep); len(c) != 1 || c[0].Kind != ipc.GuardCmdCloseTab || c[0].Domain != "m.youtube.com" {
 		t.Errorf("закрытия %s, want closeTab{m.youtube.com}", jsonOf(t, c))
 	}
-	want := []ipc.BlockedPlate{{Kind: "videoOver", Text: "Время на видео и соцсети на сегодня закончилось. Общего времени осталось 2 ч 00 мин", ShowS: 10}}
+	want := []ipc.BlockedPlate{{Kind: "videoOver", Title: "Видео на сегодня всё", Text: "Время на видео и соцсети на сегодня закончилось. Общего времени осталось 2 ч 00 мин", ShowS: 10}}
 	if got := platesOf(rep); jsonOf(t, got) != jsonOf(t, want) {
 		t.Errorf("плашка %s, want %s", jsonOf(t, got), jsonOf(t, want))
 	}
@@ -364,7 +364,7 @@ func TestSiteStudyOnly(t *testing.T) {
 	if c := closes(rep); len(c) != 1 || c[0].Domain != "news.example" {
 		t.Errorf("закрытия %s, want closeTab{news.example}", jsonOf(t, c))
 	}
-	want := []ipc.BlockedPlate{{Kind: "studyOnly", Text: "Время вышло. Сейчас доступна только учёба", ShowS: 10}}
+	want := []ipc.BlockedPlate{{Kind: "studyOnly", Title: "Сейчас только учёба", Text: "Время вышло. Сейчас доступна только учёба", ShowS: 10}}
 	if got := platesOf(rep); jsonOf(t, got) != jsonOf(t, want) {
 		t.Errorf("плашка %s, want %s", jsonOf(t, got), jsonOf(t, want))
 	}

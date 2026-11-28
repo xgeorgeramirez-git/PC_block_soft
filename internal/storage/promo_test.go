@@ -221,3 +221,47 @@ func TestListPromosOrder(t *testing.T) {
 		t.Errorf("порядок = %v, want %v", got, want)
 	}
 }
+
+// Ловит (FR-45, D-106): удаление трогает использованный код (история пропадает), не находит код в
+// другом регистре и с пробелами, сообщает «удалён» без строки или не освобождает код для повтора.
+func TestDeletePromo(t *testing.T) {
+	s := openTemp(t)
+	if _, err := s.CreatePromo("SUMMER", 30); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreatePromo("USED1", 15); err != nil {
+		t.Fatal(err)
+	}
+	id := mustChild(t, s, "S-1-5-21-9", "Миша")
+	if _, _, ok, err := s.RedeemPromo(id, "used1", 5_000); err != nil || !ok {
+		t.Fatalf("RedeemPromo: ok=%v, %v", ok, err)
+	}
+
+	p, ok, err := s.DeletePromo(" summer ")
+	if err != nil || !ok || p.CodeDisplay != "SUMMER" || p.CodeNorm != "summer" || p.Minutes != 30 || p.UsedAtMs != nil {
+		t.Fatalf("DeletePromo(« summer ») = %+v, ok=%v, %v; want SUMMER на 30 мин", p, ok, err)
+	}
+	if _, ok, err := s.DeletePromo("SUMMER"); err != nil || ok {
+		t.Errorf("повторное удаление: ok=%v, %v; want ok=false без ошибки", ok, err)
+	}
+	if _, ok, err := s.DeletePromo("USED1"); err != nil || ok {
+		t.Errorf("удаление использованного: ok=%v, %v; want ok=false", ok, err)
+	}
+	if _, ok, err := s.DeletePromo("НЕТТАКОГО"); err != nil || ok {
+		t.Errorf("нет кода: ok=%v, %v; want ok=false", ok, err)
+	}
+	if _, ok, err := s.DeletePromo("   "); err != nil || ok {
+		t.Errorf("пустой код: ok=%v, %v; want ok=false", ok, err)
+	}
+	list, err := s.ListPromos()
+	if err != nil || len(list) != 1 || list[0].CodeDisplay != "USED1" || list[0].UsedAtMs == nil {
+		t.Fatalf("после удаления список = %+v, %v; want только использованный USED1", list, err)
+	}
+	if _, err := s.CreatePromo("SUMMER", 30); err != nil {
+		t.Errorf("SUMMER после удаления: %v; want создаётся заново", err)
+	}
+	_ = s.Close()
+	if _, _, err := s.DeletePromo("SUMMER"); err == nil {
+		t.Error("DeletePromo закрытого хранилища прошёл, want ошибку")
+	}
+}

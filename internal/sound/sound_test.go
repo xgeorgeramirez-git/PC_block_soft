@@ -162,13 +162,13 @@ func TestMessageWavs(t *testing.T) {
 
 // Ловит: номер вне набора считается встроенным (страж не подменит его на звук 1) или отдаёт чужой wav.
 func TestMessageUnknown(t *testing.T) {
-	for _, n := range []int{0, -1, 9, 100} {
+	for _, n := range []int{0, -1, 99, 100} {
 		if HasMessage(n) || MessageWAV(n) != nil {
 			t.Errorf("звук %d считается встроенным", n)
 		}
 	}
-	if PlayMessage(9) {
-		t.Error("звук 9 принят")
+	if PlayMessage(99) {
+		t.Error("звук 99 принят")
 	}
 	if a, b := MessageWAV(1), MessageWAV(2); len(a) == 0 || len(b) == 0 || bytes.Equal(a, b) {
 		t.Error("звуки 1 и 2 пусты или одинаковы")
@@ -200,9 +200,20 @@ func TestSoundLengths(t *testing.T) {
 	if got := MessageLength(1); !near(got, 2.429388) {
 		t.Errorf("звук сообщения 1: %v, ждали 2,429 с", got)
 	}
-	for _, n := range []int{0, -1, 9, 100} {
+	for _, n := range []int{0, -1, 99, 100} {
 		if got := MessageLength(n); got != 0 {
 			t.Errorf("звук %d (нет такого): длина %v, ждали 0", n, got)
 		}
+	}
+}
+
+// Ловит (R-7, D-111): имена звуков схемы Windows для плашек «Игрового лобби» не те, что в
+// разделе «Звуки» панели управления («Восклицание», «Уведомление»).
+func TestSystemAliases(t *testing.T) {
+	if AliasExclamation != "SystemExclamation" || AliasNotify != "Notification.Default" {
+		t.Fatalf("%q %q", AliasExclamation, AliasNotify)
+	}
+	if !isWindows && PlaySystem(AliasExclamation) {
+		t.Fatal("вне Windows системный звук принят")
 	}
 }

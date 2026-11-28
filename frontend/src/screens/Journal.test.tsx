@@ -369,3 +369,22 @@ describe("Journal", () => {
     });
   });
 });
+
+describe("Журнал со ссылки карточки ребёнка (8.3.2 п. 5)", () => {
+  // Ловит: «Нарушения сегодня: N» на карточке Коли открывает журнал всех детей.
+  it("«Ребёнок» сразу на нём, «Что: Нарушения», вкладка «Сегодня»", async () => {
+    mock = installBackend({
+      sessionActive: true,
+      children: [mockChild(), kolya()],
+      events: [
+        event({ atMs: NOW.getTime() - 60_000, childId: 2, childName: "Коля", text: "Коля: попытка обойти защиту" }),
+        event({ atMs: NOW.getTime() - 120_000, text: "Миша: попытка обойти защиту" }),
+      ],
+    });
+    render(<Journal violationsOnly initialChildId={2} />);
+    expect(await screen.findByText("Коля: попытка обойти защиту")).toBeTruthy();
+    expect(screen.queryByText("Миша: попытка обойти защиту")).toBeNull();
+    expect(mock.calls.find((c) => c.command === "ListEvents")?.payload).toMatchObject({ childId: 2, group: "violations", fromMs: MIDNIGHT });
+    expect(((await screen.findByLabelText("Ребёнок")) as HTMLSelectElement).value).toBe("2");
+  });
+});

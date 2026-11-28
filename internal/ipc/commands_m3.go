@@ -57,11 +57,16 @@ const (
 // BlockedPlate — плашка о закрытой программе (FR-13): текст ребёнку, сколько показывать, путь
 // программы и можно ли «Попросить сейчас» (RM3-4, только для BlockedUnknown).
 type BlockedPlate struct {
-	Kind   string `json:"kind"`   // Blocked*
-	Text   string `json:"text"`   // «Программа «SuperGame» ждёт разрешения родителя»
+	Kind string `json:"kind"` // Blocked*
+	// Title — заголовок плашки «Игрового лобби» (ТЗ 8.2.4, 8.2.5, D-111): «Ждёт разрешения»; «» —
+	// прежняя плашка без заголовка.
+	Title  string `json:"title"`
+	Text   string `json:"text"`   // «Программа «SuperGame» новая. Родитель должен решить, можно ли её запускать»
 	ShowS  int    `json:"showS"`  // секунд показа; 0 — срок стража (8 с, у BlockedDecided 10 с)
 	Path   string `json:"path"`   // путь exe; «» — не про одну программу
 	CanAsk bool   `json:"canAsk"` // кнопка «Попросить сейчас»
+	// Allowed — у BlockedDecided: родитель разрешил (стикер 033 и звук «Уведомление»); иначе запретил.
+	Allowed bool `json:"allowed,omitempty"`
 }
 
 // --- окно родителя: «Программы» (FR-20) ---------------------------------------------------

@@ -5,8 +5,10 @@ import (
 	"crypto/ecdsa"
 	"crypto/rand"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -38,7 +40,11 @@ type fakePC struct {
 	note       remote.Note // последнее принятое сообщение после CheckNote
 	forbid     string      // запретные часы в отчёте (раздел 6)
 	forbidEnd  int64
-	today      *remote.TodayReport // статистика за сегодня в отчёте (FR-43)
+	today      *remote.TodayReport    // статистика за сегодня в отчёте (FR-43)
+	bank       int                    // копилка Миши (раздел 5в)
+	promos     []remote.PromoActive   // действующие промокоды (раздел 5г)
+	pending    []remote.PendingReport // ждущие решения (раздел 5д)
+	ops        []string               // применённые команды 1.5: op и разобранные поля
 }
 
 func newFakePC(t *testing.T) *fakePC {
@@ -105,8 +111,9 @@ func (f *fakePC) signed(v any) json.RawMessage {
 
 func (f *fakePC) report() remote.Report {
 	return remote.Report{V: 1, T: remote.TypeReport, PC: "pc1", Phone: "ph1", TS: time.Now().UnixMilli(),
-		Children: []remote.ChildReport{{ID: 3, Name: "Миша", UsedSec: 60, LeftSec: int64(1800 + f.extra*60), ExtraMin: f.extra, Forbid: f.forbid, ForbidUntilMs: f.forbidEnd, Today: f.today}},
-		Notes:    append([]remote.NoteReport(nil), f.notes...)}
+		Children: []remote.ChildReport{{ID: 3, Name: "Миша", UsedSec: 60, LeftSec: int64(1800 + f.extra*60), ExtraMin: f.extra, Forbid: f.forbid, ForbidUntilMs: f.forbidEnd, Today: f.today, BankMin: f.bank}},
+		Notes:    append([]remote.NoteReport(nil), f.notes...),
+		Pending:  append([]remote.PendingReport{}, f.pending...), PendingCount: len(f.pending)}
 }
 
 func (f *fakePC) hSend(w http.ResponseWriter, r *http.Request) {
@@ -140,13 +147,21 @@ func (f *fakePC) hSend(w http.ResponseWriter, r *http.Request) {
 			res.Cmd = remote.HashData([]byte("другая"))
 		}
 		if code == "" {
-			f.lastSeq, f.extra, f.cmdApplied = c.Seq, f.extra+c.Delta, f.cmdApplied+1
+			f.lastSeq, f.cmdApplied = c.Seq, f.cmdApplied+1
 			msg := "Добавлено"
-			if c.Op == remote.OpNoForbidden {
+			switch c.Op {
+			case "", remote.OpExtra:
+				f.extra += c.Delta
+			case remote.OpNoForbidden:
 				f.forbid, f.forbidEnd, msg = remote.ForbidCleared, 0, "Запрет на сегодня снят"
+			default:
+				msg = f.applyOp(c, &res)
 			}
-			rep := f.report()
-			res.OK, res.Message, res.Report = true, msg, &rep
+			if res.Error == "" && res.Promos == nil {
+				rep := f.report()
+				res.Report = &rep
+			}
+			res.OK, res.Message = res.Error == "", msg
 		} else {
 			last := f.lastSeq
 			res.Error, res.LastSeq = code, &last
@@ -173,6 +188,46 @@ func (f *fakePC) hSend(w http.ResponseWriter, r *http.Request) {
 	default:
 		f.reply(w, 400, map[string]any{"error": "bad_request"})
 	}
+}
+
+// applyOp — команды 1.5 фейка компьютера (под f.mu): копилка, промокоды (ответ со списком), решение.
+func (f *fakePC) applyOp(c remote.Command, res *remote.CmdResult) string {
+	f.ops = append(f.ops, fmt.Sprintf("%s:%d:%s:%d:%d:%d:%s:%s:%s", c.Op, c.Delta, c.Code, c.Min, c.Count, c.Len, c.Charset, c.Key, c.Cat))
+	list := func() *remote.PromoList {
+		return &remote.PromoList{Active: append([]remote.PromoActive{}, f.promos...), Used: []remote.PromoUsed{}}
+	}
+	switch c.Op {
+	case remote.OpBankAdd:
+		f.bank += c.Delta
+		return fmt.Sprintf("Положено %d минут. В копилке %d мин", c.Delta, f.bank)
+	case remote.OpBankClear:
+		f.bank = 0
+		return "Копилка обнулена"
+	case remote.OpPromoList:
+		res.Promos = list()
+		return ""
+	case remote.OpPromoCreate:
+		f.promos = append(f.promos, remote.PromoActive{Code: c.Code, Min: c.Min, CreatedMs: 1})
+		res.Promos = list()
+		return "Промокод " + c.Code + " готов"
+	case remote.OpPromoGen:
+		res.Codes = []string{"K7PX", "M3QA"}
+		res.Promos = list()
+		return "Готово"
+	case remote.OpPromoDelete:
+		res.Promos = list()
+		res.Error = remote.ErrCodeNotFound
+		return ""
+	case remote.OpDecide:
+		for i, p := range f.pending {
+			if p.ID == c.Key {
+				f.pending = append(f.pending[:i], f.pending[i+1:]...)
+				return p.Name + ": игра"
+			}
+		}
+		res.Error = remote.ErrCodeNotFound
+	}
+	return ""
 }
 
 func (f *fakePC) hStatus(w http.ResponseWriter, r *http.Request) {
@@ -452,5 +507,127 @@ func TestPhoneToday(t *testing.T) {
 		if !strings.Contains(text, want) {
 			t.Errorf("status -human без %q:\n%s", want, text)
 		}
+	}
+}
+
+// Ловит: тестовый телефон собирает команды 1.5 не теми байтами, что векторы Go↔Kotlin (порядок
+// полей, числа строкой, лишние поля), и приёмка проверяет не то, что пошлёт Android.
+func TestOpCommandVectors(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "..", "testdata", "remote", "vectors.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var v map[string]any
+	if err := json.Unmarshal(raw, &v); err != nil {
+		t.Fatal(err)
+	}
+	key, _ := v["pendingKey"].(string)
+	cases := []struct {
+		sub, vec string
+		seq, ts  int64
+		op       opArgs
+	}{
+		{"bank", "cmdBankAddJson", 20, 1763490005000, opArgs{child: 3, min: 30}},
+		{"bank-clear", "cmdBankClearJson", 21, 1763490006000, opArgs{child: 3}},
+		{"promos", "cmdPromoListJson", 22, 1763490007000, opArgs{}},
+		{"promo-create", "cmdPromoCreateJson", 23, 1763490008000, opArgs{code: "SUMMER", min: 30}},
+		{"promo-gen", "cmdPromoGenJson", 24, 1763490009000, opArgs{count: 5, length: 6, charset: "mixed", min: 15}},
+		{"promo-delete", "cmdPromoDeleteJson", 25, 1763490010000, opArgs{code: "SUMMER"}},
+		{"decide", "cmdDecideJson", 26, 1763490011000, opArgs{key: key, cat: "games"}},
+		{"forbid-off", "cmdNoForbiddenJson", 19, 1763490004000, opArgs{child: 3}},
+		{"cmd", "cmdJson", 17, 1763490000000, opArgs{child: 3, delta: 15}},
+	}
+	for _, c := range cases {
+		cmd, err := opCommand(c.sub, "pc-vector", "phone-vector", c.seq, c.ts, c.op)
+		if err != nil {
+			t.Fatalf("%s: %v", c.sub, err)
+		}
+		got, _ := json.Marshal(cmd)
+		if want, _ := v[c.vec].(string); want == "" || string(got) != want {
+			t.Errorf("%s:\n got %s\nwant %s", c.sub, got, want)
+		}
+	}
+	// -raw-min уходит как есть; -min 601 у bank — числом (предел не проверяется, S61).
+	cmd, _ := opCommand("promo-create", "pc", "ph", 1, 1, opArgs{code: "X1Y", min: 30, rawMin: `"30"`})
+	if got, _ := json.Marshal(cmd); !strings.HasSuffix(string(got), `"op":"promoCreate","code":"X1Y","min":"30"}`) {
+		t.Fatalf("raw-min: %s", got)
+	}
+	cmd, _ = opCommand("bank", "pc", "ph", 1, 1, opArgs{child: 3, min: 601})
+	if got, _ := json.Marshal(cmd); !strings.HasSuffix(string(got), `"child":3,"delta":601,"op":"bankAdd"}`) {
+		t.Fatalf("bank 601: %s", got)
+	}
+	for _, sub := range []string{"bank", "bank-clear", "forge-bank"} {
+		if _, err := opCommand(sub, "pc", "ph", 1, 1, opArgs{min: 5}); err == nil {
+			t.Errorf("%s без -child принят", sub)
+		}
+	}
+	if _, err := opCommand("decide", "pc", "ph", 1, 1, opArgs{cat: "games"}); err == nil {
+		t.Error("decide без -key принят")
+	}
+}
+
+// Ловит: подкоманды 1.5 не доходят до компьютера, вывод без promos, codes, bankMin и отчёта;
+// отказ range тратит номер телефона так, что следующая команда — replay; status без pending.
+func TestPhoneBankPromoDecide(t *testing.T) {
+	f := newFakePC(t)
+	f.bank = 45
+	f.pending = []remote.PendingReport{{ID: remote.PendingKey(`C:\g.exe`), Name: "SuperGame", Path: `C:\g.exe`, Kids: []remote.PendingKid{{ID: 3, Tries: 3}}, Tries: 3, LastMs: 5}}
+	state := filepath.Join(t.TempDir(), "phone.json")
+	if code, out := runJSON(t, "pair", "-state", state, "-url", f.srv.URL, "-code", "123456"); code != 0 {
+		t.Fatalf("pair: %v", out)
+	}
+	runJSON(t, "confirm", "-state", state)
+
+	code, out := runJSON(t, "status", "-state", state)
+	pend, _ := out["pending"].([]any)
+	ch, _ := out["children"].([]any)
+	if code != 0 || len(pend) != 1 || out["pendingCount"] != float64(1) || ch[0].(map[string]any)["bankMin"] != float64(45) {
+		t.Fatalf("status: %d %v", code, out)
+	}
+	key := pend[0].(map[string]any)["id"].(string)
+
+	code, out = runJSON(t, "bank", "-state", state, "-child", "3", "-min", "30")
+	if code != 0 || out["message"] != "Положено 30 минут. В копилке 75 мин" || out["bankMin"] != float64(75) || out["report"] == nil {
+		t.Fatalf("bank: %d %v", code, out)
+	}
+	if code, out := runJSON(t, "bank", "-state", state, "-child", "3", "-min", "601"); code != 2 || out["error"] != remote.ErrCodeRange {
+		t.Fatalf("bank 601: %d %v", code, out)
+	}
+	if code, out := runJSON(t, "forge-bank", "-state", state, "-child", "3", "-min", "30"); code != 2 || out["error"] != remote.ErrCodeBadSig {
+		t.Fatalf("forge-bank: %d %v", code, out)
+	}
+	if code, out := runJSON(t, "bank-clear", "-state", state, "-child", "3"); code != 0 || out["message"] != "Копилка обнулена" {
+		t.Fatalf("bank-clear: %d %v", code, out)
+	}
+	if code, out := runJSON(t, "promo-create", "-state", state, "-code", "SUMMER", "-raw-min", `"30"`); code != 2 || out["error"] != remote.ErrCodeRange {
+		t.Fatalf("promo-create raw-min: %d %v", code, out)
+	}
+	code, out = runJSON(t, "promo-create", "-state", state, "-code", " summer ", "-min", "30")
+	if p, _ := out["promos"].(map[string]any); code != 0 || p == nil || out["report"] != nil || len(p["active"].([]any)) != 1 {
+		t.Fatalf("promo-create: %d %v", code, out)
+	}
+	code, out = runJSON(t, "promo-gen", "-state", state, "-count", "5", "-len", "6", "-charset", "mixed", "-min", "15")
+	if c, _ := out["codes"].([]any); code != 0 || len(c) != 2 {
+		t.Fatalf("promo-gen: %d %v", code, out)
+	}
+	if code, out := runJSON(t, "promos", "-state", state); code != 0 || out["promos"] == nil {
+		t.Fatalf("promos: %d %v", code, out)
+	}
+	if code, out := runJSON(t, "promo-delete", "-state", state, "-code", "NOSUCH"); code != 2 || out["error"] != remote.ErrCodeNotFound || out["promos"] == nil {
+		t.Fatalf("promo-delete: %d %v", code, out)
+	}
+	if code, out := runJSON(t, "decide", "-state", state, "-key", key, "-cat", "games"); code != 0 || out["message"] != "SuperGame: игра" {
+		t.Fatalf("decide: %d %v", code, out)
+	}
+	if code, out := runJSON(t, "decide", "-state", state, "-key", key, "-cat", "games"); code != 2 || out["error"] != remote.ErrCodeNotFound {
+		t.Fatalf("decide второй раз: %d %v", code, out)
+	}
+	f.mu.Lock()
+	ops := strings.Join(f.ops, " ")
+	f.mu.Unlock()
+	want := "bankAdd:30::0:0:0::: bankClear:0::0:0:0::: promoCreate:0:SUMMER:30:0:0::: promoGen:0::15:5:6:mixed:: promoList:0::0:0:0::: " +
+		"promoDelete:0:NOSUCH:0:0:0::: decide:0::0:0:0::" + key + ":games decide:0::0:0:0::" + key + ":games"
+	if ops != want {
+		t.Fatalf("применены:\n%s\nждали\n%s", ops, want)
 	}
 }

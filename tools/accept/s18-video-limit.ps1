@@ -83,6 +83,7 @@ Invoke-Scenario "S18" "Видео и соцсети 20 мин из 60: пред�
   }
 
   Step "2. Видео кончилось: вкладка youtube.com закрыта, плашка, экрана нет, остатки" {
+    $sb = @(Get-SystemSounds (Get-GuardState)).Count
     $st = Wait-Status { param($st) $st.closeVideo } 60 "видео закрыто (closeVideo)"
     $since = [Diagnostics.Stopwatch]::StartNew()
     # Часы ядра на паузу; nowMs ответа — часы ядра в момент паузы, pauseMs — настоящее время до команды (мс от
@@ -103,7 +104,8 @@ Invoke-Scenario "S18" "Видео и соцсети 20 мин из 60: пред�
     }
     if ($closedMs -lt 0) { throw "Вкладка $($script:Video) не закрыта за 8 с после closeVideo; $(Get-SiteDiag $g)" }
     [void](Wait-TabClosed $script:Video $since)
-    $g = Wait-SitePlate $script:VideoOverRe "videoOver" 5 -Regex
+    # «Игровое лобби» (ТЗ 8.2.5 п. 3, D-114): «Видео на сегодня всё», стикер 048, «Восклицание».
+    $g = Wait-SitePlate $script:VideoOverRe "videoOver" 5 -Regex -Title "Видео на сегодня всё" -Sticker "048" -Sound $script:SoundExclamation -SoundsBefore $sb
     Assert-That (-not $g.lockShown) "Экран блокировки показан, ждали только плашку: $(Format-GuardState $g)"
     Assert-That (@(Get-BigPcbWindows).Count -eq 0) "Окно PC Block на весь экран: $((Get-BigPcbWindows) -join ' ; ')"
     Start-Sleep -Milliseconds 500 # поток окон перерисовывает плашку по своему таймеру

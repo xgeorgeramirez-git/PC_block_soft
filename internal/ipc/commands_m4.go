@@ -56,12 +56,13 @@ const GuardCmdCloseTab = "closeTab"
 // closeTab с пустым доменом: пустой домен — ещё и служебная страница, которую закрывать нельзя.
 const GuardCmdCloseBraveWindow = "closeBraveWindow"
 
-// Виды плашек о закрытых сайтах и браузерах (BlockedPlate.Kind, RM4-9).
+// Виды плашек о закрытых сайтах и браузерах (BlockedPlate.Kind, RM4-9). Тексты плашек — в
+// internal/service/texts.go (textPlate*); здесь заголовок / текст для ориентира.
 const (
-	BlockedSite      = "site"      // «Сайт X закрыт: он в списке запрещённых. Если он нужен, попроси родителей»
+	BlockedSite      = "site"      // «Сайт закрыт» / «X в списке запрещённых. Если он нужен, попроси родителей»
 	BlockedAdult     = "adult"     // сайт из списка «18+» (R14)
 	BlockedVideoOver = "videoOver" // время на видео и соцсети закончилось (R6)
-	BlockedBrowser   = "browser"   // «Этот браузер запрещён. Пользуйся Brave» (R15)
+	BlockedBrowser   = "browser"   // «Этот браузер запрещён» / «Пользуйся Brave» (R15)
 )
 
 // WarnEventVideo — вид события предупреждения GuardWarning.Event: исчерпание лимита «Видео и

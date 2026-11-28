@@ -66,5 +66,59 @@
   "reportToday": {
     "data": "eyJ2IjoxLCJ0IjoicmVwb3J0IiwicGMiOiJwYy12ZWN0b3IiLCJwaG9uZSI6InBob25lLXZlY3RvciIsInRzIjoxNzYzNDkwMDA2MDAwLCJjaGlsZHJlbiI6W3siaWQiOjMsIm5hbWUiOiLQnNC40YjQsCIsInVzZWRTZWMiOjU0MDAsImxlZnRTZWMiOjE4MDAsImV4dHJhTWluIjoxNSwiYmxvY2tlZCI6ZmFsc2UsImZvcmJpZCI6ImFoZWFkIiwidG9kYXkiOnsiZmlyc3RNcyI6MTc2MzQ2MzYwMDAwMCwibm93QXQiOnRydWUsInNpbmNlTXMiOjE3NjM0ODUyMDAwMDAsInVzZWRTZWMiOjU0MDAsImxlZnRTZWMiOjE4MDAsImdhbWVzU2VjIjoyNzAwLCJzdHVkeVNlYyI6MTIwMCwidmlkZW9TZWMiOjkwMCwicHJvZ3JhbXMiOlt7Im5hbWUiOiJNaW5lY3JhZnQiLCJjYXQiOiJnYW1lIiwic2VjIjoyNzAwfSx7Im5hbWUiOiJHZW9HZWJyYSBDbGFzc2ljIiwiY2F0Ijoic3R1ZHkiLCJzZWMiOjEyMDB9LHsibmFtZSI6ItCR0LvQvtC60L3QvtGCIiwiY2F0Ijoib3RoZXIiLCJzZWMiOjMwMH1dLCJzaXRlcyI6W3sibmFtZSI6InlvdXR1YmUuY29tIiwiY2F0IjoidmlkZW8iLCJzZWMiOjkwMH0seyJuYW1lIjoidWNoaS5ydSIsImNhdCI6InN0dWR5Iiwic2VjIjoyNDB9XSwibW9yZSI6eyJwcm9ncmFtcyI6MCwic2l0ZXMiOjN9LCJ2aW9sYXRpb25zIjoyLCJieXBhc3MiOjF9fSx7ImlkIjo0LCJuYW1lIjoi0JrQvtC70Y8iLCJ1c2VkU2VjIjowLCJsZWZ0U2VjIjozNjAwLCJleHRyYU1pbiI6MCwiYmxvY2tlZCI6ZmFsc2UsImZvcmJpZCI6Im5vbmUiLCJ0b2RheSI6eyJmaXJzdE1zIjowLCJub3dBdCI6ZmFsc2UsInNpbmNlTXMiOjE3NjM0ODAwMDAwMDAsInVzZWRTZWMiOjAsImxlZnRTZWMiOjM2MDAsImdhbWVzU2VjIjowLCJzdHVkeVNlYyI6MCwidmlkZW9TZWMiOjAsInByb2dyYW1zIjpbXSwic2l0ZXMiOltdLCJtb3JlIjp7InByb2dyYW1zIjowLCJzaXRlcyI6MH0sInZpb2xhdGlvbnMiOjAsImJ5cGFzcyI6MH19LHsiaWQiOjUsIm5hbWUiOiLQlNCw0YjQsCIsInVzZWRTZWMiOjAsImxlZnRTZWMiOi0xLCJleHRyYU1pbiI6MCwiYmxvY2tlZCI6ZmFsc2UsImZvcmJpZCI6Im5vbmUifV19",
     "sig": "MEQCIHk6paVCLdztJr2-hxeWr4p9Vm6W6Ld566B2WtT_a2tJAiBEUQHFHPpO81iBm6ghbSQNaBeS-JjLis5cMjxkc4iviw"
+  },
+  "cmdBankAddJson": "{\"v\":1,\"t\":\"cmd\",\"pc\":\"pc-vector\",\"phone\":\"phone-vector\",\"seq\":20,\"ts\":1763490005000,\"child\":3,\"delta\":30,\"op\":\"bankAdd\"}",
+  "cmdBankAdd": {
+    "data": "eyJ2IjoxLCJ0IjoiY21kIiwicGMiOiJwYy12ZWN0b3IiLCJwaG9uZSI6InBob25lLXZlY3RvciIsInNlcSI6MjAsInRzIjoxNzYzNDkwMDA1MDAwLCJjaGlsZCI6MywiZGVsdGEiOjMwLCJvcCI6ImJhbmtBZGQifQ",
+    "sig": "MEUCIQCMe3LXTtHJVLEdyUTFCZpADjVn-YgQoDmM0K7jRm42UAIgSSE_enzqKH2yZ4DVCjWWbxCLT7_j-tErLs-2KkJltvY"
+  },
+  "cmdBankAddHash": "0IMnuCUAlvaVdZiPGs28AXFXj17358VMR3EIfO-i50s",
+  "cmdBankClearJson": "{\"v\":1,\"t\":\"cmd\",\"pc\":\"pc-vector\",\"phone\":\"phone-vector\",\"seq\":21,\"ts\":1763490006000,\"child\":3,\"op\":\"bankClear\"}",
+  "cmdBankClear": {
+    "data": "eyJ2IjoxLCJ0IjoiY21kIiwicGMiOiJwYy12ZWN0b3IiLCJwaG9uZSI6InBob25lLXZlY3RvciIsInNlcSI6MjEsInRzIjoxNzYzNDkwMDA2MDAwLCJjaGlsZCI6Mywib3AiOiJiYW5rQ2xlYXIifQ",
+    "sig": "MEUCIQDseTMM3Ojyr8nul-Hc910jbnSFp6usEeNpD6wzQcMvIAIgOrxkwFn58qw6SfCtPxZquSkch81DEp4Jrq-rSEXGYRY"
+  },
+  "cmdBankClearHash": "eMcw2KeNE6y8sLNtTXrkDN7ambwTCRTxiRSI5EGb8ek",
+  "cmdPromoListJson": "{\"v\":1,\"t\":\"cmd\",\"pc\":\"pc-vector\",\"phone\":\"phone-vector\",\"seq\":22,\"ts\":1763490007000,\"child\":0,\"op\":\"promoList\"}",
+  "cmdPromoList": {
+    "data": "eyJ2IjoxLCJ0IjoiY21kIiwicGMiOiJwYy12ZWN0b3IiLCJwaG9uZSI6InBob25lLXZlY3RvciIsInNlcSI6MjIsInRzIjoxNzYzNDkwMDA3MDAwLCJjaGlsZCI6MCwib3AiOiJwcm9tb0xpc3QifQ",
+    "sig": "MEYCIQDDEYmt_V9eLfEpaaP3TzriaBS7RtU9UmMFEgnAEfwxLQIhAO1Im1wwQprNp1EcvPlxdCVnqP9tOJxWzj8o4TW2PuB_"
+  },
+  "cmdPromoListHash": "yKkmb4d0jgz0hprEpDSfOaLkf2G2Y09-J6OkIV4XH3U",
+  "cmdPromoCreateJson": "{\"v\":1,\"t\":\"cmd\",\"pc\":\"pc-vector\",\"phone\":\"phone-vector\",\"seq\":23,\"ts\":1763490008000,\"child\":0,\"op\":\"promoCreate\",\"code\":\"SUMMER\",\"min\":30}",
+  "cmdPromoCreate": {
+    "data": "eyJ2IjoxLCJ0IjoiY21kIiwicGMiOiJwYy12ZWN0b3IiLCJwaG9uZSI6InBob25lLXZlY3RvciIsInNlcSI6MjMsInRzIjoxNzYzNDkwMDA4MDAwLCJjaGlsZCI6MCwib3AiOiJwcm9tb0NyZWF0ZSIsImNvZGUiOiJTVU1NRVIiLCJtaW4iOjMwfQ",
+    "sig": "MEUCIBNgOtk2rMXpn9cR3N7-AlBPFTqHKF3DFhG5utk5_EMZAiEA2kK7CvxrOFdr0RuFgM6tOhvev6nTbKNom0sN8RxZq7g"
+  },
+  "cmdPromoCreateHash": "jd5qPJIBhUAOaRu_m0ICluhUY4iVQ91Od-8xwZmgUxI",
+  "cmdPromoGenJson": "{\"v\":1,\"t\":\"cmd\",\"pc\":\"pc-vector\",\"phone\":\"phone-vector\",\"seq\":24,\"ts\":1763490009000,\"child\":0,\"op\":\"promoGen\",\"min\":15,\"count\":5,\"len\":6,\"charset\":\"mixed\"}",
+  "cmdPromoGen": {
+    "data": "eyJ2IjoxLCJ0IjoiY21kIiwicGMiOiJwYy12ZWN0b3IiLCJwaG9uZSI6InBob25lLXZlY3RvciIsInNlcSI6MjQsInRzIjoxNzYzNDkwMDA5MDAwLCJjaGlsZCI6MCwib3AiOiJwcm9tb0dlbiIsIm1pbiI6MTUsImNvdW50Ijo1LCJsZW4iOjYsImNoYXJzZXQiOiJtaXhlZCJ9",
+    "sig": "MEYCIQCWxJdXPbtHPvEk1ElaZVH6hYjRHhga5CufTJJYtzyA4wIhAM-DqGQI1sdukbVwRrRjekf3um9PT6ioCb6pwRX1a0Ug"
+  },
+  "cmdPromoGenHash": "FVrOGc8aRrfJBED96eaYDPwIhgUYMp2Pyx9cLb3blxE",
+  "cmdPromoDeleteJson": "{\"v\":1,\"t\":\"cmd\",\"pc\":\"pc-vector\",\"phone\":\"phone-vector\",\"seq\":25,\"ts\":1763490010000,\"child\":0,\"op\":\"promoDelete\",\"code\":\"SUMMER\"}",
+  "cmdPromoDelete": {
+    "data": "eyJ2IjoxLCJ0IjoiY21kIiwicGMiOiJwYy12ZWN0b3IiLCJwaG9uZSI6InBob25lLXZlY3RvciIsInNlcSI6MjUsInRzIjoxNzYzNDkwMDEwMDAwLCJjaGlsZCI6MCwib3AiOiJwcm9tb0RlbGV0ZSIsImNvZGUiOiJTVU1NRVIifQ",
+    "sig": "MEQCIEDvdGKAoBAEEAMlPUBkfX6a0Ppr469ZxtohWAIVtdmDAiBp2-v7Oi3Zn1KcBA3TX6ZHYfMKsTV2adhoWdIq2Ye9xQ"
+  },
+  "cmdPromoDeleteHash": "z-upsbATveabNdJJcZ1d3LYIFdf_oWjUvvI9STkxMmI",
+  "pendingPath": "C:\\Users\\Misha\\Downloads\\SuperGame\\game.exe",
+  "pendingKey": "TgOw4J51Seo0S6yK66bHgw",
+  "cmdDecideJson": "{\"v\":1,\"t\":\"cmd\",\"pc\":\"pc-vector\",\"phone\":\"phone-vector\",\"seq\":26,\"ts\":1763490011000,\"child\":0,\"op\":\"decide\",\"key\":\"TgOw4J51Seo0S6yK66bHgw\",\"cat\":\"games\"}",
+  "cmdDecide": {
+    "data": "eyJ2IjoxLCJ0IjoiY21kIiwicGMiOiJwYy12ZWN0b3IiLCJwaG9uZSI6InBob25lLXZlY3RvciIsInNlcSI6MjYsInRzIjoxNzYzNDkwMDExMDAwLCJjaGlsZCI6MCwib3AiOiJkZWNpZGUiLCJrZXkiOiJUZ093NEo1MVNlbzBTNnlLNjZiSGd3IiwiY2F0IjoiZ2FtZXMifQ",
+    "sig": "MEQCIAjr9xuHrCwCZoTDj6Oy6V5BcJDxS-EhAKnfz7bpcz-qAiA39lEDwN-1Mx1UvYg-XhjIDL9xWpnY0qKy6CaXyxP17w"
+  },
+  "cmdDecideHash": "6rz2ZIrAo0wkhTNeQgeKTEjwFux-LKYzkmtYkWE6iX4",
+  "cmdrPromosJson": "{\"v\":1,\"t\":\"cmdr\",\"pc\":\"pc-vector\",\"phone\":\"phone-vector\",\"seq\":24,\"cmd\":\"FVrOGc8aRrfJBED96eaYDPwIhgUYMp2Pyx9cLb3blxE\",\"ts\":1763490009500,\"ok\":true,\"message\":\"Готово: 2 кода на 15 мин\",\"codes\":[\"K7PX\",\"M3QA\"],\"promos\":{\"active\":[{\"code\":\"SUMMER\",\"min\":30,\"createdMs\":1763490000000}],\"used\":[{\"code\":\"AB12\",\"min\":30,\"usedMs\":1763480000000,\"child\":3,\"childName\":\"Миша\"}],\"moreActive\":0,\"moreUsed\":0}}",
+  "cmdrPromos": {
+    "data": "eyJ2IjoxLCJ0IjoiY21kciIsInBjIjoicGMtdmVjdG9yIiwicGhvbmUiOiJwaG9uZS12ZWN0b3IiLCJzZXEiOjI0LCJjbWQiOiJGVnJPR2M4YVJyZkpCRUQ5NmVhWURQd0loZ1VZTXAyUHl4OWNMYjNibHhFIiwidHMiOjE3NjM0OTAwMDk1MDAsIm9rIjp0cnVlLCJtZXNzYWdlIjoi0JPQvtGC0L7QstC-OiAyINC60L7QtNCwINC90LAgMTUg0LzQuNC9IiwiY29kZXMiOlsiSzdQWCIsIk0zUUEiXSwicHJvbW9zIjp7ImFjdGl2ZSI6W3siY29kZSI6IlNVTU1FUiIsIm1pbiI6MzAsImNyZWF0ZWRNcyI6MTc2MzQ5MDAwMDAwMH1dLCJ1c2VkIjpbeyJjb2RlIjoiQUIxMiIsIm1pbiI6MzAsInVzZWRNcyI6MTc2MzQ4MDAwMDAwMCwiY2hpbGQiOjMsImNoaWxkTmFtZSI6ItCc0LjRiNCwIn1dLCJtb3JlQWN0aXZlIjowLCJtb3JlVXNlZCI6MH19",
+    "sig": "MEQCIAtuxGQ3wJsXQRU3EoEkcrkX0zQgQSedoIc0pkxM_ez6AiB_GjhA3YuJs7lyP6GhQKIeSpCoEo2t0y-gdb52MiJQ0Q"
+  },
+  "reportPendingJson": "{\"v\":1,\"t\":\"report\",\"pc\":\"pc-vector\",\"phone\":\"phone-vector\",\"ts\":1763490012000,\"children\":[{\"id\":3,\"name\":\"Миша\",\"usedSec\":3600,\"leftSec\":1800,\"extraMin\":15,\"blocked\":false,\"forbid\":\"none\",\"bankMin\":45,\"gamesSec\":2400,\"gamesLimSec\":3600,\"videoSec\":600,\"videoLimSec\":1800},{\"id\":4,\"name\":\"Коля\",\"usedSec\":600,\"leftSec\":3000,\"extraMin\":0,\"blocked\":false,\"forbid\":\"none\",\"bankMin\":0,\"gamesSec\":300,\"gamesLimSec\":-1,\"videoSec\":0,\"videoLimSec\":-1}],\"pending\":[{\"id\":\"TgOw4J51Seo0S6yK66bHgw\",\"name\":\"SuperGame\",\"pub\":\"\",\"path\":\"C:\\\\Users\\\\Misha\\\\Downloads\\\\SuperGame\\\\game.exe\",\"kids\":[{\"id\":3,\"tries\":3}],\"tries\":3,\"lastMs\":1763488000000}],\"pendingCount\":1}",
+  "reportPending": {
+    "data": "eyJ2IjoxLCJ0IjoicmVwb3J0IiwicGMiOiJwYy12ZWN0b3IiLCJwaG9uZSI6InBob25lLXZlY3RvciIsInRzIjoxNzYzNDkwMDEyMDAwLCJjaGlsZHJlbiI6W3siaWQiOjMsIm5hbWUiOiLQnNC40YjQsCIsInVzZWRTZWMiOjM2MDAsImxlZnRTZWMiOjE4MDAsImV4dHJhTWluIjoxNSwiYmxvY2tlZCI6ZmFsc2UsImZvcmJpZCI6Im5vbmUiLCJiYW5rTWluIjo0NSwiZ2FtZXNTZWMiOjI0MDAsImdhbWVzTGltU2VjIjozNjAwLCJ2aWRlb1NlYyI6NjAwLCJ2aWRlb0xpbVNlYyI6MTgwMH0seyJpZCI6NCwibmFtZSI6ItCa0L7Qu9GPIiwidXNlZFNlYyI6NjAwLCJsZWZ0U2VjIjozMDAwLCJleHRyYU1pbiI6MCwiYmxvY2tlZCI6ZmFsc2UsImZvcmJpZCI6Im5vbmUiLCJiYW5rTWluIjowLCJnYW1lc1NlYyI6MzAwLCJnYW1lc0xpbVNlYyI6LTEsInZpZGVvU2VjIjowLCJ2aWRlb0xpbVNlYyI6LTF9XSwicGVuZGluZyI6W3siaWQiOiJUZ093NEo1MVNlbzBTNnlLNjZiSGd3IiwibmFtZSI6IlN1cGVyR2FtZSIsInB1YiI6IiIsInBhdGgiOiJDOlxcVXNlcnNcXE1pc2hhXFxEb3dubG9hZHNcXFN1cGVyR2FtZVxcZ2FtZS5leGUiLCJraWRzIjpbeyJpZCI6MywidHJpZXMiOjN9XSwidHJpZXMiOjMsImxhc3RNcyI6MTc2MzQ4ODAwMDAwMH1dLCJwZW5kaW5nQ291bnQiOjF9",
+    "sig": "MEYCIQDsfzRqmOQg5WDGS4BBWPutZcJ-mB9_FoPpctEV_qPWEQIhAJEs-6hOMKjdfxKqxmPaSAzOavw9YGkWbQrZnZUW5TX_"
   }
 }

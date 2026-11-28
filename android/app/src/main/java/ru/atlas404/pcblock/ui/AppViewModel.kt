@@ -18,12 +18,16 @@ import ru.atlas404.pcblock.crypto.PhoneKey
 import ru.atlas404.pcblock.net.RelayClient
 import ru.atlas404.pcblock.net.RelayException
 import ru.atlas404.pcblock.proto.B64
+import ru.atlas404.pcblock.proto.BankRules
 import ru.atlas404.pcblock.proto.Crypto
 import ru.atlas404.pcblock.proto.Format
 import ru.atlas404.pcblock.proto.NoteRetry
 import ru.atlas404.pcblock.proto.Problem
+import ru.atlas404.pcblock.proto.PromoRules
 import ru.atlas404.pcblock.proto.Proto
 import ru.atlas404.pcblock.proto.ProtoException
+import ru.atlas404.pcblock.proto.RecentStickers
+import ru.atlas404.pcblock.proto.SoundNames
 import ru.atlas404.pcblock.store.Prefs
 import ru.atlas404.pcblock.store.SavedNote
 import java.security.SecureRandom
@@ -32,6 +36,26 @@ enum class Screen { CONNECT, COMPARE, MAIN }
 
 /** Итог команды для карточки ребёнка: текст компьютера («Добавлено 15 минут») или ошибка. */
 data class CmdNote(val childId: Long, val ok: Boolean, val message: String, val problem: Problem?)
+
+/** Нижнее меню (FR-45): «Дети», «Промокоды», «Настройки». */
+enum class Tab { KIDS, PROMOS, SETTINGS }
+
+/** Вложенный экран поверх вкладки «Дети»; системная «Назад» его закрывает. */
+sealed interface Sub {
+    data class Bank(val child: Long) : Sub
+    data class Pending(val child: Long) : Sub
+    data class Note(val child: Long) : Sub
+    data class Stats(val child: Long) : Sub
+}
+
+/** Что делали на экране «Промокоды». */
+enum class PromoAct { LIST, CREATE, GEN, DELETE }
+
+/** Итог команды «Промокодов»: текст компьютера («Промокод SUMMER на 30 минут готов») или ошибка. */
+data class PromoNote(val act: PromoAct, val ok: Boolean, val message: String, val problem: Problem?)
+
+/** Итог решения о программе («SuperGame: игра»); id — чтобы одинаковый ответ показался снова. */
+data class DecideNote(val key: String, val ok: Boolean, val message: String, val problem: Problem?, val id: Long)
 
 /** Состояние приложения и сценарий родителя (план M7, «UX-сценарий», шаги 4–8). */
 class AppViewModel(app: Application) : AndroidViewModel(app) {
@@ -60,7 +84,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         private set
 
     // ---------- сверка ----------
-    private data class Pending(
+    private data class PairWait(
         val url: String,
         val pcId: String,
         val phoneId: String,
@@ -70,7 +94,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         val startedMs: Long,
     )
 
-    private var pending: Pending? = null
+    private var pending: PairWait? = null
     var sas by mutableStateOf("")
         private set
     var compareDeadlineMs by mutableStateOf(0L)
@@ -119,6 +143,52 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     /** Когда компьютер последний раз был на связи (для «не на связи с HH:MM» в отказе команды). */
     var lastSeenMs by mutableStateOf(0L)
         private set
+
+    /** Названия звуков (assets/sounds/message/names.json, D-104); нет файла — «Звук N». */
+    val soundNames: Map<Int, String> = runCatching {
+        app.assets.open("${MessageAssets.SOUNDS}/names.json").bufferedReader(Charsets.UTF_8).use { it.readText() }
+    }.map(SoundNames::parse).getOrDefault(emptyMap())
+
+    /** Последние выбранные стикеры (D-103): попадают сюда после принятой отправки (R-15). */
+    var recentStickers by mutableStateOf(prefs.recentStickers)
+        private set
+
+    /** Сетка экрана сообщения: 7 последних, добивка — первые по номеру. */
+    val noteGrid: List<String> get() = RecentStickers.grid(recentStickers, noteStickers)
+
+    // ---------- навигация (FR-45) ----------
+    var tab by mutableStateOf(Tab.KIDS)
+        private set
+    var sub by mutableStateOf<Sub?>(null)
+        private set
+
+    /** Развёрнутая карточка ребёнка; null — первая. */
+    var expandedChild by mutableStateOf<Long?>(null)
+
+    // ---------- копилка, промокоды, решения (FR-44, FR-45, FR-47) ----------
+    /** Последний список промокодов (кэш на телефоне) и время ответа компьютера. */
+    var promos by mutableStateOf(Proto.parsePromos(prefs.promosRaw))
+        private set
+    var promosTs by mutableStateOf(prefs.promosTs)
+        private set
+    var promoBusy by mutableStateOf<PromoAct?>(null)
+        private set
+    var promoNote by mutableStateOf<PromoNote?>(null)
+        private set
+
+    /** Новые коды «Придумать» для «Скопировать все». */
+    var genCodes by mutableStateOf<List<String>>(emptyList())
+        private set
+    var decideBusy by mutableStateOf<String?>(null)
+        private set
+    var decideNote by mutableStateOf<DecideNote?>(null)
+        private set
+
+    /** Компьютер на связи (опрашивал сервер не дальше минуты назад). */
+    val pcOnline: Boolean get() = link is Format.Link.Online
+
+    /** Идёт любая отправка: одна команда за раз (общий счёт seq). */
+    val isBusy: Boolean get() = busyChild != null || noteBusy || promoBusy != null || decideBusy != null
 
     private var peer: Proto.Peer? = null
     private var pollJob: Job? = null
@@ -173,7 +243,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     private class KeyFailure : Exception()
 
     /** Привязка по протоколу, раздел 4: pair1 → pair1r → pair2 → pair2r, проверка обязательства, число. */
-    private fun pairNow(base: String, code: String): Result<Pending> = runCatching {
+    private fun pairNow(base: String, code: String): Result<PairWait> = runCatching {
         val key = try {
             PhoneKey.create()
         } catch (e: Exception) {
@@ -188,7 +258,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         if (m2.from != res.pcId) throw ProtoException("ответ не от компьютера")
         val nPc = Proto.parsePair2R(m2.kind, m2.body)
         if (!Proto.commitMatches(p1, key.publicDer, nPc)) throw ProtoException("обязательство не сошлось")
-        Pending(
+        PairWait(
             url = base,
             pcId = res.pcId,
             phoneId = res.phoneId,
@@ -225,6 +295,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         noteError = null
         mainError = null
         needRepair = false
+        resetScreens()
         screen = Screen.MAIN
         refreshNow()
     }
@@ -293,40 +364,161 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    // ---------- навигация ----------
+
+    fun selectTab(t: Tab) {
+        sub = null
+        tab = t
+    }
+
+    /** Открыть вложенный экран: прежний итог команды на нём не показывается. */
+    fun open(s: Sub) {
+        when (s) {
+            is Sub.Bank -> note = null
+            is Sub.Pending -> decideNote = null
+            is Sub.Note -> startNote()
+            is Sub.Stats -> {}
+        }
+        sub = s
+    }
+
+    /** Закрыть вложенный экран; only — закрыть, только если открыт именно он. */
+    fun closeSub(only: Sub? = null) {
+        if (only == null || sub == only) sub = null
+    }
+
+    // ---------- команды (протокол, разделы 5, 5б, 5в) ----------
+
     /** Команда доп. времени: +N или −N минут ребёнку (протокол, раздел 5). */
     fun command(childId: Long, delta: Int) {
         if (delta == 0 || delta !in -Proto.MAX_DELTA..Proto.MAX_DELTA) {
-            if (busyChild == null && !noteBusy && peer != null) note = CmdNote(childId, false, "", Problem.RANGE)
+            if (!isBusy && peer != null) note = CmdNote(childId, false, "", Problem.RANGE)
             return
         }
-        runCommand(childId) { pr, seq, ts -> Proto.commandData(pr.pcId, pr.phoneId, seq, ts, childId, delta) }
+        runCommand(childId, "") { pr, seq, ts -> Proto.commandData(pr.pcId, pr.phoneId, seq, ts, childId, delta) }
     }
 
     /** «Снять запрет на сегодня» (протокол, раздел 5б): та же нумерация seq, подпись и проверка ответа. */
     fun clearForbidden(childId: Long) {
-        runCommand(childId) { pr, seq, ts -> Proto.noForbiddenData(pr.pcId, pr.phoneId, seq, ts, childId) }
+        runCommand(childId, Proto.OP_NO_FORBIDDEN) { pr, seq, ts -> Proto.noForbiddenData(pr.pcId, pr.phoneId, seq, ts, childId) }
     }
 
-    private fun runCommand(childId: Long, build: (Proto.Peer, Long, Long) -> ByteArray) {
-        if (busyChild != null || noteBusy || peer == null) return
+    /** «Положить N минут» в копилку (раздел 5в): неверное поле (не 1…600) не отправляется. */
+    fun bankAdd(childId: Long, raw: String) {
+        val m = BankRules.minutes(raw) ?: return
+        if (!pcOnline) return
+        runCommand(childId, Proto.OP_BANK_ADD) { pr, seq, ts -> Proto.bankAddData(pr.pcId, pr.phoneId, seq, ts, childId, m) }
+    }
+
+    /** «Обнулить копилку» после подтверждения (раздел 5в). */
+    fun bankClear(childId: Long) {
+        if (!pcOnline) return
+        runCommand(childId, Proto.OP_BANK_CLEAR) { pr, seq, ts -> Proto.bankClearData(pr.pcId, pr.phoneId, seq, ts, childId) }
+    }
+
+    private fun runCommand(childId: Long, op: String, build: (Proto.Peer, Long, Long) -> ByteArray) {
+        if (isBusy || peer == null) return
         busyChild = childId
         note = null
         viewModelScope.launch {
-            val out = withContext(Dispatchers.IO) { sendCommand(childId, build) }
+            val out = withContext(Dispatchers.IO) { sendCommand(op, build) }
             busyChild = null
             // В отчёте из ответа today нет: статистика остаётся из последнего отдельного отчёта.
-            out.report?.let { report = Proto.keepToday(it, report) }
+            out.reply?.report?.let { report = Proto.keepToday(it, report) }
             if (out.repair) needRepair = true
-            note = out.note
+            note = CmdNote(childId, out.problem == null, out.reply?.message.orEmpty(), out.problem)
             refresh()
         }
     }
 
-    private class CmdOutcome(val note: CmdNote, val report: Proto.Report? = null, val repair: Boolean = false)
+    // ---------- промокоды (протокол, раздел 5г) ----------
 
-    /** Отправка в фоновом потоке; состояние экрана меняет вызывающий в главном. */
-    private fun sendCommand(childId: Long, build: (Proto.Peer, Long, Long) -> ByteArray): CmdOutcome {
-        fun fail(p: Problem, repair: Boolean = false) = CmdOutcome(CmdNote(childId, false, "", p), repair = repair)
+    /**
+     * Запросить список (вкладка открыта, возврат в приложение). Компьютер не на связи — показываем кэш.
+     * Отчёта ещё нет или компьютер старше 0.8.4 — не шлём (Proto.newPcTabs).
+     */
+    fun loadPromos() {
+        if (!pcOnline || promoBusy != null || !Proto.newPcTabs(report)) return
+        runPromo(PromoAct.LIST, Proto.OP_PROMO_LIST) { pr, seq, ts -> Proto.promoListData(pr.pcId, pr.phoneId, seq, ts) }
+    }
+
+    /** «Создать код»: поля проверены теми же правилами, что окно (R26); неверное не отправляется. */
+    fun createPromo(code: String, min: String) {
+        val c = PromoRules.checkCode(code).first ?: return
+        if (PromoRules.checkMinutes(min) != null) return
+        val m = PromoRules.number(min) ?: return
+        runPromo(PromoAct.CREATE, Proto.OP_PROMO_CREATE) { pr, seq, ts -> Proto.promoCreateData(pr.pcId, pr.phoneId, seq, ts, c, m) }
+    }
+
+    /** «Придумать коды»: сколько 1…50, длина 4…12, состав digits/letters/mixed, минуты 1…600. */
+    fun genPromos(count: String, len: String, charset: String, min: String) {
+        if (PromoRules.checkCount(count) != null || PromoRules.checkLen(len) != null || PromoRules.checkMinutes(min) != null) return
+        if (charset !in listOf(Proto.CHARSET_DIGITS, Proto.CHARSET_LETTERS, Proto.CHARSET_MIXED)) return
+        val n = PromoRules.number(count) ?: return
+        val l = PromoRules.number(len) ?: return
+        val m = PromoRules.number(min) ?: return
+        runPromo(PromoAct.GEN, Proto.OP_PROMO_GEN) { pr, seq, ts -> Proto.promoGenData(pr.pcId, pr.phoneId, seq, ts, n, l, charset, m) }
+    }
+
+    /** Удалить действующий код (после подтверждения «Удалить код SUMMER?»). */
+    fun deletePromo(code: String) {
+        if (code.isEmpty() || code.length > Proto.MAX_DELETE_CODE) return
+        runPromo(PromoAct.DELETE, Proto.OP_PROMO_DELETE) { pr, seq, ts -> Proto.promoDeleteData(pr.pcId, pr.phoneId, seq, ts, code) }
+    }
+
+    /** Новая форма (лист «Создать код» или «Придумать коды»): прежний итог и прежние коды не показываются. */
+    fun clearPromoNote() {
+        if (promoBusy != null) return
+        promoNote = null
+        genCodes = emptyList()
+    }
+
+    private fun runPromo(act: PromoAct, op: String, build: (Proto.Peer, Long, Long) -> ByteArray) {
+        if (isBusy || peer == null || !pcOnline) return
+        promoBusy = act
+        promoNote = null
+        if (act == PromoAct.GEN) genCodes = emptyList()
+        viewModelScope.launch {
+            val out = withContext(Dispatchers.IO) { sendCommand(op, build) }
+            promoBusy = null
+            if (out.repair) needRepair = true
+            // Список пришёл (ok:true, promo_exists, not_found) — показываем его; нет — остаётся прежний кэш.
+            out.reply?.promos?.let {
+                promos = it
+                promosTs = prefs.promosTs
+            }
+            if (act == PromoAct.GEN && out.problem == null) genCodes = out.reply?.codes.orEmpty()
+            promoNote = PromoNote(act, out.problem == null, out.reply?.message.orEmpty(), out.problem)
+        }
+    }
+
+    // ---------- решения о программах (протокол, раздел 5д) ----------
+
+    /** «Игра», «Учёба», «Прочее», «Запретить»: решение для всех детей (R12). */
+    fun decide(key: String, cat: String) {
+        if (key.isEmpty() || cat !in Proto.CATS || isBusy || peer == null || !pcOnline) return
+        decideBusy = key
+        decideNote = null
+        viewModelScope.launch {
+            val out = withContext(Dispatchers.IO) {
+                sendCommand(Proto.OP_DECIDE) { pr, seq, ts -> Proto.decideData(pr.pcId, pr.phoneId, seq, ts, key, cat) }
+            }
+            decideBusy = null
+            out.reply?.report?.let { report = Proto.keepToday(it, report) }
+            if (out.repair) needRepair = true
+            decideNote = DecideNote(key, out.problem == null, out.reply?.message.orEmpty(), out.problem, System.nanoTime())
+            refresh() // «Решение уже принято» — список обновляется отчётом
+        }
+    }
+
+    private class CmdOutcome(val reply: Proto.CmdReply? = null, val problem: Problem? = null, val repair: Boolean = false)
+
+    /**
+     * Отправка в фоновом потоке; состояние экрана меняет вызывающий в главном. op — какую команду шлём:
+     * от него зависит текст отказа (Problem.fromCmd). Номер seq записан до отправки и не возвращается.
+     */
+    private fun sendCommand(op: String, build: (Proto.Peer, Long, Long) -> ByteArray): CmdOutcome {
+        fun fail(p: Problem, repair: Boolean = false) = CmdOutcome(problem = p, repair = repair)
         val pr = peer ?: return fail(Problem.NOT_PAIRED)
         val key = PhoneKey.load() ?: return fail(Problem.NOT_PAIRED, repair = true)
         return try {
@@ -337,11 +529,12 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             if (m.kind != Proto.KIND_CMDR) throw ProtoException("ожидался cmdr")
             val reply = Proto.openCmdReply(pr, Proto.signedFromJson(m.body), data, prefs.lastReportTs)
             reply.report?.let { prefs.saveReportTs(it.ts) }
+            reply.promos?.let { prefs.savePromos(Proto.promosJson(it), if (reply.ts > 0) reply.ts else System.currentTimeMillis()) }
             if (reply.ok) {
-                CmdOutcome(CmdNote(childId, true, reply.message, null), reply.report)
+                CmdOutcome(reply)
             } else {
                 reply.lastSeq?.let { prefs.raiseSeq(it) }
-                CmdOutcome(CmdNote(childId, false, "", Problem.fromCmd(reply.error)), reply.report)
+                CmdOutcome(reply, Problem.fromCmd(reply.error, op))
             }
         } catch (e: RelayException) {
             fail(Problem.fromRelay(e.code), repair = e.code == RelayClient.UNAUTHORIZED)
@@ -389,7 +582,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Отправить сообщение; onSent вызывается, когда компьютер его принял (экран закрывается). */
     fun sendNote(childId: Long, raw: String, onSent: () -> Unit) {
-        if (noteBusy || busyChild != null || peer == null) return
+        if (isBusy || peer == null) return
         val text = Proto.cleanNote(raw)
         Proto.noteProblem(text)?.let {
             noteError = it
@@ -406,6 +599,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             if (out.repair) needRepair = true
             if (out.saved != null) {
                 notes = prefs.notes.all()
+                recentStickers = prefs.recentStickers
                 fastUntilMs = System.currentTimeMillis() + FAST_WINDOW_MS
                 onSent()
                 if (pollJob?.isActive == true) {
@@ -440,6 +634,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             if (reply.ok) {
                 val n = SavedNote(id, childId, text, showSec, now)
                 prefs.notes.add(n)
+                // R-15: стикер попадает в «7 последних» только после принятой компьютером отправки.
+                if (sticker.isNotEmpty()) prefs.pushRecentSticker(sticker)
                 NoteOutcome(saved = n)
             } else {
                 reply.lastSeq?.let { prefs.raiseSeq(it) }
@@ -486,6 +682,22 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         noteRetry.answered() // новая привязка — неотвеченное прежнее не повторяется
         fastUntilMs = 0
         url = prefs.url
+        resetScreens()
+    }
+
+    /** Новая привязка или отключение: вкладки, кэш промокодов и последние стикеры — с нуля. */
+    private fun resetScreens() {
+        tab = Tab.KIDS
+        sub = null
+        expandedChild = null
+        promos = Proto.parsePromos(prefs.promosRaw)
+        promosTs = prefs.promosTs
+        promoBusy = null
+        promoNote = null
+        genCodes = emptyList()
+        decideBusy = null
+        decideNote = null
+        recentStickers = prefs.recentStickers
     }
 
     private fun loadPeer(): Proto.Peer? = try {

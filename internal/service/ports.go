@@ -195,6 +195,9 @@ type Store interface {
 	// CreatePromos — пачка кодов одной транзакцией (RM5-12): любой повтор или минуты вне 1..600 — ошибка, ничего не создано.
 	CreatePromos(codesDisplay []string, minutes int) ([]PromoRecord, error)
 	ClearUsedPromos() (int, error) // удаляет использованные коды, действующие остаются (RM5-14)
+	// DeletePromo удаляет действующий код (FR-45): сравнение по core.NormalizePromoCode; кода нет среди
+	// действующих — ok = false без ошибки. Удалённый код можно создать заново.
+	DeletePromo(code string) (PromoRecord, bool, error)
 	LoadDayState(childID int64, day string) (core.DayState, error)
 	SaveDayState(childID int64, st core.DayState) error
 	// SaveDayAndUsage — состояние дня и порции учёта по программам и сайтам одной транзакцией (RM3-6, G10).

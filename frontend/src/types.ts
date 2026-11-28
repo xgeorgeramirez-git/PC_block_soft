@@ -79,7 +79,19 @@ export interface ChildStatus {
   videoUnlimited?: boolean;
   /** Видео и соцсети закрыты: лимит видео исчерпан. */
   closeVideo?: boolean;
+  /**
+   * Запретные часы сегодня (8.3.2 п. 3, B-79): одна истина службы для карточки, окна ребёнка и телефона.
+   * Нет поля (старая служба) — как «none»: getToday подставляет значение по умолчанию.
+   */
+  forbidState?: ForbidState;
+  /** «21:00» — начало интервала (ahead, active); «» при none и cleared. */
+  forbidFrom?: string;
+  /** «07:00» — его конец (ahead, active); «» при none и cleared. */
+  forbidTo?: string;
 }
+
+/** Запретные часы сегодня: нет; будут; идут сейчас; сняты на сегодня (R24). */
+export type ForbidState = "none" | "ahead" | "active" | "cleared";
 
 export interface Account {
   sid: string;
@@ -179,6 +191,14 @@ export interface TodayCard {
   pendingPrograms: number;
   /** «Видео 10 мин из 20 мин» (M4, R6); "" - отдельного лимита видео нет. */
   videoText?: string;
+  /** Ребёнок сейчас за компьютером: точка зелёная (8.3.2 п. 3). */
+  presenceNow?: boolean;
+  /** «За компьютером с 18:20» / «Не за компьютером с 17:05»; "" - неизвестно (тогда статус словами). */
+  presenceText?: string;
+  /** Потрачено сегодня на игры, с: то же число, что gamesSec отчёта телефону; может быть больше лимита. */
+  gamesUsedS: number;
+  /** Потрачено сегодня на видео и соцсети, с: то же число, что videoSec отчёта телефону. */
+  videoUsedS: number;
 }
 
 // Фидбек-раунд 0.2.2.
@@ -312,6 +332,10 @@ export interface BonusRateReply {
 export interface GetTodayReply {
   children: TodayCard[];
   notices: string[];
+  /** До 3 названий программ, ждущих решения, новые первыми (8.3.2 п. 3). */
+  pendingNames: string[];
+  /** Всего программ ждут решения. */
+  pendingTotal: number;
 }
 
 export interface ChildRequest {
@@ -509,6 +533,8 @@ export interface MyTodayReply {
   statsSinceDay: string;
   /** «Статистика ведётся с 11 ноября 2026». */
   statsSinceText: string;
+  /** Нарушений сегодня: блок «Сегодня» окна ребёнка не зависит от периода «Итогов». */
+  violationsToday: number;
 }
 
 /** Разбивка столбиков «По дням» (internal/ipc.BarsBy*). */

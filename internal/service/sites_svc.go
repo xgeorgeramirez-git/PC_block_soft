@@ -270,6 +270,9 @@ func (s *Service) sitePlate(session uint32, childID int64, key string, plate ipc
 	if !s.watchOnce(key, plateEvery, real) {
 		return
 	}
+	if plate.Title == "" {
+		plate.Title = plateTitle(plate.Kind, plate.Allowed)
+	}
 	s.guardCmd[session] = append(s.guardCmd[session], ipc.GuardCommand{Kind: ipc.GuardCmdBlocked, Plate: &plate})
 }
 
