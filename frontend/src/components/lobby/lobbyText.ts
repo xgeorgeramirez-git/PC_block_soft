@@ -92,10 +92,14 @@ export function mainShare(s: ChildStatus): number {
   return remainShare(s.remainingS, s.limitS, false);
 }
 
-/** Деления шкалы по 15 мин; без лимита или лимит меньше получаса — без делений. */
+/**
+ * Число делений шкалы: ровно по 15 мин, дробное при лимите не кратном 15 мин (2 ч 10 мин — 8 и две трети,
+ * последнее деление короче), чтобы подпись «Одно деление: 15 минут» не врала. Без лимита или лимит меньше
+ * получаса — без делений.
+ */
 export function ticksOf(s: ChildStatus): number {
   if (s.unlimited || noRules(s)) return 0;
-  const n = Math.round(s.limitS / 60 / 15);
+  const n = s.limitS / 900;
   return n >= 2 ? n : 0;
 }
 

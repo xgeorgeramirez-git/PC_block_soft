@@ -4651,6 +4651,7 @@ html:has(.shell-child) body {
     inset 0 3px 0 rgba(255, 255, 255, 0.5);
 }
 
+/* --lb-ticks — лимит / 15 мин, может быть дробным: шаг полосок всегда 15 минут, последнее деление короче. */
 .lb-bar-ticks {
   position: absolute;
   inset: 4px;

@@ -196,6 +196,16 @@ describe("LobbyToday: вид", () => {
     expect((left.querySelector(".lb-bar-ticks") as HTMLElement).style.getPropertyValue("--lb-ticks")).toBe("8");
   });
 
+  // Ловит (ревью 0.8.4, m2): при 2 ч 10 мин шкала делилась на 9 частей по 14,4 мин под подписью
+  // «Одно деление: 15 минут». Ширина деления = 15 мин от лимита: 130 / 15 делений.
+  it("шкала: лимит 2 ч 10 мин — деление 15 минут", () => {
+    show(reply({ limitS: 7800, remainingS: 5100 }));
+    const left = screen.getByRole("region", { name: "Осталось сегодня" });
+    const ticks = parseFloat((left.querySelector(".lb-bar-ticks") as HTMLElement).style.getPropertyValue("--lb-ticks"));
+    expect(130 / ticks).toBeCloseTo(15, 6);
+    expect(within(left).getByText("Одно деление: 15 минут")).toBeTruthy();
+  });
+
   it("запретных часов нет — блока нет; сняты — «Сегодня запрет снят»", () => {
     show(reply({ forbidState: "none", forbidFrom: "", forbidTo: "" }));
     expect(screen.queryByRole("region", { name: "Ночью компьютер спит" })).toBeNull();
