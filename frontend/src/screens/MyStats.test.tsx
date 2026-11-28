@@ -901,6 +901,22 @@ describe("MyStats: «Сегодня» (D-53, D-109)", () => {
     expect(screen.queryByRole("region", { name: "Итоги" })).toBeNull();
   });
 
+  // Ловит (ревью 0.8.4, m5): после «← Сегодня» кнопка пропадает, фокус уходит на body — с клавиатуры
+  // ребёнок начинает обход окна сначала. Фокус возвращается на «Вся моя статистика», откуда ушёл.
+  it("«← Сегодня» возвращает фокус на «Вся моя статистика»", async () => {
+    const user = await setupAll();
+    await user.keyboard("{Enter}");
+    await screen.findByRole("region", { name: "Осталось сегодня" });
+    await vi.waitFor(() => expect(document.activeElement).toBe(screen.getByRole("button", { name: "Вся моя статистика" })));
+  });
+
+  // Ловит: фокус на «Вся моя статистика» ставится при каждом показе «Сегодня», и при открытии окна тоже.
+  it("при открытии окна фокус на «Вся моя статистика» не ставится", async () => {
+    setup();
+    await screen.findByRole("region", { name: "Осталось сегодня" });
+    expect(document.activeElement).not.toBe(screen.getByRole("button", { name: "Вся моя статистика" }));
+  });
+
   it("кнопки «Взять из копилки» и «Попросить ещё» рядом, ссылки внизу мелко", async () => {
     setup({ children: [mockChild({ bonusBalance: 45 })] });
     const ask = await screen.findByRole("button", { name: "Попросить ещё" });

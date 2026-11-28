@@ -1,4 +1,4 @@
-import type { CSSProperties } from "react";
+import { useEffect, useRef, type CSSProperties } from "react";
 import { energyColors, MASCOT_SRC, mascotOf } from "../../lib/mascot";
 import { spendBlockedNote } from "../../lib/mytoday";
 import { formatLimit } from "../../lib/format";
@@ -14,6 +14,8 @@ interface Props {
   onSpend: () => void;
   onCode: () => void;
   onAll: () => void;
+  /** Возврат из «Вся моя статистика»: при показе фокус на эту кнопку (кнопка «← Сегодня» пропала). */
+  focusAll?: boolean;
   onParent: () => void;
 }
 
@@ -23,7 +25,11 @@ interface Props {
  * учёбы; запретные часы; «Взять из копилки» и «Попросить ещё»; нарушения и ссылки. Только просмотр:
  * изменить статистику и правила ребёнок не может.
  */
-export default function LobbyToday({ data, now, onAsk, onSpend, onCode, onAll, onParent }: Props) {
+export default function LobbyToday({ data, now, onAsk, onSpend, onCode, onAll, focusAll = false, onParent }: Props) {
+  const all = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (focusAll) all.current?.focus();
+  }, [focusAll]);
   const s = data.status;
   const child = s.status !== "notChild";
   const letter = s.name.trim().charAt(0).toUpperCase();
@@ -95,7 +101,7 @@ export default function LobbyToday({ data, now, onAsk, onSpend, onCode, onAll, o
           <span />
         )}
         <div className="lb-links">
-          <button type="button" className="lb-link lb-link-main" onClick={onAll}>
+          <button ref={all} type="button" className="lb-link lb-link-main" onClick={onAll}>
             Вся моя статистика
           </button>
           <button type="button" className="lb-link" onClick={onParent}>

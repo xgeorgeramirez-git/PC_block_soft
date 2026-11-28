@@ -62,6 +62,8 @@ export default function MyStats() {
   const [period, setPeriod] = useState<StatsPeriod>("today");
   const [busy, setBusy] = useState(false);
   const [now, setNow] = useState(() => new Date());
+  // «Сегодня» показано возвратом из «Вся моя статистика»: фокус — на кнопку, с которой ушли (не на body).
+  const [cameBack, setCameBack] = useState(false);
   const alive = useRef(true);
   const viewRef = useRef<"today" | "all">("today");
   const periodRef = useRef<StatsPeriod>("today");
@@ -153,6 +155,7 @@ export default function MyStats() {
   const openAll = () => {
     viewRef.current = "all";
     setView("all");
+    setCameBack(false);
     setDone("");
     void loadStats(periodRef.current);
   };
@@ -160,6 +163,7 @@ export default function MyStats() {
   const backToday = () => {
     viewRef.current = "today";
     setView("today");
+    setCameBack(true);
     void loadToday();
   };
 
@@ -210,6 +214,7 @@ export default function MyStats() {
             onSpend={() => setDialog("spend")}
             onCode={() => setDialog("code")}
             onAll={openAll}
+            focusAll={cameBack}
             onParent={() => void openParent()}
           />
         )
