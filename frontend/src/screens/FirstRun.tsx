@@ -57,9 +57,10 @@ export default function FirstRun() {
   return (
     <div className="lobby lb-first">
       <section className="lb-panel first-run" aria-labelledby="first-run-title">
-        <h2 id="first-run-title" className="lb-big lb-title">
+        {/* h1: шапка окна с «PC Block» в окне ребёнка скрыта, заголовок первого уровня — у экрана. */}
+        <h1 id="first-run-title" className="lb-big lb-title">
           Теперь время за компьютером считается
-        </h2>
+        </h1>
         {loadError ? (
           <>
             <Notice tone="warn" urgent>
