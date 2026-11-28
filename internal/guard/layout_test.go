@@ -734,3 +734,50 @@ func TestFitNoteLongTinyScreen(t *testing.T) {
 		}
 	}
 }
+
+// Ловит (S57, D-107, ТЗ 8.2): признак «текст сообщения поместился целиком» (GuardState.NoteTextFits)
+// врёт: истинен, когда прямоугольник текста ниже высоты, намеренной тем же шрифтом в ту же ширину,
+// когда окно меряет крупнее, чем разложено, или когда запасное тесное широкое окно на крошечном
+// экране выше области и текст уходит за её край; или ложен у обычной раскладки короткого и длинного
+// сообщения поверх экрана блокировки 1024×768 (как у раннера).
+func TestNoteTextFits(t *testing.T) {
+	m := fakeNoteMeasure(96)
+	lc := lockCases()[0]
+	short := FitNote(96, lc.area, &lc.lock, true, textNoteTitle, "Иди ужинать", m)
+	long := FitNote(96, lc.area, &lc.lock, true, textNoteTitle, longNote(), m)
+	if short.FontPx != 42 || long.FontPx >= short.FontPx || long.FontPx < NoteFontMinPx {
+		t.Fatalf("шрифт короткого %d, длинного %d: ждали 42 и мельче, но не мельче 14", short.FontPx, long.FontPx)
+	}
+	if !NoteTextFits(short, lc.area, m) || !NoteTextFits(long, lc.area, m) {
+		t.Fatalf("1024×768: признак ложен у короткого (%v) или длинного (%v)", NoteTextFits(short, lc.area, m), NoteTextFits(long, lc.area, m))
+	}
+	cut := long
+	cut.Layout.Text.Bottom--
+	if NoteTextFits(cut, lc.area, m) {
+		t.Fatal("прямоугольник текста на 1 px ниже меры, а признак истинен")
+	}
+	bigger := func(font int, w int32, s string) int32 { return m(font, w, s) + 1 }
+	if NoteTextFits(long, lc.area, bigger) {
+		t.Fatal("окно меряет текст выше раскладки, а признак истинен")
+	}
+	left := short
+	left.Place.Left, left.Place.Right = lc.area.Left-short.Layout.Text.Right, lc.area.Left-short.Layout.Text.Right+short.Layout.W
+	if NoteTextFits(left, lc.area, m) {
+		t.Fatalf("текст левее области (окно %+v), а признак истинен", left.Place)
+	}
+	tiny := Rect{Left: 0, Top: 0, Right: 320, Bottom: 200}
+	f := FitNote(96, tiny, nil, false, textNoteTitle, longNote(), m)
+	tw := f.Layout.Text.Right - f.Layout.Text.Left
+	if f.FontPx != NoteFontMinPx || f.Density != NoteCompact || f.Layout.Text.Bottom-f.Layout.Text.Top != m(NoteFontMinPx, tw, f.Text) {
+		t.Fatalf("крошечный экран: ждали запасное тесное окно 14 px с текстом по мере, а %+v", f)
+	}
+	if f.Place.Top+f.Layout.Text.Bottom <= tiny.Bottom {
+		t.Fatalf("крошечный экран: текст %d…%d не ушёл за край %d, случай не проверяет край", f.Place.Top+f.Layout.Text.Top, f.Place.Top+f.Layout.Text.Bottom, tiny.Bottom)
+	}
+	if NoteTextFits(f, tiny, m) {
+		t.Fatal("крошечный экран: текст за краем области, а признак истинен")
+	}
+	if NoteTextFits(NoteFit{}, lc.area, m) {
+		t.Fatal("окна нет, а признак истинен")
+	}
+}

@@ -2442,7 +2442,9 @@
         "note": "Иди ужинать",
         "noteId": "AAECAwQFBgcICQoLDA0ODw",
         "noteSticker": "033",
-        "noteFrame": 17
+        "noteFrame": 17,
+        "noteFontPx": 42,
+        "noteTextFits": true
       }
     }
   },

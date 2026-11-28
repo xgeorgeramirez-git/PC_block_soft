@@ -467,6 +467,7 @@ func (a *app) applyNote(v View) {
 			return // следующий кадр попробует снова; служба ждёт «показано» и повторит
 		}
 		n.onShown = a.ctl.SetNoteShown // тестовый режим: стикер и кадр окна (GuardState, S60)
+		n.onFit = a.ctl.SetNoteFit     // тестовый режим: шрифт текста и «поместился целиком» (GuardState, S57)
 		a.note = n
 	}
 	var lock *NoteLock

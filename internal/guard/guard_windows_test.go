@@ -565,6 +565,8 @@ func TestNoteWindowOverLockFits(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer n.close()
+	fitPx, fits := -1, false
+	n.onFit = func(px int, ok bool) { fitPx, fits = px, ok } // GuardState.NoteFontPx, NoteTextFits (S57)
 	wa := workArea()
 	text := strings.Repeat(strings.Repeat("Иди ужинать скорее ", 2)+"\n", 5) + strings.Repeat("ж", 110)
 	lock := &NoteLock{Title: Rect{Left: wa.left + 62, Top: wa.top + 65, Right: wa.left + 962, Bottom: wa.top + 115}, ControlsTop: wa.top + 272,
@@ -602,7 +604,13 @@ func TestNoteWindowOverLockFits(t *testing.T) {
 		if n.fit.Text != text || n.fit.FontPx < 14 || need > n.fit.Layout.Text.Bottom-n.fit.Layout.Text.Top {
 			t.Fatalf("текст не целиком: шрифт %d, нужно %d px, место %+v, %q", n.fit.FontPx, need, n.fit.Layout.Text, n.fit.Text)
 		}
+		if fitPx != int(Scaled(n.fit.FontPx, n.dpi)) || !fits {
+			t.Fatalf("окно сообщило шрифт %d, поместился %v; ждали %d и да", fitPx, fits, Scaled(n.fit.FontPx, n.dpi))
+		}
 		n.hide()
+		if fitPx != 0 || fits {
+			t.Fatalf("после скрытия: шрифт %d, поместился %v; ждали 0 и нет", fitPx, fits)
+		}
 	}
 }
 

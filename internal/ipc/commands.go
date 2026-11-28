@@ -1003,6 +1003,12 @@ type GuardStateReply struct {
 	// кадр, выведенный последним (кадры идут по кругу, приёмка S60). Заполняет страж по своему окну.
 	NoteSticker string `json:"noteSticker,omitempty"`
 	NoteFrame   int    `json:"noteFrame"`
+	// NoteFontPx — размер шрифта текста сообщения в пикселях экрана, которым окно его рисует (42 px при
+	// 100 % у короткого, D-107); 0 — окна нет. NoteTextFits — текст виден целиком: высота, намеренная этим
+	// шрифтом в ширину текста, не больше его прямоугольника, и прямоугольник на экране (ТЗ 8.2, приёмка
+	// S57). Заполняет страж по своему окну.
+	NoteFontPx   int  `json:"noteFontPx,omitempty"`
+	NoteTextFits bool `json:"noteTextFits,omitempty"`
 }
 
 // Виды плашек стража для GuardStateReply.PlateKind, кроме плашек о закрытых программах (их вид —

@@ -549,7 +549,7 @@ func examples() map[string]example {
 			Buttons: []string{"askNow", "plateClose"}, ForegroundPath: `c:\users\миша\downloads\supergame.exe`,
 		}),
 		"GuardState#note": ok(nil, GuardStateReply{
-			Note: "Иди ужинать", NoteID: "AAECAwQFBgcICQoLDA0ODw", NoteSticker: "033", NoteFrame: 17,
+			Note: "Иди ужинать", NoteID: "AAECAwQFBgcICQoLDA0ODw", NoteSticker: "033", NoteFrame: 17, NoteFontPx: 42, NoteTextFits: true,
 			Buttons: []string{ButtonNoteOK},
 		}),
 		"GuardState#brave": ok(nil, GuardStateReply{

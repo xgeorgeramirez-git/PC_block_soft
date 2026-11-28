@@ -93,6 +93,10 @@ type Controller struct {
 	// GuardState.NoteSticker, NoteFrame; только тестовый режим).
 	noteSticker string
 	noteFrame   int
+	// noteFontPx/noteTextFits — шрифт текста окна сообщения в пикселях экрана и признак «текст виден
+	// целиком» по последней раскладке (SetNoteFit; GuardState.NoteFontPx, NoteTextFits; только тестовый режим).
+	noteFontPx   int
+	noteTextFits bool
 	// plaqueSound — ID плашки «Игрового лобби», для которой звук схемы уже поставлен (D-111: один раз на
 	// плашку); plaqueSticker/plaqueFrame — стикер и кадр, выведенные окном плашки последними
 	// (SetPlaqueShown; GuardState.PlateSticker, PlateFrame; только тестовый режим).
@@ -1076,6 +1080,18 @@ func (c *Controller) SetNoteShown(sticker string, frame int) {
 	c.noteSticker, c.noteFrame = sticker, frame
 }
 
+// SetNoteFit запоминает, как окно сообщения разложило текст: размер шрифта в пикселях экрана (0 — окна
+// нет) и поместился ли текст целиком (NoteTextFits). GuardState.NoteFontPx, NoteTextFits (S57). Только в
+// тестовом режиме; зовёт поток окон после раскладки и при скрытии окна.
+func (c *Controller) SetNoteFit(fontPx int, fits bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if !c.testMode {
+		return
+	}
+	c.noteFontPx, c.noteTextFits = fontPx, fits
+}
+
 // SetPlaqueShown запоминает, что окно плашки «Игрового лобби» вывело сейчас: стикер ("" — нет) и кадр
 // (GuardState.PlateSticker, PlateFrame, S65). Только в тестовом режиме; зовёт поток окон.
 func (c *Controller) SetPlaqueShown(sticker string, frame int) {
@@ -1154,6 +1170,7 @@ func (c *Controller) PushState() {
 	st.ClosedTab, st.ClosedTabWay = c.closedTab, c.closedWay
 	if c.last.Note != nil { // окно сообщения могло ещё не узнать, что сообщение закрыто
 		st.NoteSticker, st.NoteFrame = c.noteSticker, c.noteFrame
+		st.NoteFontPx, st.NoteTextFits = c.noteFontPx, c.noteTextFits
 	}
 	if c.last.Warning != nil && c.last.Warning.Sticker != "" { // окно плашки могло ещё не узнать, что она закрыта
 		st.PlateSticker, st.PlateFrame = c.plaqueSticker, c.plaqueFrame

@@ -525,3 +525,18 @@ func FitNote(dpi int, area Rect, lock *NoteLock, sticker bool, title, text strin
 	top = max(area.Top, min(top, area.Bottom-h))
 	return place(f, top)
 }
+
+// NoteTextFits - текст сообщения в раскладке f виден целиком: окно есть (шрифт задан), высота текста,
+// намеренная measure шрифтом f.FontPx в ширину прямоугольника текста, не больше высоты Layout.Text, и
+// прямоугольник текста на месте окна (Place) не выходит за область area. Обычный путь FitNote строит
+// прямоугольник из той же меры, поэтому на деле решает край области: запасное тесное широкое окно на
+// крошечном экране бывает выше области (GuardState.NoteTextFits, приёмка S57).
+func NoteTextFits(f NoteFit, area Rect, measure NoteMeasure) bool {
+	t := f.Layout.Text
+	w, h := t.Right-t.Left, t.Bottom-t.Top
+	if f.FontPx <= 0 || w <= 0 || measure(f.FontPx, w, f.Text) > h {
+		return false
+	}
+	left, top := f.Place.Left+t.Left, f.Place.Top+t.Top
+	return left >= area.Left && left+w <= area.Right && top >= area.Top && top+h <= area.Bottom
+}

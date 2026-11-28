@@ -667,3 +667,52 @@ func TestSetNoteShownOnlyInTestMode(t *testing.T) {
 		t.Fatalf("вне тестового режима запомнено %q, кадр %d", got, frame)
 	}
 }
+
+// Ловит (S57, D-107): GuardState не говорит, каким шрифтом окно рисует текст сообщения и поместился ли
+// он целиком (приёмке нечем доказать «не обрезано», кроме высоты окна); или пишет это вне тестового
+// режима; или после «Понял» ещё называет шрифт закрытого сообщения.
+func TestPushStateCarriesNoteFit(t *testing.T) {
+	r := newCtRig()
+	r.ctl.SetNoteFit(42, true) // до приветствия тестовый режим неизвестен: не запоминается
+	r.svc.test = true
+	r.svc.status = ctRunningStatus(3600)
+	r.svc.cmds = []ipc.GuardCommand{{Kind: ipc.GuardCmdNote, Note: &ipc.GuardNote{ID: "n1", Text: "Иди ужинать", WaitS: 600}}}
+	r.poll()
+	r.svc.cmds = nil
+	r.ctl.PushState()
+	if st := lastPushed(t, r); st.NoteFontPx != 0 || st.NoteTextFits || st.NoteID != "n1" {
+		t.Fatalf("до раскладки окна: шрифт %d, поместился %v, сообщение %q", st.NoteFontPx, st.NoteTextFits, st.NoteID)
+	}
+	r.ctl.SetNoteFit(63, true)
+	r.ctl.PushState()
+	if st := lastPushed(t, r); st.NoteFontPx != 63 || !st.NoteTextFits {
+		t.Fatalf("после раскладки: шрифт %d, поместился %v; ждали 63 и да", st.NoteFontPx, st.NoteTextFits)
+	}
+	r.ctl.SetNoteFit(21, false)
+	r.ctl.PushState()
+	if st := lastPushed(t, r); st.NoteFontPx != 21 || st.NoteTextFits {
+		t.Fatalf("текст не поместился: шрифт %d, поместился %v; ждали 21 и нет", st.NoteFontPx, st.NoteTextFits)
+	}
+	r.ctl.SetNoteFit(42, true)
+	r.ctl.Press(ButtonNoteOK, "")
+	r.ctl.View()
+	r.ctl.PushState()
+	if st := lastPushed(t, r); st.NoteFontPx != 0 || st.NoteTextFits || st.Note != "" {
+		t.Fatalf("после «Понял»: шрифт %d, поместился %v, текст %q", st.NoteFontPx, st.NoteTextFits, st.Note)
+	}
+}
+
+// Ловит: вне тестового режима страж запоминает шрифт и признак текста окна сообщения (GuardState
+// только для приёмки).
+func TestSetNoteFitOnlyInTestMode(t *testing.T) {
+	r := newCtRig()
+	r.svc.status = ctRunningStatus(3600)
+	r.poll()
+	r.ctl.SetNoteFit(42, true)
+	r.ctl.mu.Lock()
+	px, fits := r.ctl.noteFontPx, r.ctl.noteTextFits
+	r.ctl.mu.Unlock()
+	if px != 0 || fits {
+		t.Fatalf("вне тестового режима запомнено: шрифт %d, поместился %v", px, fits)
+	}
+}
