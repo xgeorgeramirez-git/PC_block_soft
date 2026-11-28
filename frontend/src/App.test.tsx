@@ -134,7 +134,8 @@ describe("выбор экрана по режиму", () => {
   ])("%s: настоящий экран ребёнка без входа родителя", async (mode, title, mark) => {
     setup({ mode });
     expect(await screen.findByRole("heading", { name: title })).toBeTruthy();
-    expect(screen.getAllByText(mark).length).toBeGreaterThan(0);
+    // Метка появляется после загрузки данных: ждать её, а не читать сразу за заголовком (падало под нагрузкой).
+    expect((await screen.findAllByText(mark)).length).toBeGreaterThan(0);
     expect(screen.queryByText(/появится в следующем обновлении/)).toBeNull();
     expect(screen.queryByLabelText("Пароль родителя")).toBeNull();
     // Ребёнку не пишут «Родительский контроль» в заголовке окна и не показывают меню родителя.
@@ -263,7 +264,7 @@ describe("меню окна родителя", () => {
     await login(user);
     const nav = screen.getByRole("navigation", { name: "Разделы" });
     expect(within(nav).getByRole("heading", { level: 1 }).textContent).toBe("PC Block");
-    expect(within(nav).getByText("Версия 9.8.7")).toBeTruthy();
+    expect(await within(nav).findByText("Версия 9.8.7")).toBeTruthy();
   });
 
   // Ловит: пункта «Сайты» нет или он открывает не тот экран (8.3.2 п.2, FR-21).
