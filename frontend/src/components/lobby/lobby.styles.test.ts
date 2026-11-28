@@ -122,7 +122,9 @@ describe("«Игровое лобби»: текст", () => {
   // Ловит (R-9; возврат T6, п. 4): в окне 640…880 px плитки стоят в ряд и переносят «Без лимита» и
   // «Видео и соцсети»; в ряд значения трёх плиток на разной высоте.
   it("уже 880 px плитки в столбец; в ряд — общая сетка строк, значения в одну строку", () => {
-    expect(lobby).toMatch(/@media \(max-width: 880px\) \{\s*\.lb-tiles \{\s*grid-template-columns: minmax\(0, 1fr\);/);
+    // Столбец: столбцы плиток общие (subgrid), значения трёх плиток с одного левого края (возврат T6 №2).
+    expect(lobby).toMatch(/@media \(max-width: 880px\) \{\s*\.lb-tiles \{\s*grid-template-columns: minmax\(0, 1\.3fr\) max-content minmax\(0, 1fr\);/);
+    expect(lobby).toMatch(/@media \(max-width: 880px\)[\s\S]*?\.lb-tile \{[^}]*grid-template-columns: subgrid;/);
     expect(rule(".lb-tile")).toMatch(/grid-template-rows:\s*subgrid/);
     expect(rule(".lb-tile-value")).toMatch(/white-space:\s*nowrap/);
   });

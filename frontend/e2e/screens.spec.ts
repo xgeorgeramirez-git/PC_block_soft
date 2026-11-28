@@ -149,7 +149,8 @@ async function todayFits(page: Page, where: string) {
 }
 
 /**
- * Плитки (возврат T6, п. 4): уже 880 px — столбец (каждая следующая ниже предыдущей); шире — в ряд, значения
+ * Плитки (возврат T6, п. 4): уже 880 px — столбец (каждая следующая ниже предыдущей, значения с одного
+ * левого края — возврат T6 №2); шире — в ряд, значения
  * трёх плиток на одной высоте и каждое одной строкой («Без лимита» не переносится).
  */
 async function tilesLayout(page: Page, where: string) {
@@ -162,7 +163,7 @@ async function tilesLayout(page: Page, where: string) {
       const range = document.createRange();
       range.selectNodeContents(v);
       const lines = new Set([...range.getClientRects()].map((x) => Math.round(x.top))).size;
-      return { top: b.top, bottom: b.bottom, valueTop: vr.top, lines, sw: (v as HTMLElement).scrollWidth, cw: (v as HTMLElement).clientWidth, text: v.textContent };
+      return { top: b.top, bottom: b.bottom, valueTop: vr.top, valueLeft: vr.left, lines, sw: (v as HTMLElement).scrollWidth, cw: (v as HTMLElement).clientWidth, text: v.textContent };
     }),
   );
   const bad: string[] = [];
@@ -171,6 +172,7 @@ async function tilesLayout(page: Page, where: string) {
     if (x.lines !== 1) bad.push(`«${x.text}» в ${x.lines} строки`);
     if (x.sw > x.cw + 1) bad.push(`«${x.text}» обрезано`);
     if (w <= 880 && i > 0 && x.top < t[i - 1].bottom - 0.5) bad.push(`плитка ${i} не под плиткой ${i - 1}`);
+    if (w <= 880 && Math.abs(x.valueLeft - t[0].valueLeft) > 1) bad.push(`значение «${x.text}» не под значением первой плитки`);
     if (w > 880 && Math.abs(x.valueTop - t[0].valueTop) > 1) bad.push(`значение «${x.text}» не на высоте первой плитки`);
     if (w > 880 && Math.abs(x.top - t[0].top) > 1) bad.push(`плитка ${i} не в ряд`);
   });
@@ -3410,6 +3412,69 @@ test("s21 статистика родителя: подсказка столби
   await expect(barHits(page).nth(1)).toBeFocused();
 });
 
+/**
+ * «Нарушения» окна ребёнка (возврат T6 №2, п. 1): строки как у остальных списков лобби — ни у списка, ни у
+ * строки своей рамки и скругления (не капсула); текст записи переносится и не выходит за панель «Итогов».
+ */
+async function violationsPlain(page: Page, where: string) {
+  const r = await page.getByRole("list", { name: "Нарушения" }).evaluate((list) => {
+    const box = list.closest(".panel")!;
+    const panel = box.getBoundingClientRect();
+    const cs0 = getComputedStyle(box);
+    const frame = (el: Element) => {
+      const cs = getComputedStyle(el);
+      return {
+        sides: [cs.borderTopWidth, cs.borderRightWidth, cs.borderLeftWidth].map((v) => parseFloat(v) || 0),
+        radius: [cs.borderTopLeftRadius, cs.borderTopRightRadius, cs.borderBottomLeftRadius, cs.borderBottomRightRadius].map((v) => parseFloat(v) || 0),
+      };
+    };
+    const items = [...list.querySelectorAll("li")].map((li) => {
+      const text = li.querySelector(".journal-text") as HTMLElement;
+      const tr = text.getBoundingClientRect();
+      return { ...frame(li), right: Math.round(li.getBoundingClientRect().right), textRight: Math.round(tr.right), sw: text.scrollWidth, cw: text.clientWidth };
+    });
+    return { list: frame(list), items, panelInner: Math.round(panel.right - parseFloat(cs0.paddingRight) - parseFloat(cs0.borderRightWidth)) };
+  });
+  const bad: string[] = [];
+  if ([...r.list.sides, ...r.list.radius].some((v) => v > 0)) bad.push("у списка своя рамка или скругление");
+  r.items.forEach((it, i) => {
+    if ([...it.sides, ...it.radius].some((v) => v > 0)) bad.push(`у строки ${i} своя рамка или скругление`);
+    if (it.right > r.panelInner + 0.5 || it.textRight > r.panelInner + 0.5) bad.push(`строка ${i} выходит за панель`);
+    if (it.sw > it.cw + 1) bad.push(`текст строки ${i} обрезан`);
+  });
+  expect(bad, `${where}: ${bad.join("; ")} | ${JSON.stringify(r)}`).toEqual([]);
+}
+
+// s06 — длинная запись нарушения переносится внутри панели (возврат T6 №2, п. 1).
+for (const [w, h] of [
+  [1000, 660],
+  [640, 520],
+]) {
+  test(`s06 моя статистика: длинное нарушение в окне ${w} x ${h}`, async ({ page }) => {
+    await page.setViewportSize({ width: w, height: h });
+    const at = new Date();
+    at.setHours(Math.max(0, at.getHours() - 1), 5, 0, 0);
+    const long =
+      "Миша: программа «Очень длинное название игры с пробелами и цифрами 2026 Deluxe Edition» закрыта: запрещена родителем, запуск из папки Загрузки";
+    await mockProgram(page, {
+      mode: "mystats",
+      children: [child({ usedS: 2100, bonusBalance: 45 })],
+      myChildId: 1,
+      events: [{ atMs: at.getTime(), tzOffsetMin: -at.getTimezoneOffset(), childId: 1, childName: "Миша", kind: "program_forbidden_try", text: long }],
+    });
+    await page.goto("/");
+    await expect(page.getByText("Нарушений сегодня: 1")).toBeVisible();
+    await openAllStats(page);
+    const list = page.getByRole("list", { name: "Нарушения" });
+    await expect(list.getByRole("listitem")).toHaveCount(1);
+    await expect(list.getByText(long)).toBeVisible();
+    await violationsPlain(page, `окно ${w} x ${h}`);
+    await noHorizontalScroll(page);
+    await list.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: `${SCREENS}/s06-my-stats-violations-${w}x${h}.png` });
+  });
+}
+
 // s22 — «Моя статистика» за неделю G15 (S22) на «Вся моя статистика»: те же разделы о себе, без выбора
 // ребёнка, очистки и полей (промокод — в диалоге «Ввести код» на «Сегодня»); окно не прокручивается целиком (PL-25).
 for (const [scheme, w, h] of [
@@ -3429,14 +3494,7 @@ for (const [scheme, w, h] of [
     await expect(barHits(page)).toHaveCount(7);
     await expect(page.getByRole("table", { name: "Программы" }).locator("tbody tr")).toHaveCount(3);
     await expect(page.getByRole("list", { name: "Нарушения" }).getByRole("listitem")).toHaveCount(1);
-    // Строка нарушения — панель лобби со скруглением не больше 16 px, не капсула (возврат T6, п. 6).
-    const radii = await page.getByRole("list", { name: "Нарушения" }).evaluate((list) =>
-      [list, ...list.querySelectorAll("li")].map((el) => {
-        const cs = getComputedStyle(el);
-        return [cs.borderTopLeftRadius, cs.borderBottomRightRadius].map((v) => parseFloat(v) || 0);
-      }),
-    );
-    expect(radii.flat().every((r) => r <= 16), `скругление нарушений ${JSON.stringify(radii)}`).toBe(true);
+    await violationsPlain(page, `окно ребёнка ${w} x ${h}, тема ${scheme}`);
     await expect(page.getByRole("textbox")).toHaveCount(0);
     await expect(page.getByRole("combobox")).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Очистить статистику" })).toHaveCount(0);
