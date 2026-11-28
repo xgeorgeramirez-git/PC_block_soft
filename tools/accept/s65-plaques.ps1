@@ -2,7 +2,9 @@
 # D-112, D-114, FB-38).
 # Часы ядра на паузе (Start-Child): наблюдатель и сроки плашек идут по настоящим часам. Тестовые программы — копии
 # системной программы в папке WatchDir (как S14): SuperGame.exe и MegaGame.exe не в списке (незнакомые),
-# bloknot-copy.exe — «Запрещено» шагом мастера (как S45: ручной запуск — передний план PowerShell подменой
+# bloknot-copy.exe — копия node.exe раннера (копия notepad.exe под этим именем на раннере не стартует: «side-by-side
+# configuration is incorrect»; подписанный node.exe с обычным окном консоли, как TMP1, PL-74), «Запрещено» шагом
+# мастера, название на плашке — из ответа программы (ListPrograms, PL-22); ручной запуск (как S45) — передний план PowerShell подменой
 # TestGuard foreground, ввод идёт). Сайт example.com — в «Запрещённых», в hosts раннера ведёт на 127.0.0.1 (шаг
 # windows.yml «Brave для пробы и приёмки»), открывается в Brave раннера (как S17).
 # Родительская сессия в сеансе ребёнка прячет плашки (Ruling 19): каждая команда родителя — вход, команда, выход.
@@ -81,7 +83,11 @@ Invoke-Scenario "S65" "Плашки «Игрового лобби»: ждёт р
     Step "Тестовые программы: SuperGame.exe, MegaGame.exe (незнакомые), bloknot-copy.exe (запрещена мастером)" {
       $script:SgPath = New-TestApp "SuperGame"
       $script:MgPath = New-TestApp "MegaGame"
-      $script:BnPath = New-TestApp "bloknot-copy"
+      # Запрещённой программе нужно реально стартовать (наблюдатель закрывает живой процесс): копия node.exe, как TMP1.
+      $node = (Get-Command node.exe -ErrorAction SilentlyContinue).Source
+      Assert-That ($node -and (Test-Path -LiteralPath $node)) "На раннере нет node.exe для «Блокнот-копии»"
+      $script:BnPath = Copy-TestExe $node $script:Apps "bloknot-copy"
+      Write-Log "Тестовая программа bloknot-copy.exe: копия $node, $($script:BnPath)"
     }
 
     Step "Настройка: лимит 10 ч, bloknot-copy «Запрещено»; example.com в «Запрещённых»" {

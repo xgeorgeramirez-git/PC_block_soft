@@ -1,7 +1,8 @@
 ﻿# S62. Промокоды с телефона (FR-45, D-106, R26, протокол связи 1.5, раздел 5г).
 # Сервер связи pcblock-relay.exe на раннере (127.0.0.1:18080), тестовый телефон remote-phone.exe вместо приложения.
-# Часы ядра обычные (ClockSpeed=1). Ребёнок вводит код командой RedeemPromo от своего имени (учётка раннера —
-# ребёнок), как кнопка «Ввести промокод» в окне «Моя статистика».
+# Часы ядра идут в 60 раз быстрее и стоят на паузе; лимит 5 мин: перед вводом кода часы идут, время выходит, и ребёнок
+# вводит код на экране блокировки («Ввести промокод» стража, как S49). Команда RedeemPromo из PowerShell раннера
+# не подходит: учётка раннера — администратор, служба отвечает «недоступно из этой учётной записи» (B-70).
 # Дано: телефон привязан (как S55). Когда: телефон создаёт SUMMER на 30 мин, придумывает 5 кодов по 15 мин длиной 6
 # («Буквы и цифры»), удаляет SUMMER; ребёнок вводит один из придуманных; телефон снова создаёт SUMMER.
 # Тогда: «Действующие» телефона и окна родителя совпадают (5 кодов без SUMMER); введённый код — в «Использованных»
@@ -33,10 +34,14 @@ function Invoke-PhonePromo([string[]]$ArgList, [string]$What) {
 }
 
 Invoke-Scenario "S62" "Промокоды с телефона: создать, придумать, удалить; списки телефона и окна совпадают" {
-  Initialize-Scenario 1
+  Initialize-Scenario 60
   try {
-    Step "Настройка: ребёнок «Миша», лимит 2 ч; телефон привязан" {
-      Invoke-Setup 120 $script:MySid "Миша"
+    Step "Настройка: ребёнок «Миша», лимит 5 мин, часы на паузе; телефон привязан" {
+      Test-InputSim
+      Start-Input 1000
+      Invoke-Setup 5 $script:MySid "Миша"
+      Suspend-Clock
+      Wait-SessionParts
       $script:ChildId = Connect-Phone "Pixel-S62"
     }
 
@@ -76,9 +81,19 @@ Invoke-Scenario "S62" "Промокоды с телефона: создать, �
     Step "Ребёнок вводит придуманный код: он во «Использованных» с именем и временем — на телефоне и в окне" {
       $script:Used = $script:Codes[2]
       $since = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
-      $r = Send-Pcb "RedeemPromo" @{ code = $script:Used.ToLowerInvariant() }
-      Assert-Reply $r "RedeemPromo $($script:Used)"
-      Write-Log "Ребёнок ввёл «$($script:Used.ToLowerInvariant())»: $($r.payload | ConvertTo-Json -Compress -Depth 4)"
+      Resume-Clock
+      $g = Wait-LockShown 40 "timeUp"
+      Suspend-Clock
+      Assert-That (Test-HasButton $g "promo") "Нет кнопки «Ввести промокод»: $(Format-GuardState $g)"
+      Invoke-GuardClick "promo"
+      [void](Wait-GuardState { param($s) (@(List $s.fields) | Where-Object { $_.id -eq "promo" }).Count -ge 1 } 8 "панель промокода открыта")
+      $lower = $script:Used.ToLowerInvariant()
+      Invoke-TestGuard "type" "promo" $lower
+      [void](Wait-GuardState { param($s) (@(List $s.fields) | Where-Object { $_.id -eq "promo" -and $_.text -eq $lower }).Count -ge 1 } 8 "в поле промокода набран текст")
+      Invoke-GuardClick "submitPromo"
+      [void](Wait-PromoOk "15 минут")
+      [void](Wait-LockHidden 10)
+      Write-Log "Ребёнок ввёл «$lower» на экране блокировки: стикер удачи, экран снят"
       $p = Invoke-PhonePromo @("promos") "Список промокодов после ввода"
       $u = @(@(List $p.promos.used) | Where-Object { [string]$_.code -ceq $script:Used })
       Assert-That ($u.Count -eq 1 -and [string]$u[0].childName -eq "Миша" -and [int64]$u[0].usedMs -ge $since - 5000 -and [int]$u[0].min -eq 15) "На телефоне в «Использованных» нет $($script:Used) от Миши на 15 мин со временем: $(Format-PhonePromos $p.promos)"
