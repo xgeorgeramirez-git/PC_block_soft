@@ -125,6 +125,38 @@ describe("LobbyToday: вид", () => {
     expect(mascot()?.getAttribute("data-mascot")).toBe("104");
   });
 
+  // Ловит (возврат T6, п. 1): в запретные часы шкала показывает прежний остаток (70 %), на макете — пустая.
+  it("запретные часы: шкала пустая, «потратил 35 мин из 2 часов»", () => {
+    show(reply({ status: "forbidden", lock: "forbidden", forbidState: "active", until: "Можно снова: сегодня в 07:00" }));
+    const left = screen.getByRole("region", { name: "Осталось сегодня" });
+    expect((left.querySelector(".lb-bar-fill") as HTMLElement).style.width).toBe("0%");
+    expect(left.querySelector(".lb-spent")?.textContent).toBe("потратил 35 мин из 2 часов");
+  });
+
+  // Ловит (возврат T6, п. 3; FR-11, FR-6): после «время вышло» копилка заперта, хотя ТЗ запрещает её
+  // только в запретные часы — взятые минуты и выводят из «время вышло».
+  it("время вышло: «Взять из копилки» доступна при копилке 45 мин, талисман 048, шкала пустая", () => {
+    show(reply({ status: "timeUp", lock: "timeUp", remainingS: 0, usedS: 7200, until: "Можно снова: завтра" }));
+    const spend = screen.getByRole("button", { name: "Взять из копилки" });
+    expect(spend.getAttribute("aria-disabled")).toBeNull();
+    expect(document.querySelector(".lb-note")).toBeNull();
+    expect(mascot()?.getAttribute("data-mascot")).toBe("048");
+    const left = screen.getByRole("region", { name: "Осталось сегодня" });
+    expect((left.querySelector(".lb-bar-fill") as HTMLElement).style.width).toBe("0%");
+  });
+
+  // Ловит (возврат T6, п. 3): пояснение недоступной кнопки уезжает в отдельную строку под всем блоком и
+  // на штатном окне оказывается за краем.
+  it("пояснение недоступной кнопки — в блоке кнопок, под ними", () => {
+    show(reply({ status: "forbidden", lock: "forbidden", forbidState: "active", until: "Можно снова: сегодня в 07:00" }));
+    const note = screen.getByText("Из копилки можно взять с 07:00");
+    const spend = screen.getByRole("button", { name: "Взять из копилки" });
+    const actions = spend.closest(".lb-actions");
+    expect(actions).not.toBeNull();
+    expect(actions?.contains(note)).toBe(true);
+    expect(spend.compareDocumentPosition(note) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   it("пауза — «Пауза до 18:30» и 033 при малом остатке", () => {
     show(reply({ status: "paused", pauseUntil: "18:30", remainingS: 300 }));
     expect(screen.getByText("Пауза до 18:30")).toBeTruthy();

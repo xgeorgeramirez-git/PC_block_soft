@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ChildStatus } from "../../types";
-import { dateLine, greeting, nightLine, ofTime, remainBig, spentLines, tileGames, tileVideo, ticksOf, violationsLine } from "./lobbyText";
+import { dateLine, greeting, mainShare, nightLine, ofTime, remainBig, spentLines, tileGames, tileVideo, ticksOf, violationsLine } from "./lobbyText";
 
 // Тексты блока «Сегодня» окна ребёнка «Игровое лобби» (ТЗ 8.2.6 п. 1, макет child.py): ребёнку на «ты»,
 // минуты остатка вверх до целой (как значок и цвет у родителя).
@@ -97,12 +97,35 @@ describe("главный блок", () => {
     expect(spentLines(st({ remainingS: 0, limitS: 5400, status: "timeUp", lock: "timeUp" }))).toEqual(["потратил 1 ч 30 мин", "из 1 ч 30 мин"]);
   });
 
+  // Ловит (возврат T6, п. 1): в запретные часы «потратил 2 ч 00 мин из 2 часов» при 35 мин на деле —
+  // остаток не тратится, он просто сейчас недоступен.
+  it("запретные часы — сколько потратил на деле", () => {
+    expect(spentLines(st({ remainingS: 5100, usedS: 2100, status: "forbidden", lock: "forbidden" }))).toEqual(["потратил 35 мин", "из 2 часов"]);
+  });
+
   it("без лимита — только сколько потратил", () => {
     expect(spentLines(st({ unlimited: true, status: "unlimited", usedS: 2400 }))).toEqual(["потратил 40 мин"]);
   });
 
   it("ограничения не действуют — строки нет", () => {
     expect(spentLines(st({ status: "admin" }))).toEqual([]);
+  });
+
+  // Ловит (возврат T6, п. 1; moods.py): шкала в запретные часы или после «время вышло» показывает прежний
+  // остаток (70 %), хотя у 104 и 048 на макете она пустая.
+  it.each([
+    ["остаток 1 ч 25 мин из 2 ч", { remainingS: 5100 }, 5100 / 7200],
+    ["остаток 10 мин", { remainingS: 600, status: "low" }, 600 / 7200],
+    ["время вышло", { remainingS: 0, status: "timeUp", lock: "timeUp" }, 0],
+    ["экран «время вышло» с секундами в ответе", { remainingS: 300, status: "timeUp", lock: "timeUp" }, 0],
+    ["запретные часы при остатке 1 ч 25 мин", { remainingS: 5100, status: "forbidden", lock: "forbidden" }, 0],
+    ["запретные часы без блокировки (только учёба)", { remainingS: 5100, status: "forbidden" }, 0],
+    ["блокировка за обход", { remainingS: 5100, lock: "bypass" }, 0],
+    ["пауза при 10 мин", { remainingS: 600, status: "paused", pauseUntil: "18:30" }, 600 / 7200],
+    ["без лимита", { unlimited: true, status: "unlimited", limitS: 0, remainingS: 0 }, 1],
+    ["ограничения не действуют", { status: "admin", remainingS: 0 }, 1],
+  ] as const)("доля шкалы: %s", (_name, over, want) => {
+    expect(mainShare(st(over as Partial<ChildStatus>))).toBeCloseTo(want, 6);
   });
 
   // Ловит: шкала без делений или с дробным числом делений (лимит 2 ч = 8 делений по 15 мин).
@@ -120,9 +143,10 @@ describe("плитки «Игры» и «Видео и соцсети»", () => 
     expect(tileVideo(st())).toEqual({ big: "20 мин", share: 1200 / 1800, sub: "осталось из 30 минут" });
   });
 
-  it("без отдельного лимита — «Без лимита» без полоски", () => {
-    expect(tileGames(st({ gamesUnlimited: true }))).toEqual({ big: "Без лимита", share: null, sub: "входит в общее время" });
-    expect(tileVideo(st({ videoUnlimited: true, videoLimitS: 0 }))).toEqual({ big: "Без лимита", share: null, sub: "входит в общее время" });
+  // Ловит (возврат T6, п. 6): на месте полоски пустой провал между значением и подписью.
+  it("без отдельного лимита — «Без лимита», вместо полоски строка", () => {
+    expect(tileGames(st({ gamesUnlimited: true }))).toEqual({ big: "Без лимита", share: null, free: "Своего лимита нет", sub: "входит в общее время" });
+    expect(tileVideo(st({ videoUnlimited: true, videoLimitS: 0 }))).toEqual({ big: "Без лимита", share: null, free: "Своего лимита нет", sub: "входит в общее время" });
     // Старая служба без полей видео: лимита нет.
     expect(tileVideo(st({ videoUnlimited: undefined, videoLimitS: undefined, videoRemainingS: undefined })).big).toBe("Без лимита");
   });

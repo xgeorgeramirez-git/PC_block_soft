@@ -2,10 +2,9 @@ import type { CSSProperties } from "react";
 import { energyColors, MASCOT_SRC, mascotOf } from "../../lib/mascot";
 import { spendBlockedNote } from "../../lib/mytoday";
 import { formatLimit } from "../../lib/format";
-import { remainShare } from "../../lib/remain";
 import type { ChildStatus, MyTodayReply } from "../../types";
 import { Badge, Coin, Glyph, type GlyphName } from "./Glyph";
-import { dateLine, greeting, nightLine, remainBig, spentLines, ticksOf, tileGames, tileVideo, violationsLine, type Tile } from "./lobbyText";
+import { dateLine, greeting, mainShare, nightLine, remainBig, spentLines, ticksOf, tileGames, tileVideo, violationsLine, type Tile } from "./lobbyText";
 
 interface Props {
   data: MyTodayReply;
@@ -69,10 +68,9 @@ export default function LobbyToday({ data, now, onAsk, onSpend, onCode, onAll, o
               icon="book"
               bg="#22B573"
               title="Учёба"
-              tile={{ big: "Без лимита", share: null, sub: "Учёба не тратит твоё время" }}
+              tile={{ big: "Без лимита", share: null, free: "Занимайся сколько хочешь", sub: "Учёба не тратит твоё время" }}
               color="#9FF0C4"
               bar={["", ""]}
-              free="Занимайся сколько хочешь"
             />
           </div>
           <Actions s={s} onAsk={onAsk} onSpend={onSpend} />
@@ -114,9 +112,12 @@ function Main({ s }: { s: ChildStatus }) {
   const mascot = mascotOf(s);
   const [a, b] = energyColors(mascot);
   const ticks = ticksOf(s);
-  const share =
-    s.lock === "timeUp" || s.lock === "bypass" ? 0 : remainShare(s.remainingS, s.limitS, s.unlimited || s.status === "admin" || s.status === "safe");
+  const share = mainShare(s);
   const spent = spentLines(s);
+  const big = remainBig(s);
+  // Слова вместо числа («Сейчас нельзя», «Пауза до 18:30») длиннее «1 ч 25 мин»: кегль меньше, чтобы
+  // «потратил … из …» стояло справа в той же строке, как во всех состояниях.
+  const word = !/^\d/.test(big);
   return (
     <section className="lb-panel lb-main" aria-labelledby="lb-left">
       <img className="lb-mascot" src={MASCOT_SRC[mascot]} data-mascot={mascot} alt="" width={210} height={210} draggable={false} />
@@ -125,7 +126,7 @@ function Main({ s }: { s: ChildStatus }) {
           <h3 id="lb-left" className="lb-left-label">
             Осталось сегодня
           </h3>
-          <p className="lb-big lb-left-value num">{remainBig(s)}</p>
+          <p className={word ? "lb-big lb-left-value lb-left-word" : "lb-big lb-left-value num"}>{big}</p>
         </div>
         {spent.length > 0 ? (
           <p className="lb-spent num">
@@ -162,7 +163,6 @@ function LimitTile({
   tile,
   color,
   bar,
-  free,
 }: {
   icon: GlyphName;
   bg: string;
@@ -170,13 +170,12 @@ function LimitTile({
   tile: Tile;
   color: string;
   bar: [string, string];
-  free?: string;
 }) {
   const id = `lb-tile-${icon}`;
   return (
     <section className="lb-panel lb-tile" aria-labelledby={id}>
       <div className="lb-tile-head">
-        <Badge name={icon} bg={bg} />
+        <Badge name={icon} bg={bg} size={40} glyph={22} />
         <h3 id={id} className="lb-tile-title">
           {title}
         </h3>
@@ -184,7 +183,7 @@ function LimitTile({
       <p className="lb-big lb-tile-value num" style={{ color }}>
         {tile.big}
       </p>
-      {tile.share !== null ? <Energy share={tile.share} ticks={0} a={bar[0]} b={bar[1]} height={22} /> : <p className="lb-tile-free">{free ?? ""}</p>}
+      {tile.share !== null ? <Energy share={tile.share} ticks={0} a={bar[0]} b={bar[1]} height={22} /> : <p className="lb-tile-free">{tile.free ?? ""}</p>}
       <p className="lb-tile-sub">{tile.sub}</p>
     </section>
   );
@@ -199,7 +198,7 @@ function Actions({ s, onAsk, onSpend }: { s: ChildStatus; onAsk: () => void; onS
       <div className="lb-row">
         {night ? (
           <section className="lb-panel lb-night" aria-labelledby="lb-night-title">
-            <Badge name="moon" bg="#7B6CFF" size={52} glyph={28} />
+            <Badge name="moon" bg="#7B6CFF" size={46} glyph={26} />
             <div className="lb-night-text">
               <h3 id="lb-night-title" className="lb-night-title">
                 Ночью компьютер спит
@@ -211,26 +210,28 @@ function Actions({ s, onAsk, onSpend }: { s: ChildStatus; onAsk: () => void; onS
           <span className="lb-row-fill" />
         )}
         <div className="lb-actions">
-          <button
-            type="button"
-            className="lb-btn lb-btn-green lb-btn-main"
-            aria-disabled={note ? "true" : undefined}
-            aria-describedby={note ? "spend-note" : undefined}
-            onClick={note ? undefined : onSpend}
-          >
-            <Coin size={34} />
-            Взять из копилки
-          </button>
-          <button type="button" className="lb-btn lb-btn-gold lb-btn-main" onClick={onAsk}>
-            Попросить ещё
-          </button>
+          <div className="lb-actions-row">
+            <button
+              type="button"
+              className="lb-btn lb-btn-green lb-btn-main"
+              aria-disabled={note ? "true" : undefined}
+              aria-describedby={note ? "spend-note" : undefined}
+              onClick={note ? undefined : onSpend}
+            >
+              <Coin size={34} />
+              Взять из копилки
+            </button>
+            <button type="button" className="lb-btn lb-btn-gold lb-btn-main" onClick={onAsk}>
+              Попросить ещё
+            </button>
+          </div>
+          {note ? (
+            <p id="spend-note" className="lb-note" role="note">
+              {note}
+            </p>
+          ) : null}
         </div>
       </div>
-      {note ? (
-        <p id="spend-note" className="lb-note" role="note">
-          {note}
-        </p>
-      ) : null}
     </>
   );
 }

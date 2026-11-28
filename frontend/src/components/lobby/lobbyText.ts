@@ -3,7 +3,7 @@
 // со значком у часов.
 import { formatDuration } from "../../lib/format";
 import { hasVideoLimit } from "../../lib/mytoday";
-import { remainMinutes } from "../../lib/remain";
+import { remainMinutes, remainShare } from "../../lib/remain";
 import type { ChildStatus } from "../../types";
 
 const WEEKDAYS = ["Воскресенье", "Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота"];
@@ -13,6 +13,8 @@ const MONTHS = ["января", "февраля", "марта", "апреля", 
 export interface Tile {
   big: string;
   share: number | null;
+  /** Строка на месте полоски, когда полоски нет (своего лимита нет). */
+  free?: string;
   sub: string;
 }
 
@@ -69,13 +71,27 @@ export function remainBig(s: ChildStatus): string {
   return formatDuration(leftMinutes(s) * 60);
 }
 
-/** Справа в главном блоке: «потратил 35 мин» и «из 2 часов» (лимит минус показанный остаток). */
+/**
+ * Справа в главном блоке: «потратил 35 мин» и «из 2 часов» (лимит минус показанный остаток). В запретные
+ * часы остаток не потрачен, он только сейчас недоступен: «потратил» — лимит минус остаток из ответа.
+ */
 export function spentLines(s: ChildStatus): string[] {
   if (noRules(s)) return [];
   if (s.unlimited) return [`потратил ${formatDuration(s.usedS)}`];
   const limit = Math.round(s.limitS / 60);
-  const spent = Math.max(0, limit - Math.min(limit, leftMinutes(s)));
+  const left = forbidden(s) ? remainMinutes(s.remainingS) : leftMinutes(s);
+  const spent = Math.max(0, limit - Math.min(limit, left));
   return [`потратил ${formatDuration(spent * 60)}`, ofTime(limit)];
+}
+
+/**
+ * Доля шкалы-энергии (moods.py): остаток / лимит дня; запретные часы, «время вышло» и блокировка — пустая
+ * шкала (сейчас взять нечего); без лимита и без ограничений — полная.
+ */
+export function mainShare(s: ChildStatus): number {
+  if (s.unlimited || noRules(s)) return 1;
+  if (forbidden(s) || !timeOpen(s)) return 0;
+  return remainShare(s.remainingS, s.limitS, false);
 }
 
 /** Деления шкалы по 15 мин; без лимита или лимит меньше получаса — без делений. */
@@ -86,7 +102,7 @@ export function ticksOf(s: ChildStatus): number {
 }
 
 function tile(s: ChildStatus, limited: boolean, remainingS: number, limitS: number, none: string): Tile {
-  if (noRules(s) || !limited) return { big: "Без лимита", share: null, sub: "входит в общее время" };
+  if (noRules(s) || !limited) return { big: "Без лимита", share: null, free: "Своего лимита нет", sub: "входит в общее время" };
   if (limitS <= 0) return { big: "0 мин", share: 0, sub: none };
   const left = timeOpen(s) && !s.studyOnly ? remainMinutes(remainingS) : 0;
   return {

@@ -4259,10 +4259,12 @@ html:has(.shell-child) body {
   padding-top: 0;
 }
 
+/* Отступы окна ужаты против артборда (24/20): весь «Сегодня» без прокрутки в клиентской области окна
+   1000 x 700 (около 1000 x 660 без заголовка и рамки Windows, R-9) во всех состояниях талисмана. */
 .shell-child .content {
   margin-top: 0;
-  padding: 24px 30px 20px;
-  scroll-padding-top: 24px;
+  padding: 16px 30px 14px;
+  scroll-padding-top: 16px;
 }
 
 /* Кольцо фокуса видно на синем фоне и на панелях. */
@@ -4288,6 +4290,12 @@ html:has(.shell-child) body {
   display: flex;
   flex-direction: column;
   gap: 18px;
+}
+
+/* «Сегодня»: промежутки 12 (артборд 18) и обычная высота строки артборда (child.py без line-height). */
+.lb-today {
+  gap: 12px;
+  line-height: 1.2;
 }
 
 /* Крупный текст с обводкой (kit.py outl): обводка под заливкой, тень вниз. Толщина — size / 11. */
@@ -4488,7 +4496,7 @@ html:has(.shell-child) body {
 
 .lb-btn-main {
   width: 250px;
-  height: 72px;
+  height: 64px;
   padding: 0;
   border-radius: 22px;
   font-size: 21px;
@@ -4505,21 +4513,23 @@ html:has(.shell-child) body {
   font-size: 16px;
 }
 
-/* Недоступная кнопка: тёмная, пунктир, курсор запрета; остаётся в Tab-порядке, пояснение рядом (L-17). */
+/* Недоступная кнопка (kit.py navy): тёмно-синяя вместо цветной, белый текст (≥ 4,5:1 к каждой точке
+   градиента), рамка сплошная (пунктир путался с кольцом фокуса), курсор запрета; остаётся в Tab-порядке,
+   пояснение — под кнопками (L-17). */
 .lb-btn[aria-disabled="true"],
 .lb-btn:disabled {
-  --lb-a: #2d4598;
+  --lb-a: #3552b8;
   --lb-b: #22388f;
   --lb-c: #152a70;
-  --lb-t: #c7d4ff;
-  border-style: dashed;
+  --lb-t: #ffffff;
   -webkit-text-stroke: 0;
   text-shadow: none;
   cursor: not-allowed;
 }
 
 .lb-btn[aria-disabled="true"] .lb-coin {
-  opacity: 0.6;
+  opacity: 0.55;
+  filter: grayscale(0.6);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -4550,9 +4560,9 @@ html:has(.shell-child) body {
   position: relative;
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  margin-top: 8px;
-  padding: 22px 30px 22px 220px;
+  gap: 8px;
+  margin-top: 4px;
+  padding: 14px 30px 14px 204px;
   border-radius: 28px;
   background: #132c8a;
   box-shadow:
@@ -4562,10 +4572,10 @@ html:has(.shell-child) body {
 
 .lb-mascot {
   position: absolute;
-  top: -26px;
+  top: -16px;
   left: 6px;
-  width: 210px;
-  height: 210px;
+  width: 190px;
+  height: 190px;
   object-fit: contain;
   pointer-events: none;
   user-select: none;
@@ -4582,7 +4592,7 @@ html:has(.shell-child) body {
 .lb-main-left {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
   min-width: 0;
 }
 
@@ -4599,7 +4609,16 @@ html:has(.shell-child) body {
   font-size: clamp(40px, 6.8vw, 70px);
 }
 
+/* Слова вместо числа («Сейчас нельзя», «Пауза до 18:30»): мельче, чтобы «потратил» стоял в той же строке. */
+.lb-left-word {
+  --lb-stroke: 5px;
+  --lb-drop: 3px;
+  font-size: clamp(34px, 5vw, 50px);
+}
+
+/* При переносе строки «потратил … из …» остаётся у правого края, как в одну строку. */
 .lb-spent {
+  margin-left: auto;
   padding-bottom: 8px;
   color: var(--lb-muted);
   font-size: 16px;
@@ -4644,19 +4663,23 @@ html:has(.shell-child) body {
   );
 }
 
-/* Плитки «Игры», «Видео и соцсети», «Учёба». */
+/* Плитки «Игры», «Видео и соцсети», «Учёба»: общая сетка строк (subgrid), значения, полоски и подписи
+   трёх плиток на одной высоте, даже если заголовок переносится. */
 .lb-tiles {
-  display: flex;
-  gap: 16px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-rows: repeat(4, auto);
+  column-gap: 16px;
 }
 
 .lb-tile {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  gap: 10px;
+  display: grid;
+  grid-row: span 4;
+  grid-template-rows: subgrid;
+  row-gap: 6px;
+  align-items: center;
   min-width: 0;
-  padding: 16px 18px;
+  padding: 10px 16px 12px;
 }
 
 .lb-tile-head {
@@ -4683,6 +4706,7 @@ html:has(.shell-child) body {
 
 .lb-tile-value {
   font-size: 34px;
+  white-space: nowrap;
 }
 
 .lb-tile-free {
@@ -4717,7 +4741,7 @@ html:has(.shell-child) body {
   flex: 1 1 260px;
   align-items: center;
   gap: 16px;
-  padding: 14px 20px;
+  padding: 8px 20px;
   background: #2e2a8f;
   box-shadow:
     inset 0 3px 0 #4a44c2,
@@ -4742,20 +4766,27 @@ html:has(.shell-child) body {
 
 .lb-actions {
   display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 8px;
+}
+
+.lb-actions-row {
+  display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 14px;
 }
 
-/* Почему «Взять из копилки» недоступна: заметная строка под кнопками, а не серая подсказка (L-17). */
+/* Почему «Взять из копилки» недоступна: заметная строка прямо под кнопками, а не серая подсказка (L-17). */
 .lb-note {
-  align-self: flex-end;
-  padding: 8px 14px;
+  align-self: flex-start;
+  padding: 3px 12px;
   border: 3px solid var(--lb-ink);
-  border-radius: 14px;
+  border-radius: 12px;
   background: var(--lb-deep);
   color: #ffe066;
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 700;
 }
 
@@ -4786,7 +4817,7 @@ html:has(.shell-child) body {
   padding: 4px 0;
   border: 0;
   background: none;
-  color: var(--lb-muted);
+  color: #ffffff;
   font: inherit;
   font-size: 14px;
   font-weight: 600;
@@ -4886,8 +4917,27 @@ html:has(.shell-child) body {
   color: var(--lb-ink);
 }
 
+/* Значение плитки «Итогов» одной строкой («14 ч 08 мин» не переносится): поуже поля и на 1 px мельче. */
+.lobby .totals-tab {
+  padding: 8px 9px;
+}
+
 .lobby .totals-tab-value {
+  font-size: 17px;
   font-weight: 800;
+  white-space: nowrap;
+}
+
+/* Полоса доли под строкой «Итогов» видна на тёмной панели (голубая вместо бледно-серой). */
+.lobby .totals-item::before {
+  background: #3d86ff;
+  opacity: 0.45;
+}
+
+/* Список нарушений — панель лобби (скругление 16), не капсула. */
+.lobby .journal,
+.lobby .journal-item {
+  border-radius: 16px;
 }
 
 /* Таблицы и списки на тёмной панели: линии светлые полупрозрачные (токен --line). */
@@ -5014,11 +5064,19 @@ html:has(.shell-child) body {
   font-weight: 800;
 }
 
+/* Поле и «Ввести промокод» в диалоге — по левому краю, друг под другом. */
 .lb-promo .promo-redeem-form {
-  align-items: flex-end;
+  align-items: flex-start;
 }
 
-/* «Теперь время за компьютером считается» — панель «Лобби» по центру. */
+/* «Теперь время за компьютером считается» — панель «Лобби» по центру окна (и по высоте). */
+.lobby.lb-first {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-height: 100%;
+}
+
 .lb-first .first-run {
   max-width: 640px;
   margin-inline: auto;
@@ -5040,14 +5098,45 @@ html:has(.shell-child) body {
   font-weight: 700;
 }
 
-/* Узкое окно (меньше макета 1040): плитки в столбец уже 760 px, талисман меньше (R-9). */
-@media (max-width: 760px) {
-  .shell-child .content {
-    padding: 18px 16px 16px;
+/* Плитки в ряд тесные уже 880 px («Без лимита», «Видео и соцсети» переносятся): в столбец, по строке на плитку. */
+@media (max-width: 880px) {
+  .lb-tiles {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: none;
+    row-gap: 12px;
   }
 
-  .lb-tiles {
-    flex-direction: column;
+  .lb-tile {
+    grid-row: auto;
+    grid-template-columns: minmax(0, 1.3fr) auto minmax(0, 1fr);
+    grid-template-rows: auto auto;
+    column-gap: 16px;
+    padding: 10px 16px;
+  }
+
+  .lb-tile-head {
+    grid-row: 1 / 3;
+  }
+
+  .lb-tile-value {
+    grid-row: 1 / 3;
+    grid-column: 2;
+  }
+
+  .lb-tile > .lb-bar,
+  .lb-tile-free {
+    grid-column: 3;
+  }
+
+  .lb-tile-sub {
+    grid-column: 3;
+  }
+}
+
+/* Узкое окно (меньше макета 1040): отступы и талисман меньше (R-9). */
+@media (max-width: 760px) {
+  .shell-child .content {
+    padding: 14px 16px 14px;
   }
 
   .lb-main {
