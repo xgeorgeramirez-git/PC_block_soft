@@ -105,17 +105,13 @@ jobs:
           exec > >(tee -a "$RUNNER_TEMP/ci.log") 2>&1
           wails build -clean -nsis -trimpath -ldflags "-s -w"
 
-      # NFR-4: установщик не больше 70 МБ (D-101: 74 стикера сообщения; ожидание около 62–66 МБ).
-      - name: Размер установщика (NFR-4 ≤ 70 МБ)
+      # NFR-4: размер установщика не ограничен (D-115), только пометка для истории.
+      - name: Размер установщика
         run: |
           exec > >(tee -a "$RUNNER_TEMP/ci.log") 2>&1
           inst=$(ls build/bin/*installer*.exe | head -1)
           size=$(stat -c %s "$inst")
           echo "::notice title=Размер установщика::$size байт ($inst)"
-          if [ "$size" -gt 73400320 ]; then
-            echo "::error title=Размер установщика::$size байт, NFR-4 не больше 73400320 (70 МБ)"
-            exit 1
-          fi
 
       # Биндинги Wails в песочнице агента не генерируются. При ручном запуске на рабочей ветке
       # сгенерированные файлы коммитятся в ветку (как go.sum в ci.yml, Ruling 22), в остальных
