@@ -746,10 +746,30 @@ function Save-Screen([string]$Name) {
   $b = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
   $bmp = New-Object System.Drawing.Bitmap $b.Width, $b.Height
   try {
-    $g = [System.Drawing.Graphics]::FromImage($bmp)
     # CaptureBlt: layered-окна стража (сообщение, плашки «Игрового лобби», ТЗ 8.2.4) тоже на снимке.
-    $op = [System.Drawing.CopyPixelOperation]::SourceCopy -bor [System.Drawing.CopyPixelOperation]::CaptureBlt
-    try { $g.CopyFromScreen($b.X, $b.Y, 0, 0, $bmp.Size, $op) } finally { $g.Dispose() }
+    # Через GDI BitBlt: .NET CopyFromScreen не принимает SourceCopy|CaptureBlt (значения нет в перечислении).
+    if (-not ('PcbScreenCap' -as [type])) {
+      Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public static class PcbScreenCap {
+  [DllImport("user32.dll")] static extern IntPtr GetDC(IntPtr h);
+  [DllImport("user32.dll")] static extern int ReleaseDC(IntPtr h, IntPtr dc);
+  [DllImport("gdi32.dll")] static extern bool BitBlt(IntPtr d, int x, int y, int w, int h, IntPtr s, int sx, int sy, uint rop);
+  public static bool Copy(IntPtr dst, int x, int y, int w, int h) {
+    IntPtr scr = GetDC(IntPtr.Zero);
+    try { return BitBlt(dst, 0, 0, w, h, scr, x, y, 0x00CC0020u | 0x40000000u); }
+    finally { ReleaseDC(IntPtr.Zero, scr); }
+  }
+}
+'@
+    }
+    $g = [System.Drawing.Graphics]::FromImage($bmp)
+    try {
+      $hdc = $g.GetHdc()
+      try { $copied = [PcbScreenCap]::Copy($hdc, $b.X, $b.Y, $b.Width, $b.Height) } finally { $g.ReleaseHdc($hdc) }
+      if (-not $copied) { $g.CopyFromScreen($b.X, $b.Y, 0, 0, $bmp.Size) }
+    } finally { $g.Dispose() }
     $bmp.Save($path, [System.Drawing.Imaging.ImageFormat]::Png)
   } finally { $bmp.Dispose() }
   Write-Log "Снимок: $Name.png ($($b.Width)x$($b.Height))"
