@@ -72,16 +72,14 @@ export function remainBig(s: ChildStatus): string {
 }
 
 /**
- * Справа в главном блоке: «потратил 35 мин» и «из 2 часов» (лимит минус показанный остаток). В запретные
- * часы остаток не потрачен, он только сейчас недоступен: «потратил» — лимит минус остаток из ответа.
+ * Справа в главном блоке: «потратил 35 мин» и «из 2 часов». Потрачено — usedS той же функцией, что «Итоги»
+ * этого окна, окно родителя и телефон (PL-92): не «лимит минус остаток», который врёт, когда лимит
+ * уменьшили ниже потраченного, при лимите 0 и с доп. временем. Минуты вниз, остаток вверх — сумма сходится.
  */
 export function spentLines(s: ChildStatus): string[] {
   if (noRules(s)) return [];
   if (s.unlimited) return [`потратил ${formatDuration(s.usedS)}`];
-  const limit = Math.round(s.limitS / 60);
-  const left = forbidden(s) ? remainMinutes(s.remainingS) : leftMinutes(s);
-  const spent = Math.max(0, limit - Math.min(limit, left));
-  return [`потратил ${formatDuration(spent * 60)}`, ofTime(limit)];
+  return [`потратил ${formatDuration(s.usedS)}`, ofTime(s.limitS / 60)];
 }
 
 /**
